@@ -584,13 +584,44 @@ def jogo_view(competicao, partida_id):
         papeleta_a.setdefault(i, "")
         papeleta_b.setdefault(i, "")
 
+    atletas_a = []
+    atletas_b = []
+
+    try:
+        if equipe_a:
+            atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) or []
+        if equipe_b:
+            atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) or []
+    except Exception:
+        atletas_a = []
+        atletas_b = []
+
+    if not estado.get("rotacao_a"):
+        estado["rotacao_a"] = [papeleta_a.get(4, ""), papeleta_a.get(3, ""), papeleta_a.get(2, ""), papeleta_a.get(5, ""), papeleta_a.get(6, ""), papeleta_a.get(1, "")]
+    if not estado.get("rotacao_b"):
+        estado["rotacao_b"] = [papeleta_b.get(4, ""), papeleta_b.get(3, ""), papeleta_b.get(2, ""), papeleta_b.get(5, ""), papeleta_b.get(6, ""), papeleta_b.get(1, "")]
+
+    try:
+        eventos_iniciais = listar_eventos_partida(partida_id, competicao, limite=5) or []
+        historico_inicial = []
+        for ev in eventos_iniciais:
+            descricao = (ev.get("descricao") or "").strip() or "Ação registrada"
+            historico_inicial.append({"descricao": descricao})
+        estado["historico"] = historico_inicial
+        estado["ultima_acao"] = historico_inicial[0]["descricao"] if historico_inicial else (estado.get("ultima_acao") or "-")
+    except Exception:
+        estado.setdefault("historico", [])
+        estado.setdefault("ultima_acao", "-")
+
     resposta = make_response(render_template(
         "jogo_apontador.html",
         competicao_nome=competicao,
         partida=partida,
         estado=estado,
-        papeleta_a=papeleta_a,   # ✅ AGORA EXISTE
-        papeleta_b=papeleta_b,   # ✅ AGORA EXISTE
+        papeleta_a=papeleta_a,
+        papeleta_b=papeleta_b,
+        atletas_a=atletas_a,
+        atletas_b=atletas_b,
         modo_operacao=(partida.get("modo_operacao") or "simples"),
     ))
 
@@ -897,10 +928,10 @@ def estado_jogo_view(competicao, partida_id):
             if not descricao:
                 partes = []
 
-                tipo_evento = str(ev.get("tipo_evento") or "").strip()
+                tipo_evento = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip()
                 fundamento = str(ev.get("fundamento") or "").strip()
                 resultado = str(ev.get("resultado") or "").strip()
-                detalhe = str(ev.get("detalhe") or "").strip()
+                detalhe = str(ev.get("detalhe") or ev.get("detalhes") or "").strip()
                 numero = str(ev.get("numero") or "").strip()
                 atleta_nome = str(ev.get("atleta_nome") or "").strip()
                 equipe = str(ev.get("equipe") or "").strip()
@@ -929,21 +960,47 @@ def estado_jogo_view(competicao, partida_id):
         estado["historico"] = historico
         estado["ultima_acao"] = historico[0]["descricao"] if historico else "-"
 
+        pontos_a = int(estado.get("pontos_a") or estado.get("placar_a") or 0)
+        pontos_b = int(estado.get("pontos_b") or estado.get("placar_b") or 0)
+        rotacao_a = list(estado.get("rotacao_a") or [])
+        rotacao_b = list(estado.get("rotacao_b") or [])
+        tempos_a = estado.get("tempos_a")
+        tempos_b = estado.get("tempos_b")
+        if tempos_a is None or tempos_b is None:
+            tempos = buscar_tempos_restantes_partida(partida_id, competicao)
+            tempos_a = tempos.get("tempos_a")
+            tempos_b = tempos.get("tempos_b")
+
         return jsonify({
             "ok": True,
-            "placar_a": estado.get("pontos_a") or estado.get("placar_a") or 0,
-            "placar_b": estado.get("pontos_b") or estado.get("placar_b") or 0,
-            "sets_a": estado.get("sets_a") or 0,
-            "sets_b": estado.get("sets_b") or 0,
-            "saque_atual": estado.get("saque_atual"),
-
+            "pontos_a": pontos_a,
+            "pontos_b": pontos_b,
+            "placar_a": pontos_a,
+            "placar_b": pontos_b,
+            "sets_a": int(estado.get("sets_a") or 0),
+            "sets_b": int(estado.get("sets_b") or 0),
+            "set_atual": int(estado.get("set_atual") or 1),
+            "saque_atual": estado.get("saque_atual") or "",
+            "tempos_a": tempos_a,
+            "tempos_b": tempos_b,
+            "subs_a": int(estado.get("subs_a") or 0),
+            "subs_b": int(estado.get("subs_b") or 0),
+            "limite_substituicoes": int(estado.get("limite_substituicoes") or 0),
+            "rotacao_a": rotacao_a,
+            "rotacao_b": rotacao_b,
             "rotacao": {
-                "equipe_a": estado.get("rotacao_a") or [],
-                "equipe_b": estado.get("rotacao_b") or []
+                "equipe_a": rotacao_a,
+                "equipe_b": rotacao_b
             },
-
-            "historico": historico,
-            "ultima_acao": historico[0]["descricao"] if historico else "-"
+            "status_jogadores_a": estado.get("status_jogadores_a") or {},
+            "status_jogadores_b": estado.get("status_jogadores_b") or {},
+            "sancoes_a": estado.get("sancoes_a") or [],
+            "sancoes_b": estado.get("sancoes_b") or [],
+            "cartoes_verdes_a": estado.get("cartoes_verdes_a") or [],
+            "cartoes_verdes_b": estado.get("cartoes_verdes_b") or [],
+            "historico": historico[:5],
+            "ultima_acao": historico[0]["descricao"] if historico else "-",
+            "partida_finalizada": str(estado.get("fase_partida") or "").lower() == "encerrado"
         })
 
     except Exception as e:

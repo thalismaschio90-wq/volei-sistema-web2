@@ -7,6 +7,12 @@
     <div class="titulo-secao">Jogo ao vivo</div>
 </div>
 
+
+<div id="alerta-solicitacao" class="alerta-solicitacao" aria-live="assertive">
+    <strong>Solicitação do treinador</strong>
+    <span id="alerta-solicitacao-texto">Aguardando…</span>
+</div>
+
 <style>
     header, nav, .topbar, .navbar {
         display: none !important;
@@ -268,6 +274,30 @@
     padding: 10px 14px;
     border-radius: 10px;
     margin-bottom: 16px;
+}
+
+
+.alerta-solicitacao {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 10050;
+    min-width: 280px;
+    max-width: 420px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+    display: none;
+    font-weight: 700;
+}
+
+.alerta-solicitacao strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #7c2d12;
 }
 
 .historico-card {
@@ -770,6 +800,20 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let syncTimer = null;
     const socket = (typeof io === "function") ? io() : null;
 
+    let alertaSolicitacaoTimer = null;
+    const alertaSolicitacaoEl = document.getElementById("alerta-solicitacao");
+    const alertaSolicitacaoTextoEl = document.getElementById("alerta-solicitacao-texto");
+
+    function mostrarAlertaSolicitacao(texto) {
+        if (!alertaSolicitacaoEl || !alertaSolicitacaoTextoEl) return;
+        alertaSolicitacaoTextoEl.textContent = texto || "Nova solicitação recebida.";
+        alertaSolicitacaoEl.style.display = "block";
+        if (alertaSolicitacaoTimer) clearTimeout(alertaSolicitacaoTimer);
+        alertaSolicitacaoTimer = setTimeout(() => {
+            alertaSolicitacaoEl.style.display = "none";
+        }, 6500);
+    }
+
     if (socket) {
         socket.on("connect", function () {
             socket.emit("entrar_partida", {
@@ -782,6 +826,17 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
             if (!dados || typeof dados !== "object") return;
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
+        });
+
+        socket.on("solicitacao_treinador", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            const mensagem = String(dados.mensagem || "Solicitação do treinador recebida.").trim();
+            mostrarAlertaSolicitacao(mensagem);
+        });
+
+        socket.on("resposta_solicitacao", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            if (dados.mensagem) mostrarAlertaSolicitacao(String(dados.mensagem));
         });
     }
     let ultimoTokenSync = 0;
@@ -2140,7 +2195,7 @@ function atualizarResumoSubEx() {
         if (!dados || typeof dados !== "object") return {};
 
         if (dados.estado && typeof dados.estado === "object") {
-            return {
+            dados = {
                 ...dados.estado,
                 ok: dados.ok,
                 mensagem: dados.mensagem || dados.estado.mensagem || "",
@@ -2156,7 +2211,22 @@ function atualizarResumoSubEx() {
             };
         }
 
-        return dados;
+        const pontosA = dados.pontos_a ?? dados.placar_a ?? 0;
+        const pontosB = dados.pontos_b ?? dados.placar_b ?? 0;
+        const rotacaoA = dados.rotacao_a ?? (dados.rotacao && dados.rotacao.equipe_a) ?? [];
+        const rotacaoB = dados.rotacao_b ?? (dados.rotacao && dados.rotacao.equipe_b) ?? [];
+
+        return {
+            ...dados,
+            pontos_a: pontosA,
+            pontos_b: pontosB,
+            placar_a: pontosA,
+            placar_b: pontosB,
+            rotacao_a: rotacaoA,
+            rotacao_b: rotacaoB,
+            historico: Array.isArray(dados.historico) ? dados.historico.slice(0, 5) : [],
+            ultima_acao: dados.ultima_acao ?? "-"
+        };
     }
 
     function agendarSincronizacao(delay = 250) {

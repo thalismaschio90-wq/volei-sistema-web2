@@ -4098,7 +4098,9 @@ def registrar_evento_partida(
     resultado=None,
     detalhe=None,
     atleta_nome=None,
-    numero=None
+    numero=None,
+    detalhes=None,
+    tipo_evento=None,
 ):
     criar_tabela_eventos()
 
@@ -4108,6 +4110,7 @@ def registrar_evento_partida(
     resultado = (resultado or '').strip() if resultado is not None else None
     detalhe = (detalhe or '').strip() if detalhe is not None else None
     atleta_nome = (atleta_nome or '').strip() if atleta_nome is not None else None
+    tipo_evento = (tipo_evento or tipo or '').strip() or None
 
     numero_final = None
     if numero not in (None, ''):
@@ -4115,6 +4118,13 @@ def registrar_evento_partida(
             numero_final = int(str(numero).strip())
         except (ValueError, TypeError):
             numero_final = None
+
+    detalhes_json = None
+    if detalhes not in (None, ''):
+        try:
+            detalhes_json = json.dumps(detalhes, ensure_ascii=False) if not isinstance(detalhes, str) else detalhes
+        except Exception:
+            detalhes_json = None
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -4125,28 +4135,30 @@ def registrar_evento_partida(
                     set_numero,
                     equipe,
                     tipo,
+                    tipo_evento,
                     fundamento,
                     resultado,
                     detalhe,
+                    detalhes,
                     atleta_nome,
                     numero
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 partida_id,
                 competicao,
                 set_numero,
                 equipe,
                 tipo,
+                tipo_evento,
                 fundamento,
                 resultado,
                 detalhe,
+                detalhes_json,
                 atleta_nome,
                 numero_final
             ))
         conn.commit()
-
-
 
 def _json_load_text(valor, padrao):
     if valor in (None, ""):
@@ -4776,25 +4788,108 @@ def buscar_estado_jogo_partida(partida_id, competicao):
     return estado
 
 
+def _descricao_evento_historico(ev):
+    if not isinstance(ev, dict):
+        return "Ação registrada"
+
+    descricao = str(ev.get("descricao") or "").strip()
+    if descricao:
+        return descricao
+
+    detalhes = ev.get("detalhes")
+    if isinstance(detalhes, str):
+        try:
+            detalhes = json.loads(detalhes)
+        except Exception:
+            detalhes = {}
+    if not isinstance(detalhes, dict):
+        detalhes = {}
+
+    equipe = str(ev.get("equipe") or "").strip().upper()
+    tipo = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip().lower()
+    fundamento = str(ev.get("fundamento") or "").strip().replace("_", " ")
+    resultado = str(ev.get("resultado") or "").strip().replace("_", " ")
+    detalhe = str(ev.get("detalhe") or "").strip()
+    numero = str(ev.get("numero") or detalhes.get("numero") or detalhes.get("atleta_numero") or "").strip()
+    atleta_nome = str(ev.get("atleta_nome") or detalhes.get("atleta_nome") or "").strip()
+
+    if tipo == "tempo":
+        return f"Equipe {equipe} • pedido de tempo".strip(" •")
+    if tipo in {"substituicao", "substituicao_excepcional"}:
+        sai = str(detalhes.get("numero_sai") or "").strip()
+        entra = str(detalhes.get("numero_entra") or "").strip()
+        base = f"Equipe {equipe} • {tipo.replace('_', ' ')}"
+        if sai or entra:
+            base += f" • sai {sai or '-'} entra {entra or '-'}"
+        return base
+
+    partes = []
+    if equipe:
+        partes.append(f"Equipe {equipe}")
+    if tipo:
+        partes.append(tipo.replace("_", " "))
+    if fundamento:
+        partes.append(fundamento)
+    if resultado:
+        partes.append(resultado)
+    if detalhe:
+        partes.append(detalhe)
+    if numero:
+        partes.append(f"#{numero}")
+    if atleta_nome:
+        partes.append(atleta_nome)
+
+    return " • ".join([p for p in partes if p]) or "Ação registrada"
+
+
+def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
+    eventos = listar_eventos_partida(partida_id, competicao, limite=limite) or []
+    historico = []
+
+    for ev in eventos:
+        historico.append({"descricao": _descricao_evento_historico(ev)})
+
+    return historico
+
+
+
 def _emitir_estado_tempo_real(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+    tempos = buscar_tempos_restantes_partida(partida_id, competicao) or {}
+    rotacao_a = list(estado.get("rotacao_a") or ["", "", "", "", "", ""])
+    rotacao_b = list(estado.get("rotacao_b") or ["", "", "", "", "", ""])
+    historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
 
     payload = {
+        "pontos_a": int(estado.get("pontos_a") or estado.get("placar_a") or 0),
+        "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or 0),
         "placar_a": int(estado.get("pontos_a") or estado.get("placar_a") or 0),
         "placar_b": int(estado.get("pontos_b") or estado.get("placar_b") or 0),
         "sets_a": int(estado.get("sets_a") or 0),
         "sets_b": int(estado.get("sets_b") or 0),
         "saque_atual": estado.get("saque_atual") or "",
-        "tempos_a": estado.get("tempos_a"),
-        "tempos_b": estado.get("tempos_b"),
+        "tempos_a": tempos.get("tempos_a"),
+        "tempos_b": tempos.get("tempos_b"),
         "subs_a": int(estado.get("subs_a") or 0),
         "subs_b": int(estado.get("subs_b") or 0),
+        "rotacao_a": rotacao_a,
+        "rotacao_b": rotacao_b,
         "rotacao": {
-            "equipe_a": list(estado.get("rotacao_a") or ["", "", "", "", "", ""]),
-            "equipe_b": list(estado.get("rotacao_b") or ["", "", "", "", "", ""]),
+            "equipe_a": rotacao_a,
+            "equipe_b": rotacao_b,
         },
         "status_jogo": estado.get("status_jogo") or "",
         "set_atual": int(estado.get("set_atual") or 1),
+        "status_jogadores_a": estado.get("status_jogadores_a") or {},
+        "status_jogadores_b": estado.get("status_jogadores_b") or {},
+        "sancoes_a": estado.get("sancoes_a") or [],
+        "sancoes_b": estado.get("sancoes_b") or [],
+        "cartoes_verdes_a": estado.get("cartoes_verdes_a") or [],
+        "cartoes_verdes_b": estado.get("cartoes_verdes_b") or [],
+        "limite_substituicoes": int(estado.get("limite_substituicoes") or 0),
+        "historico": historico,
+        "ultima_acao": historico[0]["descricao"] if historico else (estado.get("ultima_acao") or "-"),
+        "partida_finalizada": str(estado.get("fase_partida") or "").lower() == "encerrado",
     }
 
     emitir_estado_partida(competicao, partida_id, payload)
@@ -4889,7 +4984,9 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         resultado=detalhes_evento.get("resultado"),
         detalhe=detalhe,
         atleta_nome=detalhes_evento.get("atleta_nome"),
-        numero=detalhes_evento.get("atleta_numero") or detalhes_evento.get("numero")
+        numero=detalhes_evento.get("atleta_numero") or detalhes_evento.get("numero"),
+        detalhes=detalhes_evento,
+        tipo_evento=tipo,
     )
 
     estado_snapshot = {
@@ -5694,27 +5791,34 @@ def criar_tabela_eventos(force=False):
                     partida_id INTEGER,
                     competicao TEXT,
                     set_numero INTEGER,
-
                     equipe TEXT,
                     tipo TEXT,
-
+                    tipo_evento TEXT,
                     fundamento TEXT,
                     resultado TEXT,
                     detalhe TEXT,
-
+                    detalhes TEXT,
                     atleta_id INTEGER,
                     atleta_nome TEXT,
                     numero INTEGER,
-
                     criado_em TIMESTAMP DEFAULT NOW()
                 )
             """)
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS tipo_evento TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS detalhes TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS fundamento TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS resultado TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS detalhe TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS atleta_id INTEGER")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS atleta_nome TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS numero INTEGER")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT NOW()")
         conn.commit()
 
     _marcar_schema_pronto("tabela_eventos")
 
-
 def listar_eventos_partida(partida_id, competicao, limite=20):
+    criar_tabela_eventos()
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -5725,8 +5829,11 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                     set_numero,
                     equipe,
                     tipo,
+                    tipo_evento,
+                    fundamento,
                     resultado,
                     detalhe,
+                    detalhes,
                     atleta_id,
                     atleta_nome,
                     numero,
@@ -5734,7 +5841,7 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                     CONCAT(
                         COALESCE(equipe, '-'),
                         ' • ',
-                        COALESCE(tipo, '-'),
+                        COALESCE(tipo_evento, tipo, '-'),
                         CASE
                             WHEN COALESCE(fundamento, '') <> '' THEN ' • ' || fundamento
                             ELSE ''
@@ -5745,6 +5852,7 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                         END,
                         CASE
                             WHEN COALESCE(detalhe, '') <> '' THEN ' • ' || detalhe
+                            WHEN COALESCE(detalhes, '') <> '' THEN ' • ' || detalhes
                             ELSE ''
                         END,
                         CASE
@@ -5765,7 +5873,6 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
 
             return cur.fetchall()
 
-            
 # ================= ETAPA 2 SET FLOW =================
 def verificar_fim_de_set(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao)
