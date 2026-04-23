@@ -30,13 +30,18 @@ app.secret_key = "voleitablepro"
 
 socketio.init_app(app)
 
-criar_tabela_atletas()
-criar_tabelas_grupos()
-criar_tabela_partidas()
-criar_tabelas_oficiais()
-criar_campos_regras_operacionais_competicoes()
-criar_campos_travamento_competicoes()
-criar_tabela_solicitacoes_treinador()
+try:
+    criar_tabela_atletas()
+    criar_tabelas_grupos()
+    criar_tabela_partidas()
+    criar_tabelas_oficiais()
+    criar_campos_regras_operacionais_competicoes()
+    criar_campos_travamento_competicoes()
+    criar_tabela_solicitacoes_treinador()
+    print("Banco inicializado com sucesso.")
+except Exception as e:
+    print(f"Erro ao inicializar banco: {e}")
+    raise
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(painel_bp)
