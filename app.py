@@ -23,14 +23,13 @@ from banco import (
     criar_campos_regras_operacionais_competicoes,
     criar_campos_travamento_competicoes,
     criar_tabela_solicitacoes_treinador,
+    criar_campos_jogo_partida,
+    criar_campos_sets_partida,
+    criar_tabela_eventos,
 )
 
-app = Flask(__name__)
-app.secret_key = "voleitablepro"
 
-socketio.init_app(app)
-
-try:
+def inicializar_banco():
     criar_tabela_atletas()
     criar_tabelas_grupos()
     criar_tabela_partidas()
@@ -38,6 +37,21 @@ try:
     criar_campos_regras_operacionais_competicoes()
     criar_campos_travamento_competicoes()
     criar_tabela_solicitacoes_treinador()
+
+    # Estruturas usadas nas rotas mais quentes do jogo ficam prontas no startup,
+    # evitando ALTER TABLE/CREATE TABLE repetidos durante a partida.
+    criar_campos_jogo_partida(force=True)
+    criar_campos_sets_partida(force=True)
+    criar_tabela_eventos(force=True)
+
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "voleitablepro")
+
+socketio.init_app(app)
+
+try:
+    inicializar_banco()
     print("Banco inicializado com sucesso.")
 except Exception as e:
     print(f"Erro ao inicializar banco: {e}")

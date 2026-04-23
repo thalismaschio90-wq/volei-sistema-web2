@@ -4,6 +4,7 @@ import re
 import string
 import json
 from datetime import datetime
+from threading import Lock
 from psycopg import connect
 from psycopg.rows import dict_row
 from socket_events import emitir_estado_partida
@@ -12,6 +13,33 @@ from socket_events import emitir_estado_partida
 DATABASE_URL_PADRAO = "postgresql://postgres.gvirfvzvgvxuprbwthak:VolleyTablePro@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
 
 ARQUIVO_DADOS = "dados.json"
+
+
+_SCHEMA_FLAGS = {
+    "campos_sets_partida": False,
+    "campos_jogo_partida": False,
+    "tabela_eventos": False,
+}
+_SCHEMA_LOCK = Lock()
+
+
+def _schema_ja_pronto(chave, force=False):
+    if force:
+        return False
+
+    if _SCHEMA_FLAGS.get(chave):
+        return True
+
+    with _SCHEMA_LOCK:
+        if _SCHEMA_FLAGS.get(chave):
+            return True
+        return False
+
+
+def _marcar_schema_pronto(chave):
+    with _SCHEMA_LOCK:
+        _SCHEMA_FLAGS[chave] = True
+
 
 
 # =========================================================
@@ -3259,7 +3287,10 @@ def listar_papeleta(partida_id, competicao, equipe, set_numero):
 # =========================================================
 # SETS DA PARTIDA
 # =========================================================
-def criar_campos_sets_partida():
+def criar_campos_sets_partida(force=False):
+    if _schema_ja_pronto("campos_sets_partida", force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set_atual INTEGER DEFAULT 1")
@@ -3275,6 +3306,8 @@ def criar_campos_sets_partida():
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS saque_tiebreak TEXT")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS lado_esquerdo_tiebreak TEXT")
         conn.commit()
+
+    _marcar_schema_pronto("campos_sets_partida")
 
 
 def _normalizar_formato_sets(formato):
@@ -3640,7 +3673,10 @@ def salvar_capitao_partida(partida_id, competicao, operador_login, lado, atleta_
 # =========================================================
 # JOGO AO VIVO - ETAPA 1
 # =========================================================
-def criar_campos_jogo_partida():
+def criar_campos_jogo_partida(force=False):
+    if _schema_ja_pronto("campos_jogo_partida", force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pontos_a INTEGER DEFAULT 0")
@@ -5646,7 +5682,10 @@ def buscar_tempos_restantes_partida(partida_id, competicao):
 # EVENTOS DE PARTIDA (SCOUT REAL)
 # =========================================================
 
-def criar_tabela_eventos():
+def criar_tabela_eventos(force=False):
+    if _schema_ja_pronto("tabela_eventos", force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -5671,6 +5710,8 @@ def criar_tabela_eventos():
                 )
             """)
         conn.commit()
+
+    _marcar_schema_pronto("tabela_eventos")
 
 
 def listar_eventos_partida(partida_id, competicao, limite=20):

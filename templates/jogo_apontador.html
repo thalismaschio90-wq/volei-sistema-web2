@@ -623,6 +623,7 @@
     </a>
 </div>
 
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 (function () {
     const btnA = document.getElementById("btn-ponto-a");
@@ -767,6 +768,22 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let verdesB = {{ (estado.cartoes_verdes_b if estado.cartoes_verdes_b is defined else []) | tojson }};
 
     let syncTimer = null;
+    const socket = (typeof io === "function") ? io() : null;
+
+    if (socket) {
+        socket.on("connect", function () {
+            socket.emit("entrar_partida", {
+                competicao: "{{ competicao_nome }}",
+                partida_id: {{ partida.id }}
+            });
+        });
+
+        socket.on("estado_jogo_atualizado", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+        });
+    }
     let ultimoTokenSync = 0;
     let renderPendente = false;
     let renderAnteriorA = [];
@@ -2252,7 +2269,6 @@ function atualizarResumoSubEx() {
             }
 
             const textoScout = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
-            agendarSincronizacao(1200);
         } catch (e) {
             pontosA.textContent = pontosAntesA;
             pontosB.textContent = pontosAntesB;
@@ -2306,7 +2322,6 @@ function atualizarResumoSubEx() {
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
             fecharModalSubstituicao();
-            agendarSincronizacao(1200);
         } catch (e) {
             mostrarErro("Falha ao registrar substituição.");
         } finally {
@@ -2364,7 +2379,6 @@ function atualizarResumoSubEx() {
 
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
-            agendarSincronizacao(1200);
         } catch (e) {
             mostrarErro("Falha ao desfazer ação.");
         } finally {
@@ -2401,7 +2415,6 @@ function atualizarResumoSubEx() {
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
             iniciarCronometro(30);
-            agendarSincronizacao(1200);
         } catch (e) {
             mostrarErro("Erro ao registrar tempo.");
         } finally {
@@ -2461,7 +2474,6 @@ function atualizarResumoSubEx() {
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
             fecharModalSancao();
-            agendarSincronizacao(1200);
         } catch (e) {
             mostrarErro("Falha ao registrar sanção.");
         } finally {
@@ -2514,7 +2526,6 @@ function atualizarResumoSubEx() {
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
             fecharModalVerde();
-            agendarSincronizacao(1200);
         } catch (e) {
             mostrarErro("Falha ao registrar cartão verde.");
         } finally {
@@ -2546,7 +2557,6 @@ async function registrarRetardamento() {
         ultimoTokenSync++;
         aplicarEstado(dados);
         fecharModalRetardamento();
-        agendarSincronizacao(1200);
     } catch (e) {
         mostrarErro("Falha ao registrar retardamento.");
     } finally {
@@ -2585,7 +2595,6 @@ async function registrarSubstituicaoExcepcional() {
         ultimoTokenSync++;
         aplicarEstado(dados);
         fecharModalSubExcepcional();
-        agendarSincronizacao(1200);
     } catch (e) {
         mostrarErro("Falha ao registrar substituição excepcional.");
     } finally {
@@ -2721,14 +2730,14 @@ modalSubExFundo.addEventListener("click", function (event) {
     });
 
     document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) agendarSincronizacao(150);
+        if (!document.hidden) agendarSincronizacao(120);
     });
 
     document.addEventListener("keydown", tratarAtalhosModalPonto);
 
     atualizarContadoresDisciplinares();
     renderQuadra();
-    agendarSincronizacao(900);
+    agendarSincronizacao(120);
 })();
 </script>
 {% endblock %}

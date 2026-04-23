@@ -888,7 +888,7 @@ def estado_jogo_view(competicao, partida_id):
 
         estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-        eventos = listar_eventos_partida(partida_id)
+        eventos = listar_eventos_partida(partida_id, competicao)
         historico = []
 
         for ev in eventos or []:
