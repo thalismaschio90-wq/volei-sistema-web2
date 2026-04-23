@@ -48,20 +48,230 @@ def _fase_subaba_para_banco(fase_subaba):
     return mapa.get(fase_subaba, "grupos")
 
 
+def _fase_partida_normalizada(partida):
+    fase = (
+        partida.get("fase_partida")
+        or partida.get("fase")
+        or "grupos"
+    )
+    return str(fase).strip().lower()
+
+
 def _filtrar_partidas_por_fase(partidas, fase_subaba):
     if fase_subaba == "classificatorias":
-        return [p for p in partidas if (p.get("fase") or "grupos") == "grupos"]
+        return [p for p in partidas if _fase_partida_normalizada(p) == "grupos"]
 
     if fase_subaba == "quartas":
-        return [p for p in partidas if (p.get("fase") or "") == "quartas"]
+        return [p for p in partidas if _fase_partida_normalizada(p) == "quartas"]
 
     if fase_subaba == "semifinais":
-        return [p for p in partidas if (p.get("fase") or "") in {"semifinal", "semifinais"}]
+        return [p for p in partidas if _fase_partida_normalizada(p) in {"semifinal", "semifinais"}]
 
     if fase_subaba == "finais":
-        return [p for p in partidas if (p.get("fase") or "") == "final"]
+        return [p for p in partidas if _fase_partida_normalizada(p) == "final"]
 
     return partidas
+
+
+def _status_normalizado(partida):
+    bruto = (
+        partida.get("status_jogo")
+        or partida.get("status")
+        or ""
+    )
+    return str(bruto).strip().lower()
+
+
+def _status_exibicao(partida):
+    status = _status_normalizado(partida)
+
+    mapa = {
+        "pre_jogo": "PRÉ-JOGO",
+        "agendada": "AGENDADA",
+        "em andamento": "AO VIVO",
+        "ao vivo": "AO VIVO",
+        "andamento": "AO VIVO",
+        "em_andamento": "AO VIVO",
+        "finalizada": "FINALIZADO",
+        "encerrado": "FINALIZADO",
+        "finalizado": "FINALIZADO",
+    }
+
+    return mapa.get(status, (status or "AGUARDANDO").replace("_", " ").upper())
+
+
+def _partida_esta_finalizada(partida):
+    return _status_normalizado(partida) in {"finalizada", "finalizado", "encerrado"}
+
+
+def _partida_esta_ao_vivo(partida):
+    return _status_normalizado(partida) in {"em andamento", "ao vivo", "andamento", "em_andamento"}
+
+
+def _montar_parciais(partida):
+    parciais = []
+
+    for i in range(1, 6):
+        a = partida.get(f"set{i}_a")
+        b = partida.get(f"set{i}_b")
+
+        if a is not None and b is not None:
+            try:
+                parciais.append(f"{int(a)}x{int(b)}")
+            except (TypeError, ValueError):
+                parciais.append(f"{a}x{b}")
+
+    return " / ".join(parciais) if parciais else "-"
+
+
+def _preparar_partidas(partidas):
+    partidas_preparadas = []
+
+    for p in partidas:
+        partida = dict(p)
+
+        partida["fase_normalizada"] = _fase_partida_normalizada(partida)
+        partida["status_normalizado"] = _status_normalizado(partida)
+        partida["status_exibicao"] = _status_exibicao(partida)
+        partida["ao_vivo"] = _partida_esta_ao_vivo(partida)
+        partida["finalizada"] = _partida_esta_finalizada(partida)
+        partida["parciais_formatadas"] = _montar_parciais(partida)
+
+        partidas_preparadas.append(partida)
+
+    return sorted(
+        partidas_preparadas,
+        key=lambda p: (
+            p.get("ordem") or 0,
+            p.get("grupo") or "",
+            p.get("equipe_a") or "",
+            p.get("equipe_b") or "",
+        )
+    )
+
+
+def _calcular_classificacao(partidas, grupos):
+    classificacao = {}
+
+    # base da classificação sempre existe, mesmo sem jogos finalizados
+    for g in grupos:
+        nome_grupo = g["grupo"]["nome"]
+        classificacao[nome_grupo] = []
+
+        equipes_ordenadas = sorted(
+            g["equipes"],
+            key=lambda e: (e.get("equipe") or "").lower()
+        )
+
+        for e in equipes_ordenadas:
+            classificacao[nome_grupo].append({
+                "equipe": e["equipe"],
+                "jogos": 0,
+                "vitorias": 0,
+                "derrotas": 0,
+                "sets_pro": 0,
+                "sets_contra": 0,
+                "saldo_sets": 0,
+                "pontos_pro": 0,
+                "pontos_contra": 0,
+                "saldo_pontos": 0,
+                "pontos": 0,
+            })
+
+    mapa = {
+        grupo: {linha["equipe"]: linha for linha in linhas}
+        for grupo, linhas in classificacao.items()
+    }
+
+    for p in partidas:
+        if not _partida_esta_finalizada(p):
+            continue
+
+        grupo = p.get("grupo")
+        equipe_a = p.get("equipe_a")
+        equipe_b = p.get("equipe_b")
+
+        if not grupo or grupo not in mapa:
+            continue
+        if equipe_a not in mapa[grupo] or equipe_b not in mapa[grupo]:
+            continue
+
+        try:
+            sets_a = int(p.get("sets_a") or 0)
+        except (TypeError, ValueError):
+            sets_a = 0
+
+        try:
+            sets_b = int(p.get("sets_b") or 0)
+        except (TypeError, ValueError):
+            sets_b = 0
+
+        # não considera empate em sets como resultado válido
+        if sets_a == sets_b:
+            continue
+
+        linha_a = mapa[grupo][equipe_a]
+        linha_b = mapa[grupo][equipe_b]
+
+        linha_a["jogos"] += 1
+        linha_b["jogos"] += 1
+
+        linha_a["sets_pro"] += sets_a
+        linha_a["sets_contra"] += sets_b
+        linha_b["sets_pro"] += sets_b
+        linha_b["sets_contra"] += sets_a
+
+        pontos_a = 0
+        pontos_b = 0
+
+        for i in range(1, 6):
+            sa = p.get(f"set{i}_a")
+            sb = p.get(f"set{i}_b")
+
+            if sa is not None and sb is not None:
+                try:
+                    pontos_a += int(sa)
+                    pontos_b += int(sb)
+                except (TypeError, ValueError):
+                    pass
+
+        linha_a["pontos_pro"] += pontos_a
+        linha_a["pontos_contra"] += pontos_b
+        linha_b["pontos_pro"] += pontos_b
+        linha_b["pontos_contra"] += pontos_a
+
+        if sets_a > sets_b:
+            linha_a["vitorias"] += 1
+            linha_b["derrotas"] += 1
+            linha_a["pontos"] += 2
+
+            if sets_b > 0:
+                linha_b["pontos"] += 1
+        else:
+            linha_b["vitorias"] += 1
+            linha_a["derrotas"] += 1
+            linha_b["pontos"] += 2
+
+            if sets_a > 0:
+                linha_a["pontos"] += 1
+
+    for grupo, linhas in classificacao.items():
+        for linha in linhas:
+            linha["saldo_sets"] = linha["sets_pro"] - linha["sets_contra"]
+            linha["saldo_pontos"] = linha["pontos_pro"] - linha["pontos_contra"]
+
+        linhas.sort(
+            key=lambda x: (
+                x["pontos"],
+                x["vitorias"],
+                x["saldo_sets"],
+                x["saldo_pontos"],
+                x["pontos_pro"],
+            ),
+            reverse=True
+        )
+
+    return classificacao
 
 
 # =========================================================
@@ -80,25 +290,15 @@ def visualizador_publico(competicao_nome):
             "equipes": equipes_grupo
         })
 
-    partidas_ordenadas = sorted(
-        partidas,
-        key=lambda p: (
-            p.get("ordem") or 0,
-            p.get("grupo") or "",
-            p.get("equipe_a") or "",
-            p.get("equipe_b") or "",
-        )
-    )
-
-    # Mantido provisoriamente vazio só para não travar o módulo da tabela
-    classificacao = {}
+    partidas_preparadas = _preparar_partidas(partidas)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos)
 
     return render_template(
         "visualizador_publico.html",
         competicao_nome=competicao_nome,
         grupos=grupos,
         classificacao=classificacao,
-        partidas=partidas_ordenadas,
+        partidas=partidas_preparadas,
     )
 
 
@@ -125,7 +325,6 @@ def tabela_view():
     grupos_raw = listar_grupos(competicao["nome"])
     equipes = listar_equipes_da_competicao(competicao["nome"])
     partidas = listar_partidas(competicao["nome"])
-    partidas_fase = _filtrar_partidas_por_fase(partidas, fase_subaba)
 
     grupos = []
     for g in grupos_raw:
@@ -135,17 +334,18 @@ def tabela_view():
             "equipes": equipes_grupo
         })
 
-    fases = _fases_disponiveis(competicao)
+    partidas_preparadas = _preparar_partidas(partidas)
+    partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos)
 
-    # Mantido provisoriamente vazio até religar a função de classificação no banco
-    classificacao = {}
+    fases = _fases_disponiveis(competicao)
 
     return render_template(
         "tabela.html",
         competicao=competicao,
         grupos=grupos,
         equipes=equipes,
-        partidas=partidas,
+        partidas=partidas_preparadas,
         partidas_fase=partidas_fase,
         classificacao=classificacao,
         aba_ativa=aba,
@@ -364,19 +564,15 @@ def gerar_automatico():
 
     grupos_raw = listar_grupos(competicao["nome"])
 
-    # limpa jogos antigos
     limpar_partidas_por_fase(competicao["nome"], "grupos")
 
     ordem = 1
 
-    # ================================
-    # FUNÇÃO ROUND ROBIN COM RODADAS
-    # ================================
     def gerar_rodadas(equipes):
         times = equipes[:]
 
         if len(times) % 2 == 1:
-            times.append(None)  # folga
+            times.append(None)
 
         n = len(times)
         rodadas = []
@@ -391,15 +587,10 @@ def gerar_automatico():
                     rodada.append((t1, t2))
 
             rodadas.append(rodada)
-
-            # rotação (mantém o primeiro fixo)
             times = [times[0]] + [times[-1]] + times[1:-1]
 
         return rodadas
 
-    # ================================
-    # GERAR RODADAS POR GRUPO
-    # ================================
     rodadas_por_grupo = {}
 
     for g in grupos_raw:
@@ -409,25 +600,22 @@ def gerar_automatico():
         rodadas = gerar_rodadas(nomes)
         rodadas_por_grupo[g["nome"]] = rodadas
 
-    # ================================
-    # INTERCALAR RODADAS ENTRE GRUPOS
-    # ================================
-    max_rodadas = max(len(r) for r in rodadas_por_grupo.values())
+    if not rodadas_por_grupo:
+        flash("Não há grupos com equipes suficientes para gerar jogos.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="partidas", fase="classificatorias"))
+
+    max_rodadas = max(len(r) for r in rodadas_por_grupo.values()) if rodadas_por_grupo else 0
 
     ultimo_times_usados = set()
 
     for rodada_index in range(max_rodadas):
         jogos_da_rodada = []
 
-        # pega jogos da mesma rodada de todos grupos
         for grupo_nome, rodadas in rodadas_por_grupo.items():
             if rodada_index < len(rodadas):
                 for jogo in rodadas[rodada_index]:
                     jogos_da_rodada.append((grupo_nome, jogo))
 
-        # ================================
-        # ORDENAR PARA EVITAR REPETIÇÃO
-        # ================================
         jogos_ordenados = []
 
         while jogos_da_rodada:
@@ -450,9 +638,6 @@ def gerar_automatico():
 
             jogos_da_rodada.remove(melhor_jogo)
 
-        # ================================
-        # SALVAR NO BANCO
-        # ================================
         for grupo_nome, (t1, t2) in jogos_ordenados:
             criar_partida(
                 competicao["nome"],

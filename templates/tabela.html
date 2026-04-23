@@ -74,6 +74,10 @@
     border: none;
     background: #0f172a;
 }
+.classificacao-hint {
+    color: var(--muted);
+    margin-bottom: 14px;
+}
 @media (max-width: 900px) {
     .tabela-grid { grid-template-columns:1fr; }
 }
@@ -296,37 +300,27 @@
                 <td>{{ p.ordem }}</td>
                 <td>{{ p.grupo }}</td>
                 <td>{{ p.equipe_a }} x {{ p.equipe_b }}</td>
-                <td>{{ p.fase or 'grupos' }}</td>
+                <td>{{ p.fase_normalizada or 'grupos' }}</td>
                 <td>
-                    {% if (p.status or "").lower() in ["em andamento", "ao vivo"] %}
+                    {% if p.ao_vivo %}
                         <span style="color:#22c55e; font-weight:800;">AO VIVO</span>
-                    {% elif (p.status or "").lower() == "finalizada" %}
+                    {% elif p.finalizada %}
                         <span style="color:#94a3b8; font-weight:800;">FINALIZADO</span>
                     {% else %}
-                        {{ p.status or "Aguardando" }}
+                        {{ p.status_exibicao }}
                     {% endif %}
                 </td>
                 <td style="font-weight:800;">
                     {% if p.sets_a is not none and p.sets_b is not none %}
                         {{ p.sets_a }} x {{ p.sets_b }}
                     {% else %}
-                        -
+                        0 x 0
                     {% endif %}
                 </td>
                 <td style="font-size:13px; color:var(--muted);">
-                    {% if (p.status or "").lower() == "finalizada" %}
-                        {% set sets = [] %}
-                        {% if p.set1_a is not none and p.set1_b is not none %}
-                            {% set _ = sets.append((p.set1_a|string) ~ "x" ~ (p.set1_b|string)) %}
-                        {% endif %}
-                        {% if p.set2_a is not none and p.set2_b is not none %}
-                            {% set _ = sets.append((p.set2_a|string) ~ "x" ~ (p.set2_b|string)) %}
-                        {% endif %}
-                        {% if p.set3_a is not none and p.set3_b is not none %}
-                            {% set _ = sets.append((p.set3_a|string) ~ "x" ~ (p.set3_b|string)) %}
-                        {% endif %}
-                        {{ sets|join(" / ") if sets else "-" }}
-                    {% elif (p.status or "").lower() in ["em andamento", "ao vivo"] %}
+                    {% if p.finalizada %}
+                        {{ p.parciais_formatadas }}
+                    {% elif p.ao_vivo %}
                         {{ p.set_atual_a or p.placar_a or p.pontos_a or 0 }} x {{ p.set_atual_b or p.placar_b or p.pontos_b or 0 }}
                     {% else %}
                         -
@@ -345,6 +339,9 @@
 {% if aba_ativa == 'classificacao' %}
 <div class="card-painel">
     <h3 style="margin-top: 0;">Classificação</h3>
+    <div class="classificacao-hint">
+        A tabela permanece visível mesmo antes dos primeiros resultados. Conforme os jogos forem finalizados, a classificação será atualizada automaticamente.
+    </div>
 
     {% if classificacao %}
         {% for nome_grupo, linhas in classificacao.items() %}
@@ -386,7 +383,7 @@
             </div>
         {% endfor %}
     {% else %}
-        <div style="color: var(--muted);">Ainda não há classificação calculável para esta competição.</div>
+        <div style="color: var(--muted);">Nenhum grupo criado ainda para montar a classificação.</div>
     {% endif %}
 </div>
 {% endif %}

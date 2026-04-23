@@ -6,10 +6,15 @@
 
     <style>
         body {
-            font-family: Arial;
+            font-family: Arial, sans-serif;
             background: #0f172a;
             color: white;
             padding: 20px;
+            margin: 0;
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
         }
 
         h2 {
@@ -26,6 +31,13 @@
             background: #1e293b;
             padding: 16px;
             border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.18);
+        }
+
+        .hint {
+            color: #cbd5e1;
+            margin-bottom: 14px;
+            font-size: 14px;
         }
 
         table {
@@ -34,7 +46,7 @@
         }
 
         th, td {
-            padding: 6px;
+            padding: 8px 6px;
             text-align: center;
         }
 
@@ -51,6 +63,7 @@
             padding: 12px;
             border-radius: 10px;
             margin-bottom: 10px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.14);
         }
 
         .ao-vivo {
@@ -60,6 +73,17 @@
 
         .finalizado {
             color: #94a3b8;
+            font-weight: bold;
+        }
+
+        .status-neutro {
+            color: #e2e8f0;
+        }
+
+        .parciais {
+            color: #cbd5e1;
+            font-size: 14px;
+            margin-top: 4px;
         }
     </style>
 </head>
@@ -68,59 +92,78 @@
 
 <h1>{{ competicao_nome }}</h1>
 
-<!-- CLASSIFICAÇÃO -->
 <h2>Classificação</h2>
-
-<div class="grid">
-{% for grupo, linhas in classificacao.items() %}
-    <div class="card">
-        <h3>Grupo {{ grupo }}</h3>
-        <table>
-            <tr>
-                <th>#</th>
-                <th>Equipe</th>
-                <th>Pts</th>
-                <th>V</th>
-                <th>D</th>
-            </tr>
-            {% for l in linhas %}
-            <tr>
-                <td>{{ loop.index }}</td>
-                <td>{{ l.equipe }}</td>
-                <td>{{ l.pontos }}</td>
-                <td>{{ l.vitorias }}</td>
-                <td>{{ l.derrotas }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    </div>
-{% endfor %}
+<div class="hint">
+    A classificação fica disponível desde o início da competição e atualiza conforme os resultados forem entrando.
 </div>
 
+{% if classificacao %}
+<div class="grid">
+    {% for grupo, linhas in classificacao.items() %}
+        <div class="card">
+            <h3>Grupo {{ grupo }}</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Equipe</th>
+                        <th>Pts</th>
+                        <th>J</th>
+                        <th>V</th>
+                        <th>D</th>
+                        <th>SS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for l in linhas %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ l.equipe }}</td>
+                        <td>{{ l.pontos }}</td>
+                        <td>{{ l.jogos }}</td>
+                        <td>{{ l.vitorias }}</td>
+                        <td>{{ l.derrotas }}</td>
+                        <td>{{ l.saldo_sets }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card">
+    Nenhum grupo criado ainda para exibir classificação.
+</div>
+{% endif %}
 
-<!-- JOGOS -->
 <h2>Jogos</h2>
 
-{% for p in partidas %}
-<div class="jogo">
+{% if partidas %}
+    {% for p in partidas %}
+    <div class="jogo">
+        <div><b>{{ p.equipe_a }} x {{ p.equipe_b }}</b></div>
+        <div>Grupo: {{ p.grupo }}</div>
 
-    <div><b>{{ p.equipe_a }} x {{ p.equipe_b }}</b></div>
-    <div>Grupo: {{ p.grupo }}</div>
-
-    {% if p.status == "finalizada" %}
-        <div class="finalizado">
-            {{ p.sets_a }} x {{ p.sets_b }}
-        </div>
-    {% elif p.status == "em andamento" %}
-        <div class="ao-vivo">
-            AO VIVO: {{ p.set_atual_a or 0 }} x {{ p.set_atual_b or 0 }}
-        </div>
-    {% else %}
-        <div>Aguardando</div>
-    {% endif %}
-
-</div>
-{% endfor %}
+        {% if p.finalizada %}
+            <div class="finalizado">
+                {{ p.sets_a or 0 }} x {{ p.sets_b or 0 }}
+            </div>
+            <div class="parciais">
+                Parciais: {{ p.parciais_formatadas }}
+            </div>
+        {% elif p.ao_vivo %}
+            <div class="ao-vivo">
+                AO VIVO: {{ p.set_atual_a or p.placar_a or p.pontos_a or 0 }} x {{ p.set_atual_b or p.placar_b or p.pontos_b or 0 }}
+            </div>
+        {% else %}
+            <div class="status-neutro">{{ p.status_exibicao }}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card">Nenhum jogo cadastrado.</div>
+{% endif %}
 
 </body>
 </html>

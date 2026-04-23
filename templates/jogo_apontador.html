@@ -798,7 +798,10 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let verdesB = {{ (estado.cartoes_verdes_b if estado.cartoes_verdes_b is defined else []) | tojson }};
 
     let syncTimer = null;
-    const socket = (typeof io === "function") ? io() : null;
+    let socketConectado = false;
+    const socket = (typeof io === "function")
+        ? io({ transports: ["websocket"], upgrade: false, reconnection: true })
+        : null;
 
     let alertaSolicitacaoTimer = null;
     const alertaSolicitacaoEl = document.getElementById("alerta-solicitacao");
@@ -816,10 +819,16 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
 
     if (socket) {
         socket.on("connect", function () {
+            socketConectado = true;
             socket.emit("entrar_partida", {
                 competicao: "{{ competicao_nome }}",
                 partida_id: {{ partida.id }}
             });
+        });
+
+        socket.on("disconnect", function () {
+            socketConectado = false;
+            agendarSincronizacao(400);
         });
 
         socket.on("estado_jogo_atualizado", function (dados) {
@@ -894,13 +903,16 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         }
 
         if (tipoLancePontoTemp === "erro") {
-            const opcoes = [
-                { valor: "erro_ataque", label: "1 Erro de ataque" },
-                { valor: "erro_adversario", label: "2 Erro geral" }
-            ];
+            const opcoes = [];
+
             if (saque && saque === oponente) {
-                opcoes.unshift({ valor: "erro_saque", label: "3 Erro no saque" });
+                opcoes.push({ valor: "erro_saque", label: "1 Erro de saque" });
+                opcoes.push({ valor: "erro_geral", label: "2 Erro geral" });
+            } else {
+                opcoes.push({ valor: "erro_geral", label: "1 Erro geral" });
+                opcoes.push({ valor: "erro_saque", label: "2 Erro de saque" });
             }
+
             return opcoes;
         }
 
@@ -1221,7 +1233,16 @@ function inverterLadosVisual() {
 
     function ladoResponsavelScout() {
         if (!equipePontoTemp || !tipoLancePontoTemp) return "";
-        return tipoLancePontoTemp === "ponto" ? equipePontoTemp : ladoOponente(equipePontoTemp);
+
+        if (tipoLancePontoTemp === "ponto") {
+            return equipePontoTemp;
+        }
+
+        if (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta") {
+            return ladoOponente(equipePontoTemp);
+        }
+
+        return "";
     }
 
     function atletasEquipePorLado(lado) {
@@ -1332,37 +1353,17 @@ function inverterLadosVisual() {
             );
 
             return atletasQuadra.filter((a) => numerosPermitidos.has(normalizarNumeroScout(a.valor)));
-       }
-
-        if (detalheLancePontoTemp === "ace") {
-        const rotacao = lado === "A" ? rotA : rotB;
-        const sacador = atletaDaPosicao(rotacao, 1);
-        if (!sacador) return [];
-
-            return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
-         }
-
-          if (detalheLancePontoTemp === "erro_saque") {
-               const rotacao = lado === "A" ? rotA : rotB;
-               const sacador = atletaDaPosicao(rotacao, 1);
-               if (!sacador) return [];
-
-               return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
-           }
-
-           if (detalheLancePontoTemp === "erro_ataque") {
-               return atletasQuadra;
-           }
-
-           if (["rede", "invasao", "conducao", "dois_toques"].includes(detalheLancePontoTemp)) {
-               return atletasQuadra;
-           }
-
-           if (detalheLancePontoTemp === "rotacao") {
-                return [];
         }
 
-        return atletasQuadra;
+        if (detalheLancePontoTemp === "ace") {
+            const rotacao = lado === "A" ? rotA : rotB;
+            const sacador = atletaDaPosicao(rotacao, 1);
+            if (!sacador) return [];
+
+            return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
+        }
+
+        return [];
     }
 
     function pontoExigeDetalhe() {
@@ -1372,16 +1373,13 @@ function inverterLadosVisual() {
     function pontoExigeAtleta() {
         if (!tipoLancePontoTemp || !detalheLancePontoTemp) return false;
 
+        if (tipoLancePontoTemp === "erro") return false;
+        if (tipoLancePontoTemp === "falta") return false;
+
         return [
             "ataque",
             "bloqueio",
-            "ace",
-            "erro_saque",
-            "erro_ataque",
-            "rede",
-            "invasao",
-            "conducao",
-            "dois_toques"
+            "ace"
         ].includes(detalheLancePontoTemp);
     }
 
@@ -1450,6 +1448,9 @@ function inverterLadosVisual() {
         pontoAtletaLabel.textContent = "4. Quem fez?";
 
         if (!exige) {
+            atletaNumeroPontoTemp = "";
+            atletaNomePontoTemp = "";
+            atletaLabelPontoTemp = "";
             pontoAtletaLista.innerHTML = "";
             atualizarResumoPonto();
             return;
@@ -1568,25 +1569,19 @@ function inverterLadosVisual() {
                     .map((p) => atletaDaPosicao(rotacao, p))
                     .filter(Boolean)
             );
+
             return atletasQuadra.filter((a) => numerosPermitidos.has(normalizarNumeroScout(a.valor)));
         }
 
-        if (detalheLancePontoTemp === "ace" || detalheLancePontoTemp === "erro_saque") {
+        if (detalheLancePontoTemp === "ace") {
             const rotacao = lado === "A" ? rotA : rotB;
             const sacador = atletaDaPosicao(rotacao, 1);
             if (!sacador) return [];
+
             return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
         }
 
-        if (["erro_ataque", "rede", "invasao", "conducao", "dois_toques"].includes(detalheLancePontoTemp)) {
-            return atletasQuadra;
-        }
-
-        if (detalheLancePontoTemp === "rotacao") {
-            return [];
-        }
-
-        return atletasQuadra;
+        return [];
     }
 
     function pontoExigeDetalhe() {
@@ -1596,16 +1591,13 @@ function inverterLadosVisual() {
     function pontoExigeAtleta() {
         if (!tipoLancePontoTemp || !detalheLancePontoTemp) return false;
 
+        if (tipoLancePontoTemp === "erro") return false;
+        if (tipoLancePontoTemp === "falta") return false;
+
         return [
             "ataque",
             "bloqueio",
-            "ace",
-            "erro_saque",
-            "erro_ataque",
-            "rede",
-            "invasao",
-            "conducao",
-            "dois_toques"
+            "ace"
         ].includes(detalheLancePontoTemp);
     }
 
@@ -2148,6 +2140,9 @@ function atualizarResumoSubEx() {
         pontoAtletaLabel.textContent = "4. Quem fez?";
 
         if (!exige) {
+            atletaNumeroPontoTemp = "";
+            atletaNomePontoTemp = "";
+            atletaLabelPontoTemp = "";
             pontoAtletaLista.innerHTML = "";
             atualizarResumoPonto();
             return;
@@ -2229,7 +2224,8 @@ function atualizarResumoSubEx() {
         };
     }
 
-    function agendarSincronizacao(delay = 250) {
+    function agendarSincronizacao(delay = 250, forcar = false) {
+        if (!forcar && socketConectado) return;
         if (syncTimer) clearTimeout(syncTimer);
         syncTimer = setTimeout(() => {
             sincronizarEstadoJogo();
@@ -2237,6 +2233,7 @@ function atualizarResumoSubEx() {
     }
 
     async function sincronizarEstadoJogo() {
+        if (socketConectado) return;
         if (Date.now() < bloquearSyncAte) return;
         const token = ++ultimoTokenSync;
         try {
@@ -2312,6 +2309,7 @@ function atualizarResumoSubEx() {
             ultimoTokenSync++;
             const dadosNormalizados = normalizarRespostaJogo(dados);
             aplicarEstado(dadosNormalizados);
+            fecharModalPonto();
 
             if (dadosNormalizados.set_finalizado) {
                 atualizarUltimaAcao(dadosNormalizados.ultima_acao || "Set finalizado");
@@ -2419,7 +2417,6 @@ function atualizarResumoSubEx() {
         };
 
         const equipe = equipePontoTemp;
-        fecharModalPonto();
         registrarPonto(equipe, scout);
     }
 
@@ -2595,7 +2592,7 @@ function atualizarResumoSubEx() {
 
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
-            fecharModalVerde();
+            fecharModalPonto();
         } catch (e) {
             mostrarErro("Falha ao registrar cartão verde.");
         } finally {
@@ -2769,7 +2766,7 @@ btnSubExConfirmar.addEventListener("click", registrarSubstituicaoExcepcional);
     btnSancaoCancelar.addEventListener("click", fecharModalSancao);
     btnSancaoConfirmar.addEventListener("click", registrarSancao);
 
-    btnVerdeCancelar.addEventListener("click", fecharModalVerde);
+    btnVerdeCancelar.addEventListener("click", fecharModalPonto);
     btnVerdeConfirmar.addEventListener("click", registrarCartaoVerde);
 
     btnPontoCancelar.addEventListener("click", fecharModalPonto);
@@ -2792,7 +2789,7 @@ modalSubExFundo.addEventListener("click", function (event) {
     });
 
     modalVerdeFundo.addEventListener("click", function (event) {
-        if (event.target === modalVerdeFundo) fecharModalVerde();
+        if (event.target === modalVerdeFundo) fecharModalPonto();
     });
 
     modalPontoFundo.addEventListener("click", function (event) {
@@ -2800,14 +2797,14 @@ modalSubExFundo.addEventListener("click", function (event) {
     });
 
     document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) agendarSincronizacao(120);
+        if (!document.hidden) agendarSincronizacao(120, true);
     });
 
     document.addEventListener("keydown", tratarAtalhosModalPonto);
 
     atualizarContadoresDisciplinares();
     renderQuadra();
-    agendarSincronizacao(120);
+    agendarSincronizacao(120, true);
 })();
 </script>
 {% endblock %}

@@ -45,6 +45,105 @@ from routes.utils import exigir_perfil
 apontadores_bp = Blueprint("apontadores", __name__)
 
 
+# =========================================================
+# HELPERS
+# =========================================================
+def _json_no_cache(payload, status=200):
+    resposta = jsonify(payload)
+    resposta.status_code = status
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
+    return resposta
+
+
+def _montar_descricao_evento(ev):
+    descricao = (ev.get("descricao") or "").strip()
+    if descricao:
+        return descricao
+
+    partes = []
+    tipo_evento = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip()
+    equipe = str(ev.get("equipe") or "").strip()
+    fundamento = str(ev.get("fundamento") or "").strip()
+    resultado = str(ev.get("resultado") or "").strip()
+    detalhe = str(ev.get("detalhe") or ev.get("detalhes") or "").strip()
+    numero = str(ev.get("numero") or "").strip()
+    atleta_nome = str(ev.get("atleta_nome") or "").strip()
+
+    if tipo_evento:
+        partes.append(tipo_evento.replace("_", " ").title())
+    if equipe:
+        partes.append(f"Equipe {equipe}")
+    if fundamento:
+        partes.append(fundamento.replace("_", " "))
+    if resultado:
+        partes.append(resultado.replace("_", " "))
+    if detalhe:
+        partes.append(detalhe.replace("_", " "))
+    if numero:
+        partes.append(f"#{numero}")
+    if atleta_nome:
+        partes.append(atleta_nome)
+
+    return " • ".join([p for p in partes if p]) or "Ação registrada"
+
+
+def _buscar_historico_resumido(partida_id, competicao, limite=5):
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=limite) or []
+    except TypeError:
+        eventos = listar_eventos_partida(partida_id, competicao) or []
+        eventos = eventos[:limite]
+    except Exception:
+        return [], "-"
+
+    historico = [{"descricao": _montar_descricao_evento(ev)} for ev in eventos]
+    ultima_acao = historico[0]["descricao"] if historico else "-"
+    return historico[:limite], ultima_acao
+
+
+def _buscar_papeletas_set_atual(partida_id, competicao, partida, estado=None):
+    equipe_a = partida.get("equipe_a_operacional")
+    equipe_b = partida.get("equipe_b_operacional")
+    set_atual = int(partida.get("set_atual") or (estado or {}).get("set_atual") or 1)
+
+    papeleta_a = {}
+    papeleta_b = {}
+
+    try:
+        if equipe_a:
+            dados_a = listar_papeleta(partida_id, competicao, equipe_a, set_atual) or []
+            papeleta_a = {row["posicao"]: row["numero"] for row in dados_a}
+
+        if equipe_b:
+            dados_b = listar_papeleta(partida_id, competicao, equipe_b, set_atual) or []
+            papeleta_b = {row["posicao"]: row["numero"] for row in dados_b}
+    except Exception:
+        papeleta_a = {}
+        papeleta_b = {}
+
+    for i in range(1, 7):
+        papeleta_a.setdefault(i, "")
+        papeleta_b.setdefault(i, "")
+
+    return equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b
+
+
+def _rotacao_fallback_por_papeleta(papeleta):
+    return [
+        papeleta.get(4, ""),
+        papeleta.get(3, ""),
+        papeleta.get(2, ""),
+        papeleta.get(5, ""),
+        papeleta.get(6, ""),
+        papeleta.get(1, ""),
+    ]
+
+
+# =========================================================
+# CONSULTAS BÁSICAS
+# =========================================================
 def listar_apontadores():
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -122,6 +221,9 @@ def entrar_competicao_apontador(competicao):
     )
 
 
+# =========================================================
+# PRÉ-JOGO
+# =========================================================
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>")
 @exigir_perfil("apontador")
 def abrir_pre_jogo_apontador(competicao, partida_id):
@@ -415,6 +517,9 @@ def salvar_capitao_view(competicao, partida_id, lado):
     return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
 
+# =========================================================
+# PAPELETA
+# =========================================================
 @apontadores_bp.route("/apontador/papeleta/<competicao>/<int:partida_id>", methods=["GET"])
 @exigir_perfil("apontador")
 def papeleta_view(competicao, partida_id):
@@ -443,21 +548,15 @@ def papeleta_view(competicao, partida_id):
     if fluxo.get("fase_partida") == "jogo":
         return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
 
-    equipe_a = partida.get("equipe_a_operacional")
-    equipe_b = partida.get("equipe_b_operacional")
-    set_atual = int(partida.get("set_atual") or 1)
+    equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
+        partida_id, competicao, partida
+    )
 
     atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
     atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
 
     atletas_a = [a for a in atletas_a if a.get("numero")]
     atletas_b = [a for a in atletas_b if a.get("numero")]
-
-    papeleta_a_rows = listar_papeleta(partida_id, competicao, equipe_a, set_atual) if equipe_a else []
-    papeleta_b_rows = listar_papeleta(partida_id, competicao, equipe_b, set_atual) if equipe_b else []
-
-    papeleta_a = {row["posicao"]: row["numero"] for row in papeleta_a_rows}
-    papeleta_b = {row["posicao"]: row["numero"] for row in papeleta_b_rows}
 
     return render_template(
         "papeleta_apontador.html",
@@ -486,10 +585,24 @@ def salvar_papeleta_view(competicao, partida_id):
     equipe_b = partida.get("equipe_b_operacional")
     set_atual = int(partida.get("set_atual") or 1)
 
-    def montar_dados(lado, equipe):
-        dados = {}
-        atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+    atletas_cache = {}
 
+    def montar_dados(lado, equipe):
+        if not equipe:
+            return {}
+
+        atletas = atletas_cache.get(equipe)
+        if atletas is None:
+            atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+            atletas_cache[equipe] = atletas
+
+        mapa_atletas_por_numero = {
+            int(a.get("numero") or 0): a
+            for a in atletas
+            if a.get("numero") not in (None, "")
+        }
+
+        dados = {}
         for pos in [1, 2, 3, 4, 5, 6]:
             valor = request.form.get(f"{lado}_{pos}", "").strip()
             if not valor:
@@ -500,7 +613,7 @@ def salvar_papeleta_view(competicao, partida_id):
             except ValueError:
                 continue
 
-            atleta = next((a for a in atletas if int(a.get("numero") or 0) == numero), None)
+            atleta = mapa_atletas_por_numero.get(numero)
             if atleta:
                 dados[pos] = atleta
 
@@ -516,7 +629,8 @@ def salvar_papeleta_view(competicao, partida_id):
     salvar_papeleta(partida_id, competicao, equipe_a, set_atual, dados_a)
     salvar_papeleta(partida_id, competicao, equipe_b, set_atual, dados_b)
 
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=buscar_partida_operacional(partida_id, competicao)) or {}
+    partida_atual = buscar_partida_operacional(partida_id, competicao)
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida_atual) or {}
     flash("Papeleta salva com sucesso.", "sucesso")
 
     if fluxo.get("papeleta_a_completa") and fluxo.get("papeleta_b_completa"):
@@ -525,6 +639,9 @@ def salvar_papeleta_view(competicao, partida_id):
     return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
 
 
+# =========================================================
+# JOGO
+# =========================================================
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>", methods=["GET"])
 @exigir_perfil("apontador")
 def jogo_view(competicao, partida_id):
@@ -554,35 +671,12 @@ def jogo_view(competicao, partida_id):
         flash("Complete as papeletas antes de iniciar o jogo.", "erro")
         return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
 
-    # 🔥 ESTADO
     garantir_estado_partida(partida_id, competicao)
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-    # 🔥 NOVO — BUSCAR PAPELETAS
-    equipe_a = partida.get("equipe_a_operacional")
-    equipe_b = partida.get("equipe_b_operacional")
-    set_atual = int(partida.get("set_atual") or 1)
-
-    papeleta_a = {}
-    papeleta_b = {}
-
-    try:
-        if equipe_a:
-            dados_a = listar_papeleta(partida_id, competicao, equipe_a, set_atual)
-            papeleta_a = {row["posicao"]: row["numero"] for row in dados_a}
-
-        if equipe_b:
-            dados_b = listar_papeleta(partida_id, competicao, equipe_b, set_atual)
-            papeleta_b = {row["posicao"]: row["numero"] for row in dados_b}
-    except Exception:
-        # fallback pra não quebrar a tela
-        papeleta_a = {}
-        papeleta_b = {}
-
-    # 🔥 GARANTIR POSIÇÕES (ESSENCIAL)
-    for i in range(1, 7):
-        papeleta_a.setdefault(i, "")
-        papeleta_b.setdefault(i, "")
+    equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
+        partida_id, competicao, partida, estado
+    )
 
     atletas_a = []
     atletas_b = []
@@ -597,21 +691,13 @@ def jogo_view(competicao, partida_id):
         atletas_b = []
 
     if not estado.get("rotacao_a"):
-        estado["rotacao_a"] = [papeleta_a.get(4, ""), papeleta_a.get(3, ""), papeleta_a.get(2, ""), papeleta_a.get(5, ""), papeleta_a.get(6, ""), papeleta_a.get(1, "")]
+        estado["rotacao_a"] = _rotacao_fallback_por_papeleta(papeleta_a)
     if not estado.get("rotacao_b"):
-        estado["rotacao_b"] = [papeleta_b.get(4, ""), papeleta_b.get(3, ""), papeleta_b.get(2, ""), papeleta_b.get(5, ""), papeleta_b.get(6, ""), papeleta_b.get(1, "")]
+        estado["rotacao_b"] = _rotacao_fallback_por_papeleta(papeleta_b)
 
-    try:
-        eventos_iniciais = listar_eventos_partida(partida_id, competicao, limite=5) or []
-        historico_inicial = []
-        for ev in eventos_iniciais:
-            descricao = (ev.get("descricao") or "").strip() or "Ação registrada"
-            historico_inicial.append({"descricao": descricao})
-        estado["historico"] = historico_inicial
-        estado["ultima_acao"] = historico_inicial[0]["descricao"] if historico_inicial else (estado.get("ultima_acao") or "-")
-    except Exception:
-        estado.setdefault("historico", [])
-        estado.setdefault("ultima_acao", "-")
+    historico_inicial, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
+    estado["historico"] = historico_inicial
+    estado["ultima_acao"] = ultima_acao or (estado.get("ultima_acao") or "-")
 
     resposta = make_response(render_template(
         "jogo_apontador.html",
@@ -640,42 +726,89 @@ def ponto_view(competicao, partida_id):
 
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
-        detalhes = {
-            "fundamento": (request.form.get("fundamento") or corpo.get("fundamento") or "").strip(),
-            "resultado": (request.form.get("resultado") or corpo.get("resultado") or "").strip(),
-            "tipo_lance": (request.form.get("tipo_lance") or corpo.get("tipo_lance") or "").strip(),
-            "detalhe_lance": (request.form.get("detalhe_lance") or corpo.get("detalhe_lance") or "").strip(),
-            "tipo_erro": (request.form.get("tipo_erro") or corpo.get("tipo_erro") or "").strip(),
-            "atleta_numero": str(request.form.get("atleta_numero") or corpo.get("atleta_numero") or "").strip(),
-            "atleta_nome": (request.form.get("atleta_nome") or corpo.get("atleta_nome") or "").strip(),
-            "atleta_label": (request.form.get("atleta_label") or corpo.get("atleta_label") or "").strip(),
+        fundamento = (request.form.get("fundamento") or corpo.get("fundamento") or "").strip().lower()
+        resultado = (request.form.get("resultado") or corpo.get("resultado") or "").strip().lower()
+        tipo_lance = (request.form.get("tipo_lance") or corpo.get("tipo_lance") or "").strip().lower()
+        detalhe_lance = (request.form.get("detalhe_lance") or corpo.get("detalhe_lance") or "").strip().lower()
+        tipo_erro = (request.form.get("tipo_erro") or corpo.get("tipo_erro") or "").strip().lower()
+        atleta_numero = str(request.form.get("atleta_numero") or corpo.get("atleta_numero") or "").strip()
+        atleta_nome = (request.form.get("atleta_nome") or corpo.get("atleta_nome") or "").strip()
+        atleta_label = (request.form.get("atleta_label") or corpo.get("atleta_label") or "").strip()
+
+        if not tipo_lance:
+            return _json_no_cache({"ok": False, "mensagem": "Selecione se foi ponto, erro ou falta."}, 400)
+
+        if tipo_lance not in {"ponto", "erro", "falta"}:
+            return _json_no_cache({"ok": False, "mensagem": "Tipo de lance inválido."}, 400)
+
+        if not detalhe_lance and not resultado and not fundamento:
+            return _json_no_cache({"ok": False, "mensagem": "Selecione o detalhe da jogada."}, 400)
+
+        detalhe_final = (detalhe_lance or tipo_erro or resultado or fundamento).strip().lower()
+
+        detalhes_validos = {
+            "ponto": {"ataque", "bloqueio", "ace"},
+            "erro": {"erro_saque", "erro_geral"},
+            "falta": {"rede", "invasao", "rotacao", "conducao", "dois_toques"},
+        }
+
+        if detalhe_final not in detalhes_validos[tipo_lance]:
+            return _json_no_cache({"ok": False, "mensagem": "Detalhe da jogada inválido."}, 400)
+
+        exige_atleta = detalhe_final in {"ataque", "bloqueio", "ace"}
+
+        if exige_atleta and not atleta_numero:
+            return _json_no_cache({"ok": False, "mensagem": "Selecione o atleta da jogada."}, 400)
+
+        if not exige_atleta:
+            atleta_numero = ""
+            atleta_nome = ""
+            atleta_label = ""
+
+        fundamento_final = detalhe_final
+        resultado_final = tipo_lance
+
+        detalhes_evento = {
+            "fundamento": fundamento_final,
+            "resultado": resultado_final,
+            "tipo_lance": tipo_lance,
+            "detalhe_lance": detalhe_final,
+            "tipo_erro": tipo_erro,
+            "atleta_numero": atleta_numero,
+            "atleta_nome": atleta_nome,
+            "atleta_label": atleta_label,
         }
 
         ok, retorno = registrar_ponto_partida(
-            partida_id,
-            competicao,
-            equipe,
+            partida_id=partida_id,
+            competicao=competicao,
+            equipe=equipe,
             tipo="ponto",
-            detalhes=detalhes
+            detalhes=detalhes_evento
         )
 
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            mensagem = retorno if isinstance(retorno, str) else "Não foi possível registrar o ponto."
+            return _json_no_cache({"ok": False, "mensagem": mensagem}, 400)
 
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+        estado = retorno if isinstance(retorno, dict) else {}
+
+        if "historico" not in estado or "ultima_acao" not in estado:
+            historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
+            estado.setdefault("historico", historico)
+            estado.setdefault("ultima_acao", ultima_acao)
+
+        return _json_no_cache({
+            "ok": True,
+            "mensagem": "Ponto registrado com sucesso.",
+            **estado
+        })
 
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar ponto: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        print("ERRO ponto_view:", e)
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar ponto: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/desfazer", methods=["POST"])
@@ -684,16 +817,10 @@ def desfazer_acao_view(competicao, partida_id):
     try:
         ok, retorno = desfazer_ultima_acao_partida(partida_id, competicao)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+        return _json_no_cache({"ok": True, **retorno})
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao desfazer ação: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao desfazer ação: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/tempo", methods=["POST"])
@@ -703,21 +830,13 @@ def registrar_tempo_view(competicao, partida_id):
         corpo = request.get_json(silent=True) or {}
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
         ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+        return _json_no_cache({"ok": True, **retorno})
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao", methods=["POST"])
@@ -730,29 +849,19 @@ def registrar_substituicao_view(competicao, partida_id):
         numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
 
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
         if not numero_sai or not numero_entra:
-            resposta = jsonify({"ok": False, "mensagem": "Selecione quem sai e quem entra."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
         ok, retorno = registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+        return _json_no_cache({"ok": True, **retorno})
 
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar substituição: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao-excepcional", methods=["POST"])
@@ -765,29 +874,19 @@ def registrar_substituicao_excepcional_view(competicao, partida_id):
         numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
 
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
         if not numero_sai or not numero_entra:
-            resposta = jsonify({"ok": False, "mensagem": "Selecione quem sai e quem entra."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
         ok, retorno = registrar_substituicao_excepcional_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+        return _json_no_cache({"ok": True, **retorno})
 
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/retardamento", methods=["POST"])
@@ -798,24 +897,16 @@ def registrar_retardamento_view(competicao, partida_id):
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
 
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
         ok, retorno = registrar_retardamento_partida(partida_id, competicao, equipe)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+        return _json_no_cache({"ok": True, **retorno})
 
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar retardamento: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar retardamento: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/sancao", methods=["POST"])
@@ -830,39 +921,25 @@ def registrar_sancao_view(competicao, partida_id):
         sancao = (request.form.get("sancao") or corpo.get("sancao") or "").strip().lower()
 
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
         if tipo_pessoa not in {"jogador", "comissao"}:
-            resposta = jsonify({"ok": False, "mensagem": "Tipo de pessoa inválido."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Tipo de pessoa inválido."}, 400)
 
         if not alvo:
-            resposta = jsonify({"ok": False, "mensagem": "Selecione o alvo da sanção."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Selecione o alvo da sanção."}, 400)
 
         if not sancao:
-            resposta = jsonify({"ok": False, "mensagem": "Selecione o tipo de sanção."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Selecione o tipo de sanção."}, 400)
 
         ok, retorno = registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa, alvo, sancao)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+        return _json_no_cache({"ok": True, **retorno})
 
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar sanção: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar sanção: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/cartao-verde", methods=["POST"])
@@ -876,34 +953,22 @@ def registrar_cartao_verde_view(competicao, partida_id):
         alvo = (request.form.get("alvo") or corpo.get("alvo") or "").strip()
 
         if equipe not in {"A", "B"}:
-            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
         if tipo_pessoa not in {"jogador", "comissao"}:
-            resposta = jsonify({"ok": False, "mensagem": "Tipo de pessoa inválido."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Tipo de pessoa inválido."}, 400)
 
         if not alvo:
-            resposta = jsonify({"ok": False, "mensagem": "Selecione o alvo do cartão verde."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": "Selecione o alvo do cartão verde."}, 400)
 
         ok, retorno = registrar_cartao_verde_partida(partida_id, competicao, equipe, tipo_pessoa, alvo)
         if not ok:
-            resposta = jsonify({"ok": False, "mensagem": retorno})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 400
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        resposta = jsonify({"ok": True, **retorno})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
+        return _json_no_cache({"ok": True, **retorno})
 
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar cartão verde: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar cartão verde: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/estado/<competicao>/<int:partida_id>")
@@ -913,57 +978,29 @@ def estado_jogo_view(competicao, partida_id):
         partida = buscar_partida_operacional(partida_id, competicao)
 
         if not partida:
-            return jsonify({"ok": False, "mensagem": "Partida não encontrada"}), 404
+            return _json_no_cache({"ok": False, "mensagem": "Partida não encontrada"}, 404)
 
         garantir_estado_partida(partida_id, competicao)
-
         estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-        eventos = listar_eventos_partida(partida_id, competicao)
-        historico = []
+        equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
+            partida_id, competicao, partida, estado
+        )
 
-        for ev in eventos or []:
-            descricao = (ev.get("descricao") or "").strip()
-
-            if not descricao:
-                partes = []
-
-                tipo_evento = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip()
-                fundamento = str(ev.get("fundamento") or "").strip()
-                resultado = str(ev.get("resultado") or "").strip()
-                detalhe = str(ev.get("detalhe") or ev.get("detalhes") or "").strip()
-                numero = str(ev.get("numero") or "").strip()
-                atleta_nome = str(ev.get("atleta_nome") or "").strip()
-                equipe = str(ev.get("equipe") or "").strip()
-
-                if tipo_evento:
-                    partes.append(tipo_evento.replace("_", " ").title())
-                if equipe:
-                    partes.append(f"Equipe {equipe}")
-                if fundamento:
-                    partes.append(fundamento.replace("_", " "))
-                if resultado:
-                    partes.append(resultado.replace("_", " "))
-                if detalhe:
-                    partes.append(detalhe)
-                if numero:
-                    partes.append(f"#{numero}")
-                if atleta_nome:
-                    partes.append(atleta_nome)
-
-                descricao = " • ".join([p for p in partes if p]) or "Ação registrada"
-
-            historico.append({
-                "descricao": descricao
-            })
-
-        estado["historico"] = historico
-        estado["ultima_acao"] = historico[0]["descricao"] if historico else "-"
+        historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
 
         pontos_a = int(estado.get("pontos_a") or estado.get("placar_a") or 0)
         pontos_b = int(estado.get("pontos_b") or estado.get("placar_b") or 0)
+
         rotacao_a = list(estado.get("rotacao_a") or [])
         rotacao_b = list(estado.get("rotacao_b") or [])
+
+        if not any(str(x).strip() for x in rotacao_a):
+            rotacao_a = _rotacao_fallback_por_papeleta(papeleta_a)
+
+        if not any(str(x).strip() for x in rotacao_b):
+            rotacao_b = _rotacao_fallback_por_papeleta(papeleta_b)
+
         tempos_a = estado.get("tempos_a")
         tempos_b = estado.get("tempos_b")
         if tempos_a is None or tempos_b is None:
@@ -971,7 +1008,7 @@ def estado_jogo_view(competicao, partida_id):
             tempos_a = tempos.get("tempos_a")
             tempos_b = tempos.get("tempos_b")
 
-        return jsonify({
+        return _json_no_cache({
             "ok": True,
             "pontos_a": pontos_a,
             "pontos_b": pontos_b,
@@ -998,17 +1035,17 @@ def estado_jogo_view(competicao, partida_id):
             "sancoes_b": estado.get("sancoes_b") or [],
             "cartoes_verdes_a": estado.get("cartoes_verdes_a") or [],
             "cartoes_verdes_b": estado.get("cartoes_verdes_b") or [],
-            "historico": historico[:5],
-            "ultima_acao": historico[0]["descricao"] if historico else "-",
+            "historico": historico,
+            "ultima_acao": ultima_acao,
             "partida_finalizada": str(estado.get("fase_partida") or "").lower() == "encerrado"
         })
 
     except Exception as e:
         print("ERRO estado_jogo_view:", e)
-        return jsonify({
+        return _json_no_cache({
             "ok": False,
             "mensagem": "Erro interno ao carregar estado do jogo."
-        }), 500
+        }, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/encerrar", methods=["POST"])
@@ -1024,26 +1061,20 @@ def encerrar_partida_view(competicao, partida_id):
 
         estado = buscar_estado_jogo_partida(partida_id, competicao)
         if not estado:
-            resposta = jsonify({"ok": False, "mensagem": "Estado não encontrado."})
-            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            return resposta, 404
+            return _json_no_cache({"ok": False, "mensagem": "Estado não encontrado."}, 404)
 
         encerrar_partida(partida_id, competicao, observacoes)
         estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-        resposta = jsonify({
+        return _json_no_cache({
             "ok": True,
             "mensagem": "Partida encerrada com sucesso.",
             "encerrado": True,
             "estado": estado,
             "partida_finalizada": True
         })
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta
     except Exception as e:
-        resposta = jsonify({"ok": False, "mensagem": f"Erro ao encerrar partida: {e}"})
-        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resposta, 500
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao encerrar partida: {e}"}, 500)
 
 
 @apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>")
@@ -1061,9 +1092,6 @@ def observacoes_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_observacoes_view(competicao, partida_id):
-
     observacoes = request.form.get("observacoes")
-
     encerrar_partida(partida_id, competicao, observacoes)
-
     return redirect("/")

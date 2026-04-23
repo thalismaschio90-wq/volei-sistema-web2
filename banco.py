@@ -7,6 +7,11 @@ from datetime import datetime
 from threading import Lock
 from psycopg import connect
 from psycopg.rows import dict_row
+
+try:
+    from psycopg_pool import ConnectionPool
+except ImportError:
+    ConnectionPool = None
 from socket_events import emitir_estado_partida
 
 
@@ -21,6 +26,8 @@ _SCHEMA_FLAGS = {
     "tabela_eventos": False,
 }
 _SCHEMA_LOCK = Lock()
+_POOL_LOCK = Lock()
+_DB_POOL = None
 
 
 def _schema_ja_pronto(chave, force=False):
@@ -73,14 +80,47 @@ def salvar_dados(dados):
 # =========================================================
 # CONEXÃO
 # =========================================================
-def conectar():
-    database_url = os.environ.get("DATABASE_URL")
+def _obter_database_url():
+    return os.environ.get("DATABASE_URL") or DATABASE_URL_PADRAO
 
-    if not database_url:
-        database_url = DATABASE_URL_PADRAO
+
+def _obter_pool():
+    global _DB_POOL
+
+    if ConnectionPool is None:
+        return None
+
+    if _DB_POOL is not None:
+        return _DB_POOL
+
+    with _POOL_LOCK:
+        if _DB_POOL is not None:
+            return _DB_POOL
+
+        pool = ConnectionPool(
+            conninfo=_obter_database_url(),
+            kwargs={
+                "row_factory": dict_row,
+                "sslmode": "require",
+            },
+            min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 1)),
+            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 10)),
+            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 30)),
+            open=False,
+        )
+        pool.open(wait=True)
+        _DB_POOL = pool
+
+    return _DB_POOL
+
+
+def conectar():
+    pool = _obter_pool()
+    if pool is not None:
+        return pool.connection()
 
     return connect(
-        database_url,
+        _obter_database_url(),
         row_factory=dict_row,
         sslmode="require"
     )
@@ -4099,8 +4139,9 @@ def registrar_evento_partida(
     detalhe=None,
     atleta_nome=None,
     numero=None,
-    detalhes=None,
+    atleta_id=None,
     tipo_evento=None,
+    detalhes=None
 ):
     criar_tabela_eventos()
 
@@ -4110,7 +4151,7 @@ def registrar_evento_partida(
     resultado = (resultado or '').strip() if resultado is not None else None
     detalhe = (detalhe or '').strip() if detalhe is not None else None
     atleta_nome = (atleta_nome or '').strip() if atleta_nome is not None else None
-    tipo_evento = (tipo_evento or tipo or '').strip() or None
+    tipo_evento = (tipo_evento or tipo or '').strip() if tipo_evento is not None or tipo else None
 
     numero_final = None
     if numero not in (None, ''):
@@ -4119,12 +4160,21 @@ def registrar_evento_partida(
         except (ValueError, TypeError):
             numero_final = None
 
-    detalhes_json = None
-    if detalhes not in (None, ''):
+    atleta_id_final = None
+    if atleta_id not in (None, ''):
         try:
-            detalhes_json = json.dumps(detalhes, ensure_ascii=False) if not isinstance(detalhes, str) else detalhes
+            atleta_id_final = int(str(atleta_id).strip())
+        except (ValueError, TypeError):
+            atleta_id_final = None
+
+    detalhes_json = None
+    if isinstance(detalhes, dict):
+        try:
+            detalhes_json = json.dumps(detalhes, ensure_ascii=False)
         except Exception:
             detalhes_json = None
+    elif isinstance(detalhes, str) and detalhes.strip():
+        detalhes_json = detalhes.strip()
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -4139,11 +4189,12 @@ def registrar_evento_partida(
                     fundamento,
                     resultado,
                     detalhe,
-                    detalhes,
+                    atleta_id,
                     atleta_nome,
-                    numero
+                    numero,
+                    detalhes
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 partida_id,
                 competicao,
@@ -4154,11 +4205,14 @@ def registrar_evento_partida(
                 fundamento,
                 resultado,
                 detalhe,
-                detalhes_json,
+                atleta_id_final,
                 atleta_nome,
-                numero_final
+                numero_final,
+                detalhes_json,
             ))
         conn.commit()
+
+
 
 def _json_load_text(valor, padrao):
     if valor in (None, ""):
@@ -4588,7 +4642,7 @@ def registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa='', num
     if not partida:
         return False, 'Partida não encontrada.'
 
-    estado = buscar_estado_jogo_partida(partida_id, competicao)
+    estado = _buscar_estado_jogo_partida_base(partida_id, competicao, garantir=False, permitir_reconstrucao=False)
     if not estado:
         return False, 'Estado da partida não encontrado.'
 
@@ -4667,13 +4721,19 @@ def registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa='', num
         }
 
         ok, resultado = registrar_ponto_partida(
-            partida_id,
-            competicao,
-            equipe_ponto,
-            tipo='penalidade',
-            detalhes=detalhes_penalidade
+            partida_id, competicao, adversario,
+            tipo='retardamento_penalidade',
+            detalhes={
+                'origem_retardamento': True,
+                'tipo_lance': 'falta',
+                'detalhe_lance': 'retardamento',
+                'fundamento': 'retardamento',
+                'resultado': 'erro',
+                'responsavel_lado': equipe,
+                'observacao': observacao,
+            }
         )
-
+        
         if not ok:
             return False, resultado
 
@@ -4743,8 +4803,10 @@ def _reconstruir_e_salvar_snapshot(partida_id, competicao, partida):
         estado_completo["saque_atual"] = rotacoes.get("saque_calculado") or ""
     return estado_completo
 
-def buscar_estado_jogo_partida(partida_id, competicao):
-    garantir_estado_partida(partida_id, competicao)
+def _buscar_estado_jogo_partida_base(partida_id, competicao, garantir=False, permitir_reconstrucao=True):
+    if garantir:
+        garantir_estado_partida(partida_id, competicao)
+
     criar_campos_jogo_partida()
     criar_campos_sets_partida()
     criar_tabela_eventos()
@@ -4764,18 +4826,26 @@ def buscar_estado_jogo_partida(partida_id, competicao):
         return None
 
     estado = _snapshot_estado_partida(partida, competicao)
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
+    estado.update(fluxo)
+
+    if not permitir_reconstrucao:
+        return estado
 
     rot_a = estado.get("rotacao_a") or []
     rot_b = estado.get("rotacao_b") or []
 
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
-    estado.update(fluxo)
+    rotacao_valida = (
+        len(rot_a) == 6
+        and len(rot_b) == 6
+        and (
+            any(str(x).strip() for x in rot_a)
+            or any(str(x).strip() for x in rot_b)
+            or estado.get("status_jogo") == "pre_jogo"
+        )
+    )
 
-    if len(rot_a) == 6 and len(rot_b) == 6 and (
-        any(str(x).strip() for x in rot_a)
-        or any(str(x).strip() for x in rot_b)
-        or estado.get("status_jogo") == "pre_jogo"
-    ):
+    if rotacao_valida:
         return estado
 
     estado = _reconstruir_e_salvar_snapshot(partida_id, competicao, partida)
@@ -4788,58 +4858,13 @@ def buscar_estado_jogo_partida(partida_id, competicao):
     return estado
 
 
-def _descricao_evento_historico(ev):
-    if not isinstance(ev, dict):
-        return "Ação registrada"
-
-    descricao = str(ev.get("descricao") or "").strip()
-    if descricao:
-        return descricao
-
-    detalhes = ev.get("detalhes")
-    if isinstance(detalhes, str):
-        try:
-            detalhes = json.loads(detalhes)
-        except Exception:
-            detalhes = {}
-    if not isinstance(detalhes, dict):
-        detalhes = {}
-
-    equipe = str(ev.get("equipe") or "").strip().upper()
-    tipo = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip().lower()
-    fundamento = str(ev.get("fundamento") or "").strip().replace("_", " ")
-    resultado = str(ev.get("resultado") or "").strip().replace("_", " ")
-    detalhe = str(ev.get("detalhe") or "").strip()
-    numero = str(ev.get("numero") or detalhes.get("numero") or detalhes.get("atleta_numero") or "").strip()
-    atleta_nome = str(ev.get("atleta_nome") or detalhes.get("atleta_nome") or "").strip()
-
-    if tipo == "tempo":
-        return f"Equipe {equipe} • pedido de tempo".strip(" •")
-    if tipo in {"substituicao", "substituicao_excepcional"}:
-        sai = str(detalhes.get("numero_sai") or "").strip()
-        entra = str(detalhes.get("numero_entra") or "").strip()
-        base = f"Equipe {equipe} • {tipo.replace('_', ' ')}"
-        if sai or entra:
-            base += f" • sai {sai or '-'} entra {entra or '-'}"
-        return base
-
-    partes = []
-    if equipe:
-        partes.append(f"Equipe {equipe}")
-    if tipo:
-        partes.append(tipo.replace("_", " "))
-    if fundamento:
-        partes.append(fundamento)
-    if resultado:
-        partes.append(resultado)
-    if detalhe:
-        partes.append(detalhe)
-    if numero:
-        partes.append(f"#{numero}")
-    if atleta_nome:
-        partes.append(atleta_nome)
-
-    return " • ".join([p for p in partes if p]) or "Ação registrada"
+def buscar_estado_jogo_partida(partida_id, competicao):
+    return _buscar_estado_jogo_partida_base(
+        partida_id,
+        competicao,
+        garantir=False,
+        permitir_reconstrucao=False,
+    )
 
 
 def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
@@ -4847,14 +4872,15 @@ def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
     historico = []
 
     for ev in eventos:
-        historico.append({"descricao": _descricao_evento_historico(ev)})
+        descricao = str(ev.get("descricao") or "").strip() or "Ação registrada"
+        historico.append({"descricao": descricao})
 
     return historico
 
 
 
 def _emitir_estado_tempo_real(partida_id, competicao):
-    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+    estado = _buscar_estado_jogo_partida_base(partida_id, competicao, garantir=False, permitir_reconstrucao=False) or {}
     tempos = buscar_tempos_restantes_partida(partida_id, competicao) or {}
     rotacao_a = list(estado.get("rotacao_a") or ["", "", "", "", "", ""])
     rotacao_b = list(estado.get("rotacao_b") or ["", "", "", "", "", ""])
@@ -4983,10 +5009,11 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         fundamento=detalhes_evento.get("fundamento"),
         resultado=detalhes_evento.get("resultado"),
         detalhe=detalhe,
+        atleta_id=detalhes_evento.get("atleta_id"),
         atleta_nome=detalhes_evento.get("atleta_nome"),
         numero=detalhes_evento.get("atleta_numero") or detalhes_evento.get("numero"),
+        tipo_evento=detalhes_evento.get("tipo_lance") or detalhes_evento.get("resultado") or tipo,
         detalhes=detalhes_evento,
-        tipo_evento=tipo,
     )
 
     estado_snapshot = {
@@ -5046,6 +5073,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "retardamentos_b": estado.get("retardamentos_b", []),
         "subs_excepcionais": estado.get("subs_excepcionais", []),
         "ultima_acao": _montar_ultima_acao_partida(partida, tipo, equipe=equipe, detalhes=detalhes_evento),
+        "historico": _montar_historico_resumido_partida(partida_id, competicao, limite=5),
     }
 
     if not venceu_set:
@@ -5797,28 +5825,23 @@ def criar_tabela_eventos(force=False):
                     fundamento TEXT,
                     resultado TEXT,
                     detalhe TEXT,
-                    detalhes TEXT,
                     atleta_id INTEGER,
                     atleta_nome TEXT,
                     numero INTEGER,
+                    detalhes TEXT,
                     criado_em TIMESTAMP DEFAULT NOW()
                 )
             """)
+            # compatibilidade com bases já existentes
             cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS tipo_evento TEXT")
             cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS detalhes TEXT")
-            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS fundamento TEXT")
-            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS resultado TEXT")
-            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS detalhe TEXT")
             cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS atleta_id INTEGER")
-            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS atleta_nome TEXT")
-            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS numero INTEGER")
-            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT NOW()")
         conn.commit()
 
     _marcar_schema_pronto("tabela_eventos")
 
+
 def listar_eventos_partida(partida_id, competicao, limite=20):
-    criar_tabela_eventos()
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -5830,7 +5853,6 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                     equipe,
                     tipo,
                     tipo_evento,
-                    fundamento,
                     resultado,
                     detalhe,
                     detalhes,
@@ -5841,7 +5863,7 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                     CONCAT(
                         COALESCE(equipe, '-'),
                         ' • ',
-                        COALESCE(tipo_evento, tipo, '-'),
+                        COALESCE(tipo, '-'),
                         CASE
                             WHEN COALESCE(fundamento, '') <> '' THEN ' • ' || fundamento
                             ELSE ''
@@ -5852,7 +5874,6 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                         END,
                         CASE
                             WHEN COALESCE(detalhe, '') <> '' THEN ' • ' || detalhe
-                            WHEN COALESCE(detalhes, '') <> '' THEN ' • ' || detalhes
                             ELSE ''
                         END,
                         CASE
@@ -5873,6 +5894,7 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
 
             return cur.fetchall()
 
+            
 # ================= ETAPA 2 SET FLOW =================
 def verificar_fim_de_set(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao)
