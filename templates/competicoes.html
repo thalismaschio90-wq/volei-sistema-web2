@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block conteudo %}
+
+{% if credenciais %}
+<div class="card-painel" style="background:#f4fff5;">
+    <div style="font-weight: 900; margin-bottom: 10px;">Competição criada com sucesso</div>
+    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ credenciais.competicao }}</div>
+    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ credenciais.login }}</div>
+    <div><strong>Senha:</strong> {{ credenciais.senha }}</div>
+</div>
+{% endif %}
+
+{% if senha_redefinida %}
+<div class="card-painel" style="background:#eef7ff;">
+    <div style="font-weight: 900; margin-bottom: 10px;">Senha redefinida</div>
+    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ senha_redefinida.competicao }}</div>
+    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ senha_redefinida.login }}</div>
+    <div><strong>Nova senha:</strong> {{ senha_redefinida.senha }}</div>
+</div>
+{% endif %}
+
+<div class="cards-competicoes">
+    {% for c in competicoes %}
+    <div class="competicao-card">
+        <div class="competicao-nome">{{ c.nome }}</div>
+        <div class="competicao-info"><strong>Data:</strong> {{ c.data or "-" }}</div>
+        <div class="competicao-info"><strong>Status:</strong> {{ c.status or "-" }}</div>
+        <div class="competicao-info"><strong>Login do organizador:</strong> {{ c.organizador_login or "-" }}</div>
+        <div class="competicao-info"><strong>Senha atual:</strong> {{ c.organizador_senha or "-" }}</div>
+
+        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
+
+            <form method="post" action="{{ url_for('competicoes.resetar_senha_organizador_view', nome=c.nome) }}">
+                <button type="submit" class="btn-secundario">Redefinir senha</button>
+            </form>
+
+            <form method="post" action="{{ url_for('competicoes.excluir_competicao_view', nome=c.nome) }}" onsubmit="return confirm('Deseja excluir esta competição?');">
+                <button type="submit" class="btn-secundario">Excluir</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="card-painel">
+        Nenhuma competição cadastrada.
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

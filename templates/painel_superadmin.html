@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block titulo %}Painel do Superadmin{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Painel do Superadmin</div>
+</div>
+
+<div class="hero-box">
+    <div class="hero-titulo">Controle geral do sistema</div>
+    <p class="hero-texto">
+        Gerencie competições, acompanhe os números gerais do sistema e acesse rapidamente
+        os principais módulos administrativos.
+    </p>
+</div>
+
+<div class="cards-grid">
+    <div class="numero-card">
+        <div class="numero-titulo">Competições</div>
+        <div class="numero-valor">{{ total_competicoes or 0 }}</div>
+    </div>
+
+    <div class="numero-card">
+        <div class="numero-titulo">Equipes</div>
+        <div class="numero-valor">{{ total_equipes or 0 }}</div>
+    </div>
+
+    <div class="numero-card">
+        <div class="numero-titulo">Partidas</div>
+        <div class="numero-valor">{{ total_partidas or 0 }}</div>
+    </div>
+</div>
+
+<div class="card-painel">
+    <div class="topo-secao" style="margin-bottom: 12px;">
+        <div style="font-size: 20px; font-weight: 900;">Acessos rápidos</div>
+    </div>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <a class="btn-padrao" href="/competicoes">Abrir competições</a>
+        <a class="btn-secundario" href="/competicoes/nova">Nova competição</a>
+        <a class="btn-secundario" href="/minha-conta">Minha conta</a>
+    </div>
+</div>
+{% endblock %}

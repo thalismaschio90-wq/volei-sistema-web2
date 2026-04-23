@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Gerenciar Equipe</h2>
+
+    {% if erro %}
+        <p class="msg-erro">{{ erro }}</p>
+    {% endif %}
+
+    {% if sucesso %}
+        <p class="msg-sucesso">{{ sucesso }}</p>
+    {% endif %}
+
+    <p><strong>Nome atual:</strong> {{ equipe.nome }}</p>
+    <p><strong>Login:</strong> {{ equipe.login }}</p>
+    <p><strong>Competição:</strong> {{ equipe.competicao or "-" }}</p>
+
+    <hr><br>
+
+    <form method="post">
+        <input type="hidden" name="acao" value="salvar">
+        <div class="linha-form">
+            <input name="nome" value="{{ equipe.nome }}" required>
+            <button type="submit">Salvar nome</button>
+        </div>
+    </form>
+
+    <br>
+
+    <form method="post">
+        <input type="hidden" name="acao" value="resetar_senha">
+        <button type="submit">Resetar senha</button>
+    </form>
+
+    <br>
+
+    <form method="post" onsubmit="return confirm('Tem certeza que deseja excluir esta equipe?');">
+        <input type="hidden" name="acao" value="excluir">
+        <button type="submit" style="background:#b91c1c;">Excluir equipe</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conferência da Equipe {{ lado }}{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Conferência da Equipe {{ lado }}</div>
+</div>
+
+<div class="card-painel">
+    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+    <div style="margin-top:6px;">
+        Jogo {{ partida.ordem or '-' }}
+        {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
+        {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
+    </div>
+    <div style="margin-top:10px; font-size:18px; font-weight:900;">
+        {{ equipe_nome }}
+    </div>
+    <div style="margin-top:8px; color:var(--muted);">
+        Confira nome, CPF e preencha a numeração quando necessário.
+    </div>
+</div>
+
+<div class="card-painel">
+    <form method="post" action="{{ url_for('apontadores.salvar_conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado=lado) }}">
+        {% if atletas %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>CPF</th>
+                        <th>Número</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for atleta in atletas %}
+                    <tr>
+                        <td>
+                            {{ atleta.nome }}
+                            <input type="hidden" name="atleta_id" value="{{ atleta.id }}">
+                        </td>
+                        <td>{{ atleta.cpf }}</td>
+                        <td style="max-width:140px;">
+                            <input
+                                type="number"
+                                name="numero_{{ atleta.id }}"
+                                value="{{ atleta.numero if atleta.numero is not none else '' }}"
+                                min="1"
+                                step="1"
+                                placeholder="Número"
+                            >
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
+                <button class="btn-padrao" type="submit">Salvar conferência</button>
+                <a class="btn-secundario" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">Cancelar</a>
+            </div>
+        {% else %}
+            <div style="color:var(--muted); margin-bottom:14px;">
+                Nenhum atleta aprovado encontrado para esta equipe.
+            </div>
+            <a class="btn-secundario" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">Voltar</a>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block titulo %}Minha Conta{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Minha Conta</div>
+</div>
+
+<div class="card-painel">
+    <p><strong>Usuário:</strong> {{ usuario }}</p>
+    <p><strong>Nome:</strong> {{ nome }}</p>
+    <p><strong>Perfil:</strong> {{ perfil }}</p>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao" style="margin-bottom: 0;">Minha equipe</div>
+</div>
+
+{% if erro %}
+    <div class="flash-erro">{{ erro }}</div>
+{% endif %}
+
+{% if sucesso %}
+    <div class="flash-sucesso">{{ sucesso }}</div>
+{% endif %}
+
+<div class="card-painel">
+    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ equipe.nome }}</div>
+    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ equipe.login }}</div>
+    <div><strong>Competição:</strong> {{ equipe.competicao or "-" }}</div>
+</div>
+
+
+<div class="card-painel">
+    <div style="font-weight: 900; margin-bottom: 14px;">Modo treinador</div>
+    <div style="color: var(--muted); margin-bottom: 14px;">Acesse a tela separada do treinador, sem novo login, com abas de papeleta, operação e scout.</div>
+    <a class="btn-padrao" href="{{ url_for('treinador.abrir_modo_treinador') }}">Abrir modo treinador</a>
+</div>
+
+<div class="card-painel">
+    <div style="font-weight: 900; margin-bottom: 14px;">Comissão técnica</div>
+
+    <form method="post">
+        <label>Treinador</label>
+        <input type="text" name="treinador" value="{{ equipe.treinador or '' }}">
+
+        <label>Auxiliar técnico</label>
+        <input type="text" name="auxiliar_tecnico" value="{{ equipe.auxiliar_tecnico or '' }}">
+
+        <label>Preparador físico</label>
+        <input type="text" name="preparador_fisico" value="{{ equipe.preparador_fisico or '' }}">
+
+        <label>Médico</label>
+        <input type="text" name="medico" value="{{ equipe.medico or '' }}">
+
+        <div style="margin-top: 14px;">
+            <button type="submit" class="btn-padrao">Salvar comissão técnica</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

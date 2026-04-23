@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block titulo %}Árbitros{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Árbitros</div>
+
+    <a href="{{ url_for('arbitros.novo_arbitro') }}" class="btn-padrao">+ Novo Árbitro</a>
+</div>
+
+<div class="card-painel">
+    {% if credenciais %}
+        <div class="flash-sucesso">
+            Árbitro criado com sucesso.<br>
+            <strong>Nome:</strong> {{ credenciais.nome }}<br>
+            <strong>Login:</strong> {{ credenciais.login }}<br>
+            <strong>Senha:</strong> {{ credenciais.senha }}
+        </div>
+    {% endif %}
+
+    {% if senha_redefinida %}
+        <div class="flash-sucesso">
+            Senha redefinida com sucesso.<br>
+            <strong>Nome:</strong> {{ senha_redefinida.nome }}<br>
+            <strong>Login:</strong> {{ senha_redefinida.login }}<br>
+            <strong>Nova senha:</strong> {{ senha_redefinida.senha }}
+        </div>
+    {% endif %}
+
+    {% if arbitros %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>Login</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in arbitros %}
+                <tr>
+                    <td>{{ a.nome }}</td>
+                    <td>{{ a.login }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('arbitros.redefinir_senha_arbitro', nome=a.nome) }}" style="display:inline;">
+                            <button class="btn-secundario" type="submit">Redefinir senha</button>
+                        </form>
+
+                        <form method="post" action="{{ url_for('arbitros.excluir_arbitro', nome=a.nome) }}" style="display:inline; margin-left: 8px;">
+                            <button class="btn-danger" type="submit">Excluir</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div>Nenhum árbitro cadastrado.</div>
+    {% endif %}
+</div>
+{% endblock %}

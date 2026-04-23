@@ -1,0 +1,77 @@
+{
+    "usuarios": {
+        "org_testeorganizador": {
+            "nome": "Organizador Teste Organizador",
+            "senha": "qCkiAd",
+            "perfil": "organizador",
+            "ativo": true,
+            "equipe": null,
+            "competicao_vinculada": "Teste Organizador"
+        },
+        "org_prado_volley_cup": {
+            "nome": "Organizador Prado Volley Cup",
+            "senha": "s0AcwG",
+            "perfil": "organizador",
+            "ativo": true,
+            "equipe": null,
+            "competicao_vinculada": "Prado Volley Cup"
+        },
+        "qqq": {
+            "nome": "qqq",
+            "senha": "0NaNOs",
+            "perfil": "equipe",
+            "ativo": true,
+            "equipe": "qqq",
+            "competicao_vinculada": "Prado Volley Cup"
+        },
+        "Thalis": {
+            "nome": "Administrador",
+            "senha": "123",
+            "perfil": "superadmin",
+            "ativo": true,
+            "equipe": null,
+            "competicao_vinculada": ""
+        }
+    },
+    "equipes": {
+        "qqq": {
+            "nome": "qqq",
+            "login": "qqq",
+            "senha": "0NaNOs",
+            "atletas": [],
+            "competicao": "Prado Volley Cup"
+        }
+    },
+    "competicoes": {
+        "Teste Organizador": {
+            "nome": "Teste Organizador",
+            "data": "",
+            "status": "pendente",
+            "organizador_login": "org_testeorganizador",
+            "organizador": {
+                "login": "org_testeorganizador",
+                "senha": "qCkiAd"
+            }
+        },
+        "Pietro": {
+            "nome": "Pietro",
+            "data": "",
+            "status": "pendente",
+            "organizador_login": "org_pietro",
+            "organizador": {
+                "login": "org_pietro",
+                "senha": ""
+            }
+        },
+        "Prado Volley Cup": {
+            "nome": "Prado Volley Cup",
+            "data": "2026-04-20",
+            "status": "pendente",
+            "organizador_login": "org_prado_volley_cup",
+            "organizador": {
+                "login": "org_prado_volley_cup",
+                "senha": "s0AcwG"
+            }
+        }
+    }
+}

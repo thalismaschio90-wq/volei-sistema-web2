@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Mesário criado com sucesso</h2>
+
+    <p><strong>Nome:</strong> {{ nome }}</p>
+
+    <div class="cred-box">
+        <p><strong>Login:</strong> {{ login }}</p>
+        <p><strong>Senha:</strong> {{ senha }}</p>
+    </div>
+
+    <br>
+    <a class="acao-link" href="{{ url_for('usuarios.listar') }}">← Voltar para mesários</a>
+</div>
+{% endblock %}

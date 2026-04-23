@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+
+{% block titulo %}Tabela{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Tabela</div>
+</div>
+
+<style>
+.tabela-tabs {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:18px;
+}
+.tabela-tab {
+    padding:10px 16px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    text-decoration:none;
+    font-weight:800;
+    transition:.18s ease;
+    background: var(--card-bg, transparent);
+}
+.tabela-tab:hover {
+    transform: translateY(-1px);
+}
+.tabela-tab.ativa {
+    background: var(--card-bg-hover, rgba(255,255,255,.06));
+    box-shadow: 0 4px 16px rgba(0,0,0,.08);
+}
+.tabela-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+}
+.tabela-danger-button {
+    background:#8b1e1e;
+    color:white;
+    border:none;
+    border-radius:10px;
+    padding:10px 14px;
+    font-weight:800;
+    cursor:pointer;
+}
+.tabela-danger-outline {
+    background:transparent;
+    color:#8b1e1e;
+    border:1px solid #8b1e1e;
+    border-radius:10px;
+    padding:6px 10px;
+    font-weight:700;
+    cursor:pointer;
+}
+.tabela-link-box {
+    width:100%;
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background: var(--card-bg, transparent);
+    color: inherit;
+}
+.visualizador-preview {
+    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    min-height: 540px;
+}
+.visualizador-preview iframe {
+    width: 100%;
+    min-height: 540px;
+    border: none;
+    background: #0f172a;
+}
+@media (max-width: 900px) {
+    .tabela-grid { grid-template-columns:1fr; }
+}
+</style>
+
+<div class="tabela-tabs">
+    <a class="tabela-tab {% if aba_ativa == 'geracao' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='geracao') }}">Configurações</a>
+    <a class="tabela-tab {% if aba_ativa == 'partidas' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase=fase_ativa) }}">Partidas</a>
+    <a class="tabela-tab {% if aba_ativa == 'classificacao' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='classificacao') }}">Classificação</a>
+    <a class="tabela-tab {% if aba_ativa == 'visualizador' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='visualizador') }}">Link público</a>
+</div>
+
+{% if competicao_travada %}
+<div class="card-painel" style="border:1px solid #f3c26b; background:#fff9ef;">
+    <strong>Competição travada.</strong> Alterações em grupos, partidas e geração de tabela estão bloqueadas até destravamento manual na aba Competição.
+</div>
+{% endif %}
+
+{% if aba_ativa == 'geracao' %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Reset da tabela</h3>
+    <p style="color: var(--muted); margin-top:0;">Apaga todas as partidas da competição. Grupos e equipes permanecem.</p>
+    <form method="post" action="{{ url_for('tabela.limpar_tabela') }}" onsubmit="return confirm('Tem certeza que deseja apagar todas as partidas da competição?');">
+        <button class="tabela-danger-button" type="submit">Limpar toda a tabela</button>
+    </form>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Criar grupo</h3>
+
+    <form method="post" action="{{ url_for('tabela.criar_grupo_view') }}">
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div style="min-width:240px; flex:1;">
+                <label for="nome">Nome do grupo</label>
+                <input type="text" id="nome" name="nome" placeholder="Ex.: A, B, C..." required>
+            </div>
+            <div style="display:flex; align-items:end;">
+                <button class="btn-padrao" type="submit">Criar grupo</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Adicionar equipe ao grupo</h3>
+
+    <form method="post" action="{{ url_for('tabela.adicionar_equipe_grupo') }}">
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div style="min-width:220px; flex:1;">
+                <label for="grupo_id">Grupo</label>
+                <select id="grupo_id" name="grupo_id" required>
+                    <option value="">Selecione</option>
+                    {% for g in grupos %}
+                        <option value="{{ g.grupo.id }}">{{ g.grupo.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="min-width:260px; flex:1;">
+                <label for="equipe">Equipe</label>
+                <select id="equipe" name="equipe" required>
+                    <option value="">Selecione</option>
+                    {% for e in equipes %}
+                        <option value="{{ e.nome }}">{{ e.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="display:flex; align-items:end;">
+                <button class="btn-secundario" type="submit">Adicionar equipe</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Grupos</h3>
+
+    {% if grupos %}
+        {% for g in grupos %}
+            <div style="padding: 14px 0; border-bottom: 1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px;">
+                    <div style="font-size: 20px; font-weight: 900;">
+                        Grupo {{ g.grupo.nome }}
+                    </div>
+                    <form method="post" action="{{ url_for('tabela.excluir_grupo_view', grupo_id=g.grupo.id) }}" onsubmit="return confirm('Excluir este grupo vai remover também as equipes vinculadas e os jogos deste grupo. Deseja continuar?');">
+                        <button class="tabela-danger-button" type="submit">Excluir grupo</button>
+                    </form>
+                </div>
+
+                {% if g.equipes %}
+                    {% for e in g.equipes %}
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom: 6px;">
+                            <span>{{ e.equipe }}</span>
+                            <form method="post" action="{{ url_for('tabela.remover_equipe_grupo_view') }}" onsubmit="return confirm('Remover esta equipe do grupo? Os jogos desse grupo envolvendo ela também serão apagados.');">
+                                <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
+                                <input type="hidden" name="equipe" value="{{ e.equipe }}">
+                                <button class="tabela-danger-outline" type="submit">Remover</button>
+                            </form>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div style="color: var(--muted);">Nenhuma equipe no grupo.</div>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <div>Nenhum grupo criado.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if aba_ativa == 'partidas' %}
+<div class="tabela-tabs">
+    <a class="tabela-tab {% if fase_ativa == 'classificatorias' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='classificatorias') }}">Classificatórias</a>
+    {% if tem_quartas %}
+        <a class="tabela-tab {% if fase_ativa == 'quartas' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='quartas') }}">Quartas</a>
+    {% endif %}
+    {% if tem_semifinais %}
+        <a class="tabela-tab {% if fase_ativa == 'semifinais' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='semifinais') }}">Semifinais</a>
+    {% endif %}
+    {% if tem_finais %}
+        <a class="tabela-tab {% if fase_ativa == 'finais' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='finais') }}">Finais</a>
+    {% endif %}
+</div>
+
+<div class="card-painel">
+    <div class="topo-secao" style="margin-bottom: 12px;">
+        <h3 style="margin:0;">
+            {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% endif %}
+            {% if fase_ativa == 'quartas' %}Quartas de final{% endif %}
+            {% if fase_ativa == 'semifinais' %}Semifinais{% endif %}
+            {% if fase_ativa == 'finais' %}Finais{% endif %}
+        </h3>
+    </div>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        {% if fase_ativa == 'classificatorias' %}
+        <form method="post" action="{{ url_for('tabela.gerar_automatico') }}">
+            <button class="btn-padrao" type="submit">Gerar jogos automaticamente</button>
+        </form>
+        {% else %}
+        <div style="color: var(--muted); display:flex; align-items:center;">Nesta fase, a geração automática será ligada na próxima etapa.</div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('tabela.limpar_fase_view') }}" onsubmit="return confirm('Deseja apagar todas as partidas desta fase?');">
+            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+            <button class="tabela-danger-outline" type="submit">Limpar fase</button>
+        </form>
+    </div>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Criar jogo manual</h3>
+
+    <form method="post" action="{{ url_for('tabela.nova_partida') }}">
+        <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div style="min-width:180px; flex:1;">
+                <label for="grupo">Grupo</label>
+                <select id="grupo" name="grupo" required>
+                    <option value="">Selecione</option>
+                    {% for g in grupos %}
+                        <option value="{{ g.grupo.nome }}">{{ g.grupo.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="min-width:240px; flex:1;">
+                <label for="equipe_a">Equipe A</label>
+                <select id="equipe_a" name="equipe_a" required>
+                    <option value="">Selecione</option>
+                    {% for e in equipes %}
+                        <option value="{{ e.nome }}">{{ e.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="min-width:240px; flex:1;">
+                <label for="equipe_b">Equipe B</label>
+                <select id="equipe_b" name="equipe_b" required>
+                    <option value="">Selecione</option>
+                    {% for e in equipes %}
+                        <option value="{{ e.nome }}">{{ e.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="display:flex; align-items:end;">
+                <button class="btn-secundario" type="submit">Criar partida</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top: 0;">
+        {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% endif %}
+        {% if fase_ativa == 'quartas' %}Quartas de final{% endif %}
+        {% if fase_ativa == 'semifinais' %}Semifinais{% endif %}
+        {% if fase_ativa == 'finais' %}Finais{% endif %}
+    </h3>
+
+    {% if partidas_fase %}
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Grupo</th>
+                <th>Jogo</th>
+                <th>Fase</th>
+                <th>Status</th>
+                <th>Sets</th>
+                <th>Parciais</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in partidas_fase %}
+            <tr>
+                <td>{{ p.ordem }}</td>
+                <td>{{ p.grupo }}</td>
+                <td>{{ p.equipe_a }} x {{ p.equipe_b }}</td>
+                <td>{{ p.fase or 'grupos' }}</td>
+                <td>
+                    {% if (p.status or "").lower() in ["em andamento", "ao vivo"] %}
+                        <span style="color:#22c55e; font-weight:800;">AO VIVO</span>
+                    {% elif (p.status or "").lower() == "finalizada" %}
+                        <span style="color:#94a3b8; font-weight:800;">FINALIZADO</span>
+                    {% else %}
+                        {{ p.status or "Aguardando" }}
+                    {% endif %}
+                </td>
+                <td style="font-weight:800;">
+                    {% if p.sets_a is not none and p.sets_b is not none %}
+                        {{ p.sets_a }} x {{ p.sets_b }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td style="font-size:13px; color:var(--muted);">
+                    {% if (p.status or "").lower() == "finalizada" %}
+                        {% set sets = [] %}
+                        {% if p.set1_a is not none and p.set1_b is not none %}
+                            {% set _ = sets.append((p.set1_a|string) ~ "x" ~ (p.set1_b|string)) %}
+                        {% endif %}
+                        {% if p.set2_a is not none and p.set2_b is not none %}
+                            {% set _ = sets.append((p.set2_a|string) ~ "x" ~ (p.set2_b|string)) %}
+                        {% endif %}
+                        {% if p.set3_a is not none and p.set3_b is not none %}
+                            {% set _ = sets.append((p.set3_a|string) ~ "x" ~ (p.set3_b|string)) %}
+                        {% endif %}
+                        {{ sets|join(" / ") if sets else "-" }}
+                    {% elif (p.status or "").lower() in ["em andamento", "ao vivo"] %}
+                        {{ p.set_atual_a or p.placar_a or p.pontos_a or 0 }} x {{ p.set_atual_b or p.placar_b or p.pontos_b or 0 }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <div>Nenhum jogo criado nesta fase.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if aba_ativa == 'classificacao' %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Classificação</h3>
+
+    {% if classificacao %}
+        {% for nome_grupo, linhas in classificacao.items() %}
+            <div style="margin-bottom: 20px;">
+                <div style="font-size:18px; font-weight:900; margin-bottom:8px;">
+                    Grupo {{ nome_grupo }}
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Equipe</th>
+                            <th>Pts</th>
+                            <th>J</th>
+                            <th>V</th>
+                            <th>D</th>
+                            <th>Sets pró</th>
+                            <th>Sets contra</th>
+                            <th>Saldo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in linhas %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ linha.equipe }}</td>
+                            <td>{{ linha.pontos }}</td>
+                            <td>{{ linha.jogos }}</td>
+                            <td>{{ linha.vitorias }}</td>
+                            <td>{{ linha.derrotas }}</td>
+                            <td>{{ linha.sets_pro }}</td>
+                            <td>{{ linha.sets_contra }}</td>
+                            <td>{{ linha.saldo_sets }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div style="color: var(--muted);">Ainda não há classificação calculável para esta competição.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if aba_ativa == 'visualizador' %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Visualizador ao vivo</h3>
+    <p style="margin-top:0; color: var(--muted);">
+        Este é o link exclusivo para divulgar a classificação e os jogos ao vivo da competição.
+    </p>
+
+    <label style="font-weight:800;">Link para divulgação</label>
+    <input
+        class="tabela-link-box"
+        type="text"
+        readonly
+        value="{{ request.host_url.rstrip('/') }}{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"
+        onclick="this.select();"
+    >
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:14px;">
+        <a href="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}" target="_blank">
+            <button class="btn-padrao" type="button">Abrir visualizador</button>
+        </a>
+    </div>
+
+    <div class="visualizador-preview">
+        <iframe src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

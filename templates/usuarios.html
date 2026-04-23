@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Mesários</h2>
+
+    <form method="post" action="{{ url_for('usuarios.novo') }}">
+        <div class="linha-form">
+            <input name="nome" placeholder="Nome do mesário" required>
+            <button type="submit">Criar mesário</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <table>
+        <tr>
+            <th>Nome</th>
+            <th>Login</th>
+            <th>Competição</th>
+            <th>Ações</th>
+        </tr>
+
+        {% for login, u in usuarios.items() %}
+        <tr>
+            <td>{{ u.nome }}</td>
+            <td>{{ login }}</td>
+            <td>{{ u.competicao_vinculada or "-" }}</td>
+            <td>
+                <a class="acao-link excluir" href="{{ url_for('usuarios.excluir', login=login) }}">Excluir</a>
+            </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="4">Nenhum mesário cadastrado.</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

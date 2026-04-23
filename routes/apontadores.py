@@ -1,0 +1,1012 @@
+from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
+
+from banco import (
+    criar_tabelas_oficiais,
+    conectar,
+    listar_competicoes_apontador,
+    buscar_oficial_por_cpf,
+    listar_partidas,
+    buscar_partida_operacional,
+    assumir_partida_operacional,
+    abandonar_partida_operacional,
+    listar_arbitros_competicao,
+    salvar_pre_jogo_partida,
+    listar_atletas_aprovados_da_equipe,
+    atualizar_numero_atleta,
+    equipe_ja_conferida,
+    marcar_equipe_conferida,
+    salvar_papeleta,
+    listar_papeleta,
+    inicializar_sets_partida,
+    registrar_resultado_set,
+    salvar_capitao_partida,
+    inicializar_jogo_partida,
+    buscar_estado_jogo_partida,
+    registrar_ponto_partida,
+    desfazer_ultima_acao_partida,
+    registrar_tempo_partida,
+    buscar_tempos_restantes_partida,
+    registrar_substituicao_partida,
+    registrar_substituicao_excepcional_partida,
+    registrar_retardamento_partida,
+    registrar_sancao_partida,
+    registrar_cartao_verde_partida,
+    resumir_fluxo_oficial_partida,
+    papeleta_set_esta_completa, verificar_fim_de_set, finalizar_set_e_avancar,
+    salvar_sorteio_tiebreak_partida,
+    partida_encerrada,
+    precisa_tiebreak,
+    verificar_fim_partida, encerrar_partida,
+    garantir_estado_partida,
+    listar_eventos_partida,
+)
+from routes.utils import exigir_perfil
+
+apontadores_bp = Blueprint("apontadores", __name__)
+
+
+def listar_apontadores():
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    o.nome,
+                    o.cpf,
+                    a.ativo,
+                    a.primeiro_acesso
+                FROM apontadores_acesso a
+                JOIN oficiais o ON o.cpf = a.cpf
+                ORDER BY o.nome
+            """)
+            return cur.fetchall()
+
+
+@apontadores_bp.route("/apontadores")
+@exigir_perfil("superadmin")
+def apontadores():
+    criar_tabelas_oficiais()
+    lista = listar_apontadores()
+
+    return render_template(
+        "apontadores.html",
+        apontadores=lista
+    )
+
+
+@apontadores_bp.route("/apontador")
+@exigir_perfil("apontador")
+def painel_apontador():
+    criar_tabelas_oficiais()
+
+    cpf = session.get("usuario")
+
+    if not cpf:
+        flash("CPF do apontador não encontrado na sessão.", "erro")
+        return render_template("painel_apontador.html")
+
+    oficial = buscar_oficial_por_cpf(cpf)
+    if not oficial:
+        flash("Não foi possível localizar o apontador pelo CPF informado.", "erro")
+        return render_template("painel_apontador.html")
+
+    competicoes = listar_competicoes_apontador(cpf)
+
+    if not competicoes:
+        return render_template("painel_apontador.html")
+
+    if len(competicoes) == 1:
+        return render_template(
+            "painel_apontador.html",
+            competicao_unica=competicoes[0]
+        )
+
+    return render_template(
+        "painel_apontador.html",
+        competicoes=competicoes
+    )
+
+
+@apontadores_bp.route("/apontador/entrar/<competicao>")
+@exigir_perfil("apontador")
+def entrar_competicao_apontador(competicao):
+    session["competicao_apontador"] = competicao
+
+    partidas = listar_partidas(competicao)
+    partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
+
+    return render_template(
+        "painel_apontador.html",
+        modo_partidas=True,
+        competicao_nome=competicao,
+        partidas=partidas
+    )
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>")
+@exigir_perfil("apontador")
+def abrir_pre_jogo_apontador(competicao, partida_id):
+    cpf = session.get("usuario")
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    bloqueada_por_outro = (
+        partida.get("operador_login")
+        and partida.get("operador_login") != cpf
+        and (partida.get("status_operacao") or "livre").lower() in {"reservado", "pre_jogo", "em_andamento"}
+    )
+
+    arbitros = listar_arbitros_competicao(competicao)
+
+    equipe_a_conferida = False
+    equipe_b_conferida = False
+
+    equipe_a_operacional = partida.get("equipe_a_operacional")
+    equipe_b_operacional = partida.get("equipe_b_operacional")
+
+    if equipe_a_operacional:
+        equipe_a_conferida = equipe_ja_conferida(competicao, equipe_a_operacional)
+
+    if equipe_b_operacional:
+        equipe_b_conferida = equipe_ja_conferida(competicao, equipe_b_operacional)
+
+    precisa_conferencia = False
+    if equipe_a_operacional and equipe_b_operacional:
+        precisa_conferencia = (not equipe_a_conferida) or (not equipe_b_conferida)
+
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida)
+
+    return render_template(
+        "pre_jogo_apontador.html",
+        competicao_nome=competicao,
+        partida=partida,
+        fluxo=fluxo,
+        arbitros=arbitros,
+        bloqueada_por_outro=bloqueada_por_outro,
+        equipe_a_conferida=equipe_a_conferida,
+        equipe_b_conferida=equipe_b_conferida,
+        precisa_conferencia=precisa_conferencia,
+        capitao_a_nome=partida.get("capitao_a_nome"),
+        capitao_a_numero=partida.get("capitao_a_numero"),
+        capitao_b_nome=partida.get("capitao_b_nome"),
+        capitao_b_numero=partida.get("capitao_b_numero"),
+        pre_jogo_bloqueado=(fluxo.get("fase_partida") != "pre_jogo"),
+        tie_break_pendente=bool(fluxo.get("tiebreak_pendente")),
+    )
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/assumir", methods=["POST"])
+@exigir_perfil("apontador")
+def assumir_partida_view(competicao, partida_id):
+    cpf = session.get("usuario")
+    oficial = buscar_oficial_por_cpf(cpf)
+
+    if not oficial:
+        flash("Apontador não localizado.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    ok, msg = assumir_partida_operacional(
+        partida_id,
+        competicao,
+        cpf,
+        oficial["nome"]
+    )
+
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/abandonar", methods=["POST"])
+@exigir_perfil("apontador")
+def abandonar_partida_view(competicao, partida_id):
+    cpf = session.get("usuario")
+    ok, msg = abandonar_partida_operacional(partida_id, competicao, cpf)
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_pre_jogo_view(competicao, partida_id):
+    cpf = session.get("usuario")
+
+    arbitro_1_cpf = request.form.get("arbitro_1_cpf", "").strip()
+    arbitro_2_cpf = request.form.get("arbitro_2_cpf", "").strip()
+    vencedor_sorteio = request.form.get("sorteio_vencedor", "").strip()
+    escolha_sorteio = request.form.get("sorteio_escolha", "").strip()
+    lado_esquerdo = request.form.get("lado_esquerdo", "").strip()
+    saque_inicial = request.form.get("saque_inicial", "").strip()
+
+    ok, msg = salvar_pre_jogo_partida(
+        partida_id=partida_id,
+        competicao=competicao,
+        operador_login=cpf,
+        arbitro_1_cpf=arbitro_1_cpf,
+        arbitro_2_cpf=arbitro_2_cpf,
+        sorteio_vencedor=vencedor_sorteio,
+        sorteio_escolha=escolha_sorteio,
+        saque_inicial=saque_inicial,
+        lado_esquerdo=lado_esquerdo,
+    )
+
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/tiebreak/<competicao>/<int:partida_id>")
+@exigir_perfil("apontador")
+def abrir_tiebreak_view(competicao, partida_id):
+    cpf = session.get("usuario")
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if partida.get("operador_login") != cpf:
+        flash("Somente o operador da partida pode fazer o sorteio do tie-break.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
+    if fluxo.get("fase_partida") != "tiebreak_sorteio":
+        flash("O sorteio do tie-break não está liberado neste momento.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    return render_template(
+        "tiebreak_sorteio_apontador.html",
+        competicao_nome=competicao,
+        partida=partida,
+        fluxo=fluxo,
+    )
+
+
+@apontadores_bp.route("/apontador/tiebreak/<competicao>/<int:partida_id>/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_tiebreak_view(competicao, partida_id):
+    cpf = session.get("usuario")
+
+    vencedor_sorteio = request.form.get("sorteio_vencedor", "").strip()
+    escolha_sorteio = request.form.get("sorteio_escolha", "").strip()
+    saque_tiebreak = request.form.get("saque_tiebreak", "").strip()
+    lado_esquerdo_tiebreak = request.form.get("lado_esquerdo_tiebreak", "").strip()
+
+    ok, msg = salvar_sorteio_tiebreak_partida(
+        partida_id=partida_id,
+        competicao=competicao,
+        operador_login=cpf,
+        sorteio_vencedor=vencedor_sorteio,
+        sorteio_escolha=escolha_sorteio,
+        saque_tiebreak=saque_tiebreak,
+        lado_esquerdo_tiebreak=lado_esquerdo_tiebreak,
+    )
+
+    flash(msg, "sucesso" if ok else "erro")
+    if ok:
+        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+    return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/conferencia/<lado>")
+@exigir_perfil("apontador")
+def conferencia_equipe_view(competicao, partida_id, lado):
+    cpf = session.get("usuario")
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if partida.get("operador_login") != cpf:
+        flash("Somente o operador da partida pode fazer a conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    lado = (lado or "").strip().upper()
+    if lado not in {"A", "B"}:
+        flash("Lado inválido para conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
+    if not equipe:
+        flash("Salve primeiro o sorteio para definir as equipes operacionais.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+
+    return render_template(
+        "conferencia_equipe.html",
+        competicao_nome=competicao,
+        partida=partida,
+        lado=lado,
+        equipe_nome=equipe,
+        atletas=atletas,
+    )
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/conferencia/<lado>/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_conferencia_equipe_view(competicao, partida_id, lado):
+    cpf = session.get("usuario")
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if partida.get("operador_login") != cpf:
+        flash("Somente o operador da partida pode salvar a conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    lado = (lado or "").strip().upper()
+    if lado not in {"A", "B"}:
+        flash("Lado inválido para conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
+    if not equipe:
+        flash("Equipe não definida para conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    ids = request.form.getlist("atleta_id")
+    houve_erro = False
+
+    for atleta_id in ids:
+        numero = request.form.get(f"numero_{atleta_id}", "").strip()
+        ok, msg = atualizar_numero_atleta(atleta_id, numero)
+        if not ok:
+            houve_erro = True
+            flash(msg, "erro")
+
+    if not houve_erro:
+        marcar_equipe_conferida(competicao, equipe)
+        flash("Conferência salva com sucesso.", "sucesso")
+
+    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/capitao/<lado>")
+@exigir_perfil("apontador")
+def definir_capitao_view(competicao, partida_id, lado):
+    cpf = session.get("usuario")
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if partida.get("operador_login") != cpf:
+        flash("Somente o operador da partida pode definir o capitão.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    lado = (lado or "").strip().upper()
+    if lado not in {"A", "B"}:
+        flash("Lado inválido para capitão.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
+    if not equipe:
+        flash("Equipe operacional ainda não definida.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+    atletas = [a for a in atletas if a.get("numero") not in (None, "")]
+    atleta_atual_id = partida.get("capitao_a_id") if lado == "A" else partida.get("capitao_b_id")
+
+    return render_template(
+        "definir_capitao.html",
+        competicao_nome=competicao,
+        partida=partida,
+        lado=lado,
+        equipe_nome=equipe,
+        atletas=atletas,
+        atleta_atual_id=atleta_atual_id,
+    )
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/capitao/<lado>/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_capitao_view(competicao, partida_id, lado):
+    cpf = session.get("usuario")
+    atleta_id = request.form.get("atleta_id", "").strip()
+
+    ok, msg = salvar_capitao_partida(partida_id, competicao, cpf, lado, atleta_id)
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/papeleta/<competicao>/<int:partida_id>", methods=["GET"])
+@exigir_perfil("apontador")
+def papeleta_view(competicao, partida_id):
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    inicializar_sets_partida(partida_id, competicao)
+    partida = buscar_partida_operacional(partida_id, competicao)
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
+
+    if fluxo.get("fase_partida") == "encerrado":
+        flash("A partida já está finalizada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if fluxo.get("fase_partida") == "pre_jogo":
+        flash("Finalize primeiro o pré-jogo para acessar a papeleta.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    if fluxo.get("fase_partida") == "tiebreak_sorteio":
+        flash("Antes do tie-break, faça o sorteio específico do set decisivo.", "erro")
+        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
+    if fluxo.get("fase_partida") == "jogo":
+        return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
+
+    equipe_a = partida.get("equipe_a_operacional")
+    equipe_b = partida.get("equipe_b_operacional")
+    set_atual = int(partida.get("set_atual") or 1)
+
+    atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
+    atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
+
+    atletas_a = [a for a in atletas_a if a.get("numero")]
+    atletas_b = [a for a in atletas_b if a.get("numero")]
+
+    papeleta_a_rows = listar_papeleta(partida_id, competicao, equipe_a, set_atual) if equipe_a else []
+    papeleta_b_rows = listar_papeleta(partida_id, competicao, equipe_b, set_atual) if equipe_b else []
+
+    papeleta_a = {row["posicao"]: row["numero"] for row in papeleta_a_rows}
+    papeleta_b = {row["posicao"]: row["numero"] for row in papeleta_b_rows}
+
+    return render_template(
+        "papeleta_apontador.html",
+        competicao_nome=competicao,
+        partida=partida,
+        equipe_a=equipe_a,
+        equipe_b=equipe_b,
+        atletas_a=atletas_a,
+        atletas_b=atletas_b,
+        papeleta_a=papeleta_a,
+        papeleta_b=papeleta_b,
+        fluxo=fluxo,
+    )
+
+
+@apontadores_bp.route("/apontador/papeleta/<competicao>/<int:partida_id>", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_papeleta_view(competicao, partida_id):
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    equipe_a = partida.get("equipe_a_operacional")
+    equipe_b = partida.get("equipe_b_operacional")
+    set_atual = int(partida.get("set_atual") or 1)
+
+    def montar_dados(lado, equipe):
+        dados = {}
+        atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+
+        for pos in [1, 2, 3, 4, 5, 6]:
+            valor = request.form.get(f"{lado}_{pos}", "").strip()
+            if not valor:
+                continue
+
+            try:
+                numero = int(valor)
+            except ValueError:
+                continue
+
+            atleta = next((a for a in atletas if int(a.get("numero") or 0) == numero), None)
+            if atleta:
+                dados[pos] = atleta
+
+        return dados
+
+    dados_a = montar_dados("A", equipe_a)
+    dados_b = montar_dados("B", equipe_b)
+
+    if len(dados_a) != 6 or len(dados_b) != 6:
+        flash("Preencha as 6 posições das duas equipes.", "erro")
+        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+
+    salvar_papeleta(partida_id, competicao, equipe_a, set_atual, dados_a)
+    salvar_papeleta(partida_id, competicao, equipe_b, set_atual, dados_b)
+
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=buscar_partida_operacional(partida_id, competicao)) or {}
+    flash("Papeleta salva com sucesso.", "sucesso")
+
+    if fluxo.get("papeleta_a_completa") and fluxo.get("papeleta_b_completa"):
+        return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
+
+    return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>", methods=["GET"])
+@exigir_perfil("apontador")
+def jogo_view(competicao, partida_id):
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    inicializar_jogo_partida(partida_id, competicao)
+    partida = buscar_partida_operacional(partida_id, competicao)
+    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
+
+    if fluxo.get("fase_partida") == "encerrado":
+        flash("A partida já está finalizada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if fluxo.get("fase_partida") == "pre_jogo":
+        flash("Finalize primeiro o pré-jogo para iniciar o jogo.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    if fluxo.get("fase_partida") == "tiebreak_sorteio":
+        flash("Antes do tie-break, faça o sorteio específico do set decisivo.", "erro")
+        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
+    if not fluxo.get("papeleta_a_completa") or not fluxo.get("papeleta_b_completa"):
+        flash("Complete as papeletas antes de iniciar o jogo.", "erro")
+        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+
+    # 🔥 ESTADO
+    garantir_estado_partida(partida_id, competicao)
+    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+    # 🔥 NOVO — BUSCAR PAPELETAS
+    equipe_a = partida.get("equipe_a_operacional")
+    equipe_b = partida.get("equipe_b_operacional")
+    set_atual = int(partida.get("set_atual") or 1)
+
+    papeleta_a = {}
+    papeleta_b = {}
+
+    try:
+        if equipe_a:
+            dados_a = listar_papeleta(partida_id, competicao, equipe_a, set_atual)
+            papeleta_a = {row["posicao"]: row["numero"] for row in dados_a}
+
+        if equipe_b:
+            dados_b = listar_papeleta(partida_id, competicao, equipe_b, set_atual)
+            papeleta_b = {row["posicao"]: row["numero"] for row in dados_b}
+    except Exception:
+        # fallback pra não quebrar a tela
+        papeleta_a = {}
+        papeleta_b = {}
+
+    # 🔥 GARANTIR POSIÇÕES (ESSENCIAL)
+    for i in range(1, 7):
+        papeleta_a.setdefault(i, "")
+        papeleta_b.setdefault(i, "")
+
+    resposta = make_response(render_template(
+        "jogo_apontador.html",
+        competicao_nome=competicao,
+        partida=partida,
+        estado=estado,
+        papeleta_a=papeleta_a,   # ✅ AGORA EXISTE
+        papeleta_b=papeleta_b,   # ✅ AGORA EXISTE
+        modo_operacao=(partida.get("modo_operacao") or "simples"),
+    ))
+
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
+
+    return resposta
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/ponto", methods=["POST"])
+@exigir_perfil("apontador")
+def ponto_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        detalhes = {
+            "fundamento": (request.form.get("fundamento") or corpo.get("fundamento") or "").strip(),
+            "resultado": (request.form.get("resultado") or corpo.get("resultado") or "").strip(),
+            "tipo_lance": (request.form.get("tipo_lance") or corpo.get("tipo_lance") or "").strip(),
+            "detalhe_lance": (request.form.get("detalhe_lance") or corpo.get("detalhe_lance") or "").strip(),
+            "tipo_erro": (request.form.get("tipo_erro") or corpo.get("tipo_erro") or "").strip(),
+            "atleta_numero": str(request.form.get("atleta_numero") or corpo.get("atleta_numero") or "").strip(),
+            "atleta_nome": (request.form.get("atleta_nome") or corpo.get("atleta_nome") or "").strip(),
+            "atleta_label": (request.form.get("atleta_label") or corpo.get("atleta_label") or "").strip(),
+        }
+
+        ok, retorno = registrar_ponto_partida(
+            partida_id,
+            competicao,
+            equipe,
+            tipo="ponto",
+            detalhes=detalhes
+        )
+
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar ponto: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/desfazer", methods=["POST"])
+@exigir_perfil("apontador")
+def desfazer_acao_view(competicao, partida_id):
+    try:
+        ok, retorno = desfazer_ultima_acao_partida(partida_id, competicao)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao desfazer ação: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/tempo", methods=["POST"])
+@exigir_perfil("apontador")
+def registrar_tempo_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+        ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao", methods=["POST"])
+@exigir_perfil("apontador")
+def registrar_substituicao_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+        numero_sai = str(request.form.get("numero_sai") or corpo.get("numero_sai") or "").strip()
+        numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
+
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if not numero_sai or not numero_entra:
+            resposta = jsonify({"ok": False, "mensagem": "Selecione quem sai e quem entra."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        ok, retorno = registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar substituição: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao-excepcional", methods=["POST"])
+@exigir_perfil("apontador")
+def registrar_substituicao_excepcional_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+        numero_sai = str(request.form.get("numero_sai") or corpo.get("numero_sai") or "").strip()
+        numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
+
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if not numero_sai or not numero_entra:
+            resposta = jsonify({"ok": False, "mensagem": "Selecione quem sai e quem entra."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        ok, retorno = registrar_substituicao_excepcional_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/retardamento", methods=["POST"])
+@exigir_perfil("apontador")
+def registrar_retardamento_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        ok, retorno = registrar_retardamento_partida(partida_id, competicao, equipe)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar retardamento: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/sancao", methods=["POST"])
+@exigir_perfil("apontador")
+def registrar_sancao_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+        tipo_pessoa = (request.form.get("tipo_pessoa") or corpo.get("tipo_pessoa") or "").strip().lower()
+        alvo = (request.form.get("alvo") or corpo.get("alvo") or "").strip()
+        sancao = (request.form.get("sancao") or corpo.get("sancao") or "").strip().lower()
+
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if tipo_pessoa not in {"jogador", "comissao"}:
+            resposta = jsonify({"ok": False, "mensagem": "Tipo de pessoa inválido."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if not alvo:
+            resposta = jsonify({"ok": False, "mensagem": "Selecione o alvo da sanção."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if not sancao:
+            resposta = jsonify({"ok": False, "mensagem": "Selecione o tipo de sanção."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        ok, retorno = registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa, alvo, sancao)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar sanção: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/cartao-verde", methods=["POST"])
+@exigir_perfil("apontador")
+def registrar_cartao_verde_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+
+        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+        tipo_pessoa = (request.form.get("tipo_pessoa") or corpo.get("tipo_pessoa") or "").strip().lower()
+        alvo = (request.form.get("alvo") or corpo.get("alvo") or "").strip()
+
+        if equipe not in {"A", "B"}:
+            resposta = jsonify({"ok": False, "mensagem": "Equipe inválida."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if tipo_pessoa not in {"jogador", "comissao"}:
+            resposta = jsonify({"ok": False, "mensagem": "Tipo de pessoa inválido."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        if not alvo:
+            resposta = jsonify({"ok": False, "mensagem": "Selecione o alvo do cartão verde."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        ok, retorno = registrar_cartao_verde_partida(partida_id, competicao, equipe, tipo_pessoa, alvo)
+        if not ok:
+            resposta = jsonify({"ok": False, "mensagem": retorno})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 400
+
+        resposta = jsonify({"ok": True, **retorno})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao registrar cartão verde: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/estado/<competicao>/<int:partida_id>")
+@exigir_perfil("apontador")
+def estado_jogo_view(competicao, partida_id):
+    try:
+        partida = buscar_partida_operacional(partida_id, competicao)
+
+        if not partida:
+            return jsonify({"ok": False, "mensagem": "Partida não encontrada"}), 404
+
+        garantir_estado_partida(partida_id, competicao)
+
+        estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+        eventos = listar_eventos_partida(partida_id)
+        historico = []
+
+        for ev in eventos or []:
+            descricao = (ev.get("descricao") or "").strip()
+
+            if not descricao:
+                partes = []
+
+                tipo_evento = str(ev.get("tipo_evento") or "").strip()
+                fundamento = str(ev.get("fundamento") or "").strip()
+                resultado = str(ev.get("resultado") or "").strip()
+                detalhe = str(ev.get("detalhe") or "").strip()
+                numero = str(ev.get("numero") or "").strip()
+                atleta_nome = str(ev.get("atleta_nome") or "").strip()
+                equipe = str(ev.get("equipe") or "").strip()
+
+                if tipo_evento:
+                    partes.append(tipo_evento.replace("_", " ").title())
+                if equipe:
+                    partes.append(f"Equipe {equipe}")
+                if fundamento:
+                    partes.append(fundamento.replace("_", " "))
+                if resultado:
+                    partes.append(resultado.replace("_", " "))
+                if detalhe:
+                    partes.append(detalhe)
+                if numero:
+                    partes.append(f"#{numero}")
+                if atleta_nome:
+                    partes.append(atleta_nome)
+
+                descricao = " • ".join([p for p in partes if p]) or "Ação registrada"
+
+            historico.append({
+                "descricao": descricao
+            })
+
+        estado["historico"] = historico
+        estado["ultima_acao"] = historico[0]["descricao"] if historico else "-"
+
+        return jsonify({
+            "ok": True,
+            "placar_a": estado.get("pontos_a") or estado.get("placar_a") or 0,
+            "placar_b": estado.get("pontos_b") or estado.get("placar_b") or 0,
+            "sets_a": estado.get("sets_a") or 0,
+            "sets_b": estado.get("sets_b") or 0,
+            "saque_atual": estado.get("saque_atual"),
+
+            "rotacao": {
+                "equipe_a": estado.get("rotacao_a") or [],
+                "equipe_b": estado.get("rotacao_b") or []
+            },
+
+            "historico": historico,
+            "ultima_acao": historico[0]["descricao"] if historico else "-"
+        })
+
+    except Exception as e:
+        print("ERRO estado_jogo_view:", e)
+        return jsonify({
+            "ok": False,
+            "mensagem": "Erro interno ao carregar estado do jogo."
+        }), 500
+
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/encerrar", methods=["POST"])
+@exigir_perfil("apontador")
+def encerrar_partida_view(competicao, partida_id):
+    try:
+        observacoes = ""
+        corpo = request.get_json(silent=True) or {}
+        if request.is_json:
+            observacoes = (corpo.get("observacoes") or "").strip()
+        else:
+            observacoes = (request.form.get("observacoes") or "").strip()
+
+        estado = buscar_estado_jogo_partida(partida_id, competicao)
+        if not estado:
+            resposta = jsonify({"ok": False, "mensagem": "Estado não encontrado."})
+            resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resposta, 404
+
+        encerrar_partida(partida_id, competicao, observacoes)
+        estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+        resposta = jsonify({
+            "ok": True,
+            "mensagem": "Partida encerrada com sucesso.",
+            "encerrado": True,
+            "estado": estado,
+            "partida_finalizada": True
+        })
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta
+    except Exception as e:
+        resposta = jsonify({"ok": False, "mensagem": f"Erro ao encerrar partida: {e}"})
+        resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resposta, 500
+
+
+@apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>")
+@exigir_perfil("apontador")
+def observacoes_view(competicao, partida_id):
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    return render_template(
+        "observacoes.html",
+        partida=partida,
+        competicao_nome=competicao
+    )
+
+
+@apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_observacoes_view(competicao, partida_id):
+
+    observacoes = request.form.get("observacoes")
+
+    encerrar_partida(partida_id, competicao, observacoes)
+
+    return redirect("/")

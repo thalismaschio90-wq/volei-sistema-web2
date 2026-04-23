@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visualizador</title>
+    <meta http-equiv="refresh" content="5">
+
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            padding: 20px;
+        }
+
+        h2 {
+            margin-top: 30px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: #1e293b;
+            padding: 16px;
+            border-radius: 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 6px;
+            text-align: center;
+        }
+
+        th {
+            background: #334155;
+        }
+
+        tr {
+            border-bottom: 1px solid #334155;
+        }
+
+        .jogo {
+            background: #1e293b;
+            padding: 12px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        .ao-vivo {
+            color: #22c55e;
+            font-weight: bold;
+        }
+
+        .finalizado {
+            color: #94a3b8;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>{{ competicao_nome }}</h1>
+
+<!-- CLASSIFICAÇÃO -->
+<h2>Classificação</h2>
+
+<div class="grid">
+{% for grupo, linhas in classificacao.items() %}
+    <div class="card">
+        <h3>Grupo {{ grupo }}</h3>
+        <table>
+            <tr>
+                <th>#</th>
+                <th>Equipe</th>
+                <th>Pts</th>
+                <th>V</th>
+                <th>D</th>
+            </tr>
+            {% for l in linhas %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ l.equipe }}</td>
+                <td>{{ l.pontos }}</td>
+                <td>{{ l.vitorias }}</td>
+                <td>{{ l.derrotas }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+{% endfor %}
+</div>
+
+
+<!-- JOGOS -->
+<h2>Jogos</h2>
+
+{% for p in partidas %}
+<div class="jogo">
+
+    <div><b>{{ p.equipe_a }} x {{ p.equipe_b }}</b></div>
+    <div>Grupo: {{ p.grupo }}</div>
+
+    {% if p.status == "finalizada" %}
+        <div class="finalizado">
+            {{ p.sets_a }} x {{ p.sets_b }}
+        </div>
+    {% elif p.status == "em andamento" %}
+        <div class="ao-vivo">
+            AO VIVO: {{ p.set_atual_a or 0 }} x {{ p.set_atual_b or 0 }}
+        </div>
+    {% else %}
+        <div>Aguardando</div>
+    {% endif %}
+
+</div>
+{% endfor %}
+
+</body>
+</html>

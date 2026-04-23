@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block titulo %}Oficiais{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Oficiais da Competição</div>
+</div>
+
+<div class="card-painel">
+    <form method="post">
+        <label>CPF</label>
+        <input type="text" name="cpf" placeholder="Digite o CPF" required>
+
+        <label>Nome (se novo)</label>
+        <input type="text" name="nome" placeholder="Preencha apenas se não existir">
+
+        <label>Função</label>
+        <select name="funcao" required>
+            <option value="">Selecione</option>
+            <option value="arbitro1">Árbitro 1</option>
+            <option value="arbitro2">Árbitro 2</option>
+            <option value="apontador">Apontador</option>
+        </select>
+
+        <br><br>
+        <button class="btn-padrao" type="submit">Vincular</button>
+    </form>
+</div>
+
+{% if oficiais %}
+<div class="card-painel">
+    <table>
+        <thead>
+            <tr>
+                <th>Nome</th>
+                <th>CPF</th>
+                <th>Função</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in oficiais %}
+            <tr>
+                <td>{{ o.nome }}</td>
+                <td>{{ o.cpf }}</td>
+                <td>{{ o.funcao }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card-painel">
+    Nenhum oficial vinculado ainda.
+</div>
+{% endif %}
+{% endblock %}
