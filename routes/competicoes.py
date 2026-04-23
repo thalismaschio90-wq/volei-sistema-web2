@@ -168,39 +168,68 @@ def resetar_senha_organizador_view(nome):
     return redirect(url_for("competicoes.listar_competicoes_view"))
 
 
-@competicoes_bp.route("/competicoes/salvar", methods=["POST"])
+@competicoes_bp.route("/competicoes/regras", methods=["GET", "POST"])
 @exigir_perfil("organizador")
-def salvar_competicao_view():
+def salvar_regras_jogo_view():
     comp = buscar_competicao_por_organizador(session.get("usuario"))
 
     if not comp:
         flash("Competição não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
+    # 👉 SE FOR GET → só redireciona (não quebra mais)
+    if request.method == "GET":
+        return redirect(url_for("competicoes.listar_competicoes_view"))
+
+    try:
+        pontos_set = int(request.form.get("pontos_set") or 25)
+    except ValueError:
+        pontos_set = 25
+
+    try:
+        pontos_tiebreak = int(request.form.get("pontos_tiebreak") or 15)
+    except ValueError:
+        pontos_tiebreak = 15
+
+    try:
+        diferenca_minima = int(request.form.get("diferenca_minima") or 2)
+    except ValueError:
+        diferenca_minima = 2
+
+    try:
+        tempos_por_set = int(request.form.get("tempos_por_set") or 2)
+    except ValueError:
+        tempos_por_set = 2
+
+    try:
+        substituicoes_por_set = int(request.form.get("substituicoes_por_set") or 6)
+    except ValueError:
+        substituicoes_por_set = 6
+
+    if tempos_por_set < 0:
+        tempos_por_set = 0
+    if substituicoes_por_set < 0:
+        substituicoes_por_set = 0
+
     dados = {
-        "nome": request.form.get("nome", "").strip(),
-        "cidade": request.form.get("cidade", "").strip(),
-        "data": request.form.get("data", "").strip(),
-        "ginasio": request.form.get("ginasio", "").strip(),
-        "categoria": request.form.get("categoria", "").strip(),
-        "sexo": request.form.get("sexo", "").strip(),
-        "divisao": request.form.get("divisao", "").strip(),
-        "status": comp.get("status"),
+        "sets_tipo": request.form.get("sets_tipo", "melhor_de_3"),
+        "pontos_set": pontos_set,
+        "tem_tiebreak": request.form.get("tem_tiebreak") == "on",
+        "pontos_tiebreak": pontos_tiebreak,
+        "diferenca_minima": diferenca_minima,
+        "tempos_por_set": tempos_por_set,
+        "substituicoes_por_set": substituicoes_por_set,
     }
 
-    if not dados["nome"]:
-        flash("O nome da competição é obrigatório.", "erro")
-        return redirect(url_for("competicoes.listar_competicoes_view"))
-
     if competicao_esta_travada(comp["nome"]):
-        flash("A competição está travada. Os dados gerais não podem mais ser alterados.", "erro")
+        flash("A competição está travada. As regras do jogo não podem mais ser alteradas.", "erro")
         return redirect(url_for("competicoes.listar_competicoes_view"))
 
-    atualizar_dados_competicao(comp["nome"], dados)
+    atualizar_regras_jogo(comp["nome"], dados)
 
-    flash("Dados da competição atualizados.", "sucesso")
+    flash("Regras do jogo salvas.", "sucesso")
     return redirect(url_for("competicoes.listar_competicoes_view"))
-
+    
 
 @competicoes_bp.route("/competicoes/estrutura", methods=["POST"])
 @exigir_perfil("organizador")
