@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash
+import random
 
 from banco import (
     buscar_competicao_por_organizador,
@@ -49,13 +50,8 @@ def _fase_subaba_para_banco(fase_subaba):
 
 
 def _fase_partida_normalizada(partida):
-    fase = (
-        partida.get("fase_partida")
-        or partida.get("fase")
-        or "grupos"
-    )
+    fase = partida.get("fase") or "grupos"
     return str(fase).strip().lower()
-
 
 def _filtrar_partidas_por_fase(partidas, fase_subaba):
     if fase_subaba == "classificatorias":
@@ -93,8 +89,8 @@ def _status_exibicao(partida):
         "andamento": "AO VIVO",
         "em_andamento": "AO VIVO",
         "finalizada": "FINALIZADO",
-        "encerrado": "FINALIZADO",
         "finalizado": "FINALIZADO",
+        "encerrado": "FINALIZADO",
     }
 
     return mapa.get(status, (status or "AGUARDANDO").replace("_", " ").upper())
@@ -137,6 +133,18 @@ def _preparar_partidas(partidas):
         partida["finalizada"] = _partida_esta_finalizada(partida)
         partida["parciais_formatadas"] = _montar_parciais(partida)
 
+        partida["placar_ao_vivo_a"] = int(
+            partida.get("pontos_a")
+            or partida.get("placar_a")
+            or 0
+        )
+
+        partida["placar_ao_vivo_b"] = int(
+            partida.get("pontos_b")
+            or partida.get("placar_b")
+            or 0
+        )
+
         partidas_preparadas.append(partida)
 
     return sorted(
@@ -148,12 +156,217 @@ def _preparar_partidas(partidas):
             p.get("equipe_b") or "",
         )
     )
+    
+
+def _to_bool(valor):
+    if isinstance(valor, bool):
+        return valor
+    if valor is None:
+        return False
+    return str(valor).strip().lower() in {"1", "true", "sim", "yes", "on"}
 
 
-def _calcular_classificacao(partidas, grupos):
+def _valor_inteiro_regra(competicao, chaves, padrao):
+    for chave in chaves:
+        valor = competicao.get(chave)
+        if valor not in (None, ""):
+            try:
+                return int(valor)
+            except (TypeError, ValueError):
+                pass
+    return padrao
+
+
+def _bool_por_chaves(competicao, chaves):
+    for chave in chaves:
+        if chave in competicao:
+            return _to_bool(competicao.get(chave))
+    return False
+
+
+def _obter_regras_classificacao(competicao):
+    criterios = [
+        ("pontos", _bool_por_chaves(competicao, ["criterio_pontos", "usar_pontos", "pontos_criterio"])),
+        ("sets_average", _bool_por_chaves(competicao, ["criterio_sets_average", "usar_sets_average", "sets_average"])),
+        ("pontos_average", _bool_por_chaves(competicao, ["criterio_pontos_average", "usar_pontos_average", "pontos_average"])),
+        ("confronto_direto", _bool_por_chaves(competicao, ["criterio_confronto_direto", "usar_confronto_direto", "confronto_direto"])),
+        ("saldo_sets", _bool_por_chaves(competicao, ["criterio_saldo_sets", "usar_saldo_sets", "saldo_sets"])),
+        ("saldo_pontos", _bool_por_chaves(competicao, ["criterio_saldo_pontos", "usar_saldo_pontos", "saldo_pontos"])),
+        ("sorteio", _bool_por_chaves(competicao, ["criterio_sorteio", "usar_sorteio", "sorteio"])),
+    ]
+
+    return {
+        "pontos_vitoria": _valor_inteiro_regra(
+            competicao,
+            ["pontos_vitoria"],
+            2
+        ),
+        "pontos_derrota": _valor_inteiro_regra(
+            competicao,
+            ["pontos_derrota"],
+            0
+        ),
+        "pontos_tiebreak_vitoria": _valor_inteiro_regra(
+            competicao,
+            ["pontos_tiebreak_vitoria", "vitoria_tiebreak"],
+            2
+        ),
+        "pontos_tiebreak_derrota": _valor_inteiro_regra(
+            competicao,
+            ["pontos_tiebreak_derrota", "derrota_tiebreak"],
+            1
+        ),
+        "criterios": criterios,
+    }
+
+
+def _valor_criterio(linha, nome):
+    if nome == "pontos":
+        return linha["pontos"]
+
+    if nome == "sets_average":
+        sets_contra = linha["sets_contra"]
+        if sets_contra > 0:
+            return linha["sets_pro"] / sets_contra
+        return float(linha["sets_pro"])
+
+    if nome == "pontos_average":
+        pontos_contra = linha["pontos_contra"]
+        if pontos_contra > 0:
+            return linha["pontos_pro"] / pontos_contra
+        return float(linha["pontos_pro"])
+
+    if nome == "saldo_sets":
+        return linha["saldo_sets"]
+
+    if nome == "saldo_pontos":
+        return linha["saldo_pontos"]
+
+    return 0
+
+
+def _resolver_confronto_direto(bloco, partidas, grupo):
+    if len(bloco) <= 1:
+        return bloco
+
+    nomes = [l["equipe"] for l in bloco]
+    mini = {
+        nome: {
+            "pontos": 0,
+            "saldo_sets": 0,
+            "pontos_pro": 0,
+            "pontos_contra": 0,
+            "saldo_pontos": 0,
+            "vitorias": 0,
+        }
+        for nome in nomes
+    }
+
+    for p in partidas:
+        if not _partida_esta_finalizada(p):
+            continue
+
+        if p.get("grupo") != grupo:
+            continue
+
+        a = p.get("equipe_a")
+        b = p.get("equipe_b")
+
+        if a not in mini or b not in mini:
+            continue
+
+        try:
+            sets_a = int(p.get("sets_a") or 0)
+        except (TypeError, ValueError):
+            sets_a = 0
+
+        try:
+            sets_b = int(p.get("sets_b") or 0)
+        except (TypeError, ValueError):
+            sets_b = 0
+
+        if sets_a == sets_b:
+            continue
+
+        mini[a]["saldo_sets"] += sets_a - sets_b
+        mini[b]["saldo_sets"] += sets_b - sets_a
+
+        pontos_a = 0
+        pontos_b = 0
+        for i in range(1, 6):
+            sa = p.get(f"set{i}_a")
+            sb = p.get(f"set{i}_b")
+            if sa is not None and sb is not None:
+                try:
+                    pontos_a += int(sa)
+                    pontos_b += int(sb)
+                except (TypeError, ValueError):
+                    pass
+
+        mini[a]["pontos_pro"] += pontos_a
+        mini[a]["pontos_contra"] += pontos_b
+        mini[b]["pontos_pro"] += pontos_b
+        mini[b]["pontos_contra"] += pontos_a
+        mini[a]["saldo_pontos"] = mini[a]["pontos_pro"] - mini[a]["pontos_contra"]
+        mini[b]["saldo_pontos"] = mini[b]["pontos_pro"] - mini[b]["pontos_contra"]
+
+        if sets_a > sets_b:
+            mini[a]["pontos"] += 1
+            mini[a]["vitorias"] += 1
+        else:
+            mini[b]["pontos"] += 1
+            mini[b]["vitorias"] += 1
+
+    return sorted(
+        bloco,
+        key=lambda linha: (
+            mini[linha["equipe"]]["pontos"],
+            mini[linha["equipe"]]["vitorias"],
+            mini[linha["equipe"]]["saldo_sets"],
+            mini[linha["equipe"]]["saldo_pontos"],
+            mini[linha["equipe"]]["pontos_pro"],
+        ),
+        reverse=True
+    )
+
+
+def _aplicar_desempates_profissional(linhas, partidas, grupo, criterios):
+    if not linhas:
+        return linhas
+
+    criterios_base = [c for c in criterios if c not in {"confronto_direto", "sorteio"}]
+
+    def assinatura_base(linha):
+        return tuple(_valor_criterio(linha, c) for c in criterios_base)
+
+    resultado_final = []
+    i = 0
+
+    while i < len(linhas):
+        atual = linhas[i]
+        bloco = [atual]
+        j = i + 1
+
+        while j < len(linhas) and assinatura_base(linhas[j]) == assinatura_base(atual):
+            bloco.append(linhas[j])
+            j += 1
+
+        if len(bloco) > 1 and "confronto_direto" in criterios:
+            bloco = _resolver_confronto_direto(bloco, partidas, grupo)
+
+        if len(bloco) > 1 and "sorteio" in criterios:
+            random.shuffle(bloco)
+
+        resultado_final.extend(bloco)
+        i = j
+
+    return resultado_final
+
+
+def _calcular_classificacao(partidas, grupos, competicao):
+    regras = _obter_regras_classificacao(competicao)
     classificacao = {}
 
-    # base da classificação sempre existe, mesmo sem jogos finalizados
     for g in grupos:
         nome_grupo = g["grupo"]["nome"]
         classificacao[nome_grupo] = []
@@ -206,7 +419,6 @@ def _calcular_classificacao(partidas, grupos):
         except (TypeError, ValueError):
             sets_b = 0
 
-        # não considera empate em sets como resultado válido
         if sets_a == sets_b:
             continue
 
@@ -227,7 +439,6 @@ def _calcular_classificacao(partidas, grupos):
         for i in range(1, 6):
             sa = p.get(f"set{i}_a")
             sb = p.get(f"set{i}_b")
-
             if sa is not None and sb is not None:
                 try:
                     pontos_a += int(sa)
@@ -243,32 +454,54 @@ def _calcular_classificacao(partidas, grupos):
         if sets_a > sets_b:
             linha_a["vitorias"] += 1
             linha_b["derrotas"] += 1
-            linha_a["pontos"] += 2
 
-            if sets_b > 0:
-                linha_b["pontos"] += 1
+            if sets_b >= 1:
+                linha_a["pontos"] += regras["pontos_tiebreak_vitoria"]
+                linha_b["pontos"] += regras["pontos_tiebreak_derrota"]
+            else:
+                linha_a["pontos"] += regras["pontos_vitoria"]
+                linha_b["pontos"] += regras["pontos_derrota"]
         else:
             linha_b["vitorias"] += 1
             linha_a["derrotas"] += 1
-            linha_b["pontos"] += 2
 
-            if sets_a > 0:
-                linha_a["pontos"] += 1
+            if sets_a >= 1:
+                linha_b["pontos"] += regras["pontos_tiebreak_vitoria"]
+                linha_a["pontos"] += regras["pontos_tiebreak_derrota"]
+            else:
+                linha_b["pontos"] += regras["pontos_vitoria"]
+                linha_a["pontos"] += regras["pontos_derrota"]
 
     for grupo, linhas in classificacao.items():
         for linha in linhas:
             linha["saldo_sets"] = linha["sets_pro"] - linha["sets_contra"]
             linha["saldo_pontos"] = linha["pontos_pro"] - linha["pontos_contra"]
 
-        linhas.sort(
-            key=lambda x: (
-                x["pontos"],
-                x["vitorias"],
-                x["saldo_sets"],
-                x["saldo_pontos"],
-                x["pontos_pro"],
-            ),
-            reverse=True
+    criterios_ativos = [c for c, ativo in regras["criterios"] if ativo]
+    if not criterios_ativos:
+        criterios_ativos = ["pontos", "saldo_sets", "saldo_pontos"]
+
+    def chave(linha):
+        valores = []
+
+        for criterio in criterios_ativos:
+            if criterio in {"confronto_direto", "sorteio"}:
+                continue
+            valores.append(_valor_criterio(linha, criterio))
+
+        valores.append(linha["vitorias"])
+        valores.append(linha["sets_pro"])
+        valores.append(linha["pontos_pro"])
+
+        return tuple(valores)
+
+    for grupo, linhas in classificacao.items():
+        linhas.sort(key=chave, reverse=True)
+        classificacao[grupo] = _aplicar_desempates_profissional(
+            linhas,
+            partidas,
+            grupo,
+            criterios_ativos
         )
 
     return classificacao
@@ -290,8 +523,12 @@ def visualizador_publico(competicao_nome):
             "equipes": equipes_grupo
         })
 
+    competicao_fake = {
+        "nome": competicao_nome
+    }
+
     partidas_preparadas = _preparar_partidas(partidas)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao_fake)
 
     return render_template(
         "visualizador_publico.html",
@@ -308,10 +545,16 @@ def visualizador_publico(competicao_nome):
 @tabela_bp.route("/tabela")
 @exigir_perfil("organizador")
 def tabela_view():
-    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    usuario = session.get("usuario")
+
+    if not usuario:
+        flash("Sessão expirada. Faça login novamente.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    competicao = buscar_competicao_por_organizador(usuario)
 
     if not competicao:
-        flash("Nenhuma competição encontrada.", "erro")
+        flash("Nenhuma competição vinculada a este organizador.", "erro")
         return redirect(url_for("painel.inicio"))
 
     aba = (request.args.get("aba") or "geracao").strip().lower()
@@ -336,7 +579,7 @@ def tabela_view():
 
     partidas_preparadas = _preparar_partidas(partidas)
     partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao)
 
     fases = _fases_disponiveis(competicao)
 
@@ -597,14 +840,15 @@ def gerar_automatico():
         equipes = listar_equipes_por_grupo(g["id"])
         nomes = [e["equipe"] for e in equipes]
 
-        rodadas = gerar_rodadas(nomes)
-        rodadas_por_grupo[g["nome"]] = rodadas
+        if len(nomes) >= 2:
+            rodadas = gerar_rodadas(nomes)
+            rodadas_por_grupo[g["nome"]] = rodadas
 
     if not rodadas_por_grupo:
         flash("Não há grupos com equipes suficientes para gerar jogos.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase="classificatorias"))
 
-    max_rodadas = max(len(r) for r in rodadas_por_grupo.values()) if rodadas_por_grupo else 0
+    max_rodadas = max(len(r) for r in rodadas_por_grupo.values())
 
     ultimo_times_usados = set()
 
@@ -623,7 +867,6 @@ def gerar_automatico():
 
             for j in jogos_da_rodada:
                 t1, t2 = j[1]
-
                 if t1 not in ultimo_times_usados and t2 not in ultimo_times_usados:
                     melhor_jogo = j
                     break

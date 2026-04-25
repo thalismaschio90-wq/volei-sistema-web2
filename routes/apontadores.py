@@ -40,7 +40,9 @@ from banco import (
     garantir_estado_partida,
     listar_eventos_partida,
 )
+
 from routes.utils import exigir_perfil
+from socket_events import emitir_estado_partida
 
 apontadores_bp = Blueprint("apontadores", __name__)
 
@@ -799,6 +801,10 @@ def ponto_view(competicao, partida_id):
             historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
             estado.setdefault("historico", historico)
             estado.setdefault("ultima_acao", ultima_acao)
+
+        # Envia para treinador/apontador o mesmo estado que acabou de ser salvo.
+        # Isso evita nova consulta pesada e deixa a atualização em tempo real.
+        emitir_estado_partida(partida_id, estado)
 
         return _json_no_cache({
             "ok": True,

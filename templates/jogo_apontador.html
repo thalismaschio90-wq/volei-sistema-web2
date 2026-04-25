@@ -1196,10 +1196,10 @@ function inverterLadosVisual() {
             atualizarUltimaAcao(dados.ultima_acao || "-");
         }
 
-        if (dados.historico !== undefined) {
+        if (Array.isArray(dados.historico) && dados.historico.length) {
             renderHistoricoBackend(dados.historico);
-        
         }
+
         atualizarContadoresDisciplinares();
         renderQuadra();
 
@@ -1697,6 +1697,27 @@ function inverterLadosVisual() {
             "Nenhuma opção válida para entrada."
         );
     }
+
+    function atualizarResumoSubstituicao() {
+    if (!subResumo) return;
+
+    if (!equipeSubAtual) {
+        subResumo.textContent = "Selecione quem sai e quem entra.";
+        return;
+    }
+
+    const nomeEquipe = nomeEquipePorLado(equipeSubAtual);
+
+    const sai = numeroSaiSelecionado
+        ? `sai #${numeroSaiSelecionado}`
+        : "selecione quem sai";
+
+    const entra = numeroEntraSelecionado
+        ? `entra #${numeroEntraSelecionado}`
+        : "selecione quem entra";
+
+    subResumo.textContent = `Equipe ${nomeEquipe}: ${sai} • ${entra}`;
+}
 
     function renderSaidaSubstituicao(lado) {
         const opcoesSai = opcoesSaidaPorLado(lado);
@@ -2255,6 +2276,25 @@ function atualizarResumoSubEx() {
         }
     }
 
+
+    function aplicarPontoOtimista(equipe, scout) {
+        const atualA = parseInt(pontosA.textContent || "0", 10);
+        const atualB = parseInt(pontosB.textContent || "0", 10);
+
+        const novoA = equipe === "A" ? atualA + 1 : atualA;
+        const novoB = equipe === "B" ? atualB + 1 : atualB;
+
+        pontosA.textContent = novoA;
+        pontosB.textContent = novoB;
+
+        // Protege a tela contra pacote/socket antigo chegando atrasado.
+        placarProtegidoAte = Date.now() + 1800;
+        bloquearSyncAte = Date.now() + 900;
+
+        const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
+        atualizarUltimaAcao(`Registrando ${detalhe} para equipe ${equipe}...`);
+    }
+
     async function registrarPonto(equipe, scout) {
         if (enviando || partidaFinalizada) return;
 
@@ -2267,6 +2307,9 @@ function atualizarResumoSubEx() {
         const rotAntesA = [...rotA];
         const rotAntesB = [...rotB];
         const saqueAntes = saqueAtual;
+
+        aplicarPontoOtimista(equipe, scout);
+        fecharModalPonto();
 
         try {
             const resposta = await fetch(
@@ -2309,7 +2352,6 @@ function atualizarResumoSubEx() {
             ultimoTokenSync++;
             const dadosNormalizados = normalizarRespostaJogo(dados);
             aplicarEstado(dadosNormalizados);
-            fecharModalPonto();
 
             if (dadosNormalizados.set_finalizado) {
                 atualizarUltimaAcao(dadosNormalizados.ultima_acao || "Set finalizado");

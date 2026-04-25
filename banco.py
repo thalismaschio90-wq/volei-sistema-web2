@@ -12,7 +12,6 @@ try:
     from psycopg_pool import ConnectionPool
 except ImportError:
     ConnectionPool = None
-from socket_events import emitir_estado_partida
 
 
 DATABASE_URL_PADRAO = "postgresql://postgres.gvirfvzvgvxuprbwthak:VolleyTablePro@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
@@ -24,6 +23,11 @@ _SCHEMA_FLAGS = {
     "campos_sets_partida": False,
     "campos_jogo_partida": False,
     "tabela_eventos": False,
+    "indices_desempenho": False,
+    "campos_quadro_tecnico_equipes": False,
+    "campos_liberacao_extra_equipes": False,
+    "campos_controle_inscricao_competicoes": False,
+    "tabela_atletas": False,
 }
 _SCHEMA_LOCK = Lock()
 _POOL_LOCK = Lock()
@@ -414,7 +418,7 @@ def atualizar_login_usuario(login_atual, novo_login):
 
         conn.commit()
 
-    return True, "Atleta cadastrado com sucesso."
+    return True
 
 
 def atualizar_senha_usuario(login, nova_senha):
@@ -877,22 +881,6 @@ def atualizar_estrutura_competicao(nome_competicao, dados):
 
     return True
 
-    valores.append(nome_competicao)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE competicoes
-                SET {", ".join(sets)}
-                WHERE nome = %s
-                """,
-                tuple(valores)
-            )
-        conn.commit()
-
-    return True
-
 
 def atualizar_regras_jogo(nome_competicao, dados):
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração de regras")
@@ -1068,7 +1056,11 @@ def redefinir_senha_organizador(login_organizador):
 # =========================================================
 # CONTROLE DE INSCRIÇÃO DA COMPETIÇÃO
 # =========================================================
-def criar_campos_controle_inscricao_competicoes():
+def criar_campos_controle_inscricao_competicoes(force=False):
+    chave = "campos_controle_inscricao_competicoes"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1093,6 +1085,7 @@ def criar_campos_controle_inscricao_competicoes():
             """)
         conn.commit()
 
+    _marcar_schema_pronto(chave)
 
 def obter_controle_inscricao_competicao(nome_competicao):
     criar_campos_controle_inscricao_competicoes()
@@ -1212,7 +1205,11 @@ def inscricao_e_edicao_liberadas(nome_competicao):
 
 
 
-def criar_campos_liberacao_extra_equipes():
+def criar_campos_liberacao_extra_equipes(force=False):
+    chave = "campos_liberacao_extra_equipes"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1229,6 +1226,7 @@ def criar_campos_liberacao_extra_equipes():
             """)
         conn.commit()
 
+    _marcar_schema_pronto(chave)
 
 def controle_inscricao_para_equipe(nome_competicao, nome_equipe):
     controle = obter_controle_inscricao_competicao(nome_competicao)
@@ -1337,7 +1335,11 @@ def salvar_liberacao_extra_equipe(
 # =========================================================
 # EQUIPES
 # =========================================================
-def criar_campos_quadro_tecnico_equipes():
+def criar_campos_quadro_tecnico_equipes(force=False):
+    chave = "campos_quadro_tecnico_equipes"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1358,6 +1360,7 @@ def criar_campos_quadro_tecnico_equipes():
             """)
         conn.commit()
 
+    _marcar_schema_pronto(chave)
 
 def listar_equipes_da_competicao(nome_competicao):
     criar_campos_quadro_tecnico_equipes()
@@ -1810,10 +1813,35 @@ def contar_partidas():
         return 0
 
 
+def criar_indices_desempenho(force=False):
+    chave = "indices_desempenho"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao ON atletas (equipe, competicao)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_competicao_status_nome ON atletas (competicao, status, nome)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao_numero ON atletas (equipe, competicao, numero)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_equipes_nome_competicao ON equipes (nome, competicao)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_equipes_login ON equipes (login)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_status ON partidas (competicao, status)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_equipes ON partidas (competicao, equipe_a, equipe_b)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_usuarios_login_perfil ON usuarios (login, perfil)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_competicoes_nome ON competicoes (nome)""")
+        conn.commit()
+
+    _marcar_schema_pronto(chave)
+
+
 # =========================================================
 # ATLETAS
 # =========================================================
-def criar_tabela_atletas():
+def criar_tabela_atletas(force=False):
+    chave = "tabela_atletas"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1830,6 +1858,8 @@ def criar_tabela_atletas():
             """)
         conn.commit()
 
+    _marcar_schema_pronto(chave)
+    criar_indices_desempenho()
 
 def atleta_existe_por_cpf(cpf):
     with conectar() as conn:
@@ -1844,33 +1874,130 @@ def atleta_existe_por_cpf(cpf):
 
 
 def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
+    nome = (nome or "").strip()
+    cpf = (cpf or "").strip()
+    equipe = (equipe or "").strip()
+    competicao = (competicao or "").strip()
+
     if not nome or not cpf:
         return False, "Informe nome e CPF do atleta."
-
-    if atleta_existe_por_cpf(cpf):
-        return False, "Já existe um atleta cadastrado com este CPF."
-
-    controle = controle_inscricao_para_equipe(competicao, equipe)
-    if not controle.get("aberta", True):
-        return False, controle.get("motivo") or "Inscrição bloqueada."
-
-    comp = buscar_competicao_por_nome(competicao) or {}
-    limite = int(comp.get("limite_atletas") or 0)
-    if limite > 0 and contar_atletas_da_equipe(equipe, competicao) >= limite:
-        return False, "O limite de atletas da equipe já foi atingido."
 
     numero_final = None
     if numero not in (None, ""):
         try:
             numero_final = int(numero)
-        except ValueError:
-            numero_final = None
+        except (TypeError, ValueError):
+            return False, "Número inválido."
 
-    if numero_final is not None and not numero_atleta_disponivel(numero_final, equipe, competicao):
-        return False, "Já existe outro atleta com essa numeração nesta equipe."
+    criar_tabela_atletas()
+    criar_campos_controle_inscricao_competicoes()
+    criar_campos_liberacao_extra_equipes()
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id
+                FROM atletas
+                WHERE cpf = %s
+                LIMIT 1
+            """, (cpf,))
+            if cur.fetchone() is not None:
+                return False, "Já existe um atleta cadastrado com este CPF."
+
+            cur.execute("""
+                SELECT
+                    c.nome,
+                    c.data_limite_inscricao,
+                    c.hora_limite_inscricao,
+                    COALESCE(c.bloquear_apos_inicio, TRUE) AS bloquear_apos_inicio,
+                    COALESCE(c.limite_atletas, 0) AS limite_atletas,
+                    COALESCE(c.travada, FALSE) AS travada,
+                    COALESCE(e.liberacao_extra_inscricao, FALSE) AS liberacao_extra_inscricao,
+                    e.liberacao_extra_data,
+                    e.liberacao_extra_hora
+                FROM competicoes c
+                LEFT JOIN equipes e
+                  ON e.competicao = c.nome
+                 AND e.nome = %s
+                WHERE c.nome = %s
+                LIMIT 1
+            """, (equipe, competicao))
+            controle = cur.fetchone() or {}
+
+            if controle.get("travada"):
+                cur.execute("""
+                    SELECT id
+                    FROM partidas
+                    WHERE competicao = %s
+                      AND (equipe_a = %s OR equipe_b = %s OR equipe_a_operacional = %s OR equipe_b_operacional = %s)
+                      AND (
+                            COALESCE(pontos_a, 0) > 0
+                         OR COALESCE(pontos_b, 0) > 0
+                         OR LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'encerrado')
+                         OR LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada')
+                      )
+                    LIMIT 1
+                """, (competicao, equipe, equipe, equipe, equipe))
+                if cur.fetchone() is not None:
+                    return False, "A competição está travada e esta equipe já iniciou seus jogos. Alterações de atletas foram bloqueadas."
+
+            prazo_liberado_por_extra = False
+            if bool(controle.get("liberacao_extra_inscricao")):
+                data_extra = (controle.get("liberacao_extra_data") or "").strip()
+                hora_extra = (controle.get("liberacao_extra_hora") or "").strip() or "23:59"
+                if not data_extra:
+                    prazo_liberado_por_extra = True
+                else:
+                    try:
+                        prazo_liberado_por_extra = datetime.now() <= datetime.strptime(f"{data_extra} {hora_extra}", "%Y-%m-%d %H:%M")
+                    except ValueError:
+                        prazo_liberado_por_extra = True
+
+            if not prazo_liberado_por_extra:
+                if bool(controle.get("bloquear_apos_inicio")):
+                    cur.execute("""
+                        SELECT id
+                        FROM partidas
+                        WHERE competicao = %s
+                          AND LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado')
+                        LIMIT 1
+                    """, (competicao,))
+                    if cur.fetchone() is not None:
+                        return False, "Inscrições e edições bloqueadas porque a competição já iniciou."
+
+                data_limite = (controle.get("data_limite_inscricao") or "").strip()
+                hora_limite = (controle.get("hora_limite_inscricao") or "").strip() or "23:59"
+                if data_limite:
+                    try:
+                        if datetime.now() > datetime.strptime(f"{data_limite} {hora_limite}", "%Y-%m-%d %H:%M"):
+                            return False, "O prazo de inscrição e edição de atletas já foi encerrado."
+                    except ValueError:
+                        pass
+
+            limite = int(controle.get("limite_atletas") or 0)
+            if limite > 0:
+                cur.execute("""
+                    SELECT COUNT(*) AS total
+                    FROM atletas
+                    WHERE equipe = %s
+                      AND competicao = %s
+                """, (equipe, competicao))
+                row = cur.fetchone() or {}
+                if int(row.get("total") or 0) >= limite:
+                    return False, "O limite de atletas da equipe já foi atingido."
+
+            if numero_final is not None:
+                cur.execute("""
+                    SELECT id
+                    FROM atletas
+                    WHERE equipe = %s
+                      AND competicao = %s
+                      AND numero = %s
+                    LIMIT 1
+                """, (equipe, competicao, numero_final))
+                if cur.fetchone() is not None:
+                    return False, "Já existe outro atleta com essa numeração nesta equipe."
+
             cur.execute("""
                 INSERT INTO atletas (
                     nome, cpf, data_nascimento, numero, equipe, competicao, status
@@ -1879,8 +2006,7 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
             """, (nome, cpf, data_nascimento, numero_final, equipe, competicao))
         conn.commit()
 
-    return True
-
+    return True, "Atleta cadastrado com sucesso."
 
 def listar_atletas_da_equipe(equipe, competicao):
     with conectar() as conn:
@@ -4880,46 +5006,31 @@ def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
 
 
 def _emitir_estado_tempo_real(partida_id, competicao):
-    estado = _buscar_estado_jogo_partida_base(partida_id, competicao, garantir=False, permitir_reconstrucao=False) or {}
-    tempos = buscar_tempos_restantes_partida(partida_id, competicao) or {}
-    rotacao_a = list(estado.get("rotacao_a") or ["", "", "", "", "", ""])
-    rotacao_b = list(estado.get("rotacao_b") or ["", "", "", "", "", ""])
-    historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
+    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
     payload = {
-        "pontos_a": int(estado.get("pontos_a") or estado.get("placar_a") or 0),
-        "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or 0),
         "placar_a": int(estado.get("pontos_a") or estado.get("placar_a") or 0),
         "placar_b": int(estado.get("pontos_b") or estado.get("placar_b") or 0),
         "sets_a": int(estado.get("sets_a") or 0),
         "sets_b": int(estado.get("sets_b") or 0),
         "saque_atual": estado.get("saque_atual") or "",
-        "tempos_a": tempos.get("tempos_a"),
-        "tempos_b": tempos.get("tempos_b"),
+        "tempos_a": estado.get("tempos_a"),
+        "tempos_b": estado.get("tempos_b"),
         "subs_a": int(estado.get("subs_a") or 0),
         "subs_b": int(estado.get("subs_b") or 0),
-        "rotacao_a": rotacao_a,
-        "rotacao_b": rotacao_b,
         "rotacao": {
-            "equipe_a": rotacao_a,
-            "equipe_b": rotacao_b,
+            "equipe_a": list(estado.get("rotacao_a") or ["", "", "", "", "", ""]),
+            "equipe_b": list(estado.get("rotacao_b") or ["", "", "", "", "", ""]),
         },
         "status_jogo": estado.get("status_jogo") or "",
         "set_atual": int(estado.get("set_atual") or 1),
-        "status_jogadores_a": estado.get("status_jogadores_a") or {},
-        "status_jogadores_b": estado.get("status_jogadores_b") or {},
-        "sancoes_a": estado.get("sancoes_a") or [],
-        "sancoes_b": estado.get("sancoes_b") or [],
-        "cartoes_verdes_a": estado.get("cartoes_verdes_a") or [],
-        "cartoes_verdes_b": estado.get("cartoes_verdes_b") or [],
-        "limite_substituicoes": int(estado.get("limite_substituicoes") or 0),
-        "historico": historico,
-        "ultima_acao": historico[0]["descricao"] if historico else (estado.get("ultima_acao") or "-"),
-        "partida_finalizada": str(estado.get("fase_partida") or "").lower() == "encerrado",
     }
 
-    emitir_estado_partida(competicao, partida_id, payload)
+    from socket_events import emitir_estado_partida
+    emitir_estado_partida(partida_id, payload)
 
+    return True
+    
 
 def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalhes=None):
     criar_campos_jogo_partida()
@@ -5207,8 +5318,9 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
     if equipe not in {'A', 'B'}:
         return False, 'Equipe inválida.'
 
-    numero_sai = str(numero_sai).strip()
-    numero_entra = str(numero_entra).strip()
+    numero_sai = str(numero_sai or '').strip()
+    numero_entra = str(numero_entra or '').strip()
+
     if not numero_sai or not numero_entra:
         return False, 'Informe corretamente quem sai e quem entra.'
 
@@ -5225,27 +5337,64 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
 
     limite = int(estado.get('limite_substituicoes') or 6)
     subs_usadas = int(estado.get('subs_a') or 0) if equipe == 'A' else int(estado.get('subs_b') or 0)
+
     if subs_usadas >= limite:
         return False, 'Limite de substituições atingido neste set.'
 
     equipe_nome = partida.get('equipe_a_operacional') if equipe == 'A' else partida.get('equipe_b_operacional')
+
     elenco = listar_atletas_aprovados_da_equipe(equipe_nome, competicao) if equipe_nome else []
     atletas_validos = {}
+
     for atleta in elenco:
         numero = atleta.get('numero')
         if numero in (None, ''):
             continue
         atletas_validos[str(numero).strip()] = atleta
 
+    if numero_sai not in atletas_validos:
+        return False, 'O atleta que sai não pertence à equipe ou não possui número válido.'
+
     if numero_entra not in atletas_validos:
         return False, 'O atleta que entra não pertence à equipe ou não possui número válido.'
 
     set_atual = int(partida.get('set_atual') or 1)
+
     if atleta_bloqueado(numero_entra, estado, set_atual):
         return False, 'Esse atleta está bloqueado por sanção e não pode entrar.'
 
     rotacao_atual = list(estado.get('rotacao_a') or []) if equipe == 'A' else list(estado.get('rotacao_b') or [])
     rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
+
+    if len(rotacao_str) < 6:
+        try:
+            contexto = reconstruir_contexto_rotacao_set(partida_id, competicao) or {}
+            rotacao_atual = list(contexto.get('rotacao_a') or []) if equipe == 'A' else list(contexto.get('rotacao_b') or [])
+            rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
+        except Exception:
+            pass
+
+    if len(rotacao_str) < 6:
+        try:
+            papeleta = listar_papeleta(partida_id, competicao, equipe_nome, set_atual) or []
+            mapa = {
+                int(row['posicao']): str(row['numero']).strip()
+                for row in papeleta
+                if row.get('numero') not in (None, '')
+            }
+
+            rotacao_atual = [
+                mapa.get(4, ''),
+                mapa.get(3, ''),
+                mapa.get(2, ''),
+                mapa.get(5, ''),
+                mapa.get(6, ''),
+                mapa.get(1, ''),
+            ]
+
+            rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
+        except Exception:
+            pass
 
     if numero_sai not in rotacao_str:
         return False, 'O atleta que sai não está em quadra.'
@@ -5253,24 +5402,53 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
     if numero_entra in rotacao_str:
         return False, 'O atleta que entra já está em quadra.'
 
-    idx = rotacao_str.index(numero_sai)
-    rotacao_atual[idx] = numero_entra
+    while len(rotacao_atual) < 6:
+        rotacao_atual.append('')
+
+    pos_real = None
+    for i, valor in enumerate(rotacao_atual):
+        if str(valor).strip() == numero_sai:
+            pos_real = i
+            break
+
+    if pos_real is None:
+        return False, 'Não foi possível identificar a posição do atleta em quadra.'
+
+    rotacao_atual[pos_real] = numero_entra
 
     status_jogadores_a = dict(estado.get('status_jogadores_a') or {})
     status_jogadores_b = dict(estado.get('status_jogadores_b') or {})
 
     status_alvo = status_jogadores_a if equipe == 'A' else status_jogadores_b
+
     status_sai = dict(status_alvo.get(numero_sai) or {})
     status_entra = dict(status_alvo.get(numero_entra) or {})
 
-    status_sai['em_quadra'] = False
+    titulares_iniciais = set(
+        str(x).strip()
+        for x in (
+            estado.get('titulares_iniciais_a', []) if equipe == 'A'
+            else estado.get('titulares_iniciais_b', [])
+        )
+        if str(x).strip()
+    )
+
+    # Quem entra fica marcado como substituto: vermelho na quadra
     status_entra['em_quadra'] = True
+    status_entra['tipo'] = 'substituto'
+    status_entra['vinculo'] = numero_sai
+
+    # Quem sai fica marcado como retorno se era titular inicial: verde quando voltar
+    status_sai['em_quadra'] = False
+    status_sai['tipo'] = 'retorno' if numero_sai in titulares_iniciais else ''
+    status_sai['vinculo'] = numero_entra
 
     status_alvo[numero_sai] = status_sai
     status_alvo[numero_entra] = status_entra
 
     subs_a = int(estado.get('subs_a') or 0)
     subs_b = int(estado.get('subs_b') or 0)
+
     if equipe == 'A':
         subs_a += 1
         nova_rotacao_a = rotacao_atual
@@ -5316,9 +5494,46 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         'cartoes_verdes_a': estado.get('cartoes_verdes_a', []),
         'cartoes_verdes_b': estado.get('cartoes_verdes_b', []),
     }
+
     _salvar_snapshot_estado_jogo(partida_id, competicao, snapshot)
 
     tempos = buscar_tempos_restantes_partida(partida_id, competicao)
+
+    historico = []
+    ultima_acao = f'Substituição {equipe}: #{numero_sai} → #{numero_entra}'
+
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=5) or []
+
+        for ev in eventos:
+            descricao = (ev.get("descricao") or "").strip()
+
+            if not descricao:
+                tipo_evento = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip()
+                equipe_ev = str(ev.get("equipe") or "").strip()
+                detalhe_ev = str(ev.get("detalhe") or ev.get("detalhes") or "").strip()
+                numero_ev = str(ev.get("numero") or "").strip()
+
+                partes = []
+                if tipo_evento:
+                    partes.append(tipo_evento.replace("_", " ").title())
+                if equipe_ev:
+                    partes.append(f"Equipe {equipe_ev}")
+                if detalhe_ev:
+                    partes.append(detalhe_ev.replace("_", " "))
+                if numero_ev:
+                    partes.append(f"#{numero_ev}")
+
+                descricao = " • ".join([p for p in partes if p]) or "Ação registrada"
+
+            historico.append({"descricao": descricao})
+
+        if historico:
+            ultima_acao = historico[0]["descricao"]
+
+    except Exception:
+        historico = [{"descricao": ultima_acao}]
+
     resposta = {
         'mensagem': 'Substituição registrada.',
         'pontos_a': int(partida.get('pontos_a') or 0),
@@ -5348,12 +5563,15 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         'retardamentos_a': estado.get('retardamentos_a', []),
         'retardamentos_b': estado.get('retardamentos_b', []),
         'subs_excepcionais': estado.get('subs_excepcionais', []),
+        'historico': historico,
+        'ultima_acao': ultima_acao,
     }
 
     _emitir_estado_tempo_real(partida_id, competicao)
-    return True, resposta
 
+    return True, resposta
     
+        
 def registrar_substituicao_excepcional_partida(partida_id, competicao, equipe, numero_sai, numero_entra, motivo='', observacao=''):
     criar_tabela_eventos()
     criar_campos_jogo_partida()

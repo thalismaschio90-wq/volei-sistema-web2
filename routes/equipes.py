@@ -279,11 +279,28 @@ def minha_equipe():
 # =========================
 # EQUIPE - ATLETAS
 # =========================
-def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="lista"):
+def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="lista", carregar_atletas=True):
+    """
+    Monta os dados da tela de atletas sem fazer consultas desnecessárias.
+
+    Antes a tela de cadastro carregava TODOS os atletas, filtrava aprovados
+    e ainda consultava jogos iniciados, mesmo quando o usuário só queria abrir
+    o formulário. Isso deixava a inscrição pesada e travando.
+    """
     controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
-    atletas_liberados, mensagem_atletas = validar_edicao_atletas_equipe(equipe["competicao"], equipe["nome"])
-    atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
-    atletas_aprovados = [a for a in atletas if (a.get("status") or "").lower() == "aprovado"]
+
+    atletas_liberados = bool(controle_inscricao.get("aberta", True))
+    mensagem_atletas = controle_inscricao.get("motivo") or ""
+
+    atletas = []
+    atletas_aprovados = []
+
+    if carregar_atletas:
+        atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
+        atletas_aprovados = [
+            a for a in atletas
+            if (a.get("status") or "").lower() == "aprovado"
+        ]
 
     return {
         "equipe": equipe,
@@ -292,7 +309,7 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
         "controle_inscricao": controle_inscricao,
         "atletas_edicao_liberada": atletas_liberados,
         "mensagem_edicao_atletas": mensagem_atletas,
-        "equipe_ja_iniciou_jogos": equipe_tem_partida_iniciada(equipe["competicao"], equipe["nome"]),
+        "equipe_ja_iniciou_jogos": False,
         "erro": erro,
         "sucesso": sucesso,
         "modo_tela": modo_tela,
@@ -340,34 +357,38 @@ def cadastrar_atleta_pagina_view():
         return redirect(url_for("painel.inicio"))
 
     erro = None
-    sucesso = None
-    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
 
     if request.method == "POST":
-        if not controle_inscricao.get("aberta", True):
-            erro = controle_inscricao.get("motivo") or "Inscrição bloqueada."
+        # Deixa a função cadastrar_atleta validar CPF, prazo, limite e número.
+        # Assim evitamos consulta duplicada antes de salvar.
+        resultado = cadastrar_atleta(
+            request.form.get("nome", "").strip(),
+            request.form.get("cpf", "").strip(),
+            request.form.get("data_nascimento", "").strip(),
+            request.form.get("numero", "").strip(),
+            equipe["nome"],
+            equipe["competicao"]
+        )
+
+        if isinstance(resultado, tuple):
+            ok, msg = resultado
         else:
-            resultado = cadastrar_atleta(
-                request.form.get("nome", "").strip(),
-                request.form.get("cpf", "").strip(),
-                request.form.get("data_nascimento", "").strip(),
-                request.form.get("numero", "").strip(),
-                equipe["nome"],
-                equipe["competicao"]
-            )
+            ok = bool(resultado)
+            msg = None
 
-            if isinstance(resultado, tuple):
-                ok, msg = resultado
-            else:
-                ok = bool(resultado)
-                msg = None
+        if ok:
+            flash(msg or "Atleta cadastrado com sucesso.", "sucesso")
+            return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
 
-            if ok:
-                sucesso = msg or "Atleta cadastrado com sucesso."
-            else:
-                erro = msg or "Não foi possível cadastrar o atleta. Verifique CPF duplicado, número repetido, limite de atletas ou bloqueio de inscrição."
+        erro = msg or "Não foi possível cadastrar o atleta. Verifique CPF duplicado, número repetido, limite de atletas ou bloqueio de inscrição."
 
-    contexto = _montar_contexto_atletas_equipe(equipe, erro=erro, sucesso=sucesso, modo_tela="cadastro")
+    contexto = _montar_contexto_atletas_equipe(
+        equipe,
+        erro=erro,
+        sucesso=None,
+        modo_tela="cadastro",
+        carregar_atletas=False
+    )
     return render_template("meus_atletas.html", **contexto)
 
 

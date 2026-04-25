@@ -94,7 +94,7 @@
 
 <h2>Classificação</h2>
 <div class="hint">
-    A classificação fica disponível desde o início da competição e atualiza conforme os resultados forem entrando.
+    A classificação é atualizada conforme os resultados entram no sistema.
 </div>
 
 {% if classificacao %}
@@ -112,6 +112,7 @@
                         <th>V</th>
                         <th>D</th>
                         <th>SS</th>
+                        <th>SP</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -124,6 +125,7 @@
                         <td>{{ l.vitorias }}</td>
                         <td>{{ l.derrotas }}</td>
                         <td>{{ l.saldo_sets }}</td>
+                        <td>{{ l.saldo_pontos }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

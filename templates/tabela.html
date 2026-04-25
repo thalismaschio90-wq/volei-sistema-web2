@@ -291,17 +291,22 @@
                 <th>Fase</th>
                 <th>Status</th>
                 <th>Sets</th>
-                <th>Parciais</th>
+                <th>Parciais / Ao vivo</th>
             </tr>
         </thead>
         <tbody>
             {% for p in partidas_fase %}
-            <tr>
+            <tr
+                data-partida-id="{{ p.id }}"
+                data-competicao="{{ competicao.nome }}"
+                data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
+            >
                 <td>{{ p.ordem }}</td>
                 <td>{{ p.grupo }}</td>
                 <td>{{ p.equipe_a }} x {{ p.equipe_b }}</td>
                 <td>{{ p.fase_normalizada or 'grupos' }}</td>
-                <td>
+
+                <td id="status-{{ p.id }}">
                     {% if p.ao_vivo %}
                         <span style="color:#22c55e; font-weight:800;">AO VIVO</span>
                     {% elif p.finalizada %}
@@ -310,18 +315,16 @@
                         {{ p.status_exibicao }}
                     {% endif %}
                 </td>
-                <td style="font-weight:800;">
-                    {% if p.sets_a is not none and p.sets_b is not none %}
-                        {{ p.sets_a }} x {{ p.sets_b }}
-                    {% else %}
-                        0 x 0
-                    {% endif %}
+
+                <td id="sets-{{ p.id }}" style="font-weight:800;">
+                    {{ p.sets_a or 0 }} x {{ p.sets_b or 0 }}
                 </td>
-                <td style="font-size:13px; color:var(--muted);">
-                    {% if p.finalizada %}
+
+                <td id="parciais-{{ p.id }}" style="font-size:13px; color:var(--muted);">
+                    {% if p.ao_vivo %}
+                        {{ p.placar_ao_vivo_a or p.pontos_a or 0 }} x {{ p.placar_ao_vivo_b or p.pontos_b or 0 }}
+                    {% elif p.finalizada %}
                         {{ p.parciais_formatadas }}
-                    {% elif p.ao_vivo %}
-                        {{ p.set_atual_a or p.placar_a or p.pontos_a or 0 }} x {{ p.set_atual_b or p.placar_b or p.pontos_b or 0 }}
                     {% else %}
                         -
                     {% endif %}
@@ -340,7 +343,7 @@
 <div class="card-painel">
     <h3 style="margin-top: 0;">Classificação</h3>
     <div class="classificacao-hint">
-        A tabela permanece visível mesmo antes dos primeiros resultados. Conforme os jogos forem finalizados, a classificação será atualizada automaticamente.
+        A tabela usa a pontuação e os critérios configurados nas regras da competição.
     </div>
 
     {% if classificacao %}
@@ -361,7 +364,10 @@
                             <th>D</th>
                             <th>Sets pró</th>
                             <th>Sets contra</th>
-                            <th>Saldo</th>
+                            <th>Saldo sets</th>
+                            <th>Pontos pró</th>
+                            <th>Pontos contra</th>
+                            <th>Saldo pontos</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -376,6 +382,9 @@
                             <td>{{ linha.sets_pro }}</td>
                             <td>{{ linha.sets_contra }}</td>
                             <td>{{ linha.saldo_sets }}</td>
+                            <td>{{ linha.pontos_pro }}</td>
+                            <td>{{ linha.pontos_contra }}</td>
+                            <td>{{ linha.saldo_pontos }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -415,4 +424,54 @@
     </div>
 </div>
 {% endif %}
+
+<script>
+async function atualizarPartidasAoVivoTabela() {
+    const linhas = document.querySelectorAll('tr[data-partida-id][data-ao-vivo="1"]');
+
+    for (const linha of linhas) {
+        const partidaId = linha.dataset.partidaId;
+        const competicao = linha.dataset.competicao;
+
+        try {
+            const resp = await fetch(`/apontador/estado/${encodeURIComponent(competicao)}/${partidaId}`, {
+                cache: "no-store"
+            });
+
+            if (!resp.ok) continue;
+
+            const dados = await resp.json();
+            if (!dados.ok) continue;
+
+            const statusEl = document.getElementById(`status-${partidaId}`);
+            const setsEl = document.getElementById(`sets-${partidaId}`);
+            const parciaisEl = document.getElementById(`parciais-${partidaId}`);
+
+            if (statusEl) {
+                if (dados.partida_finalizada) {
+                    statusEl.innerHTML = '<span style="color:#94a3b8; font-weight:800;">FINALIZADO</span>';
+                    linha.dataset.aoVivo = "0";
+                } else {
+                    statusEl.innerHTML = '<span style="color:#22c55e; font-weight:800;">AO VIVO</span>';
+                }
+            }
+
+            if (setsEl) {
+                setsEl.textContent = `${dados.sets_a || 0} x ${dados.sets_b || 0}`;
+            }
+
+            if (parciaisEl) {
+                if (!dados.partida_finalizada) {
+                    parciaisEl.textContent = `${dados.pontos_a || 0} x ${dados.pontos_b || 0}`;
+                }
+            }
+        } catch (e) {
+            console.error("Erro ao atualizar partida ao vivo:", partidaId, e);
+        }
+    }
+}
+
+setInterval(atualizarPartidasAoVivoTabela, 2000);
+document.addEventListener("DOMContentLoaded", atualizarPartidasAoVivoTabela);
+</script>
 {% endblock %}

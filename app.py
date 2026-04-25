@@ -38,8 +38,7 @@ def inicializar_banco():
     criar_campos_travamento_competicoes()
     criar_tabela_solicitacoes_treinador()
 
-    # Estruturas usadas nas rotas mais quentes do jogo ficam prontas no startup,
-    # evitando ALTER TABLE/CREATE TABLE repetidos durante a partida.
+    # Estruturas usadas nas rotas quentes do jogo
     criar_campos_jogo_partida(force=True)
     criar_campos_sets_partida(force=True)
     criar_tabela_eventos(force=True)
@@ -71,7 +70,11 @@ app.register_blueprint(treinador_bp)
 
 import socket_events  # noqa: E402,F401
 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
+
+    # Inicia o loop que salva os eventos acumulados em memória no banco
+
     socketio.run(app, host="0.0.0.0", port=port, debug=debug_mode)
