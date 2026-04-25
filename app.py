@@ -78,3 +78,5 @@ if __name__ == "__main__":
     # Inicia o loop que salva os eventos acumulados em memória no banco
 
     socketio.run(app, host="0.0.0.0", port=port, debug=debug_mode)
+#ALTERACAO
+#ALTERACAO
