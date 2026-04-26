@@ -13,8 +13,12 @@ try:
 except ImportError:
     ConnectionPool = None
 
+# --- ESSA LINHA ABAIXO É A QUE ESTÁ FALTANDO ---
+_CACHE_COLUNAS = {} 
+# -----------------------------------------------
 
 DATABASE_URL_PADRAO = "postgresql://postgres.gvirfvzvgvxuprbwthak:VolleyTablePro@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
+
 
 ARQUIVO_DADOS = "dados.json"
 
@@ -174,30 +178,25 @@ def _gerar_senha_aleatoria(tamanho=8):
 
 
 def _buscar_colunas_tabela(nome_tabela):
-    # Verifica se já temos as colunas na memória
+    # Se já buscou uma vez, retorna da memória sem abrir conexão
     if nome_tabela in _CACHE_COLUNAS:
         return _CACHE_COLUNAS[nome_tabela]
 
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_schema = 'public'
-                      AND table_name = %s
-                """, (nome_tabela,))
-                rows = cur.fetchall()
-                colunas = {row["column_name"] for row in rows}
-                
-                # Guarda no cache para a próxima vez
-                if colunas:
-                    _CACHE_COLUNAS[nome_tabela] = colunas
-                return colunas
-    except Exception as e:
-        print(f"Erro ao buscar colunas: {e}")
-        return set()
-        
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+            """, (nome_tabela,))
+            rows = cur.fetchall()
+            colunas = {row["column_name"] for row in rows}
+            
+            if colunas:
+                _CACHE_COLUNAS[nome_tabela] = colunas
+            return colunas
+            
 
 def _campo_ou_alias(colunas, campo, alias_sql):
     if campo in colunas:
