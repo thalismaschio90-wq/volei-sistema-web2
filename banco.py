@@ -196,7 +196,7 @@ def _buscar_colunas_tabela(nome_tabela):
             if colunas:
                 _CACHE_COLUNAS[nome_tabela] = colunas
             return colunas
-            
+
 
 def _campo_ou_alias(colunas, campo, alias_sql):
     if campo in colunas:
@@ -2033,31 +2033,45 @@ def listar_atletas_da_equipe(equipe, competicao):
 
 
 def excluir_atleta(id_atleta):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, equipe, competicao
-                FROM atletas
-                WHERE id = %s
-                LIMIT 1
-            """, (id_atleta,))
-            atleta = cur.fetchone()
+    try:
+        # PASSO 1: Busca os dados do atleta e já solta a conexão rapidinho
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, equipe, competicao
+                    FROM atletas
+                    WHERE id = %s
+                    LIMIT 1
+                """, (id_atleta,))
+                atleta = cur.fetchone()
 
-            if not atleta:
-                return False, "Atleta não encontrado."
+        if not atleta:
+            return False, "Atleta não encontrado."
 
-            ok_edicao, mensagem = validar_edicao_atletas_equipe(atleta["competicao"], atleta["equipe"])
-            if not ok_edicao:
-                return False, mensagem
+        # PASSO 2: Faz as validações (que abrem suas próprias conexões de forma segura)
+        ok_edicao, mensagem = validar_edicao_atletas_equipe(atleta["competicao"], atleta["equipe"])
+        if not ok_edicao:
+            return False, mensagem
 
-            cur.execute("""
-                DELETE FROM atletas
-                WHERE id = %s
-            """, (id_atleta,))
-        conn.commit()
+        # PASSO 3: Abre a conexão de novo APENAS para deletar e salvar
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM atletas
+                    WHERE id = %s
+                """, (id_atleta,))
+            # O commit garante que vai salvar!
+            conn.commit()
 
-    return True, "Atleta removido com sucesso."
-
+        return True, "Atleta removido com sucesso."
+    
+    except Exception as e:
+        # PASSO 4: Se o atleta já estiver em uma súmula e não puder ser apagado, o site não cai.
+        erro_str = str(e).lower()
+        if "foreign key" in erro_str or "violates foreign key" in erro_str:
+            return False, "Não é possível excluir: este atleta já está registrado em partidas ou súmulas."
+        return False, f"Erro ao excluir atleta: {str(e)}"
+        
 
 # =========================================================
 # ATLETAS - ORGANIZADOR
