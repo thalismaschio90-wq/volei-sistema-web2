@@ -174,18 +174,30 @@ def _gerar_senha_aleatoria(tamanho=8):
 
 
 def _buscar_colunas_tabela(nome_tabela):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public'
-                  AND table_name = %s
-            """, (nome_tabela,))
-            rows = cur.fetchall()
+    # Verifica se já temos as colunas na memória
+    if nome_tabela in _CACHE_COLUNAS:
+        return _CACHE_COLUNAS[nome_tabela]
 
-    return {row["column_name"] for row in rows}
-
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = %s
+                """, (nome_tabela,))
+                rows = cur.fetchall()
+                colunas = {row["column_name"] for row in rows}
+                
+                # Guarda no cache para a próxima vez
+                if colunas:
+                    _CACHE_COLUNAS[nome_tabela] = colunas
+                return colunas
+    except Exception as e:
+        print(f"Erro ao buscar colunas: {e}")
+        return set()
+        
 
 def _campo_ou_alias(colunas, campo, alias_sql):
     if campo in colunas:
