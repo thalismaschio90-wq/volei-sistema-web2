@@ -8,7 +8,7 @@ from banco import (
     excluir_equipe,
 
     # ATLETAS - EQUIPE
-    adicionar_atleta,
+    cadastrar_atleta,
     listar_atletas_da_equipe,
     excluir_atleta,
     atualizar_numero_atleta,
@@ -348,7 +348,7 @@ def meus_atletas_view():
 
 @equipes_bp.route("/cadastrar-atleta", methods=["GET", "POST"])
 @exigir_perfil("equipe")
-def adicionar_atleta_pagina_view():
+def cadastrar_atleta_pagina_view():
     usuario = session.get("usuario")
     equipe = buscar_equipe_por_login(usuario)
 
@@ -359,9 +359,9 @@ def adicionar_atleta_pagina_view():
     erro = None
 
     if request.method == "POST":
-        # Deixa a função adicionar_atleta validar CPF, prazo, limite e número.
+        # Deixa a função cadastrar_atleta validar CPF, prazo, limite e número.
         # Assim evitamos consulta duplicada antes de salvar.
-        resultado = adicionar_atleta(
+        resultado = cadastrar_atleta(
             request.form.get("nome", "").strip(),
             request.form.get("cpf", "").strip(),
             request.form.get("data_nascimento", "").strip(),
@@ -378,7 +378,7 @@ def adicionar_atleta_pagina_view():
 
         if ok:
             flash(msg or "Atleta cadastrado com sucesso.", "sucesso")
-            return redirect(url_for("equipes.adicionar_atleta_pagina_view"))
+            return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
 
         erro = msg or "Não foi possível cadastrar o atleta. Verifique CPF duplicado, número repetido, limite de atletas ou bloqueio de inscrição."
 
@@ -397,7 +397,7 @@ def adicionar_atleta_pagina_view():
 # =========================
 @equipes_bp.route("/atletas/cadastrar", methods=["POST"])
 @exigir_perfil("equipe")
-def adicionar_atleta_view():
+def cadastrar_atleta_view():
     nome = request.form.get("nome", "").strip()
     cpf = request.form.get("cpf", "").strip()
     data_nascimento = request.form.get("data_nascimento", "").strip()
@@ -416,9 +416,9 @@ def adicionar_atleta_view():
     controle_inscricao = controle_inscricao_para_equipe(competicao, equipe)
     if not controle_inscricao.get("aberta", True):
         flash(controle_inscricao.get("motivo") or "Inscrição bloqueada.", "erro")
-        return redirect(url_for("equipes.adicionar_atleta_pagina_view"))
+        return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
 
-    resultado = adicionar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao)
+    resultado = cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao)
 
     if isinstance(resultado, tuple):
         ok, msg = resultado
@@ -431,7 +431,7 @@ def adicionar_atleta_view():
     else:
         flash(msg or "Atleta cadastrado com sucesso!", "sucesso")
 
-    return redirect(url_for("equipes.adicionar_atleta_pagina_view"))
+    return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
 
 
 @equipes_bp.route("/atletas/<int:id_atleta>/excluir", methods=["POST"])
