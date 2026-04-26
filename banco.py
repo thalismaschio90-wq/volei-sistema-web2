@@ -1341,7 +1341,9 @@ def salvar_liberacao_extra_equipe(
             ))
         conn.commit()
 
-    return True
+    return True, "Atualizado com sucesso!"
+    # ou
+    return False, "Erro ao atualizar."
 
 # =========================================================
 # EQUIPES
@@ -1475,7 +1477,9 @@ def atualizar_quadro_tecnico_equipe(nome_equipe, competicao, treinador, auxiliar
             ))
         conn.commit()
 
-    return True
+    return True, "Atualizado com sucesso!"
+    # ou
+    return False, "Erro ao atualizar."
 
 
 def equipe_existe_na_competicao(nome_equipe, nome_competicao):
@@ -1590,7 +1594,9 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
 
         conn.commit()
 
-    return True
+    return True, "Atualizado com sucesso!"
+    # ou
+    return False, "Erro ao atualizar."
 
 
 def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
@@ -2086,7 +2092,7 @@ def excluir_atleta(id_atleta):
         if "foreign key" in erro_str or "violates foreign key" in erro_str:
             return False, "Este atleta já jogou ou está em uma súmula e não pode ser excluído."
         return False, f"Erro ao excluir atleta: {str(e)}"
-                
+
 
 # =========================================================
 # ATLETAS - ORGANIZADOR
