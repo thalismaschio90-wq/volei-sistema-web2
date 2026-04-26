@@ -2034,44 +2034,59 @@ def listar_atletas_da_equipe(equipe, competicao):
 
 def excluir_atleta(id_atleta):
     try:
-        # PASSO 1: Busca os dados do atleta e já solta a conexão rapidinho
+        # Abre UMA ÚNICA conexão para fazer todo o trabalho
         with conectar() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT id, equipe, competicao
-                    FROM atletas
-                    WHERE id = %s
-                    LIMIT 1
-                """, (id_atleta,))
+                # 1. Busca os dados do atleta
+                cur.execute("SELECT equipe, competicao FROM atletas WHERE id = %s", (id_atleta,))
                 atleta = cur.fetchone()
+                
+                if not atleta:
+                    return False, "Atleta não encontrado."
 
-        if not atleta:
-            return False, "Atleta não encontrado."
+                nome_equipe = atleta["equipe"]
+                nome_competicao = atleta["competicao"]
 
-        # PASSO 2: Faz as validações (que abrem suas próprias conexões de forma segura)
-        ok_edicao, mensagem = validar_edicao_atletas_equipe(atleta["competicao"], atleta["equipe"])
-        if not ok_edicao:
-            return False, mensagem
-
-        # PASSO 3: Abre a conexão de novo APENAS para deletar e salvar
-        with conectar() as conn:
-            with conn.cursor() as cur:
+                # 2. Verifica se a competição está travada direto no banco (sem abrir outra conexão)
                 cur.execute("""
-                    DELETE FROM atletas
-                    WHERE id = %s
-                """, (id_atleta,))
-            # O commit garante que vai salvar!
+                    SELECT COALESCE(travada, FALSE) AS travada
+                    FROM competicoes
+                    WHERE nome = %s
+                """, (nome_competicao,))
+                comp = cur.fetchone()
+
+                if comp and comp.get("travada"):
+                    # 3. Se estiver travada, verifica se a equipe já jogou (sem abrir outra conexão)
+                    cur.execute("""
+                        SELECT id FROM partidas
+                        WHERE competicao = %s
+                          AND (equipe_a = %s OR equipe_b = %s OR equipe_a_operacional = %s OR equipe_b_operacional = %s)
+                          AND (
+                              COALESCE(pontos_a, 0) > 0 OR COALESCE(pontos_b, 0) > 0
+                              OR LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'encerrado')
+                              OR LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada')
+                          )
+                        LIMIT 1
+                    """, (nome_competicao, nome_equipe, nome_equipe, nome_equipe, nome_equipe))
+                    
+                    if cur.fetchone():
+                        return False, "Competição travada: esta equipe já iniciou jogos. Exclusão bloqueada."
+
+                # 4. Passou nas validações? Deleta o atleta!
+                cur.execute("DELETE FROM atletas WHERE id = %s", (id_atleta,))
+            
+            # Salva as alterações no banco!
             conn.commit()
 
         return True, "Atleta removido com sucesso."
     
     except Exception as e:
-        # PASSO 4: Se o atleta já estiver em uma súmula e não puder ser apagado, o site não cai.
+        # 5. Captura erros do banco (ex: atleta que já tem ponto na súmula)
         erro_str = str(e).lower()
         if "foreign key" in erro_str or "violates foreign key" in erro_str:
-            return False, "Não é possível excluir: este atleta já está registrado em partidas ou súmulas."
+            return False, "Este atleta já jogou ou está em uma súmula e não pode ser excluído."
         return False, f"Erro ao excluir atleta: {str(e)}"
-        
+                
 
 # =========================================================
 # ATLETAS - ORGANIZADOR
