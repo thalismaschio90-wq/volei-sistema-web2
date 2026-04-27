@@ -5079,9 +5079,9 @@ def _emitir_estado_tempo_real(partida_id, competicao):
     
 
 def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalhes=None):
-    criar_campos_jogo_partida()
-    criar_campos_sets_partida()
-    criar_tabela_eventos()
+    # IMPORTANTE:
+    # Não criar/alterar tabelas a cada ponto.
+    # Isso deixa o site lento no Render/Supabase.
 
     equipe = (equipe or "").strip().upper()
     if equipe not in {"A", "B"}:

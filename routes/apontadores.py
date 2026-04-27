@@ -797,13 +797,9 @@ def ponto_view(competicao, partida_id):
 
         estado = retorno if isinstance(retorno, dict) else {}
 
-        if "historico" not in estado or "ultima_acao" not in estado:
-            historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
-            estado.setdefault("historico", historico)
-            estado.setdefault("ultima_acao", ultima_acao)
+        estado.setdefault("historico", [])
+        estado.setdefault("ultima_acao", "Ponto registrado")
 
-        # Envia para treinador/apontador o mesmo estado que acabou de ser salvo.
-        # Isso evita nova consulta pesada e deixa a atualização em tempo real.
         emitir_estado_partida(partida_id, estado)
 
         return _json_no_cache({
