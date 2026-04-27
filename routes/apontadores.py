@@ -57,65 +57,6 @@ def _json_no_cache(payload, status=200):
     return resposta
 
 
-
-
-def _fase_rapida_partida(partida):
-    if not partida:
-        return "pre_jogo"
-
-    status = (partida.get("status") or "").strip().lower()
-    status_jogo = (partida.get("status_jogo") or "").strip().lower()
-    status_operacao = (partida.get("status_operacao") or "").strip().lower()
-    fase = (partida.get("fase_partida") or "").strip().lower()
-
-    if status in {"finalizada", "encerrada"} or status_jogo == "finalizada" or status_operacao == "finalizada" or fase == "encerrado":
-        return "encerrado"
-
-    if status_jogo == "tiebreak_sorteio" or status_operacao == "tiebreak_sorteio" or fase == "tiebreak_sorteio":
-        return "tiebreak_sorteio"
-
-    if (
-        status_jogo == "em_andamento"
-        or status_operacao == "em_andamento"
-        or fase == "jogo"
-        or status in {"em andamento", "em_andamento", "ao vivo", "ao_vivo", "iniciada", "iniciado", "andamento"}
-    ):
-        return "jogo"
-
-    return "pre_jogo"
-
-
-def _redirect_fluxo_apontador(competicao, partida_id, partida=None, usar_fluxo_completo=False):
-    if not partida:
-        partida = buscar_partida_operacional(partida_id, competicao)
-
-    if not partida:
-        flash("Partida não encontrada.", "erro")
-        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
-
-    fase = _fase_rapida_partida(partida)
-    proxima = fase
-
-    if usar_fluxo_completo or fase == "pre_jogo":
-        fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
-        fase = fluxo.get("fase_partida") or fase
-        proxima = fluxo.get("proxima_etapa") or fase
-
-    if fase == "encerrado" or proxima == "encerrado":
-        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
-
-    if fase == "tiebreak_sorteio" or proxima == "tiebreak_sorteio":
-        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
-
-    if fase == "jogo" or proxima == "jogo":
-        return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
-
-    if fase in {"papeleta", "intervalo_set"} or proxima == "papeleta":
-        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
-
-    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
-
-
 def _montar_descricao_evento(ev):
     descricao = (ev.get("descricao") or "").strip()
     if descricao:
@@ -280,22 +221,6 @@ def entrar_competicao_apontador(competicao):
     )
 
 
-@apontadores_bp.route("/apontador/partida/<competicao>/<int:partida_id>/entrar")
-@exigir_perfil("apontador")
-def entrar_partida_apontador(competicao, partida_id):
-    partida = buscar_partida_operacional(partida_id, competicao)
-
-    if not partida:
-        flash("Partida não encontrada.", "erro")
-        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
-
-    fase_rapida = _fase_rapida_partida(partida)
-    if fase_rapida in {"jogo", "tiebreak_sorteio", "encerrado"}:
-        return _redirect_fluxo_apontador(competicao, partida_id, partida=partida, usar_fluxo_completo=False)
-
-    return _redirect_fluxo_apontador(competicao, partida_id, partida=partida, usar_fluxo_completo=True)
-
-
 # =========================================================
 # PRÉ-JOGO
 # =========================================================
@@ -308,10 +233,6 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
     if not partida:
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
-
-    fase_rapida = _fase_rapida_partida(partida)
-    if fase_rapida in {"jogo", "tiebreak_sorteio", "encerrado"}:
-        return _redirect_fluxo_apontador(competicao, partida_id, partida=partida, usar_fluxo_completo=False)
 
     bloqueada_por_outro = (
         partida.get("operador_login")
