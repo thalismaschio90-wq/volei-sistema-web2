@@ -750,7 +750,6 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
 
     const modoOperacao = {{ modo_operacao_jogo | tojson }};
 
-    let enviando = false;
     let partidaFinalizada = false;
     let intervaloTempo = null;
     let tempoAtual = 0;
@@ -2303,108 +2302,91 @@ function atualizarResumoSubEx() {
         atualizarUltimaAcao(`Registrando ${detalhe} para equipe ${equipe}...`);
     }
 
-    async function registrarPonto(equipe, scout) {
-        if (enviando || partidaFinalizada) return;
+    function registrarPonto(equipe, scout) {
+    if (partidaFinalizada) return;
 
-        enviando = true;
-        travarBotoes(true);
-        limparErro();
+    limparErro();
 
-        const pontosAntesA = parseInt(pontosA.textContent || "0", 10);
-        const pontosAntesB = parseInt(pontosB.textContent || "0", 10);
-        const rotAntesA = [...rotA];
-        const rotAntesB = [...rotB];
-        const saqueAntes = saqueAtual;
+    const pontosAntesA = parseInt(pontosA.textContent || "0", 10);
+    const pontosAntesB = parseInt(pontosB.textContent || "0", 10);
+    const rotAntesA = [...rotA];
+    const rotAntesB = [...rotB];
+    const saqueAntes = saqueAtual;
 
-        aplicarPontoOtimista(equipe, scout);
-        fecharModalPonto();
+    aplicarPontoOtimista(equipe, scout);
+    fecharModalPonto();
 
-        try {
-            const resposta = await fetch(
-                "{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Requested-With": "fetch"
-                    },
-                    body: JSON.stringify({
-                        equipe: equipe,
-                        fundamento: (scout && scout.fundamento) || "",
-                        resultado: (scout && (scout.resultado || scout.tipo_lance)) || "",
-                        tipo_lance: (scout && scout.tipo_lance) || "",
-                        detalhe_lance: (scout && scout.detalhe_lance) || "",
-                        tipo_erro: (scout && scout.tipo_erro) || "",
-                        atleta_numero: (scout && scout.atleta_numero) || "",
-                        atleta_nome: (scout && scout.atleta_nome) || "",
-                        atleta_label: (scout && scout.atleta_label) || ""
-                    })
-                }
-            );
+    fetch("{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "fetch"
+        },
+        body: JSON.stringify({
+            equipe,
+            fundamento: scout?.fundamento || "",
+            resultado: scout?.resultado || "",
+            tipo_lance: scout?.tipo_lance || "",
+            detalhe_lance: scout?.detalhe_lance || "",
+            tipo_erro: scout?.tipo_erro || "",
+            atleta_numero: scout?.atleta_numero || "",
+            atleta_nome: scout?.atleta_nome || "",
+            atleta_label: scout?.atleta_label || ""
+        })
+    })
+    .then(res => res.json())
+    .then(dados => {
 
-            const bruto = await resposta.json();
-            const dados = normalizarRespostaJogo(bruto);
-
-            if (!resposta.ok || !dados.ok) {
-                pontosA.textContent = pontosAntesA;
-                pontosB.textContent = pontosAntesB;
-                rotA = rotAntesA;
-                rotB = rotAntesB;
-                saqueAtual = saqueAntes;
-                saqueInfo.textContent = saqueAtual ? `Saque atual: ${saqueAtual}` : "Saque atual ainda não definido";
-                renderQuadra();
-                mostrarErro(dados.mensagem || "Erro ao registrar ponto.");
-                return;
-            }
-
-        ultimoTokenSync++;
-
-        placarProtegidoAte = Date.now() + 2000;
-        bloquearSyncAte = Date.now() + 2000;
-
-        const dadosNormalizados = normalizarRespostaJogo(dados);
-        aplicarEstado(dadosNormalizados);
-
-            if (dadosNormalizados.set_finalizado) {
-                atualizarUltimaAcao(dadosNormalizados.ultima_acao || "Set finalizado");
-
-                if (dadosNormalizados.partida_finalizada) {
-                    partidaFinalizada = true;
-                    travarBotoes(true);
-                    alert("Partida encerrada.");
-                    return;
-                }
-
-                if (dadosNormalizados.redirecionar_tiebreak) {
-                    alert("Set finalizado. Agora será aberto o sorteio do tie-break.");
-                    window.location.href = "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}";
-                    return;
-                }
-
-                if (dadosNormalizados.redirecionar_papeleta) {
-                    alert("Set finalizado. Clique em OK para ir para a papeleta do próximo set.");
-                    window.location.href = "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}";
-                    return;
-                }
-
-                return;
-            }
-
-            const textoScout = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
-        } catch (e) {
+        if (!dados.ok) {
+            // rollback
             pontosA.textContent = pontosAntesA;
             pontosB.textContent = pontosAntesB;
             rotA = rotAntesA;
             rotB = rotAntesB;
             saqueAtual = saqueAntes;
-            saqueInfo.textContent = saqueAtual ? `Saque atual: ${saqueAtual}` : "Saque atual ainda não definido";
             renderQuadra();
-            mostrarErro("Erro de conexão.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
+            mostrarErro(dados.mensagem || "Erro ao registrar ponto.");
+            return;
         }
-    }
+
+        ultimoTokenSync++;
+
+        placarProtegidoAte = Date.now() + 600;
+        bloquearSyncAte = Date.now() + 300;
+        rotacaoProtegidaAte = Date.now() + 600;
+
+        aplicarEstado(dados);
+
+        if (dados.set_finalizado) {
+            atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
+
+            if (dados.partida_finalizada) {
+                partidaFinalizada = true;
+                alert("Partida encerrada.");
+                return;
+            }
+
+            if (dados.redirecionar_tiebreak) {
+                window.location.href = "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}";
+                return;
+            }
+
+            if (dados.redirecionar_papeleta) {
+                window.location.href = "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}";
+                return;
+            }
+        }
+    })
+    .catch(() => {
+        pontosA.textContent = pontosAntesA;
+        pontosB.textContent = pontosAntesB;
+        rotA = rotAntesA;
+        rotB = rotAntesB;
+        saqueAtual = saqueAntes;
+        renderQuadra();
+        mostrarErro("Erro de conexão.");
+    });
+}
 
     async function registrarSubstituicao() {
         if (enviando || partidaFinalizada || !equipeSubAtual) return;
