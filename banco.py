@@ -17,7 +17,7 @@ except ImportError:
 _CACHE_COLUNAS = {} 
 # -----------------------------------------------
 
-DATABASE_URL_PADRAO = "postgresql://postgres.gvirfvzvgvxuprbwthak:VolleyTablePro@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"
+DATABASE_URL_PADRAO = "postgresql://postgres.gvirfvzvgvxuprbwthak:VolleyTablePro@aws-1-sa-east-1.pooler.supabase.com:6543/postgres"
 
 
 ARQUIVO_DADOS = "dados.json"
@@ -6589,7 +6589,7 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             "pontos": 0,
             "aces": 0,
             "erros_saque": 0,
-            "erros_rotacao": 0,
+            "faltas": 0,
             "ataques": 0,
             "bloqueios": 0,
             "erros_gerais": 0,
@@ -6611,7 +6611,7 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
                 "pontos": 0,
                 "aces": 0,
                 "erros_saque": 0,
-                "erros_rotacao": 0,
+                "faltas": 0,
                 "ataques": 0,
                 "bloqueios": 0,
                 "erros_gerais": 0,
@@ -6635,6 +6635,32 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
 
         texto_busca = f"{tipo} {tipo_evento} {fundamento} {resultado} {detalhe} {descricao}"
 
+        eh_falta = (
+            fundamento == "falta"
+            or tipo_evento == "falta"
+            or resultado in {
+                "rede",
+                "invasao",
+                "invasão",
+                "rotacao",
+                "rotação",
+                "conducao",
+                "condução",
+                "dois_toques",
+                "dois toques",
+            }
+            or "falta" in texto_busca
+            or "rede" in texto_busca
+            or "invasao" in texto_busca
+            or "invasão" in texto_busca
+            or "rotacao" in texto_busca
+            or "rotação" in texto_busca
+            or "conducao" in texto_busca
+            or "condução" in texto_busca
+            or "dois_toques" in texto_busca
+            or "dois toques" in texto_busca
+        )
+
         erro_saque = (
             fundamento == "saque"
             and resultado in {"erro", "erro_saque", "fora", "rede"}
@@ -6644,33 +6670,15 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             or "erro saque" in texto_busca
         )
 
-        erro_rotacao = (
-            fundamento == "rotacao"
-            or tipo == "erro_rotacao"
-            or tipo_evento == "erro_rotacao"
-            or "erro_rotacao" in texto_busca
-            or "erro rotação" in texto_busca
-            or "erro rotacao" in texto_busca
-        )
-
         erro_geral = (
-            erro_saque
-            or erro_rotacao
-            or resultado == "erro"
+            resultado == "erro"
             or "erro_geral" in texto_busca
             or "erro geral" in texto_busca
-            or "falta" in texto_busca
-            or "dois_toques" in texto_busca
-            or "dois toques" in texto_busca
-            or "conducao" in texto_busca
-            or "condução" in texto_busca
-            or "invasao" in texto_busca
-            or "invasão" in texto_busca
         )
 
-        eh_erro = erro_saque or erro_rotacao or erro_geral
+        eh_erro_ou_falta = erro_saque or eh_falta or erro_geral
 
-        if eh_erro:
+        if eh_erro_ou_falta:
             lado_scout = lado_oposto(lado_ponto)
         else:
             lado_scout = lado_ponto
@@ -6683,13 +6691,13 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
         tem_atleta = numero not in (None, "", 0, "0") or bool(nome)
         bucket = atleta_bucket(numero, nome) if tem_atleta else None
 
-        eh_ponto = not eh_erro and (
+        eh_ponto = not eh_erro_ou_falta and (
             tipo == "ponto"
             or resultado in {"ponto", "ace", "winner"}
             or tipo_evento in {"ponto", "ace", "bloqueio", "ataque"}
         )
 
-        eh_ace = not eh_erro and (
+        eh_ace = not eh_erro_ou_falta and (
             (
                 fundamento == "saque"
                 and resultado in {"ace", "ponto", "winner"}
@@ -6698,13 +6706,13 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             or "ace" in texto_busca
         )
 
-        eh_bloqueio = not eh_erro and (
+        eh_bloqueio = not eh_erro_ou_falta and (
             fundamento == "bloqueio"
             or tipo_evento == "bloqueio"
             or "bloqueio" in texto_busca
         )
 
-        eh_ataque = not eh_erro and (
+        eh_ataque = not eh_erro_ou_falta and (
             fundamento == "ataque"
             or tipo_evento == "ataque"
             or "ataque" in texto_busca
@@ -6738,11 +6746,11 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
                 bucket["erros_gerais"] += 1
             continue
 
-        if erro_rotacao:
-            resumo["equipe"]["erros_rotacao"] += 1
+        if eh_falta:
+            resumo["equipe"]["faltas"] += 1
             resumo["equipe"]["erros_gerais"] += 1
             if bucket:
-                bucket["erros_rotacao"] += 1
+                bucket["faltas"] += 1
                 bucket["erros_gerais"] += 1
             continue
 
@@ -6755,7 +6763,7 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
     resumo["atletas_lista"] = list(resumo["atletas"].values())
 
     return resumo
-    
+
 def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=None):
     with conectar() as conn:
         with conn.cursor() as cur:
