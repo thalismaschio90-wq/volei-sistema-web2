@@ -41,6 +41,7 @@ from banco import (
     listar_eventos_partida,
 )
 from routes.utils import exigir_perfil
+from socket_events import emitir_estado_partida, emitir_resposta_solicitacao
 
 apontadores_bp = Blueprint("apontadores", __name__)
 
@@ -829,12 +830,33 @@ def registrar_tempo_view(competicao, partida_id):
     try:
         corpo = request.get_json(silent=True) or {}
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
+
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
+
         ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
-        return _json_no_cache({"ok": True, **retorno})
+
+        estado = retorno if isinstance(retorno, dict) else {}
+
+        try:
+            emitir_estado_partida(partida_id, estado)
+        except Exception as e:
+            print("ERRO emitir_estado_partida TEMPO:", e)
+
+        try:
+            emitir_resposta_solicitacao(partida_id, {
+                "tipo": "tempo",
+                "equipe": equipe,
+                "status": "atendida",
+                "mensagem": f"Tempo da equipe {equipe} autorizado pelo apontador."
+            })
+        except Exception as e:
+            print("ERRO emitir_resposta_solicitacao TEMPO:", e)
+
+        return _json_no_cache({"ok": True, **estado})
+
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"}, 500)
 
@@ -858,7 +880,24 @@ def registrar_substituicao_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        return _json_no_cache({"ok": True, **retorno})
+        estado = retorno if isinstance(retorno, dict) else {}
+
+        try:
+            emitir_estado_partida(partida_id, estado)
+        except Exception as e:
+            print("ERRO emitir_estado_partida SUBSTITUICAO:", e)
+
+        try:
+            emitir_resposta_solicitacao(partida_id, {
+                "tipo": "substituicao",
+                "equipe": equipe,
+                "status": "atendida",
+                "mensagem": f"Substituição da equipe {equipe} autorizada pelo apontador."
+            })
+        except Exception as e:
+            print("ERRO emitir_resposta_solicitacao SUBSTITUICAO:", e)
+
+        return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição: {e}"}, 500)

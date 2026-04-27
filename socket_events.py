@@ -61,20 +61,56 @@ def emitir_estado_partida(partida_id, dados=None):
     )
 
 
-def emitir_solicitacao_treinador(partida_id, solicitacao):
+def emitir_solicitacao_treinador(*args):
+    """
+    Emite uma solicitação feita pelo treinador para a sala da partida.
+
+    Aceita dois formatos para não quebrar arquivos antigos:
+    - emitir_solicitacao_treinador(partida_id, solicitacao)
+    - emitir_solicitacao_treinador(competicao, partida_id, solicitacao)
+    """
+    if len(args) == 2:
+        partida_id, solicitacao = args
+    elif len(args) == 3:
+        _competicao, partida_id, solicitacao = args
+    else:
+        print("emitir_solicitacao_treinador: argumentos inválidos", args)
+        return
+
     sala = _room(partida_id)
     if not sala:
         return
 
+    payload = {
+        "partida_id": sala,
+        "solicitacao": solicitacao,
+        "mensagem": (solicitacao or {}).get("mensagem")
+        if isinstance(solicitacao, dict)
+        else solicitacao,
+    }
+
     socketio.emit(
         "solicitacao_treinador",
-        {
-            "partida_id": sala,
-            "solicitacao": solicitacao,
-            "mensagem": (solicitacao or {}).get("mensagem")
-            if isinstance(solicitacao, dict)
-            else solicitacao,
-        },
+        payload,
+        room=sala,
+    )
+
+
+def emitir_resposta_solicitacao(partida_id, dados=None):
+    """
+    Avisa treinador/apontador que uma solicitação foi atendida ou recusada.
+    Usado quando o apontador registra tempo/substituição após pedido do treinador.
+    """
+    sala = _room(partida_id)
+    if not sala:
+        return
+
+    payload = dict(dados or {})
+    payload.setdefault("partida_id", sala)
+
+    socketio.emit(
+        "resposta_solicitacao",
+        payload,
         room=sala,
     )
 
