@@ -2247,16 +2247,21 @@ function atualizarResumoSubEx() {
 
     function agendarSincronizacao(delay = 250, forcar = false) {
         if (!forcar && socketConectado) return;
+
         if (syncTimer) clearTimeout(syncTimer);
+
         syncTimer = setTimeout(() => {
             sincronizarEstadoJogo();
         }, delay);
     }
 
+
     async function sincronizarEstadoJogo() {
         if (socketConectado) return;
         if (Date.now() < bloquearSyncAte) return;
+
         const token = ++ultimoTokenSync;
+
         try {
             const resposta = await fetch(
                 "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
@@ -2266,13 +2271,16 @@ function atualizarResumoSubEx() {
                     cache: "no-store"
                 }
             );
+
             const bruto = await resposta.json();
             const dados = normalizarRespostaJogo(bruto);
+
             if (!resposta.ok || !dados.ok) return;
             if (token !== ultimoTokenSync) return;
-            aplicarEstado(normalizarRespostaJogo(dados));
+
+            aplicarEstado(dados);
         } catch (e) {
-            // sincronização silenciosa
+            // silencioso
         }
     }
 
@@ -2349,9 +2357,13 @@ function atualizarResumoSubEx() {
                 return;
             }
 
-            ultimoTokenSync++;
-            const dadosNormalizados = normalizarRespostaJogo(dados);
-            aplicarEstado(dadosNormalizados);
+        ultimoTokenSync++;
+
+        placarProtegidoAte = Date.now() + 2000;
+        bloquearSyncAte = Date.now() + 2000;
+
+        const dadosNormalizados = normalizarRespostaJogo(dados);
+        aplicarEstado(dadosNormalizados);
 
             if (dadosNormalizados.set_finalizado) {
                 atualizarUltimaAcao(dadosNormalizados.ultima_acao || "Set finalizado");
