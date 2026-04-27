@@ -72,7 +72,7 @@
             </div>
 
             <div>
-                <a class="btn-padrao" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) }}">
+                <a class="btn-padrao" href="{{ url_for('apontadores.entrar_partida_apontador', competicao=competicao_nome, partida_id=p.id) }}">
                     {% if p.operador_login == session.get('usuario') %}
                         Continuar
                     {% else %}
