@@ -6517,156 +6517,297 @@ def listar_solicitacoes_treinador(partida_id, competicao, equipe=None, status=No
 
 
 def resumir_scout_equipe_partida(partida_id, competicao, lado):
-    # 🔥 CORREÇÃO: agora sim armazenando corretamente
-    eventos = listar_eventos_partida(partida_id, competicao, limite=1000) or [] 
+    eventos_todos = listar_eventos_partida(partida_id, competicao, limite=1000) or []
+    lado_normalizado = (lado or "").strip().upper()
 
-    # 🔥 filtro por equipe (lado A/B ou nome)
-    eventos = [
-        ev for ev in eventos
-        if (ev.get('equipe') or '').strip().upper() == (lado or '').strip().upper()
-    ]
+    partida = None
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT *
+                    FROM partidas
+                    WHERE id = %s
+                      AND competicao = %s
+                    LIMIT 1
+                """, (partida_id, competicao))
+                partida = cur.fetchone()
+    except Exception:
+        partida = None
+
+    equipe_a_nome = ""
+    equipe_b_nome = ""
+
+    if partida:
+        equipe_a_nome = (
+            partida.get("equipe_a_operacional")
+            or partida.get("equipe_a")
+            or ""
+        ).strip()
+
+        equipe_b_nome = (
+            partida.get("equipe_b_operacional")
+            or partida.get("equipe_b")
+            or ""
+        ).strip()
+
+    def normalizar(valor):
+        return str(valor or "").strip().lower()
+
+    def lado_oposto(lado_valor):
+        lado_valor = (lado_valor or "").strip().upper()
+        if lado_valor == "A":
+            return "B"
+        if lado_valor == "B":
+            return "A"
+        return ""
+
+    def descobrir_lado(valor):
+        valor_txt = str(valor or "").strip()
+        valor_up = valor_txt.upper()
+        valor_low = valor_txt.lower()
+
+        if valor_up in {"A", "B"}:
+            return valor_up
+
+        if equipe_a_nome and valor_low == equipe_a_nome.lower():
+            return "A"
+
+        if equipe_b_nome and valor_low == equipe_b_nome.lower():
+            return "B"
+
+        if equipe_a_nome and equipe_a_nome.lower() in valor_low:
+            return "A"
+
+        if equipe_b_nome and equipe_b_nome.lower() in valor_low:
+            return "B"
+
+        return ""
 
     resumo = {
-        'equipe': {
-            'pontos': 0,
-            'aces': 0,
-            'erros_saque': 0,
-            'erros_rotacao': 0,
-            'ataques': 0,
-            'bloqueios': 0,
-            'erros_gerais': 0,
+        "equipe": {
+            "pontos": 0,
+            "aces": 0,
+            "erros_saque": 0,
+            "erros_rotacao": 0,
+            "ataques": 0,
+            "bloqueios": 0,
+            "erros_gerais": 0,
         },
-        'atletas': {},
-        'eventos': eventos[:30],
+        "atletas": {},
+        "eventos": [],
+        "atletas_lista": [],
     }
 
     def atleta_bucket(numero, nome):
-        chave = str(numero or nome or 'sem_identificacao')
-        if chave not in resumo['atletas']:
-            resumo['atletas'][chave] = {
-                'numero': numero or '',
-                'nome': nome or 'Sem identificação',
-                'pontos': 0,
-                'aces': 0,
-                'erros_saque': 0,
-                'erros_rotacao': 0,
-                'ataques': 0,
-                'bloqueios': 0,
-                'erros_gerais': 0,
+        numero_txt = str(numero or "").strip()
+        nome_txt = str(nome or "").strip()
+        chave = numero_txt or nome_txt or "sem_identificacao"
+
+        if chave not in resumo["atletas"]:
+            resumo["atletas"][chave] = {
+                "numero": numero_txt,
+                "nome": nome_txt or "Sem identificação",
+                "pontos": 0,
+                "aces": 0,
+                "erros_saque": 0,
+                "erros_rotacao": 0,
+                "ataques": 0,
+                "bloqueios": 0,
+                "erros_gerais": 0,
             }
-        return resumo['atletas'][chave]
 
-    for ev in eventos:
-        tipo = (ev.get('tipo') or '').strip().lower()
-        fundamento = (ev.get('fundamento') or '').strip().lower()
-        resultado = (ev.get('resultado') or '').strip().lower()
-        bucket = atleta_bucket(ev.get('numero'), ev.get('atleta_nome'))
+        return resumo["atletas"][chave]
 
-        if tipo == 'ponto':
-            resumo['equipe']['pontos'] += 1
-            bucket['pontos'] += 1
+    for ev in eventos_todos:
+        equipe_ponto_raw = ev.get("equipe")
+        lado_ponto = descobrir_lado(equipe_ponto_raw)
 
-        if fundamento == 'saque' and resultado in {'ace', 'ponto', 'winner'}:
-            resumo['equipe']['aces'] += 1
-            bucket['aces'] += 1
+        tipo = normalizar(ev.get("tipo"))
+        tipo_evento = normalizar(ev.get("tipo_evento"))
+        fundamento = normalizar(ev.get("fundamento"))
+        resultado = normalizar(ev.get("resultado"))
+        detalhe = normalizar(ev.get("detalhe"))
+        descricao = normalizar(ev.get("descricao"))
 
-        if fundamento == 'saque' and resultado in {'erro', 'erro_saque'}:
-            resumo['equipe']['erros_saque'] += 1
-            bucket['erros_saque'] += 1
-            resumo['equipe']['erros_gerais'] += 1
-            bucket['erros_gerais'] += 1
+        numero = ev.get("numero")
+        nome = ev.get("atleta_nome")
 
-        if fundamento == 'rotacao' or tipo == 'erro_rotacao':
-            resumo['equipe']['erros_rotacao'] += 1
-            bucket['erros_rotacao'] += 1
-            resumo['equipe']['erros_gerais'] += 1
-            bucket['erros_gerais'] += 1
+        texto_busca = f"{tipo} {tipo_evento} {fundamento} {resultado} {detalhe} {descricao}"
 
-        if fundamento == 'ataque':
-            resumo['equipe']['ataques'] += 1
-            bucket['ataques'] += 1
-            if resultado == 'erro':
-                resumo['equipe']['erros_gerais'] += 1
-                bucket['erros_gerais'] += 1
-
-        if fundamento == 'bloqueio':
-            resumo['equipe']['bloqueios'] += 1
-            bucket['bloqueios'] += 1
-
-        if resultado == 'erro' and fundamento not in {'saque', 'rotacao', 'ataque'}:
-            resumo['equipe']['erros_gerais'] += 1
-            bucket['erros_gerais'] += 1
-
-    atletas = list(resumo['atletas'].values())
-    atletas.sort(
-        key=lambda item: (
-            -int(item.get('pontos') or 0),
-            str(item.get('numero') or ''),
-            item.get('nome') or ''
+        erro_saque = (
+            fundamento == "saque"
+            and resultado in {"erro", "erro_saque", "fora", "rede"}
+        ) or (
+            tipo_evento == "erro_saque"
+            or "erro_saque" in texto_busca
+            or "erro saque" in texto_busca
         )
-    )
 
-    resumo['atletas_lista'] = atletas
+        erro_rotacao = (
+            fundamento == "rotacao"
+            or tipo == "erro_rotacao"
+            or tipo_evento == "erro_rotacao"
+            or "erro_rotacao" in texto_busca
+            or "erro rotação" in texto_busca
+            or "erro rotacao" in texto_busca
+        )
+
+        erro_geral = (
+            erro_saque
+            or erro_rotacao
+            or resultado == "erro"
+            or "erro_geral" in texto_busca
+            or "erro geral" in texto_busca
+            or "falta" in texto_busca
+            or "dois_toques" in texto_busca
+            or "dois toques" in texto_busca
+            or "conducao" in texto_busca
+            or "condução" in texto_busca
+            or "invasao" in texto_busca
+            or "invasão" in texto_busca
+        )
+
+        eh_erro = erro_saque or erro_rotacao or erro_geral
+
+        if eh_erro:
+            lado_scout = lado_oposto(lado_ponto)
+        else:
+            lado_scout = lado_ponto
+
+        if lado_scout != lado_normalizado:
+            continue
+
+        resumo["eventos"].append(ev)
+
+        tem_atleta = numero not in (None, "", 0, "0") or bool(nome)
+        bucket = atleta_bucket(numero, nome) if tem_atleta else None
+
+        eh_ponto = not eh_erro and (
+            tipo == "ponto"
+            or resultado in {"ponto", "ace", "winner"}
+            or tipo_evento in {"ponto", "ace", "bloqueio", "ataque"}
+        )
+
+        eh_ace = not eh_erro and (
+            (
+                fundamento == "saque"
+                and resultado in {"ace", "ponto", "winner"}
+            )
+            or tipo_evento == "ace"
+            or "ace" in texto_busca
+        )
+
+        eh_bloqueio = not eh_erro and (
+            fundamento == "bloqueio"
+            or tipo_evento == "bloqueio"
+            or "bloqueio" in texto_busca
+        )
+
+        eh_ataque = not eh_erro and (
+            fundamento == "ataque"
+            or tipo_evento == "ataque"
+            or "ataque" in texto_busca
+        )
+
+        if eh_ponto:
+            resumo["equipe"]["pontos"] += 1
+            if bucket:
+                bucket["pontos"] += 1
+
+        if eh_ace:
+            resumo["equipe"]["aces"] += 1
+            if bucket:
+                bucket["aces"] += 1
+
+        if eh_ataque:
+            resumo["equipe"]["ataques"] += 1
+            if bucket:
+                bucket["ataques"] += 1
+
+        if eh_bloqueio:
+            resumo["equipe"]["bloqueios"] += 1
+            if bucket:
+                bucket["bloqueios"] += 1
+
+        if erro_saque:
+            resumo["equipe"]["erros_saque"] += 1
+            resumo["equipe"]["erros_gerais"] += 1
+            if bucket:
+                bucket["erros_saque"] += 1
+                bucket["erros_gerais"] += 1
+            continue
+
+        if erro_rotacao:
+            resumo["equipe"]["erros_rotacao"] += 1
+            resumo["equipe"]["erros_gerais"] += 1
+            if bucket:
+                bucket["erros_rotacao"] += 1
+                bucket["erros_gerais"] += 1
+            continue
+
+        if erro_geral:
+            resumo["equipe"]["erros_gerais"] += 1
+            if bucket:
+                bucket["erros_gerais"] += 1
+
+    resumo["eventos"] = resumo["eventos"][:30]
+    resumo["atletas_lista"] = list(resumo["atletas"].values())
+
     return resumo
+    
+def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=None):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM partidas
+                WHERE id = %s
+                  AND competicao = %s
+                LIMIT 1
+            """, (partida_id, competicao))
+            partida = cur.fetchone()
 
-
-def montar_contexto_treinador(partida_id, competicao, equipe_nome):
-    partida = buscar_partida_operacional(partida_id, competicao)
     if not partida:
         return None
 
-    garantir_estado_partida(partida_id, competicao)
-    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
-    lado = _lado_treinador_da_partida(partida, equipe_nome)
-    if lado not in {'A', 'B'}:
+    equipe_a = (
+        partida.get("equipe_a_operacional")
+        or partida.get("equipe_a")
+        or ""
+    )
+
+    equipe_b = (
+        partida.get("equipe_b_operacional")
+        or partida.get("equipe_b")
+        or ""
+    )
+
+    lado_final = (lado or "").strip().upper()
+
+    if lado_final not in {"A", "B"} and equipe_nome:
+        nome = (equipe_nome or "").strip().lower()
+
+        if nome == equipe_a.strip().lower():
+            lado_final = "A"
+        elif nome == equipe_b.strip().lower():
+            lado_final = "B"
+
+    if lado_final not in {"A", "B"}:
         return None
 
-    set_atual = int(partida.get('set_atual') or 1)
-    atletas = listar_atletas_aprovados_da_equipe(equipe_nome, competicao) or []
-    atletas = [a for a in atletas if a.get('numero') not in (None, '')]
-    atletas.sort(key=lambda item: int(item.get('numero') or 0))
+    scout = resumir_scout_equipe_partida(partida_id, competicao, lado_final) or {}
 
-    papeleta_rows = listar_papeleta(partida_id, competicao, equipe_nome, set_atual) or []
-    papeleta_map = {int(row.get('posicao') or 0): str(row.get('numero') or '') for row in papeleta_rows}
-    for i in range(1, 7):
-        papeleta_map.setdefault(i, '')
-
-    tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-    lado_adversario = 'B' if lado == 'A' else 'A'
-    rotacao = estado.get('rotacao_a') if lado == 'A' else estado.get('rotacao_b')
-    status_jogadores = estado.get('status_jogadores_a') if lado == 'A' else estado.get('status_jogadores_b')
-    banco = estado.get('banco_a') if lado == 'A' else estado.get('banco_b')
-
-    equipe_adversaria = partida.get('equipe_b_operacional') if lado == 'A' else partida.get('equipe_a_operacional')
-    saque_inicial = (partida.get('saque_tiebreak') if bool(partida.get('tiebreak_definido')) and set_eh_tiebreak((buscar_competicao_por_nome(competicao) or {}).get('sets_tipo'), set_atual) else partida.get('saque_inicial')) or ''
-
-    desc_set = 'SET ÚNICO' if int((buscar_competicao_por_nome(competicao) or {}).get('sets_para_vencer') or 1) == 1 else f'{set_atual}º SET'
+    atletas_lista = scout.get("atletas_lista", [])
 
     return {
-        'partida': partida,
-        'estado': estado,
-        'lado': lado,
-        'lado_adversario': lado_adversario,
-        'equipe_nome': equipe_nome,
-        'equipe_adversaria': equipe_adversaria,
-        'set_atual': set_atual,
-        'descricao_set': desc_set,
-        'atletas': atletas,
-        'papeleta': papeleta_map,
-        'papeleta_completa': len(papeleta_rows) == 6,
-        'papeleta_liberada': papeleta_liberada_para_treinador(partida),
-        'papeleta_editavel': papeleta_editavel_para_treinador(partida),
-        'rotacao': rotacao or ['', '', '', '', '', ''],
-        'status_jogadores': status_jogadores or {},
-        'banco': banco or [],
-        'tempos_restantes': tempos.get('tempos_a') if lado == 'A' else tempos.get('tempos_b'),
-        'subs_restantes': max(int((estado.get('limite_substituicoes') or 6)) - int((estado.get('subs_a') if lado == 'A' else estado.get('subs_b')) or 0), 0),
-        'saque_atual': estado.get('saque_atual') or '',
-        'saque_inicial': saque_inicial,
-        'placar_proprio': int(estado.get('pontos_a') if lado == 'A' else estado.get('pontos_b') or 0),
-        'placar_adversario': int(estado.get('pontos_b') if lado == 'A' else estado.get('pontos_a') or 0),
-        'sets_proprios': int(estado.get('sets_a') if lado == 'A' else estado.get('sets_b') or 0),
-        'sets_adversario': int(estado.get('sets_b') if lado == 'A' else estado.get('sets_a') or 0),
-        'solicitacoes': listar_solicitacoes_treinador(partida_id, competicao, equipe=lado, limite=20),
-        'scout': resumir_scout_equipe_partida(partida_id, competicao, lado),
+        "partida": partida,
+        "lado": lado_final,
+        "equipe_nome": equipe_a if lado_final == "A" else equipe_b,
+        "equipe_a": equipe_a,
+        "equipe_b": equipe_b,
+        "scout": scout,
+        "eventos": scout.get("eventos", []),
+        "atletas_lista": atletas_lista,
+        "atletas": atletas_lista,  # 🔥 ESSA LINHA RESOLVE O ERRO
     }

@@ -28,6 +28,10 @@ def _normalizar_rotacao_visual(rotacao):
     return rotacao[:6]
 
 
+def _json_erro(mensagem, status=400):
+    return jsonify({'ok': False, 'mensagem': mensagem}), status
+
+
 @treinador_bp.route('/treinador')
 @exigir_perfil('equipe')
 def abrir_modo_treinador():
@@ -73,11 +77,11 @@ def tela_treinador(competicao, partida_id):
 def estado_treinador_view(competicao, partida_id):
     equipe = buscar_equipe_por_login(session.get('usuario'))
     if not equipe:
-        return jsonify({'ok': False, 'mensagem': 'Equipe não encontrada.'}), 404
+        return _json_erro('Equipe não encontrada.', 404)
 
     contexto = montar_contexto_treinador(partida_id, competicao, equipe.get('nome'))
     if not contexto:
-        return jsonify({'ok': False, 'mensagem': 'Partida não encontrada para esta equipe.'}), 404
+        return _json_erro('Partida não encontrada para esta equipe.', 404)
 
     lado = contexto.get('lado')
     rotacao_propria = _normalizar_rotacao_visual(contexto.get('rotacao'))
@@ -124,7 +128,12 @@ def salvar_papeleta_treinador(competicao, partida_id):
         return redirect(url_for('treinador.tela_treinador', competicao=competicao, partida_id=partida_id))
 
     atletas = listar_atletas_aprovados_da_equipe(equipe.get('nome'), competicao) or []
-    atletas_por_numero = {str(a.get('numero')): a for a in atletas if a.get('numero') not in (None, '')}
+    atletas_por_numero = {
+        str(a.get('numero')): a
+        for a in atletas
+        if a.get('numero') not in (None, '')
+    }
+
     dados = {}
     numeros_usados = set()
 
@@ -169,66 +178,102 @@ def salvar_papeleta_treinador(competicao, partida_id):
 @treinador_bp.route('/treinador/jogo/<competicao>/<int:partida_id>/solicitar-tempo', methods=['POST'])
 @exigir_perfil('equipe')
 def solicitar_tempo_treinador(competicao, partida_id):
-    equipe = buscar_equipe_por_login(session.get('usuario'))
-    if not equipe:
-        return jsonify({'ok': False, 'mensagem': 'Equipe não encontrada.'}), 404
+    try:
+        equipe = buscar_equipe_por_login(session.get('usuario'))
+        if not equipe:
+            return _json_erro('Equipe não encontrada.', 404)
 
-    contexto = montar_contexto_treinador(partida_id, competicao, equipe.get('nome'))
-    if not contexto:
-        return jsonify({'ok': False, 'mensagem': 'Partida não encontrada.'}), 404
+        contexto = montar_contexto_treinador(partida_id, competicao, equipe.get('nome'))
+        if not contexto:
+            return _json_erro('Partida não encontrada.', 404)
 
-    tempos_restantes = contexto.get('tempos_restantes')
-    if tempos_restantes is not None and int(tempos_restantes or 0) <= 0:
-        return jsonify({'ok': False, 'mensagem': 'Sua equipe não tem mais tempos disponíveis.'}), 400
+        lado = contexto.get('lado')
+        if not lado:
+            return _json_erro('Lado da equipe não definido.', 400)
 
-    registrar_solicitacao_treinador(
-        partida_id,
-        competicao,
-        contexto.get('lado'),
-        'tempo',
-        {
-            'equipe_nome': equipe.get('nome'),
-            'set_atual': contexto.get('set_atual'),
-        }
-    )
+        tempos_restantes = contexto.get('tempos_restantes')
+        if tempos_restantes is not None and int(tempos_restantes or 0) <= 0:
+            return _json_erro('Sua equipe não tem mais tempos disponíveis.', 400)
 
-    emitir_solicitacao_treinador(competicao, partida_id, {
-        'tipo': 'tempo',
-        'equipe': contexto.get('lado'),
-        'equipe_nome': equipe.get('nome'),
-        'mensagem': f"{equipe.get('nome')} solicitou tempo"
-    })
+        try:
+            registrar_solicitacao_treinador(
+                partida_id,
+                competicao,
+                lado,
+                'tempo',
+                {
+                    'equipe_nome': equipe.get('nome'),
+                    'set_atual': contexto.get('set_atual'),
+                }
+            )
+        except Exception as e:
+            print('ERRO registrar_solicitacao_treinador TEMPO:', e)
 
-    return jsonify({'ok': True, 'mensagem': 'Solicitação de tempo enviada ao apontador.'})
+        try:
+            emitir_solicitacao_treinador(partida_id, {
+                'tipo': 'tempo',
+                'equipe': lado,
+                'equipe_nome': equipe.get('nome'),
+                'mensagem': f"{equipe.get('nome')} solicitou tempo"
+            })
+        except Exception as e:
+            print('ERRO emitir_solicitacao_treinador TEMPO:', e)
+
+        return jsonify({
+            'ok': True,
+            'mensagem': 'Solicitação de tempo enviada ao apontador.'
+        })
+
+    except Exception as e:
+        print('ERRO GERAL solicitar_tempo_treinador:', e)
+        return _json_erro('Erro interno ao solicitar tempo.', 500)
 
 
 @treinador_bp.route('/treinador/jogo/<competicao>/<int:partida_id>/solicitar-substituicao', methods=['POST'])
 @exigir_perfil('equipe')
 def solicitar_substituicao_treinador(competicao, partida_id):
-    equipe = buscar_equipe_por_login(session.get('usuario'))
-    if not equipe:
-        return jsonify({'ok': False, 'mensagem': 'Equipe não encontrada.'}), 404
+    try:
+        equipe = buscar_equipe_por_login(session.get('usuario'))
+        if not equipe:
+            return _json_erro('Equipe não encontrada.', 404)
 
-    contexto = montar_contexto_treinador(partida_id, competicao, equipe.get('nome'))
-    if not contexto:
-        return jsonify({'ok': False, 'mensagem': 'Partida não encontrada.'}), 404
+        contexto = montar_contexto_treinador(partida_id, competicao, equipe.get('nome'))
+        if not contexto:
+            return _json_erro('Partida não encontrada.', 404)
 
-    registrar_solicitacao_treinador(
-        partida_id,
-        competicao,
-        contexto.get('lado'),
-        'substituicao',
-        {
-            'equipe_nome': equipe.get('nome'),
-            'set_atual': contexto.get('set_atual'),
-        }
-    )
+        lado = contexto.get('lado')
+        if not lado:
+            return _json_erro('Lado da equipe não definido.', 400)
 
-    emitir_solicitacao_treinador(competicao, partida_id, {
-        'tipo': 'substituicao',
-        'equipe': contexto.get('lado'),
-        'equipe_nome': equipe.get('nome'),
-        'mensagem': f"{equipe.get('nome')} solicitou substituição"
-    })
+        try:
+            registrar_solicitacao_treinador(
+                partida_id,
+                competicao,
+                lado,
+                'substituicao',
+                {
+                    'equipe_nome': equipe.get('nome'),
+                    'set_atual': contexto.get('set_atual'),
+                }
+            )
+        except Exception as e:
+            print('ERRO registrar_solicitacao_treinador SUBSTITUICAO:', e)
 
-    return jsonify({'ok': True, 'mensagem': 'Solicitação de substituição enviada ao apontador.'})
+        try:
+            emitir_solicitacao_treinador(partida_id, {
+                'tipo': 'substituicao',
+                'equipe': lado,
+                'equipe_nome': equipe.get('nome'),
+                'mensagem': f"{equipe.get('nome')} solicitou substituição"
+            })
+        except Exception as e:
+            print('ERRO emitir_solicitacao_treinador SUBSTITUICAO:', e)
+
+        return jsonify({
+            'ok': True,
+            'mensagem': 'Solicitação de substituição enviada ao apontador.'
+        })
+
+    except Exception as e:
+        print('ERRO GERAL solicitar_substituicao_treinador:', e)
+        return _json_erro('Erro interno ao solicitar substituição.', 500)

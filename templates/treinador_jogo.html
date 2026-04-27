@@ -605,13 +605,13 @@
         </div>
 
         <div class="box-resumo">
-            <div class="label">Erros de saque</div>
-            <div class="valor">{{ scout_equipe.get('erros_saque', 0) }}</div>
+            <div class="label">Bloqueios</div>
+            <div class="valor">{{ scout_equipe.get('bloqueios', 0) }}</div>
         </div>
 
         <div class="box-resumo">
-            <div class="label">Bloqueios</div>
-            <div class="valor">{{ scout_equipe.get('bloqueios', 0) }}</div>
+            <div class="label">Erros de saque</div>
+            <div class="valor">{{ scout_equipe.get('erros_saque', 0) }}</div>
         </div>
 
         <div class="box-resumo">
@@ -629,9 +629,7 @@
                     <th>Atleta</th>
                     <th>Pontos</th>
                     <th>Aces</th>
-                    <th>Erros saque</th>
                     <th>Bloqueios</th>
-                    <th>Erros rotação</th>
                 </tr>
             </thead>
             <tbody>
@@ -641,9 +639,7 @@
                     <td class="nome-atleta">{{ atleta.get('nome', '-') }}</td>
                     <td>{{ atleta.get('pontos', 0) }}</td>
                     <td>{{ atleta.get('aces', 0) }}</td>
-                    <td>{{ atleta.get('erros_saque', 0) }}</td>
                     <td>{{ atleta.get('bloqueios', 0) }}</td>
-                    <td>{{ atleta.get('erros_rotacao', 0) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
