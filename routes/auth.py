@@ -1,5 +1,10 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash
-from banco import buscar_usuario_por_login, autenticar_apontador, definir_senha_apontador
+from banco import (
+    conectar,
+    buscar_usuario_por_login,
+    autenticar_apontador,
+    definir_senha_apontador,
+)
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -10,6 +15,7 @@ def raiz():
         if session.get("perfil") == "apontador":
             return redirect(url_for("apontadores.painel_apontador"))
         return redirect(url_for("painel.inicio"))
+
     return redirect(url_for("auth.login"))
 
 
@@ -24,10 +30,21 @@ def login():
         login_digitado = request.form.get("login", "").strip()
         senha_digitada = request.form.get("senha", "").strip()
 
+        if not login_digitado or not senha_digitada:
+            flash("Informe login e senha.", "erro")
+            return render_template("login.html")
+
         # =====================================================
         # 1) TENTA LOGIN DE USUÁRIO NORMAL
         # =====================================================
-        usuario = buscar_usuario_por_login(login_digitado)
+        try:
+            with conectar() as conn:
+                usuario = buscar_usuario_por_login(login_digitado, conn)
+
+        except Exception as e:
+            print("ERRO LOGIN BANCO:", repr(e))
+            flash("Erro temporário ao conectar no banco. Tente novamente.", "erro")
+            return render_template("login.html")
 
         if usuario:
             if not usuario.get("ativo", True):
@@ -52,7 +69,12 @@ def login():
         # =====================================================
         # 2) SE NÃO FOR USUÁRIO NORMAL, TENTA APONTADOR POR CPF
         # =====================================================
-        apontador = autenticar_apontador(login_digitado, senha_digitada)
+        try:
+            apontador = autenticar_apontador(login_digitado, senha_digitada)
+        except Exception as e:
+            print("ERRO LOGIN APONTADOR:", repr(e))
+            flash("Erro temporário ao autenticar apontador.", "erro")
+            return render_template("login.html")
 
         if apontador is False:
             flash("Senha incorreta.", "erro")
@@ -70,9 +92,6 @@ def login():
 
             return redirect(url_for("apontadores.painel_apontador"))
 
-        # =====================================================
-        # 3) NÃO ENCONTROU NINGUÉM
-        # =====================================================
         flash("Usuário não encontrado.", "erro")
 
     return render_template("login.html")
@@ -95,7 +114,13 @@ def criar_senha_apontador():
             flash("As senhas não coincidem.", "erro")
             return render_template("criar_senha_apontador.html")
 
-        definir_senha_apontador(session.get("usuario"), senha)
+        try:
+            definir_senha_apontador(session.get("usuario"), senha)
+        except Exception as e:
+            print("ERRO DEFINIR SENHA APONTADOR:", repr(e))
+            flash("Erro ao salvar senha. Tente novamente.", "erro")
+            return render_template("criar_senha_apontador.html")
+
         flash("Senha criada com sucesso.", "sucesso")
         return redirect(url_for("apontadores.painel_apontador"))
 

@@ -386,8 +386,8 @@ def _campos_competicao(prefixo="", incluir_senha_organizador=False):
 # =========================================================
 # USUÁRIOS
 # =========================================================
-def buscar_usuario_por_login(login):
-    with conectar() as conn:
+def buscar_usuario_por_login(login, conn=None):
+    if conn is not None:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT login, nome, senha, perfil, ativo, equipe, competicao_vinculada
@@ -397,9 +397,12 @@ def buscar_usuario_por_login(login):
             """, (login,))
             return cur.fetchone()
 
-
-def usuario_existe(login):
     with conectar() as conn:
+        return buscar_usuario_por_login(login, conn)
+
+
+def usuario_existe(login, conn=None):
+    if conn is not None:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT login
@@ -408,6 +411,9 @@ def usuario_existe(login):
                 LIMIT 1
             """, (login,))
             return cur.fetchone() is not None
+
+    with conectar() as conn:
+        return usuario_existe(login, conn)
 
 
 def atualizar_login_usuario(login_atual, novo_login):
@@ -419,6 +425,7 @@ def atualizar_login_usuario(login_atual, novo_login):
                 WHERE login = %s
                 LIMIT 1
             """, (novo_login,))
+
             if cur.fetchone():
                 return False
 
@@ -463,7 +470,6 @@ def atualizar_senha_usuario(login, nova_senha):
         conn.commit()
 
     return True
-
 
 # =========================================================
 # COMPETIÇÕES
@@ -6810,12 +6816,16 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
     atletas_lista = scout.get("atletas_lista", [])
 
     if lado_final == "A":
+        equipe_atual = equipe_a
+        equipe_adversaria = equipe_b
         placar_proprio = pontos_a
         placar_adversario = pontos_b
         sets_proprios = int(estado.get("sets_a") or partida.get("sets_a") or 0)
         sets_adversario = int(estado.get("sets_b") or partida.get("sets_b") or 0)
         rotacao = estado.get("rotacao_a") or []
     else:
+        equipe_atual = equipe_b
+        equipe_adversaria = equipe_a
         placar_proprio = pontos_b
         placar_adversario = pontos_a
         sets_proprios = int(estado.get("sets_b") or partida.get("sets_b") or 0)
@@ -6835,17 +6845,40 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
         or ""
     )
 
-    lado_quadra = "Esquerda" if lado_final == "A" else "Direita"
+    saque_atual_nome = "-"
+    if saque_atual == "A":
+        saque_atual_nome = equipe_a or "Equipe A"
+    elif saque_atual == "B":
+        saque_atual_nome = equipe_b or "Equipe B"
+
+    saque_inicial_nome = "-"
+    if saque_inicial == "A":
+        saque_inicial_nome = equipe_a or "Equipe A"
+    elif saque_inicial == "B":
+        saque_inicial_nome = equipe_b or "Equipe B"
+
+    lado_esquerdo = (partida.get("lado_esquerdo") or "").strip()
+    lado_direito = (partida.get("lado_direito") or "").strip()
+
+    if equipe_atual and lado_esquerdo and equipe_atual.strip().lower() == lado_esquerdo.lower():
+        lado_quadra = "Esquerda"
+    elif equipe_atual and lado_direito and equipe_atual.strip().lower() == lado_direito.lower():
+        lado_quadra = "Direita"
+    else:
+        lado_quadra = "Esquerda" if lado_final == "A" else "Direita"
 
     comp = buscar_competicao_por_nome(competicao) or {}
 
     tempos_limite = int(comp.get("tempos_por_set") or partida.get("tempos_por_set") or 2)
     subs_limite = int(comp.get("substituicoes_por_set") or partida.get("substituicoes_por_set") or 6)
 
-    tempos_usados = int(estado.get("tempos_a" if lado_final == "A" else "tempos_b") or 0)
-    subs_usadas = int(estado.get("subs_a" if lado_final == "A" else "subs_b") or 0)
+    tempos_restantes = int(
+        estado.get("tempos_a" if lado_final == "A" else "tempos_b")
+        if estado.get("tempos_a" if lado_final == "A" else "tempos_b") is not None
+        else tempos_limite
+    )
 
-    tempos_restantes = max(tempos_limite - tempos_usados, 0)
+    subs_usadas = int(estado.get("subs_a" if lado_final == "A" else "subs_b") or 0)
     subs_restantes = max(subs_limite - subs_usadas, 0)
 
     return {
@@ -6854,7 +6887,8 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
         "lado": lado_final,
         "lado_quadra": lado_quadra,
 
-        "equipe_nome": equipe_a if lado_final == "A" else equipe_b,
+        "equipe_nome": equipe_atual,
+        "equipe_adversaria": equipe_adversaria,
         "equipe_a": equipe_a,
         "equipe_b": equipe_b,
         "set_atual": set_atual,
@@ -6862,34 +6896,31 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
         "papeleta_liberada": papeleta_liberada,
         "papeleta_editavel": papeleta_editavel,
 
-        # Placar visão treinador
         "placar_proprio": placar_proprio,
         "placar_adversario": placar_adversario,
         "sets_proprios": sets_proprios,
         "sets_adversario": sets_adversario,
 
-        # Placar igual ao apontador
         "pontos_a": pontos_a,
         "pontos_b": pontos_b,
         "sets_a": int(estado.get("sets_a") or partida.get("sets_a") or 0),
         "sets_b": int(estado.get("sets_b") or partida.get("sets_b") or 0),
 
-        # Saque
         "saque_inicial": saque_inicial,
         "saque_atual": saque_atual,
+        "saque_inicial_nome": saque_inicial_nome,
+        "saque_atual_nome": saque_atual_nome,
 
-        # Tempos/substituições visão treinador
+        "tempos_limite": tempos_limite,
+        "subs_limite": subs_limite,
         "tempos_restantes": tempos_restantes,
         "subs_restantes": subs_restantes,
 
-        # Tempos/substituições igual ao apontador
-        "tempos_a": int(estado.get("tempos_a") or 0),
-        "tempos_b": int(estado.get("tempos_b") or 0),
-        "tempos_limite": tempos_limite,
+        "tempos_a": int(estado.get("tempos_a") if estado.get("tempos_a") is not None else tempos_limite),
+        "tempos_b": int(estado.get("tempos_b") if estado.get("tempos_b") is not None else tempos_limite),
 
         "subs_a": int(estado.get("subs_a") or 0),
         "subs_b": int(estado.get("subs_b") or 0),
-        "subs_limite": subs_limite,
 
         "rotacao": rotacao,
         "scout": scout,
