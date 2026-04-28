@@ -6105,16 +6105,20 @@ def criar_tabela_eventos(force=False):
                     criado_em TIMESTAMP DEFAULT NOW()
                 )
             """)
-            # compatibilidade com bases já existentes
             cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS tipo_evento TEXT")
             cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS detalhes TEXT")
             cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS atleta_id INTEGER")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS atleta_nome TEXT")
+            cur.execute("ALTER TABLE eventos ADD COLUMN IF NOT EXISTS numero INTEGER")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_eventos_partida_competicao ON eventos (partida_id, competicao, id DESC)")
         conn.commit()
 
     _marcar_schema_pronto("tabela_eventos")
 
 
-def listar_eventos_partida(partida_id, competicao, limite=20):
+def listar_eventos_partida(partida_id, competicao, limite=1000):
+    criar_tabela_eventos()
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -6138,37 +6142,22 @@ def listar_eventos_partida(partida_id, competicao, limite=20):
                         COALESCE(equipe, '-'),
                         ' • ',
                         COALESCE(tipo, '-'),
-                        CASE
-                            WHEN COALESCE(fundamento, '') <> '' THEN ' • ' || fundamento
-                            ELSE ''
-                        END,
-                        CASE
-                            WHEN COALESCE(resultado, '') <> '' THEN ' • ' || resultado
-                            ELSE ''
-                        END,
-                        CASE
-                            WHEN COALESCE(detalhe, '') <> '' THEN ' • ' || detalhe
-                            ELSE ''
-                        END,
-                        CASE
-                            WHEN COALESCE(numero::text, '') <> '' THEN ' • #' || numero::text
-                            ELSE ''
-                        END,
-                        CASE
-                            WHEN COALESCE(atleta_nome, '') <> '' THEN ' - ' || atleta_nome
-                            ELSE ''
-                        END
+                        CASE WHEN COALESCE(fundamento, '') <> '' THEN ' • ' || fundamento ELSE '' END,
+                        CASE WHEN COALESCE(resultado, '') <> '' THEN ' • ' || resultado ELSE '' END,
+                        CASE WHEN COALESCE(detalhe, '') <> '' THEN ' • ' || detalhe ELSE '' END,
+                        CASE WHEN COALESCE(numero::text, '') <> '' THEN ' • #' || numero::text ELSE '' END,
+                        CASE WHEN COALESCE(atleta_nome, '') <> '' THEN ' - ' || atleta_nome ELSE '' END
                     ) AS descricao
                 FROM eventos
                 WHERE partida_id = %s
                   AND competicao = %s
                 ORDER BY id DESC
                 LIMIT %s
-            """, (partida_id, competicao, limite))
+            """, (partida_id, competicao, int(limite or 1000)))
 
             return cur.fetchall()
-            
-                        
+
+
 # ================= ETAPA 2 SET FLOW =================
 def verificar_fim_de_set(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao)
@@ -6306,7 +6295,7 @@ def salvar_sorteio_tiebreak(partida_id, competicao, lado, saque):
         conn.commit()
 
 
-        # ================= FIM DE PARTIDA =================
+# ================= FIM DE PARTIDA =================
 
 def verificar_fim_partida(partida, estado):
     sets_a = estado.get("sets_a", 0)
@@ -6371,39 +6360,11 @@ def garantir_estado_partida(partida_id, competicao):
 
     return True
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-
-            cur.execute("""
-                SELECT 1 FROM estado_jogo
-                WHERE partida_id = %s AND competicao = %s
-            """, (partida_id, competicao))
-
-            existe = cur.fetchone()
-
-            if not existe:
-                cur.execute("""
-                    INSERT INTO estado_jogo (
-                        partida_id,
-                        competicao,
-                        pontos_a,
-                        pontos_b,
-                        sets_a,
-                        sets_b,
-                        set_atual,
-                        saque,
-                        lado_a,
-                        lado_b,
-                        status
-                    )
-                    VALUES (%s,%s,0,0,0,0,1,'A','esquerda','direita','em_andamento')
-                """, (partida_id, competicao))
-
-        conn.commit()
 
 # =========================================================
 # MODO TREINADOR
 # =========================================================
+
 def criar_tabela_solicitacoes_treinador():
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -6466,22 +6427,56 @@ def _lado_treinador_da_partida(partida, equipe_nome):
 def papeleta_liberada_para_treinador(partida):
     fase = (partida.get('fase_partida') or '').strip().lower()
     status_jogo = (partida.get('status_jogo') or '').strip().lower()
-    if status_jogo in {'em_andamento', 'finalizada', 'encerrado'}:
+    status_operacao = (partida.get('status_operacao') or '').strip().lower()
+
+    pontos_a = int(partida.get("pontos_a") or 0)
+    pontos_b = int(partida.get("pontos_b") or 0)
+
+    if status_jogo in {'finalizada', 'encerrado'}:
         return False
-    return fase in {'papeleta', 'papeleta_pronta', 'intervalo_set'} or status_jogo == 'entre_sets'
+
+    if fase in {'papeleta', 'papeleta_pronta', 'intervalo_set'}:
+        return True
+
+    if status_jogo == 'entre_sets':
+        return True
+
+    if status_operacao in {'papeleta', 'pre_jogo', 'em_papeleta'} and pontos_a == 0 and pontos_b == 0:
+        return True
+
+    return False
 
 
 def papeleta_editavel_para_treinador(partida):
-    status_jogo = (partida.get('status_jogo') or '').strip().lower()
     fase = (partida.get('fase_partida') or '').strip().lower()
-    if status_jogo in {'em_andamento', 'finalizada', 'encerrado'}:
+    status_jogo = (partida.get('status_jogo') or '').strip().lower()
+    status_operacao = (partida.get('status_operacao') or '').strip().lower()
+
+    pontos_a = int(partida.get("pontos_a") or 0)
+    pontos_b = int(partida.get("pontos_b") or 0)
+
+    if status_jogo in {'finalizada', 'encerrado'}:
         return False
-    return fase in {'papeleta', 'papeleta_pronta', 'intervalo_set'} or status_jogo == 'entre_sets'
+
+    if pontos_a > 0 or pontos_b > 0:
+        return False
+
+    if fase in {'papeleta', 'papeleta_pronta', 'intervalo_set'}:
+        return True
+
+    if status_jogo == 'entre_sets':
+        return True
+
+    if status_operacao in {'papeleta', 'pre_jogo', 'em_papeleta'}:
+        return True
+
+    return False
 
 
 def registrar_solicitacao_treinador(partida_id, competicao, equipe, tipo, detalhes=None):
     criar_tabela_solicitacoes_treinador()
     detalhes = detalhes or {}
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -6494,17 +6489,20 @@ def registrar_solicitacao_treinador(partida_id, competicao, equipe, tipo, detalh
 
 def listar_solicitacoes_treinador(partida_id, competicao, equipe=None, status=None, limite=30):
     criar_tabela_solicitacoes_treinador()
-    clausulas = ['partida_id = %s', 'competicao = %s']
+
+    clausulas = ["partida_id = %s", "competicao = %s"]
     params = [partida_id, competicao]
 
     if equipe:
-        clausulas.append('equipe = %s')
+        clausulas.append("equipe = %s")
         params.append(equipe)
+
     if status:
-        clausulas.append('status = %s')
+        clausulas.append("status = %s")
         params.append(status)
 
     params.append(int(limite or 30))
+
     sql = f"""
         SELECT *
         FROM solicitacoes_treinador
@@ -6520,26 +6518,39 @@ def listar_solicitacoes_treinador(partida_id, competicao, equipe=None, status=No
 
     for row in rows:
         try:
-            row['detalhes'] = json.loads(row.get('detalhes_json') or '{}')
+            row["detalhes"] = json.loads(row.get("detalhes_json") or "{}")
         except Exception:
-            row['detalhes'] = {}
+            row["detalhes"] = {}
+
     return rows
 
 
+def _detalhes_evento_dict(valor):
+    if isinstance(valor, dict):
+        return valor
+
+    if isinstance(valor, str) and valor.strip():
+        try:
+            dados = json.loads(valor)
+            if isinstance(dados, dict):
+                return dados
+        except Exception:
+            return {}
+
+    return {}
+
+
+def _normalizar_scout(valor):
+    valor = str(valor or "").strip().lower()
+    valor = valor.replace("ç", "c").replace("ã", "a").replace("á", "a").replace("à", "a")
+    valor = valor.replace("é", "e").replace("ê", "e").replace("í", "i")
+    valor = valor.replace("ó", "o").replace("ô", "o").replace("ú", "u")
+    valor = valor.replace("-", "_").replace(" ", "_")
+    return valor
+
+
 def resumir_scout_equipe_partida(partida_id, competicao, lado):
-    eventos = listar_eventos_partida(partida_id, competicao, limite=1000) or []
     lado = (lado or "").strip().upper()
-
-    def normalizar(valor):
-        return str(valor or "").strip().lower()
-
-    def lado_oposto(l):
-        l = (l or "").strip().upper()
-        if l == "A":
-            return "B"
-        if l == "B":
-            return "A"
-        return ""
 
     resumo = {
         "equipe": {
@@ -6548,6 +6559,7 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             "aces": 0,
             "bloqueios": 0,
             "erros_saque": 0,
+            "erros_rotacao": 0,
             "faltas": 0,
             "erros_gerais": 0,
         },
@@ -6556,10 +6568,15 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
         "atletas_lista": [],
     }
 
+    if lado not in {"A", "B"}:
+        return resumo
+
+    eventos = listar_eventos_partida(partida_id, competicao, limite=1000) or []
+
     def atleta_bucket(numero, nome):
         numero_txt = str(numero or "").strip()
         nome_txt = str(nome or "").strip()
-        chave = numero_txt or nome_txt or "sem_identificacao"
+        chave = numero_txt or nome_txt.lower().replace(" ", "_") or "sem_identificacao"
 
         if chave not in resumo["atletas"]:
             resumo["atletas"][chave] = {
@@ -6569,92 +6586,124 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
                 "ataques": 0,
                 "aces": 0,
                 "bloqueios": 0,
-                "erros_saque": 0,
-                "faltas": 0,
-                "erros_gerais": 0,
             }
 
         return resumo["atletas"][chave]
 
     for ev in eventos:
-        lado_ponto = (ev.get("equipe") or "").strip().upper()
+        lado_evento = (ev.get("equipe") or "").strip().upper()
 
-        fundamento = normalizar(ev.get("fundamento"))
-        resultado = normalizar(ev.get("resultado"))
-        tipo_evento = normalizar(ev.get("tipo_evento"))
-        detalhe = normalizar(ev.get("detalhe"))
-        detalhes = normalizar(ev.get("detalhes"))
-        tipo = normalizar(ev.get("tipo"))
+        # IMPORTANTE:
+        # O evento pertence ao time que realizou a ação.
+        # Se foi erro/falta, conta para o time que errou, não para o adversário.
+        if lado_evento != lado:
+            continue
 
-        texto = f"{tipo} {tipo_evento} {fundamento} {resultado} {detalhe} {detalhes}"
+        detalhes_json = _detalhes_evento_dict(ev.get("detalhes"))
 
-        numero = ev.get("numero")
-        nome = ev.get("atleta_nome")
+        fundamento = _normalizar_scout(
+            detalhes_json.get("fundamento")
+            or ev.get("fundamento")
+        )
+
+        resultado = _normalizar_scout(
+            detalhes_json.get("resultado")
+            or detalhes_json.get("tipo_lance")
+            or ev.get("resultado")
+            or ev.get("tipo_evento")
+            or ev.get("tipo")
+        )
+
+        detalhe = _normalizar_scout(
+            detalhes_json.get("detalhe_lance")
+            or detalhes_json.get("tipo_erro")
+            or detalhes_json.get("detalhe")
+            or ev.get("detalhe")
+        )
+
+        tipo = _normalizar_scout(ev.get("tipo"))
+        tipo_evento = _normalizar_scout(ev.get("tipo_evento"))
+
+        texto = f"{tipo} {tipo_evento} {fundamento} {resultado} {detalhe}"
+
+        numero = (
+            detalhes_json.get("atleta_numero")
+            or detalhes_json.get("numero")
+            or ev.get("numero")
+            or ""
+        )
+
+        nome = (
+            detalhes_json.get("atleta_nome")
+            or ev.get("atleta_nome")
+            or ""
+        )
+
+        resumo["eventos"].append(ev)
+
+        tem_atleta = str(numero or "").strip() not in {"", "0", "None"} or bool(str(nome or "").strip())
+        bucket = atleta_bucket(numero, nome) if tem_atleta else None
 
         eh_erro_saque = (
             "erro_saque" in texto
-            or "erro saque" in texto
+            or "erro_de_saque" in texto
             or (fundamento == "saque" and resultado == "erro")
+            or detalhe == "erro_saque"
+        )
+
+        eh_rotacao = (
+            "rotacao" in texto
+            or detalhe == "rotacao"
+            or fundamento == "rotacao"
         )
 
         eh_falta = (
             resultado == "falta"
-            or fundamento in {"rede", "invasao", "invasão", "rotacao", "rotação", "conducao", "condução", "dois_toques", "dois toques"}
-            or "rede" in texto
-            or "invasao" in texto
-            or "invasão" in texto
-            or "rotacao" in texto
-            or "rotação" in texto
-            or "conducao" in texto
-            or "condução" in texto
-            or "dois_toques" in texto
-            or "dois toques" in texto
+            or tipo == "falta"
+            or tipo_evento == "falta"
+            or detalhe in {"rede", "invasao", "rotacao", "conducao", "dois_toques"}
+            or fundamento in {"rede", "invasao", "rotacao", "conducao", "dois_toques"}
         )
 
         eh_erro_geral = (
             resultado == "erro"
-            and not eh_erro_saque
-            and not eh_falta
+            or tipo == "erro"
+            or tipo_evento == "erro"
+            or detalhe == "erro"
+        ) and not eh_erro_saque and not eh_falta
+
+        eh_ataque = (
+            fundamento == "ataque"
+            and resultado in {"ponto", "winner"}
         )
 
-        if eh_erro_saque or eh_falta or eh_erro_geral:
-            lado_scout = lado_oposto(lado_ponto)
-        else:
-            lado_scout = lado_ponto
+        eh_ace = (
+            fundamento in {"saque", "ace"}
+            and resultado in {"ponto", "ace", "winner"}
+        )
 
-        if lado_scout != lado:
-            continue
-
-        resumo["eventos"].append(ev)
-
-        tem_atleta = numero not in (None, "", 0, "0") or bool(nome)
-        bucket = atleta_bucket(numero, nome) if tem_atleta else None
+        eh_bloqueio = (
+            fundamento == "bloqueio"
+            and resultado in {"ponto", "winner"}
+        )
 
         if eh_erro_saque:
             resumo["equipe"]["erros_saque"] += 1
             resumo["equipe"]["erros_gerais"] += 1
-            if bucket:
-                bucket["erros_saque"] += 1
-                bucket["erros_gerais"] += 1
             continue
 
         if eh_falta:
             resumo["equipe"]["faltas"] += 1
             resumo["equipe"]["erros_gerais"] += 1
-            if bucket:
-                bucket["faltas"] += 1
-                bucket["erros_gerais"] += 1
+
+            if eh_rotacao:
+                resumo["equipe"]["erros_rotacao"] += 1
+
             continue
 
         if eh_erro_geral:
             resumo["equipe"]["erros_gerais"] += 1
-            if bucket:
-                bucket["erros_gerais"] += 1
             continue
-
-        eh_ataque = fundamento == "ataque" and resultado in {"ponto", "winner"}
-        eh_ace = fundamento in {"saque", "ace"} and resultado in {"ponto", "ace", "winner"}
-        eh_bloqueio = fundamento == "bloqueio" and resultado in {"ponto", "winner"}
 
         if eh_ataque:
             resumo["equipe"]["ataques"] += 1
@@ -6662,25 +6711,36 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             if bucket:
                 bucket["ataques"] += 1
                 bucket["pontos"] += 1
+            continue
 
-        elif eh_ace:
+        if eh_ace:
             resumo["equipe"]["aces"] += 1
             resumo["equipe"]["pontos"] += 1
             if bucket:
                 bucket["aces"] += 1
                 bucket["pontos"] += 1
+            continue
 
-        elif eh_bloqueio:
+        if eh_bloqueio:
             resumo["equipe"]["bloqueios"] += 1
             resumo["equipe"]["pontos"] += 1
             if bucket:
                 bucket["bloqueios"] += 1
                 bucket["pontos"] += 1
+            continue
 
     resumo["eventos"] = resumo["eventos"][:30]
-    resumo["atletas_lista"] = list(resumo["atletas"].values())
+    resumo["atletas_lista"] = sorted(
+        resumo["atletas"].values(),
+        key=lambda x: (
+            -int(x.get("pontos") or 0),
+            str(x.get("numero") or ""),
+            str(x.get("nome") or "")
+        )
+    )
 
     return resumo
+
 
 def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=None):
     with conectar() as conn:
@@ -6723,7 +6783,6 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
         return None
 
     scout = resumir_scout_equipe_partida(partida_id, competicao, lado_final) or {}
-
     atletas_lista = scout.get("atletas_lista", [])
 
     return {
@@ -6735,5 +6794,5 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
         "scout": scout,
         "eventos": scout.get("eventos", []),
         "atletas_lista": atletas_lista,
-        "atletas": atletas_lista,  # 🔥 ESSA LINHA RESOLVE O ERRO
+        "atletas": atletas_lista,
     }
