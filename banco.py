@@ -120,20 +120,24 @@ def _obter_pool():
                 "prepare_threshold": None,
             },
             min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 1)),
-            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 5)),
-            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 60)),
+            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 20)),
+            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 10)),
+            max_idle=60,
+            max_lifetime=300,
+            reconnect_timeout=10,
             open=False,
         )
-        pool.open(wait=True)
-        _DB_POOL = pool
 
-    return _DB_POOL
+        pool.open(wait=False)
+        _DB_POOL = pool
+        return _DB_POOL
 
 
 def conectar():
     pool = _obter_pool()
+
     if pool is not None:
-        return pool.connection()
+        return pool.connection(timeout=float(os.environ.get("DB_POOL_TIMEOUT", 10)))
 
     return connect(
         _obter_database_url(),
@@ -6757,23 +6761,13 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
     if not partida:
         return None
 
-    equipe_a = (
-        partida.get("equipe_a_operacional")
-        or partida.get("equipe_a")
-        or ""
-    )
-
-    equipe_b = (
-        partida.get("equipe_b_operacional")
-        or partida.get("equipe_b")
-        or ""
-    )
+    equipe_a = partida.get("equipe_a_operacional") or partida.get("equipe_a") or ""
+    equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b") or ""
 
     lado_final = (lado or "").strip().upper()
 
     if lado_final not in {"A", "B"} and equipe_nome:
         nome = (equipe_nome or "").strip().lower()
-
         if nome == equipe_a.strip().lower():
             lado_final = "A"
         elif nome == equipe_b.strip().lower():
@@ -6782,17 +6776,125 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
     if lado_final not in {"A", "B"}:
         return None
 
+    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+    fase = (partida.get("fase_partida") or estado.get("fase_partida") or "").strip().lower()
+    status_jogo = (partida.get("status_jogo") or estado.get("status_jogo") or "").strip().lower()
+    status_operacao = (partida.get("status_operacao") or "").strip().lower()
+
+    pontos_a = int(estado.get("pontos_a") or partida.get("pontos_a") or 0)
+    pontos_b = int(estado.get("pontos_b") or partida.get("pontos_b") or 0)
+    set_atual = int(estado.get("set_atual") or partida.get("set_atual") or 1)
+
+    papeleta_liberada = False
+    papeleta_editavel = False
+
+    if status_jogo not in {"finalizada", "encerrado"}:
+        if pontos_a == 0 and pontos_b == 0:
+            papeleta_liberada = True
+            papeleta_editavel = True
+
+        if fase in {"papeleta", "papeleta_pronta", "intervalo_set"}:
+            papeleta_liberada = True
+
+        if status_jogo == "entre_sets":
+            papeleta_liberada = True
+            papeleta_editavel = True
+
+        if status_operacao in {"pre_jogo", "papeleta", "em_papeleta", "reservado"}:
+            papeleta_liberada = True
+            if pontos_a == 0 and pontos_b == 0:
+                papeleta_editavel = True
+
     scout = resumir_scout_equipe_partida(partida_id, competicao, lado_final) or {}
     atletas_lista = scout.get("atletas_lista", [])
 
+    if lado_final == "A":
+        placar_proprio = pontos_a
+        placar_adversario = pontos_b
+        sets_proprios = int(estado.get("sets_a") or partida.get("sets_a") or 0)
+        sets_adversario = int(estado.get("sets_b") or partida.get("sets_b") or 0)
+        rotacao = estado.get("rotacao_a") or []
+    else:
+        placar_proprio = pontos_b
+        placar_adversario = pontos_a
+        sets_proprios = int(estado.get("sets_b") or partida.get("sets_b") or 0)
+        sets_adversario = int(estado.get("sets_a") or partida.get("sets_a") or 0)
+        rotacao = estado.get("rotacao_b") or []
+
+    saque_inicial = (
+        partida.get("saque_inicial")
+        or estado.get("saque_inicial")
+        or ""
+    )
+
+    saque_atual = (
+        estado.get("saque_atual")
+        or partida.get("saque_atual")
+        or saque_inicial
+        or ""
+    )
+
+    lado_quadra = "Esquerda" if lado_final == "A" else "Direita"
+
+    comp = buscar_competicao_por_nome(competicao) or {}
+
+    tempos_limite = int(comp.get("tempos_por_set") or partida.get("tempos_por_set") or 2)
+    subs_limite = int(comp.get("substituicoes_por_set") or partida.get("substituicoes_por_set") or 6)
+
+    tempos_usados = int(estado.get("tempos_a" if lado_final == "A" else "tempos_b") or 0)
+    subs_usadas = int(estado.get("subs_a" if lado_final == "A" else "subs_b") or 0)
+
+    tempos_restantes = max(tempos_limite - tempos_usados, 0)
+    subs_restantes = max(subs_limite - subs_usadas, 0)
+
     return {
         "partida": partida,
+        "estado": estado,
         "lado": lado_final,
+        "lado_quadra": lado_quadra,
+
         "equipe_nome": equipe_a if lado_final == "A" else equipe_b,
         "equipe_a": equipe_a,
         "equipe_b": equipe_b,
+        "set_atual": set_atual,
+
+        "papeleta_liberada": papeleta_liberada,
+        "papeleta_editavel": papeleta_editavel,
+
+        # Placar visão treinador
+        "placar_proprio": placar_proprio,
+        "placar_adversario": placar_adversario,
+        "sets_proprios": sets_proprios,
+        "sets_adversario": sets_adversario,
+
+        # Placar igual ao apontador
+        "pontos_a": pontos_a,
+        "pontos_b": pontos_b,
+        "sets_a": int(estado.get("sets_a") or partida.get("sets_a") or 0),
+        "sets_b": int(estado.get("sets_b") or partida.get("sets_b") or 0),
+
+        # Saque
+        "saque_inicial": saque_inicial,
+        "saque_atual": saque_atual,
+
+        # Tempos/substituições visão treinador
+        "tempos_restantes": tempos_restantes,
+        "subs_restantes": subs_restantes,
+
+        # Tempos/substituições igual ao apontador
+        "tempos_a": int(estado.get("tempos_a") or 0),
+        "tempos_b": int(estado.get("tempos_b") or 0),
+        "tempos_limite": tempos_limite,
+
+        "subs_a": int(estado.get("subs_a") or 0),
+        "subs_b": int(estado.get("subs_b") or 0),
+        "subs_limite": subs_limite,
+
+        "rotacao": rotacao,
         "scout": scout,
         "eventos": scout.get("eventos", []),
         "atletas_lista": atletas_lista,
         "atletas": atletas_lista,
+        "solicitacoes": [],
     }
