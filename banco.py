@@ -121,7 +121,7 @@ def _obter_pool():
             },
             min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 0)),
             max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 2)),
-            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 30)),
+            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 60)),
             open=False,
         )
         pool.open(wait=True)
