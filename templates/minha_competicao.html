@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="titulo-secao">Minha competição</div>
+
+<div class="cards-competicoes">
+    {% for c in competicoes %}
+    <div class="competicao-card">
+        <div class="competicao-nome">{{ c.nome }}</div>
+        <div class="competicao-info">Data: {{ c.data or "-" }}</div>
+        <div class="competicao-info">Status: {{ c.status or "-" }}</div>
+
+        <div style="margin-top: 15px;">
+            <a href="#" class="btn-padrao">Abrir</a>
+        </div>
+    </div>
+    {% else %}
+    <div class="card-painel">
+        Nenhuma competição vinculada.
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

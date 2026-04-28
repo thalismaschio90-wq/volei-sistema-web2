@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Equipe criada com sucesso</h2>
+
+    <p><strong>Equipe:</strong> {{ nome }}</p>
+
+    <div class="cred-box">
+        <p><strong>Login:</strong> {{ login }}</p>
+        <p><strong>Senha:</strong> {{ senha }}</p>
+    </div>
+
+    <br>
+    <a class="acao-link" href="{{ url_for('equipes.listar') }}">← Voltar para equipes</a>
+</div>
+{% endblock %}

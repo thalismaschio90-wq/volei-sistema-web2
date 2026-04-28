@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao" style="margin-bottom: 0;">Atletas da competição</div>
+</div>
+
+<div class="card-painel">
+    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ competicao.nome }}</div>
+    <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}
+                    <div class="flash-erro">{{ mensagem }}</div>
+                {% else %}
+                    <div class="flash-sucesso">{{ mensagem }}</div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+{% for bloco in equipes_com_atletas %}
+<div class="card-painel" style="margin-bottom: 18px;">
+    <div style="font-size: 22px; font-weight: 900; margin-bottom: 12px;">
+        {{ bloco.equipe.nome }}
+    </div>
+
+    <div style="margin-bottom: 6px;"><strong>Treinador:</strong> {{ bloco.equipe.treinador or "-" }}</div>
+    <div style="margin-bottom: 6px;"><strong>Auxiliar técnico:</strong> {{ bloco.equipe.auxiliar_tecnico or "-" }}</div>
+    <div style="margin-bottom: 6px;"><strong>Preparador físico:</strong> {{ bloco.equipe.preparador_fisico or "-" }}</div>
+    <div style="margin-bottom: 16px;"><strong>Médico:</strong> {{ bloco.equipe.medico or "-" }}</div>
+
+    {% if bloco.atletas %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>CPF</th>
+                    <th>Número</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for atleta in bloco.atletas %}
+                <tr>
+                    <td>{{ atleta.nome }}</td>
+                    <td>{{ atleta.cpf }}</td>
+                    <td>{{ atleta.numero or "-" }}</td>
+                    <td>{{ atleta.status or "-" }}</td>
+                    <td>
+                {% if atleta.status == "pendente" %}
+                    <form method="post" style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <input type="hidden" name="id_atleta" value="{{ atleta.id }}">
+                    <button type="submit" name="novo_status" value="aprovado" class="btn-padrao">Aprovar</button>
+                    <button type="submit" name="novo_status" value="reprovado" class="btn-danger">Reprovar</button>
+                </form>
+            {% else %}
+                <span style="color:#6b7c8c; font-weight:700;">Sem ações pendentes</span>
+            {% endif %}
+        </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div>Nenhum atleta cadastrado nesta equipe.</div>
+    {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

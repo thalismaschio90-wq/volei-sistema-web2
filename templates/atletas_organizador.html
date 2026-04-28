@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="topo-secao">
+    <div class="titulo-secao">Atletas da Competição</div>
+</div>
+
+<style>
+.grupo-equipe {
+    margin-bottom: 22px;
+}
+
+.titulo-equipe {
+    font-weight: 800;
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.acoes-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-sucesso {
+    background: #166534; /* verde mais fechado */
+    color: #ecfdf5;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-sucesso:hover {
+    background: #14532d;
+}
+
+.btn-perigo {
+    background: #991b1b; /* vermelho mais sóbrio */
+    color: #fef2f2;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-perigo:hover {
+    background: #7f1d1d;
+}
+
+.btn-perigo-outline {
+    background: transparent;
+    color: #991b1b;
+    border: 1px solid #991b1b;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.btn-perigo-outline:hover {
+    background: #991b1b;
+    color: white;
+}
+
+.badge-sucesso {
+    color: #166534;
+    font-weight: 700;
+}
+
+.badge-perigo {
+    color: #991b1b;
+    font-weight: 700;
+}
+</style>
+
+{% if atletas and atletas|length > 0 %}
+
+    {% set equipes = {} %}
+
+    {% for atleta in atletas %}
+        {% if atleta.equipe not in equipes %}
+            {% set _ = equipes.update({atleta.equipe: []}) %}
+        {% endif %}
+        {% set _ = equipes[atleta.equipe].append(atleta) %}
+    {% endfor %}
+
+    {% for nome_equipe, lista in equipes.items() %}
+    <div class="card-painel grupo-equipe">
+
+        <div class="titulo-equipe">
+            {{ nome_equipe }}
+        </div>
+
+        <table>
+            <tr>
+                <th>Nome</th>
+                <th>Status</th>
+                <th>Número</th>
+                <th>Ações</th>
+            </tr>
+
+            {% for atleta in lista %}
+            <tr>
+                <td>{{ atleta.nome }}</td>
+                <td>{{ atleta.status }}</td>
+                <td>{{ atleta.numero if atleta.numero else atleta.get('numero') or atleta.get('numero_camisa') or "-" }}</td>
+
+                <td>
+                    <div class="acoes-container">
+
+                        {% if atleta.status == "pendente" %}
+
+                            <form method="post" action="{{ url_for('equipes.aprovar_atleta', id=atleta.id) }}">
+                                <button class="btn-sucesso">Aprovar</button>
+                            </form>
+
+                            <form method="post" action="{{ url_for('equipes.reprovar_atleta', id=atleta.id) }}">
+                                <button class="btn-perigo">Reprovar</button>
+                            </form>
+
+                        {% elif atleta.status == "aprovado" %}
+
+                            <span class="badge-sucesso">Aprovado</span>
+
+                            <div style="margin-left:10px;">
+                                <form method="post" action="{{ url_for('equipes.excluir_atleta_organizador', id=atleta.id) }}">
+                                    <button class="btn-perigo-outline">Excluir</button>
+                                </form>
+                            </div>
+
+                        {% elif atleta.status == "reprovado" %}
+
+                            <span class="badge-perigo">Reprovado</span>
+
+                        {% endif %}
+
+                    </div>
+                </td>
+
+            </tr>
+            {% endfor %}
+
+        </table>
+
+    </div>
+    {% endfor %}
+
+{% else %}
+    <div class="card-painel">
+        Nenhuma equipe possui atletas cadastrados nesta competição.
+    </div>
+{% endif %}
+
+{% endblock %}

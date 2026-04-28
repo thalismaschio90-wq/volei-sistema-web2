@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block titulo %}Painel do Árbitro{% endblock %}
+
+{% block conteudo %}
+<div class="topbar">
+    <div>
+        <h1 class="page-title">Painel do Árbitro</h1>
+        <div class="page-subtitle">Área operacional da mesa.</div>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h3 class="card-title">Tabela</h3>
+        <p class="muted">Acesso rápido para abrir a tabela do dia.</p>
+        <div style="margin-top: 16px;">
+            <a class="btn btn-primary" href="#">Abrir</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Pré-jogo</h3>
+        <p class="muted">Conferência e configuração operacional antes da partida.</p>
+        <div style="margin-top: 16px;">
+            <a class="btn btn-primary" href="#">Abrir</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Jogo</h3>
+        <p class="muted">Início e controle da partida em andamento.</p>
+        <div style="margin-top: 16px;">
+            <a class="btn btn-primary" href="#">Abrir</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

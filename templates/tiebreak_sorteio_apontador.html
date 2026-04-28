@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block titulo %}Sorteio do Tie-break{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Sorteio do tie-break</div>
+</div>
+
+<div class="card-painel">
+    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+    <div style="margin-top:6px;">
+        Jogo {{ partida.ordem or '-' }}
+        {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
+        {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
+    </div>
+    <div style="margin-top:10px; font-size:18px; font-weight:900;">
+        {{ partida.equipe_a }} x {{ partida.equipe_b }}
+    </div>
+    <div style="margin-top:10px; padding:12px; border:1px solid #93c5fd; border-radius:10px; background:#eff6ff; color:#1d4ed8; font-weight:700;">
+        Tela específica do set decisivo. Aqui você ajusta apenas o novo sorteio do tie-break.
+        A Equipe A operacional permanece a mesma da partida.
+    </div>
+</div>
+
+<div class="card-painel">
+    <div style="font-weight:900; margin-bottom:12px;">Configuração do tie-break</div>
+
+    <form method="post" action="{{ url_for('apontadores.salvar_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div>
+                <label>Equipe vencedora do sorteio</label>
+                <select name="sorteio_vencedor" required>
+                    <option value="">Selecione</option>
+                    <option value="{{ partida.equipe_a }}" {% if partida.sorteio_tiebreak_vencedor == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
+                    <option value="{{ partida.equipe_b }}" {% if partida.sorteio_tiebreak_vencedor == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Escolha da vencedora</label>
+                <select name="sorteio_escolha" required>
+                    <option value="">Selecione</option>
+                    <option value="saque" {% if partida.sorteio_tiebreak_escolha == 'saque' %}selected{% endif %}>Saque</option>
+                    <option value="lado" {% if partida.sorteio_tiebreak_escolha == 'lado' %}selected{% endif %}>Lado</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Equipe que inicia sacando</label>
+                <select name="saque_tiebreak" required>
+                    <option value="">Selecione</option>
+                    <option value="{{ partida.equipe_a }}" {% if partida.saque_tiebreak == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
+                    <option value="{{ partida.equipe_b }}" {% if partida.saque_tiebreak == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Equipe no lado esquerdo</label>
+                <select name="lado_esquerdo_tiebreak" required>
+                    <option value="">Selecione</option>
+                    <option value="{{ partida.equipe_a }}" {% if partida.lado_esquerdo_tiebreak == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
+                    <option value="{{ partida.equipe_b }}" {% if partida.lado_esquerdo_tiebreak == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Equipe A operacional</label>
+                <input type="text" value="{{ partida.equipe_a_operacional or '-' }}" readonly>
+            </div>
+
+            <div>
+                <label>Equipe B operacional</label>
+                <input type="text" value="{{ partida.equipe_b_operacional or '-' }}" readonly>
+            </div>
+        </div>
+
+        <div style="margin-top:16px;">
+            <button class="btn-padrao" type="submit">Salvar sorteio do tie-break</button>
+            <a class="btn-secundario" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">Voltar</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

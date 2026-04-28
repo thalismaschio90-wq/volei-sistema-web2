@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="hero-box">
+    <div class="hero-titulo">Bem-vindo ao VolleyTable Pro Web</div>
+    <p class="hero-texto">
+        Esta é a base inicial do sistema com layout moderno, menu lateral e navegação mais limpa.
+    </p>
+</div>
+
+<div class="cards-grid">
+    <div class="numero-card">
+        <div class="numero-titulo">Competições</div>
+        <div class="numero-valor">{{ total_competicoes }}</div>
+    </div>
+
+    <div class="numero-card">
+        <div class="numero-titulo">Equipes</div>
+        <div class="numero-valor">{{ total_equipes }}</div>
+    </div>
+
+    <div class="numero-card">
+        <div class="numero-titulo">Partidas</div>
+        <div class="numero-valor">{{ total_partidas }}</div>
+    </div>
+</div>
+
+<div class="card-painel">
+    <div class="titulo-secao">Próximos passos</div>
+    <ul class="lista-passos">
+        <li>Trazer cadastro de equipes</li>
+        <li>Adaptar tabela para web</li>
+        <li>Migrar pré-jogo e jogo</li>
+        <li>Voltar na súmula depois</li>
+    </ul>
+</div>
+{% endblock %}

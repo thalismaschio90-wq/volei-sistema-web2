@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Competição criada com sucesso</h2>
+
+    <p><strong>Competição:</strong> {{ nome }}</p>
+    <p><strong>Login do organizador:</strong> {{ login }}</p>
+    <p><strong>Senha:</strong> {{ senha }}</p>
+
+    <a class="acao-link" href="{{ url_for('competicoes.listar') }}">← Voltar para competições</a>
+</div>
+{% endblock %}

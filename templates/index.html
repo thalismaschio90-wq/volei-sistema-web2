@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Início</h2>
+    <p>Bem-vindo ao VolleyTable Pro.</p>
+</div>
+
+<div class="card">
+    {% if session.get("perfil") == "superadmin" %}
+        <p>Use o menu para gerenciar competições, equipes e usuários.</p>
+    {% elif session.get("perfil") == "organizador" %}
+        <p>Use o menu para gerenciar a sua competição, equipes e usuários vinculados.</p>
+    {% elif session.get("perfil") == "arbitro" %}
+        <p>Use o menu para acessar as funções operacionais da mesa.</p>
+    {% elif session.get("perfil") == "equipe" %}
+        <p>Use o menu para acessar as funções da equipe.</p>
+    {% else %}
+        <p>Sistema carregado com sucesso.</p>
+    {% endif %}
+</div>
+{% endblock %}

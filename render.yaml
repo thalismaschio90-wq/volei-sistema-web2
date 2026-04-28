@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: volei-sistema-web
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app -c gunicorn.conf.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: SOCKETIO_ASYNC_MODE
+        value: threading

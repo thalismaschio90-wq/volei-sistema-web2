@@ -1,0 +1,713 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<style>
+    .fc-wrap {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+        gap: 18px;
+        align-items: start;
+    }
+
+    .fc-main,
+    .fc-side {
+        min-width: 0;
+    }
+
+    .fc-card {
+        background: #ffffff;
+        border: 1px solid #dbe4ec;
+        border-radius: 18px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        overflow: hidden;
+    }
+
+    .fc-header {
+        padding: 18px 20px;
+        border-bottom: 1px solid #e8eef4;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fbfd 100%);
+    }
+
+    .fc-header-titulo {
+        font-size: 24px;
+        font-weight: 900;
+        color: #17324a;
+        margin: 0;
+    }
+
+    .fc-header-subtitulo {
+        margin-top: 6px;
+        color: #6b7c8c;
+        font-size: 14px;
+    }
+
+    .fc-body {
+        padding: 18px 20px 20px;
+    }
+
+    .fc-info-competicao {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 18px;
+    }
+
+    .fc-info-competicao div {
+        color: #17324a;
+        font-size: 14px;
+    }
+
+    .fc-accordion {
+        background: #f8fbff;
+        color: #17324a;
+        cursor: pointer;
+        padding: 16px 18px;
+        width: 100%;
+        border: 1px solid #dbe4ec;
+        text-align: left;
+        font-weight: 800;
+        font-size: 15px;
+        border-radius: 14px;
+        transition: 0.18s ease;
+        position: relative;
+        margin-top: 10px;
+    }
+
+    .fc-accordion:hover {
+        background: #f1f7fc;
+        border-color: #cfdbe7;
+    }
+
+    .fc-accordion.ativo {
+        background: #eef4fb;
+        border-color: #c8d8e8;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    .fc-accordion::after {
+        content: "▸";
+        position: absolute;
+        right: 18px;
+        top: 50%;
+        transform: translateY(-50%);
+        transition: transform 0.18s ease;
+        color: #4f6478;
+        font-size: 14px;
+    }
+
+    .fc-accordion.ativo::after {
+        transform: translateY(-50%) rotate(90deg);
+    }
+
+    .fc-panel {
+        display: none;
+        padding: 18px;
+        background: #ffffff;
+        border: 1px solid #dbe4ec;
+        border-top: none;
+        border-bottom-left-radius: 14px;
+        border-bottom-right-radius: 14px;
+        margin-bottom: 12px;
+    }
+
+    .fc-panel.ativo {
+        display: block;
+    }
+
+    .fc-grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px 16px;
+    }
+
+    .fc-field label {
+        display: block;
+        margin-bottom: 7px;
+        font-weight: 700;
+        color: #17324a;
+        font-size: 14px;
+    }
+
+    .fc-field input,
+    .fc-field select {
+        width: 100%;
+        padding: 13px 14px;
+        border: 1px solid #cfd9e3;
+        border-radius: 12px;
+        font-size: 15px;
+        background: #fcfdff;
+        outline: none;
+        transition: 0.18s ease;
+    }
+
+    .fc-field input:focus,
+    .fc-field select:focus {
+        background: #ffffff;
+        border-color: #8da8bf;
+        box-shadow: 0 0 0 4px rgba(18, 56, 82, 0.08);
+    }
+
+    .fc-texto {
+        font-size: 14px;
+        color: #6b7c8c;
+        margin: 0 0 14px;
+        line-height: 1.5;
+    }
+
+    .fc-grupos-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+    }
+
+    .fc-grupo-box {
+        border: 1px solid #e1e9f0;
+        border-radius: 14px;
+        background: #fbfdff;
+        padding: 14px;
+    }
+
+    .fc-grupo-titulo {
+        font-size: 15px;
+        font-weight: 900;
+        color: #17324a;
+        margin-bottom: 10px;
+    }
+
+    .fc-acoes {
+        margin-top: 18px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .fc-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: #123852;
+        color: white;
+        font-weight: 800;
+        font-size: 14px;
+        border-radius: 12px;
+        padding: 12px 18px;
+        cursor: pointer;
+        transition: 0.18s ease;
+        text-decoration: none;
+    }
+
+    .fc-btn:hover {
+        background: #0f3147;
+    }
+
+    .fc-resumo {
+        position: sticky;
+        top: 18px;
+    }
+
+    .fc-resumo-box {
+        background: #ffffff;
+        border: 1px solid #dbe4ec;
+        border-radius: 18px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        overflow: hidden;
+    }
+
+    .fc-resumo-head {
+        padding: 16px 18px;
+        border-bottom: 1px solid #e8eef4;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fbfd 100%);
+    }
+
+    .fc-resumo-titulo {
+        font-size: 19px;
+        font-weight: 900;
+        color: #17324a;
+        margin: 0;
+    }
+
+    .fc-resumo-subtitulo {
+        margin-top: 5px;
+        color: #6b7c8c;
+        font-size: 13px;
+    }
+
+    .fc-resumo-body {
+        padding: 16px 18px 18px;
+    }
+
+    .fc-resumo-lista {
+        display: grid;
+        gap: 10px;
+    }
+
+    .fc-resumo-item {
+        background: #f8fbff;
+        border: 1px solid #e3ecf4;
+        border-radius: 12px;
+        padding: 11px 12px;
+    }
+
+    .fc-resumo-item strong {
+        display: block;
+        color: #17324a;
+        margin-bottom: 4px;
+        font-size: 13px;
+    }
+
+    .fc-resumo-item span {
+        color: #5f7285;
+        font-size: 14px;
+        line-height: 1.4;
+    }
+
+    .fc-hidden {
+        display: none !important;
+    }
+
+    @media (max-width: 1080px) {
+        .fc-wrap {
+            grid-template-columns: 1fr;
+        }
+
+        .fc-resumo {
+            position: static;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .fc-grid-2,
+        .fc-grupos-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .fc-header-titulo {
+            font-size: 22px;
+        }
+    }
+</style>
+
+<div class="fc-wrap">
+    <div class="fc-main">
+        <div class="fc-card">
+            <div class="fc-header">
+                <h2 class="fc-header-titulo">Formato da competição</h2>
+                <div class="fc-header-subtitulo">Configure confronto, classificação, fases e regras de jogo.</div>
+            </div>
+
+            <div class="fc-body">
+                <div class="fc-info-competicao">
+                    <div><strong>Competição:</strong> {{ competicao.nome }}</div>
+                    <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
+                </div>
+
+                <form method="post" id="form-config">
+                    <button type="button" class="fc-accordion ativo">Classificação e avanço</button>
+                    <div class="fc-panel ativo">
+                        <div class="fc-grid-2">
+                            <div class="fc-field">
+                                <label for="tipo_confronto">Tipo de confronto</label>
+                                <select name="tipo_confronto" id="tipo_confronto">
+                                    <option value="grupo_interno" {% if config.tipo_confronto == 'grupo_interno' %}selected{% endif %}>Dentro do grupo</option>
+                                    <option value="geral" {% if config.tipo_confronto == 'geral' %}selected{% endif %}>Todos contra todos (geral)</option>
+                                    <option value="intergrupos_total" {% if config.tipo_confronto == 'intergrupos_total' %}selected{% endif %}>Intergrupos total</option>
+                                    <option value="intergrupos_parcial" {% if config.tipo_confronto == 'intergrupos_parcial' %}selected{% endif %}>Intergrupos parcial</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="tipo_classificacao">Tipo de classificação</label>
+                                <select name="tipo_classificacao" id="tipo_classificacao">
+                                    <option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo</option>
+                                    <option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option>
+                                    <option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field" id="campo_cruzamentos_wrapper">
+                                <label for="cruzamentos_grupos">Cruzamentos entre grupos</label>
+                                <input type="text" name="cruzamentos_grupos" id="cruzamentos_grupos" value="{{ config.cruzamentos_grupos or '' }}" placeholder="Ex.: A-B,B-C,C-A">
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="qtd_classificados">Quantidade total de classificados</label>
+                                <input type="number" name="qtd_classificados" id="qtd_classificados" value="{{ config.qtd_classificados or 0 }}">
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="formato_finais">Formato das finais</label>
+                                <select name="formato_finais" id="formato_finais">
+                                    <option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas + semifinal + final</option>
+                                    <option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal + final</option>
+                                    <option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Só final</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="possui_bye">Possui bye?</label>
+                                <select name="possui_bye" id="possui_bye">
+                                    <option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option>
+                                    <option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="bye_box" class="{% if not config.possui_bye %}fc-hidden{% endif %}" style="margin-top: 14px;">
+                            <div class="fc-grid-2">
+                                <div class="fc-field">
+                                    <label for="qtd_bye">Quantidade de bye</label>
+                                    <input type="number" name="qtd_bye" id="qtd_bye" value="{{ config.qtd_bye or 0 }}">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button" class="fc-accordion">Regra padrão da fase de grupos</button>
+                    <div class="fc-panel">
+                        <p class="fc-texto">Essa regra será usada na fase de grupos quando um grupo não tiver regra própria.</p>
+
+                        <div class="fc-grid-2">
+                            <div class="fc-field">
+                                <label for="grupos_tipo_jogo">Tipo de jogo</label>
+                                <select name="grupos_tipo_jogo" id="grupos_tipo_jogo">
+                                    <option value="set_unico" {% if fases.get('grupos', {}).get('tipo_jogo') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                    <option value="melhor_de_3" {% if fases.get('grupos', {}).get('tipo_jogo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                    <option value="melhor_de_5" {% if fases.get('grupos', {}).get('tipo_jogo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="grupos_pontos">Pontos por set</label>
+                                <input type="number" name="grupos_pontos" id="grupos_pontos" value="{{ fases.get('grupos', {}).get('pontos', 25) }}">
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="grupos_tem_tiebreak">Tem tie-break?</label>
+                                <select name="grupos_tem_tiebreak" id="grupos_tem_tiebreak">
+                                    <option value="nao" {% if not fases.get('grupos', {}).get('tem_tiebreak', False) %}selected{% endif %}>Não</option>
+                                    <option value="sim" {% if fases.get('grupos', {}).get('tem_tiebreak', False) %}selected{% endif %}>Sim</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="grupos_pontos_tiebreak">Pontos do tie-break</label>
+                                <input type="number" name="grupos_pontos_tiebreak" id="grupos_pontos_tiebreak" value="{{ fases.get('grupos', {}).get('pontos_tiebreak', 15) }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button" class="fc-accordion">Regras específicas por grupo</button>
+                    <div class="fc-panel">
+                        <p class="fc-texto">Se um grupo ficar em branco, ele usará a regra padrão da fase de grupos.</p>
+
+                        <div class="fc-grupos-grid">
+                            {% set grupos_especificos = fases.get('grupos_especificos', {}) %}
+                            {% for g in ['A', 'B', 'C', 'D'] %}
+                            <div class="fc-grupo-box">
+                                <div class="fc-grupo-titulo">Grupo {{ g }}</div>
+
+                                <div class="fc-field" style="margin-bottom: 10px;">
+                                    <label for="grupo_{{ g }}_tipo">Tipo de jogo</label>
+                                    <select name="grupo_{{ g }}_tipo" id="grupo_{{ g }}_tipo">
+                                        <option value="" {% if not grupos_especificos.get(g, {}).get('tipo_jogo') %}selected{% endif %}>Usar regra padrão</option>
+                                        <option value="set_unico" {% if grupos_especificos.get(g, {}).get('tipo_jogo') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                        <option value="melhor_de_3" {% if grupos_especificos.get(g, {}).get('tipo_jogo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                        <option value="melhor_de_5" {% if grupos_especificos.get(g, {}).get('tipo_jogo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                    </select>
+                                </div>
+
+                                <div class="fc-field">
+                                    <label for="grupo_{{ g }}_pontos">Pontos por set</label>
+                                    <input type="number" name="grupo_{{ g }}_pontos" id="grupo_{{ g }}_pontos" value="{{ grupos_especificos.get(g, {}).get('pontos', '') }}" placeholder="Ex.: 21 ou 25">
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div id="quartas_bloco">
+                        <button type="button" class="fc-accordion" id="btn_quartas">Regras das quartas</button>
+                        <div class="fc-panel" id="box_quartas">
+                            <div class="fc-grid-2">
+                                <div class="fc-field">
+                                    <label for="quartas_tipo_jogo">Tipo de jogo</label>
+                                    <select name="quartas_tipo_jogo" id="quartas_tipo_jogo">
+                                        <option value="set_unico" {% if fases.get('quartas', {}).get('tipo_jogo') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                        <option value="melhor_de_3" {% if fases.get('quartas', {}).get('tipo_jogo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                        <option value="melhor_de_5" {% if fases.get('quartas', {}).get('tipo_jogo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                    </select>
+                                </div>
+
+                                <div class="fc-field">
+                                    <label for="quartas_pontos">Pontos por set</label>
+                                    <input type="number" name="quartas_pontos" id="quartas_pontos" value="{{ fases.get('quartas', {}).get('pontos', 21) }}">
+                                </div>
+
+                                <div class="fc-field">
+                                    <label for="quartas_tem_tiebreak">Tem tie-break?</label>
+                                    <select name="quartas_tem_tiebreak" id="quartas_tem_tiebreak">
+                                        <option value="nao" {% if not fases.get('quartas', {}).get('tem_tiebreak', True) %}selected{% endif %}>Não</option>
+                                        <option value="sim" {% if fases.get('quartas', {}).get('tem_tiebreak', True) %}selected{% endif %}>Sim</option>
+                                    </select>
+                                </div>
+
+                                <div class="fc-field">
+                                    <label for="quartas_pontos_tiebreak">Pontos do tie-break</label>
+                                    <input type="number" name="quartas_pontos_tiebreak" id="quartas_pontos_tiebreak" value="{{ fases.get('quartas', {}).get('pontos_tiebreak', 15) }}">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button" class="fc-accordion">Regras da semifinal</button>
+                    <div class="fc-panel">
+                        <div class="fc-grid-2">
+                            <div class="fc-field">
+                                <label for="semifinal_tipo_jogo">Tipo de jogo</label>
+                                <select name="semifinal_tipo_jogo" id="semifinal_tipo_jogo">
+                                    <option value="set_unico" {% if fases.get('semifinal', {}).get('tipo_jogo') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                    <option value="melhor_de_3" {% if fases.get('semifinal', {}).get('tipo_jogo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                    <option value="melhor_de_5" {% if fases.get('semifinal', {}).get('tipo_jogo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="semifinal_pontos">Pontos por set</label>
+                                <input type="number" name="semifinal_pontos" id="semifinal_pontos" value="{{ fases.get('semifinal', {}).get('pontos', 21) }}">
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="semifinal_tem_tiebreak">Tem tie-break?</label>
+                                <select name="semifinal_tem_tiebreak" id="semifinal_tem_tiebreak">
+                                    <option value="nao" {% if not fases.get('semifinal', {}).get('tem_tiebreak', True) %}selected{% endif %}>Não</option>
+                                    <option value="sim" {% if fases.get('semifinal', {}).get('tem_tiebreak', True) %}selected{% endif %}>Sim</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="semifinal_pontos_tiebreak">Pontos do tie-break</label>
+                                <input type="number" name="semifinal_pontos_tiebreak" id="semifinal_pontos_tiebreak" value="{{ fases.get('semifinal', {}).get('pontos_tiebreak', 15) }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button" class="fc-accordion">Regras da final</button>
+                    <div class="fc-panel">
+                        <div class="fc-grid-2">
+                            <div class="fc-field">
+                                <label for="final_tipo_jogo">Tipo de jogo</label>
+                                <select name="final_tipo_jogo" id="final_tipo_jogo">
+                                    <option value="set_unico" {% if fases.get('final', {}).get('tipo_jogo') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                    <option value="melhor_de_3" {% if fases.get('final', {}).get('tipo_jogo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                    <option value="melhor_de_5" {% if fases.get('final', {}).get('tipo_jogo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="final_pontos">Pontos por set</label>
+                                <input type="number" name="final_pontos" id="final_pontos" value="{{ fases.get('final', {}).get('pontos', 25) }}">
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="final_tem_tiebreak">Tem tie-break?</label>
+                                <select name="final_tem_tiebreak" id="final_tem_tiebreak">
+                                    <option value="nao" {% if not fases.get('final', {}).get('tem_tiebreak', True) %}selected{% endif %}>Não</option>
+                                    <option value="sim" {% if fases.get('final', {}).get('tem_tiebreak', True) %}selected{% endif %}>Sim</option>
+                                </select>
+                            </div>
+
+                            <div class="fc-field">
+                                <label for="final_pontos_tiebreak">Pontos do tie-break</label>
+                                <input type="number" name="final_pontos_tiebreak" id="final_pontos_tiebreak" value="{{ fases.get('final', {}).get('pontos_tiebreak', 15) }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="fc-acoes">
+                        <button type="submit" class="fc-btn">Salvar formato da competição</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="fc-side">
+        <div class="fc-resumo">
+            <div class="fc-resumo-box">
+                <div class="fc-resumo-head">
+                    <div class="fc-resumo-titulo">Resumo da competição</div>
+                    <div class="fc-resumo-subtitulo">Visão rápida de como a competição vai funcionar.</div>
+                </div>
+
+                <div class="fc-resumo-body">
+                    <div class="fc-resumo-lista" id="resumo_texto">
+                        <div class="fc-resumo-item">
+                            <strong>Carregando resumo</strong>
+                            <span>As informações serão atualizadas conforme a configuração for alterada.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const accordions = document.querySelectorAll(".fc-accordion");
+
+    accordions.forEach((btn) => {
+        btn.addEventListener("click", function () {
+            this.classList.toggle("ativo");
+            const painel = this.nextElementSibling;
+            painel.classList.toggle("ativo");
+        });
+    });
+
+    function mostrarBye() {
+        const possuiBye = document.getElementById("possui_bye");
+        const byeBox = document.getElementById("bye_box");
+
+        if (!possuiBye || !byeBox) return;
+        if (possuiBye.value === "sim") {
+            byeBox.classList.remove("fc-hidden");
+        } else {
+            byeBox.classList.add("fc-hidden");
+        }
+    }
+
+    function mostrarQuartas() {
+        const formato = document.getElementById("formato_finais");
+        const quartasBloco = document.getElementById("quartas_bloco");
+
+        if (!formato || !quartasBloco) return;
+
+        if (formato.value === "quartas") {
+            quartasBloco.classList.remove("fc-hidden");
+        } else {
+            quartasBloco.classList.add("fc-hidden");
+            const btnQuartas = document.getElementById("btn_quartas");
+            const boxQuartas = document.getElementById("box_quartas");
+            if (btnQuartas) btnQuartas.classList.remove("ativo");
+            if (boxQuartas) boxQuartas.classList.remove("ativo");
+        }
+    }
+
+    function mostrarCruzamentos() {
+        const tipoConfronto = document.getElementById("tipo_confronto");
+        const campo = document.getElementById("campo_cruzamentos_wrapper");
+
+        if (!tipoConfronto || !campo) return;
+
+        if (tipoConfronto.value === "intergrupos_parcial") {
+            campo.classList.remove("fc-hidden");
+        } else {
+            campo.classList.add("fc-hidden");
+        }
+    }
+
+    function textoTipoJogo(valor) {
+        if (valor === "set_unico") return "set único";
+        if (valor === "melhor_de_3") return "melhor de 3";
+        if (valor === "melhor_de_5") return "melhor de 5";
+        return "-";
+    }
+
+    function textoFormatoFinais(valor) {
+        if (valor === "quartas") return "quartas → semifinal → final";
+        if (valor === "semifinal") return "semifinal → final";
+        if (valor === "final") return "apenas final";
+        return "-";
+    }
+
+    function textoTipoConfronto(valor) {
+        if (valor === "grupo_interno") return "todos contra todos dentro do grupo";
+        if (valor === "geral") return "todos contra todos geral";
+        if (valor === "intergrupos_total") return "intergrupos total";
+        if (valor === "intergrupos_parcial") return "intergrupos parcial";
+        return "-";
+    }
+
+    function atualizarResumo() {
+        const tipoConfronto = document.getElementById("tipo_confronto")?.value || "-";
+        const tipoClassificacao = document.getElementById("tipo_classificacao")?.value || "-";
+        const cruzamentos = document.getElementById("cruzamentos_grupos")?.value || "";
+        const qtdClassificados = document.getElementById("qtd_classificados")?.value || "0";
+        const formatoFinais = document.getElementById("formato_finais")?.value || "-";
+        const possuiBye = document.getElementById("possui_bye")?.value || "nao";
+        const qtdBye = document.getElementById("qtd_bye")?.value || "0";
+
+        const gruposTipo = textoTipoJogo(document.getElementById("grupos_tipo_jogo")?.value || "");
+        const gruposPontos = document.getElementById("grupos_pontos")?.value || "25";
+
+        const semiTipo = textoTipoJogo(document.getElementById("semifinal_tipo_jogo")?.value || "");
+        const semiPontos = document.getElementById("semifinal_pontos")?.value || "21";
+
+        const finalTipo = textoTipoJogo(document.getElementById("final_tipo_jogo")?.value || "");
+        const finalPontos = document.getElementById("final_pontos")?.value || "25";
+
+        const quartasTipo = textoTipoJogo(document.getElementById("quartas_tipo_jogo")?.value || "");
+        const quartasPontos = document.getElementById("quartas_pontos")?.value || "21";
+
+        let resumoGrupoEspecifico = [];
+        ["A", "B", "C", "D"].forEach((g) => {
+            const tipo = document.getElementById(`grupo_${g}_tipo`)?.value || "";
+            const pontos = document.getElementById(`grupo_${g}_pontos`)?.value || "";
+
+            if (tipo || pontos) {
+                let texto = `Grupo ${g}: `;
+                texto += tipo ? textoTipoJogo(tipo) : "usa regra padrão";
+                if (pontos) texto += ` de ${pontos} pontos`;
+                resumoGrupoEspecifico.push(texto);
+            }
+        });
+
+        const blocos = [];
+
+        blocos.push(`<div class="fc-resumo-item"><strong>Confronto</strong><span>${textoTipoConfronto(tipoConfronto)}</span></div>`);
+        if (tipoConfronto === "intergrupos_parcial" && cruzamentos) {
+            blocos.push(`<div class="fc-resumo-item"><strong>Cruzamentos</strong><span>${cruzamentos}</span></div>`);
+        }
+        blocos.push(`<div class="fc-resumo-item"><strong>Classificação</strong><span>${tipoClassificacao}</span></div>`);
+        blocos.push(`<div class="fc-resumo-item"><strong>Classificados</strong><span>${qtdClassificados} equipes</span></div>`);
+        blocos.push(`<div class="fc-resumo-item"><strong>Caminho da competição</strong><span>${textoFormatoFinais(formatoFinais)}</span></div>`);
+
+        if (possuiBye === "sim") {
+            blocos.push(`<div class="fc-resumo-item"><strong>Bye</strong><span>${qtdBye} equipe(s) passam direto de fase</span></div>`);
+        }
+
+        blocos.push(`<div class="fc-resumo-item"><strong>Fase de grupos</strong><span>${gruposTipo} de ${gruposPontos} pontos</span></div>`);
+
+        if (resumoGrupoEspecifico.length > 0) {
+            blocos.push(`<div class="fc-resumo-item"><strong>Grupos com regra própria</strong><span>${resumoGrupoEspecifico.join("<br>")}</span></div>`);
+        }
+
+        if (formatoFinais === "quartas") {
+            blocos.push(`<div class="fc-resumo-item"><strong>Quartas de final</strong><span>${quartasTipo} de ${quartasPontos} pontos</span></div>`);
+        }
+
+        if (formatoFinais === "quartas" || formatoFinais === "semifinal") {
+            blocos.push(`<div class="fc-resumo-item"><strong>Semifinal</strong><span>${semiTipo} de ${semiPontos} pontos</span></div>`);
+        }
+
+        blocos.push(`<div class="fc-resumo-item"><strong>Final</strong><span>${finalTipo} de ${finalPontos} pontos</span></div>`);
+
+        document.getElementById("resumo_texto").innerHTML = blocos.join("");
+    }
+
+    document.querySelectorAll("#form-config select, #form-config input").forEach((el) => {
+        el.addEventListener("change", () => {
+            mostrarBye();
+            mostrarQuartas();
+            mostrarCruzamentos();
+            atualizarResumo();
+        });
+        el.addEventListener("input", atualizarResumo);
+    });
+
+    mostrarBye();
+    mostrarQuartas();
+    mostrarCruzamentos();
+    atualizarResumo();
+</script>
+{% endblock %}

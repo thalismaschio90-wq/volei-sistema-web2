@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block titulo %}Painel do Apontador{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Painel do Apontador</div>
+</div>
+
+<style>
+.card-jogo {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.card-jogo-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.card-jogo-acoes {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 130px;
+}
+
+.status-badge {
+    display: inline-block;
+    font-weight: 800;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 8px;
+}
+
+.status-aguardando {
+    background: #334155;
+    color: white;
+}
+
+.status-reservado {
+    background: #854d0e;
+    color: white;
+}
+
+.status-vivo {
+    background: #065f46;
+    color: white;
+}
+
+.status-finalizado {
+    background: #1e293b;
+    color: white;
+}
+
+.placar-final {
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.sets-final {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.texto-encerrado {
+    font-weight: 900;
+    color: var(--muted);
+}
+
+@media (max-width: 700px) {
+    .card-jogo {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .card-jogo-acoes {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+</style>
+
+{% if modo_partidas %}
+<div class="card-painel">
+    <div style="font-size:20px; font-weight:900; margin-bottom:10px;">
+        {{ competicao_nome }}
+    </div>
+
+    {% if partidas %}
+        {% for p in partidas %}
+            {% set status_op = (p.status_operacao or 'livre')|lower %}
+            {% set status_partida = (p.status or 'agendada')|lower %}
+
+            {% set jogo_iniciado = status_partida in ['em andamento', 'em_andamento', 'ao vivo', 'ao_vivo', 'iniciada', 'iniciado'] or status_op in ['em_andamento', 'ao_vivo', 'jogo', 'iniciada', 'iniciado'] %}
+            {% set jogo_finalizado = status_partida in ['finalizada', 'finalizado', 'encerrada', 'encerrado'] %}
+
+            <div class="card-jogo">
+                <div class="card-jogo-info">
+                    <div style="font-weight:900;">
+                        Jogo {{ p.ordem or '-' }}
+                        {% if p.quadra %} — Quadra {{ p.quadra }}{% endif %}
+                    </div>
+
+                    <div style="font-size:14px;">
+                        {{ p.grupo or '-' }} — {{ p.equipe_a }} x {{ p.equipe_b }}
+                    </div>
+
+                    <div style="margin-top:6px;">
+                        {% if jogo_finalizado %}
+                            <span class="status-badge status-finalizado">FINALIZADO</span>
+                        {% elif jogo_iniciado %}
+                            <span class="status-badge status-vivo">AO VIVO</span>
+                        {% elif status_op == 'pre_jogo' %}
+                            <span class="status-badge status-reservado">PRÉ-JOGO</span>
+                        {% elif status_op == 'reservado' %}
+                            <span class="status-badge status-reservado">RESERVADO</span>
+                        {% else %}
+                            <span class="status-badge status-aguardando">AGUARDANDO</span>
+                        {% endif %}
+
+                        {% if p.operador_nome and not jogo_finalizado %}
+                            <span style="margin-left:8px; color:var(--muted);">
+                                Operador: {{ p.operador_nome }}
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    {% if jogo_finalizado %}
+                        <div class="placar-final">
+                            Placar final:
+                            {{ p.sets_a or 0 }} x {{ p.sets_b or 0 }}
+                        </div>
+
+                        <div class="sets-final">
+                            Sets:
+                            {% if p.set1_a is not none and p.set1_b is not none %}
+                                1º {{ p.set1_a }}x{{ p.set1_b }}
+                            {% endif %}
+                            {% if p.set2_a is not none and p.set2_b is not none %}
+                                • 2º {{ p.set2_a }}x{{ p.set2_b }}
+                            {% endif %}
+                            {% if p.set3_a is not none and p.set3_b is not none %}
+                                • 3º {{ p.set3_a }}x{{ p.set3_b }}
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="card-jogo-acoes">
+                    {% if jogo_finalizado %}
+                        <span class="texto-encerrado">Encerrado</span>
+
+                    {% elif jogo_iniciado %}
+                        <a class="btn-padrao"
+                           href="{{ url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) }}">
+                            Entrar no jogo
+                        </a>
+
+                    {% else %}
+                        <a class="btn-padrao"
+                           href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) }}">
+                            {% if p.operador_login == session.get('usuario') %}
+                                Continuar
+                            {% else %}
+                                Abrir
+                            {% endif %}
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div>Nenhuma partida encontrada.</div>
+    {% endif %}
+</div>
+
+{% elif competicao_unica %}
+<div class="hero-box">
+    <div class="hero-titulo">{{ competicao_unica.competicao }}</div>
+    <p class="hero-texto">
+        Você está vinculado a uma competição ativa.
+    </p>
+
+    <br>
+
+    <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_unica.competicao) }}">
+        Entrar na competição
+    </a>
+</div>
+
+{% elif competicoes %}
+<div class="card-painel">
+    <div style="font-size: 20px; font-weight: 900; margin-bottom: 14px;">
+        Competições disponíveis
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Competição</th>
+                <th>Data</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in competicoes %}
+            <tr>
+                <td><strong>{{ c.competicao }}</strong></td>
+                <td>{{ c.data or '-' }}</td>
+                <td>{{ c.status or '-' }}</td>
+                <td>
+                    <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">
+                        Entrar
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% else %}
+<div class="card-painel">
+    Nenhuma competição disponível no momento.
+</div>
+{% endif %}
+{% endblock %}

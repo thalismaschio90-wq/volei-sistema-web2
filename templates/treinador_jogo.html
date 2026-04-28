@@ -1,0 +1,828 @@
+{% extends "base.html" %}
+
+{% block titulo %}Modo treinador{% endblock %}
+
+{% block conteudo %}
+<style>
+.treinador-topo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: stretch;
+    margin-bottom: 18px;
+}
+
+.treinador-topo .card-painel {
+    flex: 1 1 260px;
+}
+
+.treinador-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 18px 0 14px;
+}
+
+.treinador-tab {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    padding: 12px 16px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 900;
+    transition: .2s ease;
+}
+
+.treinador-tab:hover {
+    transform: translateY(-1px);
+}
+
+.treinador-tab.ativo {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.treinador-grid {
+    display: grid;
+    grid-template-columns: 1.3fr .9fr;
+    gap: 16px;
+}
+
+@media (max-width: 920px) {
+    .treinador-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.quadra {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(86px, 120px));
+    grid-template-rows: repeat(2, minmax(86px, 120px));
+    gap: 14px;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.posicao {
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-weight: 900;
+    font-size: 28px;
+    background: #fff;
+    min-height: 100px;
+    text-align: center;
+    padding: 8px;
+}
+
+.posicao.sem-clique {
+    cursor: default;
+}
+
+.posicao small {
+    font-size: 14px;
+    margin-top: 6px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.info-lista {
+    display: grid;
+    gap: 8px;
+}
+
+.info-linha {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px dashed var(--border);
+    padding-bottom: 8px;
+}
+
+.info-linha:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.info-linha strong {
+    font-weight: 900;
+}
+
+.lista-banco {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.atleta-chip {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+    font-weight: 900;
+    display: flex;
+    flex-direction: column;
+    min-width: 70px;
+    align-items: center;
+    justify-content: center;
+}
+
+.atleta-chip small {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+    font-weight: 700;
+}
+
+.acoes-jogo {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+.btn-acao-treinador {
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.btn-acao-treinador:hover {
+    transform: translateY(-1px);
+}
+
+.status-retorno {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-weight: 800;
+    display: none;
+}
+
+.status-retorno.ok {
+    background: rgba(34, 197, 94, .12);
+    color: #15803d;
+    border: 1px solid rgba(34, 197, 94, .28);
+    display: block;
+}
+
+.status-retorno.erro {
+    background: rgba(239, 68, 68, .12);
+    color: #b91c1c;
+    border: 1px solid rgba(239, 68, 68, .28);
+    display: block;
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 16px;
+}
+
+.modal-content {
+    background: #111;
+    padding: 20px;
+    border-radius: 12px;
+    max-width: 460px;
+    width: 100%;
+    color: #fff;
+}
+
+.modal-content h4 {
+    margin-top: 0;
+}
+
+.lista-atletas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.btn-atleta {
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: #2563eb;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.btn-fechar {
+    margin-top: 15px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: #2563eb;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.tabela-scout {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    background: #fff;
+}
+
+.tabela-scout th,
+.tabela-scout td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    font-size: 14px;
+}
+
+.tabela-scout th {
+    font-weight: 900;
+    background: rgba(0,0,0,.03);
+}
+
+.tabela-scout td.nome-atleta {
+    text-align: left;
+    font-weight: 800;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.resumo-scout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.box-resumo {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+}
+
+.box-resumo .label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.box-resumo .valor {
+    font-size: 24px;
+    font-weight: 900;
+    margin-top: 6px;
+}
+
+.barra-topo-jogo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.badge-jogo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-weight: 800;
+}
+</style>
+
+{% set aba_ativa = request.args.get('aba', 'papeleta') %}
+{% set ordem_quadra = [4, 3, 2, 5, 6, 1] %}
+
+<div class="topo-secao">
+    <div class="titulo-secao">Modo treinador</div>
+</div>
+
+<div class="treinador-topo">
+    <div class="card-painel">
+        <div style="font-size: 24px; font-weight: 900;">{{ equipe_nome }}</div>
+        <div style="margin-top: 6px;">{{ descricao_set }}</div>
+        <div style="margin-top: 6px;" class="muted">Adversário: {{ equipe_adversaria or '-' }}</div>
+
+        <div class="barra-topo-jogo">
+            <div class="badge-jogo">
+                <strong>Saque:</strong>
+                <span data-saque-atual>
+                    {% if saque_atual == lado %}
+                        Minha equipe
+                    {% elif saque_atual %}
+                        Adversário
+                    {% else %}
+                        -
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="badge-jogo">
+                <strong>Saque inicial:</strong>
+                {% if saque_inicial == lado %}
+                    minha equipe
+                {% elif saque_inicial %}
+                    adversário
+                {% else %}
+                    -
+                {% endif %}
+            </div>
+
+            <div class="badge-jogo">
+                <strong>Lado:</strong> {{ lado or '-' }}
+            </div>
+        </div>
+    </div>
+
+    <div class="card-painel">
+        <div>
+            <strong>Placar:</strong>
+            <span data-placar-proprio>{{ placar_proprio }}</span> x <span data-placar-adversario>{{ placar_adversario }}</span>
+        </div>
+        <div><strong>Sets:</strong> <span data-sets-proprios>{{ sets_proprios }}</span> x <span data-sets-adversario>{{ sets_adversario }}</span></div>
+        <div><strong>Tempos restantes:</strong> <span data-tempos-restantes>{{ tempos_restantes if tempos_restantes is not none else '-' }}</span></div>
+        <div><strong>Substituições restantes:</strong> <span data-subs-restantes>{{ subs_restantes if subs_restantes is not none else '-' }}</span></div>
+    </div>
+</div>
+
+<div class="treinador-tabs">
+    <a class="treinador-tab {% if aba_ativa == 'papeleta' %}ativo{% endif %}"
+       href="{{ url_for('treinador.tela_treinador', competicao=competicao_nome, partida_id=partida.id, aba='papeleta') }}">
+        Papeleta
+    </a>
+
+    <a class="treinador-tab {% if aba_ativa == 'operacao' %}ativo{% endif %}"
+       href="{{ url_for('treinador.tela_treinador', competicao=competicao_nome, partida_id=partida.id, aba='operacao') }}">
+        Operação
+    </a>
+
+    <a class="treinador-tab {% if aba_ativa == 'scout' %}ativo{% endif %}"
+       href="{{ url_for('treinador.tela_treinador', competicao=competicao_nome, partida_id=partida.id, aba='scout') }}">
+        Scout
+    </a>
+</div>
+
+{% if aba_ativa == 'papeleta' %}
+
+<div class="card-painel">
+    <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
+        <div>
+            <div style="font-size:20px; font-weight:900;">Papeleta do set</div>
+            <div class="muted">
+                {% if papeleta_editavel %}
+                    Você pode preencher ou corrigir a papeleta até o início do set.
+                {% else %}
+                    A papeleta está travada porque o jogo já foi iniciado.
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="badge-jogo">
+            <strong>Status:</strong>
+            {% if papeleta_liberada %}
+                liberada
+            {% else %}
+                aguardando liberação
+            {% endif %}
+        </div>
+    </div>
+
+    {% if papeleta_liberada %}
+    <form method="post"
+          action="{{ url_for('treinador.salvar_papeleta_treinador', competicao=competicao_nome, partida_id=partida.id) }}">
+
+        <div class="quadra">
+            {% for i in ordem_quadra %}
+            {% set numero_pos = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
+            <div class="posicao {% if not papeleta_editavel %}sem-clique{% endif %}"
+                 {% if papeleta_editavel %}onclick="abrirModal({{ i }})"{% endif %}>
+                <span id="num_{{ i }}">
+                    {% if papeleta and papeleta.get(i) %}
+                        {{ papeleta.get(i) }}
+                    {% elif numero_pos %}
+                        {{ numero_pos }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </span>
+
+                <small>{{ ['IV','III','II','V','VI','I'][loop.index0] }}</small>
+
+                <input type="hidden"
+                       name="posicao_{{ i }}"
+                       id="input_{{ i }}"
+                       value="{% if papeleta and papeleta.get(i) %}{{ papeleta.get(i) }}{% elif numero_pos %}{{ numero_pos }}{% endif %}">
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if papeleta_editavel %}
+        <div style="margin-top:20px;">
+            <button class="btn-padrao" type="submit">Enviar papeleta</button>
+        </div>
+        {% else %}
+        <div class="status-retorno erro" style="display:block; margin-top:20px;">
+            A ordem inicial deste set já foi travada. Depois do início, alterações só podem ocorrer por substituição.
+        </div>
+        {% endif %}
+    </form>
+    {% else %}
+    <div class="flash-erro">Papeleta ainda não liberada.</div>
+    {% endif %}
+</div>
+
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <h4>Selecionar atleta</h4>
+        <div class="lista-atletas" id="lista-atletas"></div>
+        <button class="btn-fechar" type="button" onclick="fecharModal()">Fechar</button>
+    </div>
+</div>
+
+{% elif aba_ativa == 'operacao' %}
+
+<div class="treinador-grid">
+    <div class="card-painel">
+        <h3 style="margin-top:0;">Quadra da minha equipe</h3>
+        <div class="muted">Visualização somente do seu lado de jogo.</div>
+
+        <div class="quadra">
+            {% for pos in ordem_quadra %}
+            {% set numero = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
+            <div class="posicao sem-clique">
+                <span id="rotacao_pos_{{ loop.index0 }}">{{ numero or '-' }}</span>
+                <small>{{ ['IV','III','II','V','VI','I'][loop.index0] }}</small>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div style="display:grid; gap:16px;">
+        <div class="card-painel">
+            <h3 style="margin-top:0;">Operação do set</h3>
+
+            <div class="info-lista">
+                <div class="info-linha">
+                    <span>Equipe</span>
+                    <strong>{{ equipe_nome }}</strong>
+                </div>
+
+                <div class="info-linha">
+                    <span>Set</span>
+                    <strong>{{ descricao_set }}</strong>
+                </div>
+
+                <div class="info-linha">
+                    <span>Placar</span>
+                    <strong>
+                        <span data-placar-proprio>{{ placar_proprio }}</span> x <span data-placar-adversario>{{ placar_adversario }}</span>
+                    </strong>
+                </div>
+
+                <div class="info-linha">
+                    <span>Sets</span>
+                    <strong><span data-sets-proprios>{{ sets_proprios }}</span> x <span data-sets-adversario>{{ sets_adversario }}</span></strong>
+                </div>
+
+                <div class="info-linha">
+                    <span>Saque atual</span>
+                    <strong data-saque-atual>
+                        {% if saque_atual == lado %}
+                            Minha equipe
+                        {% elif saque_atual %}
+                            Adversário
+                        {% else %}
+                            -
+                        {% endif %}
+                    </strong>
+                </div>
+
+                <div class="info-linha">
+                    <span>Tempos restantes</span>
+                    <strong data-tempos-restantes>{{ tempos_restantes if tempos_restantes is not none else '-' }}</strong>
+                </div>
+
+                <div class="info-linha">
+                    <span>Substituições restantes</span>
+                    <strong data-subs-restantes>{{ subs_restantes if subs_restantes is not none else '-' }}</strong>
+                </div>
+            </div>
+
+            <div class="acoes-jogo">
+                <button type="button" class="btn-acao-treinador" onclick="pedirTempo()">
+                    Pedir tempo
+                </button>
+
+                <button type="button" class="btn-acao-treinador" onclick="pedirSubstituicao()">
+                    Pedir substituição
+                </button>
+            </div>
+
+            <div id="retorno-operacao" class="status-retorno"></div>
+        </div>
+
+        <div class="card-painel">
+            <h3 style="margin-top:0;">Banco</h3>
+
+            {% if banco %}
+            <div class="lista-banco">
+                {% for atleta in banco %}
+                <div class="atleta-chip">
+                    <span>{{ atleta.get('numero', '-') if atleta is mapping else atleta }}</span>
+                    <small>{{ atleta.get('nome', '') if atleta is mapping else '' }}</small>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="muted">Nenhum atleta no banco no momento.</div>
+            {% endif %}
+        </div>
+
+        <div class="card-painel">
+            <h3 style="margin-top:0;">Solicitações</h3>
+
+            {% if solicitacoes %}
+            <div class="info-lista">
+                {% for solicitacao in solicitacoes %}
+                <div class="info-linha">
+                    <span>
+                        {{ solicitacao.get('tipo', '-')|capitalize }}
+                        {% if solicitacao.get('momento') %}
+                            — {{ solicitacao.get('momento') }}
+                        {% endif %}
+                    </span>
+                    <strong>{{ solicitacao.get('status', 'pendente') }}</strong>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="muted">Nenhuma solicitação registrada ainda.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% else %}
+
+{% set scout_equipe = scout.get('equipe', {}) if scout else {} %}
+{% set scout_atletas = scout.get('atletas_lista', []) if scout else [] %}
+
+<div class="card-painel">
+    <h3 style="margin-top:0;">Scout da partida</h3>
+    <div class="muted" style="margin-bottom:16px;">
+        Resumo do desempenho da sua equipe nesta partida.
+    </div>
+
+    <div class="resumo-scout">
+        <div class="box-resumo">
+            <div class="label">Pontos</div>
+            <div class="valor">{{ scout_equipe.get('pontos', 0) }}</div>
+        </div>
+
+        <div class="box-resumo">
+            <div class="label">Aces</div>
+            <div class="valor">{{ scout_equipe.get('aces', 0) }}</div>
+        </div>
+
+        <div class="box-resumo">
+            <div class="label">Bloqueios</div>
+            <div class="valor">{{ scout_equipe.get('bloqueios', 0) }}</div>
+        </div>
+
+        <div class="box-resumo">
+            <div class="label">Erros de saque</div>
+            <div class="valor">{{ scout_equipe.get('erros_saque', 0) }}</div>
+        </div>
+
+        <div class="box-resumo">
+            <div class="label">Faltas</div>
+            <div class="valor">{{ scout_equipe.get('faltas', 0) }}</div>
+        </div>
+    </div>
+
+    {% if scout_atletas %}
+    <div style="overflow-x:auto;">
+        <table class="tabela-scout">
+            <thead>
+                <tr>
+                    <th>Nº</th>
+                    <th>Atleta</th>
+                    <th>Pontos</th>
+                    <th>Ataques</th>
+                    <th>Aces</th>
+                    <th>Bloqueios</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for atleta in scout_atletas %}
+                <tr>
+                    <td><strong>{{ atleta.get('numero', '-') or '-' }}</strong></td>
+                    <td class="nome-atleta">{{ atleta.get('nome', '-') }}</td>
+                    <td>{{ atleta.get('pontos', 0) }}</td>
+                    <td>{{ atleta.get('ataques', 0) }}</td>
+                    <td>{{ atleta.get('aces', 0) }}</td>
+                    <td>{{ atleta.get('bloqueios', 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="muted">Ainda não há dados de scout para esta partida.</div>
+    {% endif %}
+</div>
+
+{% endif %}
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+let posicaoAtual = null;
+const atletas = {{ atletas | tojson }};
+const socket = io();
+
+socket.on("connect", () => {
+    socket.emit("entrar_partida", {
+        competicao: "{{ competicao_nome }}",
+        partida_id: {{ partida.id }}
+    });
+});
+
+socket.on("estado_jogo_atualizado", (dados) => {
+    if (!dados) return;
+
+    const minhaRotacao = "{{ lado }}" === "A"
+        ? (dados.rotacao?.equipe_a || [])
+        : (dados.rotacao?.equipe_b || []);
+
+    for (let i = 0; i < 6; i++) {
+        const el = document.getElementById(`rotacao_pos_${i}`);
+        if (el) el.textContent = minhaRotacao[i] || "-";
+    }
+
+    document.querySelectorAll("[data-placar-proprio]").forEach(el => {
+        el.textContent = "{{ lado }}" === "A" ? (dados.placar_a ?? 0) : (dados.placar_b ?? 0);
+    });
+
+    document.querySelectorAll("[data-placar-adversario]").forEach(el => {
+        el.textContent = "{{ lado }}" === "A" ? (dados.placar_b ?? 0) : (dados.placar_a ?? 0);
+    });
+
+    document.querySelectorAll("[data-sets-proprios]").forEach(el => {
+        el.textContent = "{{ lado }}" === "A" ? (dados.sets_a ?? 0) : (dados.sets_b ?? 0);
+    });
+
+    document.querySelectorAll("[data-sets-adversario]").forEach(el => {
+        el.textContent = "{{ lado }}" === "A" ? (dados.sets_b ?? 0) : (dados.sets_a ?? 0);
+    });
+
+    document.querySelectorAll("[data-tempos-restantes]").forEach(el => {
+        const valor = "{{ lado }}" === "A"
+            ? (dados.tempos_a ?? el.textContent)
+            : (dados.tempos_b ?? el.textContent);
+        el.textContent = valor;
+    });
+
+    document.querySelectorAll("[data-subs-restantes]").forEach(el => {
+        const valor = "{{ lado }}" === "A"
+            ? (dados.subs_a ?? el.textContent)
+            : (dados.subs_b ?? el.textContent);
+        el.textContent = valor;
+    });
+
+    document.querySelectorAll("[data-saque-atual]").forEach(el => {
+        if (!dados.saque_atual) {
+            el.textContent = "-";
+        } else {
+            el.textContent = dados.saque_atual === "{{ lado }}" ? "Minha equipe" : "Adversário";
+        }
+    });
+});
+
+socket.on("resposta_solicitacao", (dados) => {
+    if (!dados) return;
+    mostrarRetorno(dados.mensagem || "Atualização recebida.", !!dados.ok);
+});
+
+function obterSelecionados() {
+    const usados = [];
+    for (let i = 1; i <= 6; i++) {
+        const input = document.getElementById(`input_${i}`);
+        if (input && input.value) {
+            usados.push(String(input.value));
+        }
+    }
+    return usados;
+}
+
+function abrirModal(pos) {
+    const modal = document.getElementById("modal");
+    if (!modal) return;
+
+    posicaoAtual = pos;
+
+    const lista = document.getElementById("lista-atletas");
+    lista.innerHTML = "";
+
+    const usados = obterSelecionados();
+    const atualInput = document.getElementById(`input_${pos}`);
+    const atual = atualInput ? atualInput.value : "";
+
+    atletas.forEach(a => {
+        if (!a.numero) return;
+
+        if (usados.includes(String(a.numero)) && String(a.numero) !== String(atual)) {
+            return;
+        }
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-atleta";
+        btn.innerText = `${a.numero}${a.nome ? " - " + a.nome : ""}`;
+        btn.onclick = () => selecionar(a.numero);
+        lista.appendChild(btn);
+    });
+
+    modal.style.display = "flex";
+}
+
+function fecharModal() {
+    const modal = document.getElementById("modal");
+    if (modal) {
+        modal.style.display = "none";
+    }
+}
+
+function selecionar(numero) {
+    const numEl = document.getElementById(`num_${posicaoAtual}`);
+    const inputEl = document.getElementById(`input_${posicaoAtual}`);
+
+    if (numEl) numEl.innerText = numero;
+    if (inputEl) inputEl.value = numero;
+
+    fecharModal();
+}
+
+function mostrarRetorno(msg, ok = true) {
+    const box = document.getElementById("retorno-operacao");
+    if (!box) {
+        alert(msg);
+        return;
+    }
+
+    box.className = "status-retorno " + (ok ? "ok" : "erro");
+    box.textContent = msg;
+}
+
+function pedirTempo() {
+    fetch("{{ url_for('treinador.solicitar_tempo_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
+        method: "POST",
+        headers: {
+            "X-Requested-With": "XMLHttpRequest"
+        }
+    })
+    .then(r => r.json())
+    .then(d => {
+        mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok);
+    })
+    .catch(() => {
+        mostrarRetorno("Não foi possível enviar a solicitação de tempo.", false);
+    });
+}
+
+function pedirSubstituicao() {
+    fetch("{{ url_for('treinador.solicitar_substituicao_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
+        method: "POST",
+        headers: {
+            "X-Requested-With": "XMLHttpRequest"
+        }
+    })
+    .then(r => r.json())
+    .then(d => {
+        mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok);
+    })
+    .catch(() => {
+        mostrarRetorno("Não foi possível enviar a solicitação de substituição.", false);
+    });
+}
+</script>
+{% endblock %}

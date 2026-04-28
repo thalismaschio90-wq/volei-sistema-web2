@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+{% set tela_cadastro = modo_tela == "cadastro" %}
+
+<div class="topo-secao">
+    <div class="titulo-secao" style="margin-bottom: 0;">{{ "Cadastrar atleta" if tela_cadastro else "Atletas" }}</div>
+</div>
+
+{% if erro %}<div class="flash-erro">{{ erro }}</div>{% endif %}
+{% if sucesso %}<div class="flash-sucesso">{{ sucesso }}</div>{% endif %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}<div class="flash-erro">{{ mensagem }}</div>{% else %}<div class="flash-sucesso">{{ mensagem }}</div>{% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<div class="card-painel">
+    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ equipe.nome }}</div>
+    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ equipe.competicao or "-" }}</div>
+    <div><strong>Situação da inscrição:</strong> {{ controle_inscricao.motivo if controle_inscricao and controle_inscricao.motivo else "Cadastro liberado." }}</div>
+</div>
+
+{% if tela_cadastro %}
+<div class="card-painel">
+    <div style="font-weight: 900; margin-bottom: 14px;">Cadastrar atleta</div>
+
+    {% if controle_inscricao and not controle_inscricao.aberta %}
+        <div class="flash-erro">{{ controle_inscricao.motivo }}</div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}">
+        <label>Nome</label>
+        <input type="text" name="nome" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+        <label>CPF</label>
+        <input type="text" name="cpf" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+        <label>Data de nascimento</label>
+        <input type="date" name="data_nascimento" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+        <label>Número (opcional no cadastro)</label>
+        <input type="number" name="numero" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+        <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Cadastrar atleta</button>
+            <a class="btn-secundario" href="{{ url_for('equipes.meus_atletas_view') }}">Ver atletas cadastrados</a>
+        </div>
+    </form>
+</div>
+{% else %}
+<div class="card-painel">
+    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
+        <div style="font-weight: 900;">Numeração dos atletas aprovados</div>
+        <a class="btn-secundario" href="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}">Ir para cadastrar atleta</a>
+    </div>
+
+    {% if atletas_aprovados %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>CPF</th>
+                    <th>Número</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for atleta in atletas_aprovados %}
+                <tr>
+                    <td>{{ atleta.nome }}</td>
+                    <td>{{ atleta.cpf }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('equipes.meus_atletas_view') }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <input type="hidden" name="acao" value="salvar_numero">
+                            <input type="hidden" name="id_atleta" value="{{ atleta.id }}">
+                            <input type="number" name="numero" value="{{ atleta.numero or '' }}" style="max-width:120px;" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                            <button type="submit" class="btn-secundario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Salvar número</button>
+                        </form>
+                    </td>
+                    <td>{% if atleta.numero %}Número definido{% else %}Sem número{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div>Nenhum atleta aprovado ainda.</div>
+    {% endif %}
+</div>
+
+<div class="card-painel">
+    <div style="font-weight: 900; margin-bottom: 14px;">Atletas cadastrados</div>
+
+    {% if atletas %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>CPF</th>
+                    <th>Data de nascimento</th>
+                    <th>Número</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for atleta in atletas %}
+                <tr>
+                    <td>{{ atleta.nome }}</td>
+                    <td>{{ atleta.cpf }}</td>
+                    <td>{{ atleta.data_nascimento or '-' }}</td>
+                    <td>{{ atleta.numero or '-' }}</td>
+                    <td>{{ atleta.status or '-' }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('Deseja excluir este atleta?');">
+                            <button type="submit" class="btn-secundario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Excluir</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div>Nenhum atleta cadastrado ainda.</div>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

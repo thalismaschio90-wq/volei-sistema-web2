@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div style="max-width:500px;margin:auto;margin-top:60px;text-align:center">
+
+    <h2>Encerramento da Partida</h2>
+
+    <form method="POST" action="{{ url_for('apontadores.salvar_observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}">
+
+        <textarea name="observacoes" placeholder="Observações da partida" style="width:100%;height:120px;"></textarea>
+
+        <button type="submit">Finalizar partida</button>
+
+    </form>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block titulo %}Criar senha{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Criar senha do apontador</div>
+</div>
+
+<div class="card-painel" style="max-width: 520px;">
+    <form method="post">
+        <label>Nova senha</label>
+        <input type="password" name="senha" required>
+
+        <label>Confirmar senha</label>
+        <input type="password" name="confirmar_senha" required>
+
+        <br><br>
+        <button class="btn-padrao" type="submit">Salvar senha</button>
+    </form>
+</div>
+{% endblock %}

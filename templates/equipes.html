@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao" style="margin-bottom: 0;">Equipes</div>
+    <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Nova equipe</a>
+</div>
+
+<div class="card-painel">
+    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ competicao.nome }}</div>
+    <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}
+                    <div class="flash-erro">{{ mensagem }}</div>
+                {% else %}
+                    <div class="flash-sucesso">{{ mensagem }}</div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+{% if credenciais %}
+<div class="card-painel" style="background:#f4fff5;">
+    <div style="font-weight: 900; margin-bottom: 10px;">Equipe criada com sucesso</div>
+    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ credenciais.nome }}</div>
+    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ credenciais.login }}</div>
+    <div><strong>Senha:</strong> {{ credenciais.senha }}</div>
+</div>
+{% endif %}
+
+{% if senha_redefinida %}
+<div class="card-painel" style="background:#eef7ff;">
+    <div style="font-weight: 900; margin-bottom: 10px;">Senha redefinida</div>
+    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ senha_redefinida.nome }}</div>
+    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ senha_redefinida.login }}</div>
+    <div><strong>Nova senha:</strong> {{ senha_redefinida.senha }}</div>
+</div>
+{% endif %}
+
+<div class="cards-competicoes">
+    {% for equipe in equipes %}
+    <div class="competicao-card">
+        <div class="competicao-nome">{{ equipe.nome }}</div>
+        <div class="competicao-info"><strong>Login:</strong> {{ equipe.login }}</div>
+        <div class="competicao-info"><strong>Senha atual:</strong> {{ equipe.senha }}</div>
+        <div class="competicao-info"><strong>Competição:</strong> {{ equipe.competicao }}</div>
+
+        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
+
+        <div class="competicao-info"><strong>Treinador:</strong> {{ equipe.treinador or "-" }}</div>
+        <div class="competicao-info"><strong>Auxiliar técnico:</strong> {{ equipe.auxiliar_tecnico or "-" }}</div>
+        <div class="competicao-info"><strong>Preparador físico:</strong> {{ equipe.preparador_fisico or "-" }}</div>
+        <div class="competicao-info"><strong>Médico:</strong> {{ equipe.medico or "-" }}</div>
+
+        <div style="margin-top: 16px; display:flex; gap:10px; flex-wrap:wrap;">
+            <a href="{{ url_for('equipes.gerenciar_equipe_view', nome=equipe.nome) }}" class="btn-secundario">
+                Gerenciar
+            </a>
+
+            <form method="post" action="{{ url_for('equipes.redefinir_senha_equipe_view', nome=equipe.nome) }}">
+                <button type="submit" class="btn-secundario">Redefinir senha</button>
+            </form>
+
+            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja excluir esta equipe?');">
+                <button type="submit" class="btn-secundario">Excluir</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="card-painel">
+        Nenhuma equipe cadastrada para esta competição.
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

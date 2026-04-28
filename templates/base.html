@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>VolleyTable Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --surface: #ffffff;
+            --surface-soft: #f8fbff;
+            --sidebar: #123852;
+            --sidebar-2: #0d2a3e;
+            --text: #183247;
+            --muted: #6b7c8c;
+            --border: #d9e3ec;
+            --primary: #123852;
+            --primary-hover: #0f3147;
+            --accent: #d4a62a;
+            --success-bg: #eefaf0;
+            --success-border: #c7e6cd;
+            --success-text: #256c35;
+            --error-bg: #fff0f0;
+            --error-border: #f0c9c9;
+            --error-text: #a13d3d;
+            --shadow: 0 12px 28px rgba(17, 41, 65, 0.08);
+            --radius: 18px;
+            --radius-sm: 12px;
+            --sidebar-width: 270px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: linear-gradient(180deg, #f7f9fc 0%, var(--bg) 100%);
+            color: var(--text);
+        }
+
+        body.menu-aberto {
+            overflow: hidden;
+        }
+
+        .layout {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        .sidebar-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(8, 20, 30, 0.42);
+            z-index: 998;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.22s ease;
+        }
+
+        body.menu-aberto .sidebar-overlay {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background: linear-gradient(180deg, var(--sidebar) 0%, var(--sidebar-2) 100%);
+            color: white;
+            padding: 24px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.08);
+            z-index: 999;
+            transition: transform 0.24s ease;
+            overflow: visible;
+        }
+
+        .brand-box {
+            padding: 8px 10px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .brand-title {
+            font-size: 26px;
+            font-weight: 900;
+            letter-spacing: 0.4px;
+            margin: 0;
+            line-height: 1;
+        }
+
+        .brand-subtitle {
+            margin-top: 8px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.76);
+        }
+
+        .user-box {
+            padding: 14px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+        }
+
+        .user-name {
+            font-size: 15px;
+            font-weight: 700;
+        }
+
+        .user-role {
+            margin-top: 4px;
+            font-size: 12px;
+            color: rgba(255,255,255,0.72);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .menu-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255,255,255,0.52);
+            margin: 4px 10px 2px;
+        }
+
+        .menu-item {
+            position: relative;
+            overflow: visible;
+        }
+
+        .menu-link {
+            display: block;
+            color: white;
+            text-decoration: none;
+            padding: 12px 14px;
+            border-radius: 14px;
+            margin-bottom: 6px;
+            transition: 0.18s ease;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .menu-link:hover {
+            background: rgba(255,255,255,0.10);
+        }
+
+        .menu-link.active {
+            background: rgba(212, 166, 42, 0.16);
+            border: 1px solid rgba(212, 166, 42, 0.28);
+        }
+
+        .tooltip-texto {
+            position: absolute;
+            left: calc(100% + 12px);
+            top: 50%;
+            transform: translateY(-50%);
+            background: #182b3a;
+            color: #ffffff;
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 12px;
+            line-height: 1.35;
+            min-width: 220px;
+            max-width: 260px;
+            white-space: normal;
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
+            border: 1px solid rgba(255,255,255,0.08);
+            z-index: 5000;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+
+        .tooltip-texto::before {
+            content: "";
+            position: absolute;
+            left: -6px;
+            top: 50%;
+            transform: translateY(-50%) rotate(45deg);
+            width: 12px;
+            height: 12px;
+            background: #182b3a;
+            border-left: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .menu-item:hover .tooltip-texto {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(-50%) translateX(0);
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.12);
+        }
+
+        .content-wrap {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .topbar {
+            background: rgba(255,255,255,0.84);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 20px 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+        }
+
+        .menu-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 46px;
+            height: 46px;
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: 0.18s ease;
+            box-shadow: var(--shadow);
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .menu-toggle:hover {
+            background: var(--surface-soft);
+        }
+
+        .menu-toggle svg {
+            width: 22px;
+            height: 22px;
+            display: block;
+        }
+
+        .topbar-title {
+            font-size: 26px;
+            font-weight: 900;
+            color: var(--text);
+            margin: 0;
+        }
+
+        .topbar-subtitle {
+            margin-top: 4px;
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .topbar-user {
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .topbar-user strong {
+            display: block;
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        .topbar-user span {
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+
+        .content {
+            padding: 26px;
+        }
+
+        .titulo-secao {
+            font-size: 28px;
+            font-weight: 900;
+            color: var(--text);
+            margin-bottom: 18px;
+        }
+
+        .topo-secao {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+
+        .card-painel {
+            background: var(--surface);
+            padding: 20px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            margin-bottom: 16px;
+        }
+
+        .hero-box {
+            background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+            padding: 24px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            margin-bottom: 18px;
+        }
+
+        .hero-titulo {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--text);
+            margin-bottom: 8px;
+        }
+
+        .hero-texto {
+            color: var(--muted);
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .numero-card {
+            background: var(--surface);
+            padding: 22px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .numero-titulo {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .numero-valor {
+            color: var(--accent);
+            font-size: 40px;
+            font-weight: 900;
+            line-height: 1;
+        }
+
+        .btn-padrao,
+        .btn-secundario,
+        .btn-danger {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 11px 16px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: 0.18s ease;
+        }
+
+        .btn-padrao {
+            background: var(--primary);
+            color: white;
+            border: none;
+        }
+
+        .btn-padrao:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-secundario {
+            background: white;
+            color: var(--primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secundario:hover {
+            background: var(--surface-soft);
+        }
+
+        .btn-danger {
+            background: #b83a3a;
+            color: white;
+            border: none;
+        }
+
+        .btn-danger:hover {
+            background: #9f2f2f;
+        }
+
+        .tag {
+            padding: 5px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 700;
+            display: inline-block;
+        }
+
+        .tag-pendente {
+            background: #fff8e7;
+            color: #8a6512;
+            border: 1px solid #f0dfb0;
+        }
+
+        .tag-aprovado {
+            background: #eefaf0;
+            color: #256c35;
+            border: 1px solid #c7e6cd;
+        }
+
+        .tag-reprovado {
+            background: #fff0f0;
+            color: #a13d3d;
+            border: 1px solid #f0c9c9;
+        }
+
+        .tag-info {
+            background: #eef4fb;
+            color: #284f72;
+            border: 1px solid #cbdceb;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        input[type="number"],
+        input[type="password"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 13px 14px;
+            border: 1px solid #ccd8e3;
+            border-radius: 12px;
+            font-size: 15px;
+            outline: none;
+            background: #fcfdff;
+            transition: 0.18s ease;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: #8aa9bf;
+            box-shadow: 0 0 0 4px rgba(18, 56, 82, 0.08);
+            background: white;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 700;
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        .flash-erro {
+            background: var(--error-bg);
+            color: var(--error-text);
+            padding: 13px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--error-border);
+            margin-bottom: 12px;
+            font-weight: 700;
+        }
+
+        .flash-sucesso {
+            background: var(--success-bg);
+            color: var(--success-text);
+            padding: 13px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--success-border);
+            margin-bottom: 12px;
+            font-weight: 700;
+        }
+
+        .flash-box {
+            margin-bottom: 14px;
+        }
+
+        .lista-passos {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--text);
+        }
+
+        .lista-passos li {
+            margin-bottom: 8px;
+        }
+
+        form {
+            margin: 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table th,
+        table td {
+            padding: 12px 10px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+            font-size: 14px;
+        }
+
+        table th {
+            color: var(--muted);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        @media (min-width: 861px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                height: 100vh;
+                overflow-y: auto;
+                transform: translateX(-100%);
+            }
+
+            body.menu-aberto .sidebar {
+                transform: translateX(0);
+            }
+
+            .content-wrap {
+                width: 100%;
+            }
+        }
+
+        @media (max-width: 1100px) {
+            .cards-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 860px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                height: 100vh;
+                max-width: 88vw;
+                overflow-y: auto;
+                transform: translateX(-100%);
+            }
+
+            body.menu-aberto .sidebar {
+                transform: translateX(0);
+            }
+
+            .topbar {
+                padding: 18px 20px;
+            }
+
+            .content {
+                padding: 18px;
+            }
+
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar-user {
+                display: none;
+            }
+
+            .topbar-title {
+                font-size: 22px;
+            }
+
+            .tooltip-texto {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+{% if session.get("usuario") %}
+{% set perfil = session.get("perfil", "").lower() %}
+{% set path = request.path %}
+
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="fecharMenu()"></div>
+
+<div class="layout">
+    <aside class="sidebar" id="sidebarMenu">
+        <div class="brand-box">
+            <div class="brand-title">VOLLEYTABLE</div>
+            <div class="brand-subtitle">Sistema de Gestão de Voleibol</div>
+        </div>
+
+        <div class="user-box">
+            <div class="user-name">{{ session.get("nome", session.get("usuario")) }}</div>
+            <div class="user-role">{{ session.get("perfil", "") }}</div>
+        </div>
+
+        <div class="menu-section-title">Navegação</div>
+
+        <div class="menu-item">
+            <a class="menu-link {% if path == '/inicio' %}active{% endif %}" href="/inicio">Início</a>
+            <div class="tooltip-texto">Volta para o painel principal do seu perfil.</div>
+        </div>
+
+        {% if perfil == 'superadmin' %}
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/competicoes') %}active{% endif %}" href="/competicoes">Competições</a>
+                <div class="tooltip-texto">Gerencie todas as competições do sistema.</div>
+            </div>
+            
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/apontadores') %}active{% endif %}" href="/apontadores">Apontadores</a>
+                <div class="tooltip-texto">Gerencie os apontadores cadastrados no sistema.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
+                <div class="tooltip-texto">Veja e gerencie seus dados de acesso.</div>
+            </div>
+
+        {% elif perfil == 'organizador' %}
+            <div class="menu-section-title">Preparação</div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/competicoes') %}active{% endif %}" href="/competicoes">Minha competição</a>
+                <div class="tooltip-texto">Configure regras, estrutura e informações da competição.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/formato-competicao' %}active{% endif %}" href="/formato-competicao">Formato da competição</a>
+                <div class="tooltip-texto">Defina confronto, classificação, fases finais, bye e regras por fase.</div>
+            </div>
+
+            <div class="menu-section-title">Cadastros</div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/equipes') %}active{% endif %}" href="/equipes">Equipes</a>
+                <div class="tooltip-texto">Cadastre e gerencie as equipes da competição.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/oficiais') %}active{% endif %}" href="/oficiais">Oficiais</a>
+                <div class="tooltip-texto">Vincule árbitros e apontador à competição por CPF.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/atletas') %}active{% endif %}" href="/atletas">Atletas</a>
+                <div class="tooltip-texto">Acompanhe cadastros, pendências e aprovações dos atletas.</div>
+            </div>
+
+            <div class="menu-section-title">Tabela e operação</div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path.startswith('/tabela') %}active{% endif %}" href="/tabela">Tabela</a>
+                <div class="tooltip-texto">Organize grupos, jogos, ordem das partidas e estrutura da competição.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
+                <div class="tooltip-texto">Veja e gerencie seus dados de acesso.</div>
+            </div>
+
+        {% elif perfil == 'mesario' %}
+            <div class="menu-section-title">Operação</div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="#">Competição</a>
+                <div class="tooltip-texto">Consulte as informações gerais da competição.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="#">Tabela</a>
+                <div class="tooltip-texto">Visualize os jogos disponíveis e selecione uma partida.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="#">Pré-jogo</a>
+                <div class="tooltip-texto">Confira atletas, capitão e informações iniciais da partida.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="#">Jogo</a>
+                <div class="tooltip-texto">Controle operacional da partida em andamento.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link" href="#">Súmula</a>
+                <div class="tooltip-texto">Acesse e finalize a súmula da partida.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
+                <div class="tooltip-texto">Veja e gerencie seus dados de acesso.</div>
+            </div>
+
+        {% elif perfil == 'equipe' %}
+            <div class="menu-section-title">Minha equipe</div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/minha-equipe' %}active{% endif %}" href="/minha-equipe">Minha equipe</a>
+                <div class="tooltip-texto">Veja os dados gerais e a comissão técnica da equipe.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/meus-atletas' %}active{% endif %}" href="/meus-atletas">Atletas</a>
+                <div class="tooltip-texto">Acompanhe a lista, status e numeração dos atletas da equipe.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/cadastrar-atleta' %}active{% endif %}" href="/cadastrar-atleta">Cadastrar atleta</a>
+                <div class="tooltip-texto">Abra a tela própria para cadastrar novos atletas da equipe.</div>
+            </div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
+                <div class="tooltip-texto">Veja e gerencie seus dados de acesso.</div>
+            </div>
+        {% endif %}
+
+        <div class="sidebar-footer">
+            <div class="menu-item">
+                <a class="menu-link" href="/logout">Sair</a>
+                <div class="tooltip-texto">Encerrar a sessão no sistema.</div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="content-wrap">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button class="menu-toggle" type="button" onclick="alternarMenu()" aria-label="Abrir menu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+
+                <div>
+                    <div class="topbar-title">VolleyTable Pro Web</div>
+                    <div class="topbar-subtitle">Painel inteligente da competição</div>
+                </div>
+            </div>
+
+            <div class="topbar-user">
+                <strong>{{ session.get("nome", session.get("usuario")) }}</strong>
+                <span>{{ session.get("perfil", "") }}</span>
+            </div>
+        </div>
+
+        <main class="content">
+            {% with mensagens = get_flashed_messages(with_categories=true) %}
+                {% if mensagens %}
+                    <div class="flash-box">
+                        {% for categoria, mensagem in mensagens %}
+                            {% if categoria == 'erro' %}
+                                <div class="flash-erro">{{ mensagem }}</div>
+                            {% elif categoria == 'sucesso' %}
+                                <div class="flash-sucesso">{{ mensagem }}</div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block conteudo %}{% endblock %}
+        </main>
+    </div>
+</div>
+
+<script>
+    function alternarMenu() {
+        document.body.classList.toggle("menu-aberto");
+    }
+
+    function fecharMenu() {
+        document.body.classList.remove("menu-aberto");
+    }
+
+    document.addEventListener("keydown", function(evento) {
+        if (evento.key === "Escape") {
+            fecharMenu();
+        }
+    });
+
+    document.addEventListener("click", function(evento) {
+        const sidebar = document.getElementById("sidebarMenu");
+        const botao = document.querySelector(".menu-toggle");
+        const menuAberto = document.body.classList.contains("menu-aberto");
+
+        if (!menuAberto) {
+            return;
+        }
+
+        const clicouDentroSidebar = sidebar && sidebar.contains(evento.target);
+        const clicouNoBotao = botao && botao.contains(evento.target);
+
+        if (!clicouDentroSidebar && !clicouNoBotao) {
+            fecharMenu();
+        }
+    });
+
+    window.addEventListener("resize", function() {
+        if (window.innerWidth > 860) {
+            fecharMenu();
+        }
+    });
+</script>
+{% else %}
+    {% block conteudo_sem_sidebar %}{% endblock %}
+{% endif %}
+</body>
+</html>

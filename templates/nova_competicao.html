@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao" style="margin-bottom: 0;">Nova Competição</div>
+    <a href="{{ url_for('competicoes.listar_competicoes_view') }}" class="btn-secundario">Voltar</a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                <div class="flash-erro">{{ mensagem }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<div class="card-painel" style="max-width: 760px;">
+    <form method="post">
+        <div style="margin-bottom: 18px;">
+            <label for="nome" style="display:block; font-weight:700; margin-bottom:8px; color:#12344d;">
+                Nome da competição
+            </label>
+            <input
+                type="text"
+                id="nome"
+                name="nome"
+                required
+                style="width:100%; border:1px solid #dbe3ea; border-radius:14px; padding:14px 16px; font-size:16px;"
+            >
+        </div>
+
+        <div style="margin-bottom: 18px;">
+            <label for="data" style="display:block; font-weight:700; margin-bottom:8px; color:#12344d;">
+                Data
+            </label>
+            <input
+                type="date"
+                id="data"
+                name="data"
+                style="width:100%; border:1px solid #dbe3ea; border-radius:14px; padding:14px 16px; font-size:16px;"
+            >
+        </div>
+
+        <div style="margin-bottom: 22px; padding: 14px; border-radius: 14px; background: #f7f9fc; border: 1px solid #dbe3ea;">
+            <div style="font-weight: 700; color:#12344d; margin-bottom:6px;">Acesso do organizador</div>
+            <div style="font-size: 14px; color:#5c6b78;">
+                Ao salvar, o sistema vai gerar automaticamente um <strong>login</strong> e uma <strong>senha</strong> para o organizador da competição.
+            </div>
+        </div>
+
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao" style="border:none; cursor:pointer;">
+                Salvar competição
+            </button>
+            <a href="{{ url_for('competicoes.listar_competicoes_view') }}" class="btn-secundario">
+                Cancelar
+            </a>
+        </div>
+    </form>
+</div>
+{% endblock %}

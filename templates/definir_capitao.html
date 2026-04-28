@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block titulo %}Definir capitão{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Definir capitão</div>
+</div>
+
+<div class="card-painel">
+    <div style="font-size:20px; font-weight:900;">{{ equipe_nome }}</div>
+    <div style="margin-top:6px;">{{ competicao_nome }}</div>
+    <div style="margin-top:6px;">Lado {{ lado }}</div>
+</div>
+
+<form method="post" action="{{ url_for('apontadores.salvar_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado=lado) }}">
+    <div class="card-painel">
+        <div style="font-weight:900; margin-bottom:12px;">Selecione o capitão da equipe</div>
+
+        {% if atletas %}
+            <div style="display:grid; gap:10px;">
+                {% for atleta in atletas %}
+                <label style="display:grid; grid-template-columns: 28px 1fr auto; gap:10px; align-items:center; padding:10px; border:1px solid var(--border); border-radius:10px; cursor:pointer;">
+                    <input type="radio" name="atleta_id" value="{{ atleta.id }}" style="width:auto;" {% if atleta_atual_id and atleta_atual_id == atleta.id %}checked{% endif %} required>
+                    <div>
+                        <div style="font-weight:800;">{{ atleta.nome }}</div>
+                        <div style="color:var(--muted); font-size:13px;">CPF: {{ atleta.cpf }}</div>
+                    </div>
+                    <div style="font-weight:900;">#{{ atleta.numero }}</div>
+                </label>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div style="color:var(--muted);">Não há atletas numerados disponíveis para definir como capitão.</div>
+        {% endif %}
+
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-padrao" type="submit">Salvar capitão</button>
+            <a class="btn-secundario" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">Voltar</a>
+        </div>
+    </div>
+</form>
+{% endblock %}

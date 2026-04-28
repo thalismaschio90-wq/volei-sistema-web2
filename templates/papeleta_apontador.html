@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block titulo %}Papeleta{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Papeleta - Ordem Inicial</div>
+</div>
+
+<style>
+.quadra-container {
+    display:flex;
+    gap:50px;
+    flex-wrap:wrap;
+    justify-content:center;
+    margin-top:20px;
+}
+
+.quadra {
+    display:grid;
+    grid-template-columns:repeat(3, 120px);
+    grid-template-rows:repeat(2, 120px);
+    gap:14px;
+}
+
+.posicao {
+    border:2px solid var(--border);
+    border-radius:14px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    font-weight:900;
+    font-size:28px;
+    transition:.2s;
+    background: var(--card-bg, transparent);
+    min-height: 120px;
+}
+
+.posicao:hover {
+    background:rgba(255,255,255,0.05);
+}
+
+.posicao small {
+    font-size:14px;
+    margin-top:6px;
+    color:var(--muted);
+}
+
+.modal {
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,.7);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:9999;
+}
+
+.modal-content {
+    background:#111;
+    padding:20px;
+    border-radius:12px;
+    max-width:420px;
+    width:100%;
+}
+
+.lista-atletas {
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+.btn-atleta {
+    padding:10px 14px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:#fff;
+    color:#2563eb;
+    font-weight:900;
+    cursor:pointer;
+}
+
+.btn-atleta:hover {
+    background:#f3f4f6;
+}
+
+.btn-fechar {
+    margin-top:15px;
+    padding:8px 14px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:#fff;
+    color:#2563eb;
+    font-weight:800;
+    cursor:pointer;
+}
+</style>
+
+<div class="card-painel">
+    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+    <div style="margin-top:6px;">
+        Jogo {{ partida.ordem or '-' }}
+        {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
+        {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
+    </div>
+    <div style="margin-top:10px; font-size:18px; font-weight:900;">
+        {{ equipe_a }} x {{ equipe_b }}
+    </div>
+    <div style="margin-top:8px; font-size:18px; font-weight:900;">
+        {{ partida.set_atual or 1 }}º SET
+    </div>
+    <div style="margin-top:4px; color:var(--muted);">
+        Sets: {{ partida.sets_a or 0 }} x {{ partida.sets_b or 0 }}
+    </div>
+</div>
+
+<form method="post">
+
+<div class="quadra-container">
+
+    <div>
+        <h3>Equipe A — {{ equipe_a }}</h3>
+        <div class="quadra">
+            {% for i in [4,3,2,5,6,1] %}
+            <div class="posicao" onclick="abrirModal('A', {{ i }})">
+                <span id="num_A_{{ i }}">
+                    {{ papeleta_a[i] if papeleta_a and papeleta_a[i] else '-' }}
+                </span>
+                <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
+                <input
+                    type="hidden"
+                    name="A_{{ i }}"
+                    id="input_A_{{ i }}"
+                    value="{{ papeleta_a[i] if papeleta_a and papeleta_a[i] else '' }}"
+                >
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div>
+        <h3>Equipe B — {{ equipe_b }}</h3>
+        <div class="quadra">
+            {% for i in [4,3,2,5,6,1] %}
+            <div class="posicao" onclick="abrirModal('B', {{ i }})">
+                <span id="num_B_{{ i }}">
+                    {{ papeleta_b[i] if papeleta_b and papeleta_b[i] else '-' }}
+                </span>
+                <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
+                <input
+                    type="hidden"
+                    name="B_{{ i }}"
+                    id="input_B_{{ i }}"
+                    value="{{ papeleta_b[i] if papeleta_b and papeleta_b[i] else '' }}"
+                >
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+<div style="margin-top:25px; display:flex; gap:12px; flex-wrap:wrap;">
+    <button class="btn-padrao" type="submit">Salvar papeleta</button>
+    <a class="btn-secundario"
+       href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">
+        Voltar
+    </a>
+</div>
+
+</form>
+
+<div style="margin-top:20px; display:flex; gap:12px; flex-wrap:wrap;">
+
+    <a class="btn-padrao"
+       href="{{ url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=partida.id) }}">
+        Iniciar jogo
+    </a>
+</div>
+
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <h4 style="margin-bottom:10px;">Selecionar número</h4>
+        <div class="lista-atletas" id="lista-atletas"></div>
+        <button type="button" class="btn-fechar" onclick="fecharModal()">Fechar</button>
+    </div>
+</div>
+
+<script>
+let ladoAtual = null;
+let posicaoAtual = null;
+
+const atletasA = {{ atletas_a | tojson }};
+const atletasB = {{ atletas_b | tojson }};
+
+function obterSelecionadosDoLado(lado) {
+    const selecionados = [];
+    const posicoes = [1, 2, 3, 4, 5, 6];
+
+    posicoes.forEach(pos => {
+        const valor = document.getElementById(`input_${lado}_${pos}`).value;
+        if (valor !== "") {
+            selecionados.push(String(valor));
+        }
+    });
+
+    return selecionados;
+}
+
+function abrirModal(lado, posicao) {
+    ladoAtual = lado;
+    posicaoAtual = posicao;
+
+    const lista = document.getElementById("lista-atletas");
+    lista.innerHTML = "";
+
+    const atletas = lado === "A" ? atletasA : atletasB;
+    const selecionados = obterSelecionadosDoLado(lado);
+    const valorAtualDaPosicao = document.getElementById(`input_${lado}_${posicao}`).value;
+
+    atletas.forEach(a => {
+        if (!a.numero) return;
+
+        const numeroStr = String(a.numero);
+
+        if (selecionados.includes(numeroStr) && numeroStr !== String(valorAtualDaPosicao)) {
+            return;
+        }
+
+        const btn = document.createElement("div");
+        btn.className = "btn-atleta";
+        btn.innerText = a.numero;
+        btn.onclick = () => selecionarNumero(a.numero);
+
+        lista.appendChild(btn);
+    });
+
+    document.getElementById("modal").style.display = "flex";
+}
+
+function fecharModal() {
+    document.getElementById("modal").style.display = "none";
+}
+
+function selecionarNumero(numero) {
+    document.getElementById(`num_${ladoAtual}_${posicaoAtual}`).innerText = numero;
+    document.getElementById(`input_${ladoAtual}_${posicaoAtual}`).value = numero;
+    fecharModal();
+}
+</script>
+
+{% endblock %}

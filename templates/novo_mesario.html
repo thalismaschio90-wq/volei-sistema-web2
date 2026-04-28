@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="topo-secao">
+    <div class="titulo-secao">Novo mesário</div>
+    <a href="{{ url_for('mesarios.listar_mesarios_view') }}" class="btn-secundario">Voltar</a>
+</div>
+
+<div class="card-painel" style="margin-bottom: 15px;">
+    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ competicao.nome }}</div>
+    <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}
+                    <div class="flash-erro">{{ mensagem }}</div>
+                {% else %}
+                    <div class="flash-sucesso">{{ mensagem }}</div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<div class="card-painel" style="max-width: 700px;">
+    <form method="post">
+        <div style="margin-bottom: 15px;">
+            <label for="nome" style="display:block; margin-bottom:8px; font-weight:bold; color:#12344d;">
+                Nome do mesário
+            </label>
+            <input
+                type="text"
+                id="nome"
+                name="nome"
+                required
+                style="width:100%; padding:12px 14px; border:1px solid #cfd8e3; border-radius:8px; font-size:16px;"
+            >
+        </div>
+
+        <div class="card-painel" style="background:#f8fbff; margin-bottom: 15px;">
+            O sistema vai gerar automaticamente o <strong>login</strong> e a <strong>senha</strong> do mesário.
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao">Salvar mesário</button>
+            <a href="{{ url_for('mesarios.listar_mesarios_view') }}" class="btn-secundario">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+{% endblock %}

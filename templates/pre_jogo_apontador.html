@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block titulo %}Pré-jogo{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Pré-jogo</div>
+</div>
+
+<div class="card-painel">
+    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+    <div style="margin-top:6px;">
+        Jogo {{ partida.ordem or '-' }}
+        {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
+        {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
+    </div>
+    <div style="margin-top:10px; font-size:18px; font-weight:900;">
+        {{ partida.equipe_a }} x {{ partida.equipe_b }}
+    </div>
+</div>
+
+<div class="card-painel">
+    <div style="font-weight:900; margin-bottom:10px;">Operação da partida</div>
+
+    {% if bloqueada_por_outro %}
+        <div style="color:#ef4444; font-weight:800; margin-bottom:12px;">
+            Esta partida está em operação por {{ partida.operador_nome or partida.operador_login }}.
+        </div>
+        <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar</a>
+
+    {% elif partida.operador_login != session.get("usuario") %}
+        <div style="color:var(--muted); margin-bottom:12px;">
+            Abrir a tela não assume a partida. A operação só começa quando você confirmar.
+        </div>
+
+        <form method="post" action="{{ url_for('apontadores.assumir_partida_view', competicao=competicao_nome, partida_id=partida.id) }}"
+              onsubmit="return confirm('Confirmar que esta é a partida correta para assumir operação?');">
+            <button class="btn-padrao" type="submit">Assumir partida</button>
+            <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Cancelar</a>
+        </form>
+
+    {% else %}
+        <div style="margin-bottom:12px;">
+            <strong>Operador:</strong> {{ partida.operador_nome or partida.operador_login }}
+            <br>
+            <strong>Status operacional:</strong> {{ partida.status_operacao or 'livre' }}
+        </div>
+
+        {% if (partida.status_operacao or 'livre')|lower == 'reservado' %}
+        <form method="post" action="{{ url_for('apontadores.abandonar_partida_view', competicao=competicao_nome, partida_id=partida.id) }}"
+              onsubmit="return confirm('Abandonar esta partida e liberar para outro apontador?');"
+              style="margin-bottom:14px;">
+            <button class="btn-secundario" type="submit">Abandonar partida</button>
+        </form>
+        {% endif %}
+    {% endif %}
+</div>
+
+{% if partida.operador_login == session.get("usuario") %}
+<div class="card-painel">
+    <div style="font-weight:900; margin-bottom:12px;">Configuração do pré-jogo</div>
+
+    {% if pre_jogo_bloqueado %}
+        <div style="padding:12px; border:1px solid #f59e0b; border-radius:10px; background:#fffbeb; color:#92400e; font-weight:700; margin-bottom:14px;">
+            Pré-jogo inicial bloqueado. O sorteio inicial, árbitros e definição operacional da Equipe A não podem mais ser alterados.
+            {% if tie_break_pendente %}<br>Como o próximo set é tie-break, use a tela própria de sorteio do tie-break.{% endif %}
+        </div>
+        {% if tie_break_pendente %}
+        <a class="btn-padrao" href="{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}">Abrir sorteio do tie-break</a>
+        {% endif %}
+    {% else %}
+
+    <form method="post" action="{{ url_for('apontadores.salvar_pre_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div>
+                <label>1º árbitro</label>
+                <select name="arbitro_1_cpf" required>
+                    <option value="">Selecione</option>
+                    {% for a in arbitros %}
+                        <option value="{{ a.cpf }}" {% if partida.arbitro_1_cpf == a.cpf %}selected{% endif %}>{{ a.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>2º árbitro</label>
+                <select name="arbitro_2_cpf" required>
+                    <option value="">Selecione</option>
+                    {% for a in arbitros %}
+                        <option value="{{ a.cpf }}" {% if partida.arbitro_2_cpf == a.cpf %}selected{% endif %}>{{ a.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Apontador</label>
+                <input type="text" value="{{ partida.operador_nome or session.get('usuario') }}" readonly>
+            </div>
+
+            <div>
+                <label>Equipe vencedora do sorteio</label>
+                <select name="sorteio_vencedor" required>
+                    <option value="">Selecione</option>
+                    <option value="{{ partida.equipe_a }}" {% if partida.sorteio_vencedor == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
+                    <option value="{{ partida.equipe_b }}" {% if partida.sorteio_vencedor == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Escolha da vencedora</label>
+                <select name="sorteio_escolha" required>
+                    <option value="">Selecione</option>
+                    <option value="saque" {% if partida.sorteio_escolha == 'saque' %}selected{% endif %}>Saque</option>
+                    <option value="lado" {% if partida.sorteio_escolha == 'lado' %}selected{% endif %}>Lado</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Equipe que inicia sacando</label>
+                <select name="saque_inicial" required>
+                    <option value="">Selecione</option>
+                    <option value="{{ partida.equipe_a }}" {% if partida.saque_inicial == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
+                    <option value="{{ partida.equipe_b }}" {% if partida.saque_inicial == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Equipe no lado esquerdo (define Equipe A)</label>
+                <select name="lado_esquerdo" required>
+                    <option value="">Selecione</option>
+                    <option value="{{ partida.equipe_a }}" {% if partida.lado_esquerdo == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
+                    <option value="{{ partida.equipe_b }}" {% if partida.lado_esquerdo == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="margin-top:16px;">
+            <button class="btn-padrao" type="submit">Confirmar sorteio / iniciar pré-jogo</button>
+            <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar</a>
+        </div>
+    </form>
+    {% endif %}
+</div>
+
+{% if partida.equipe_a_operacional and partida.equipe_b_operacional %}
+<div class="card-painel">
+    <div style="font-weight:900; margin-bottom:12px;">Conferência das equipes</div>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+        <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px;">
+            <div style="font-weight:800;">Equipe A</div>
+            <div style="margin-top:4px;">{{ partida.equipe_a_operacional }}</div>
+            <div style="margin-top:6px; font-size:13px; color:{% if equipe_a_conferida %}#16a34a{% else %}var(--muted){% endif %};">
+                {% if equipe_a_conferida %}Conferida{% else %}Primeira conferência pendente{% endif %}
+            </div>
+            <div style="margin-top:8px; font-size:13px; color:var(--muted);">
+                Capitão:
+                {% if capitao_a_nome %}
+                    {{ capitao_a_nome }}{% if capitao_a_numero %} #{{ capitao_a_numero }}{% endif %}
+                {% else %}
+                    não definido
+                {% endif %}
+            </div>
+            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+                <a class="btn-padrao" href="{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}">Conferir Equipe A</a>
+                <a class="btn-secundario" href="{{ url_for('apontadores.definir_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}">Definir capitão</a>
+            </div>
+        </div>
+
+        <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px;">
+            <div style="font-weight:800;">Equipe B</div>
+            <div style="margin-top:4px;">{{ partida.equipe_b_operacional }}</div>
+            <div style="margin-top:6px; font-size:13px; color:{% if equipe_b_conferida %}#16a34a{% else %}var(--muted){% endif %};">
+                {% if equipe_b_conferida %}Conferida{% else %}Primeira conferência pendente{% endif %}
+            </div>
+            <div style="margin-top:8px; font-size:13px; color:var(--muted);">
+                Capitão:
+                {% if capitao_b_nome %}
+                    {{ capitao_b_nome }}{% if capitao_b_numero %} #{{ capitao_b_numero }}{% endif %}
+                {% else %}
+                    não definido
+                {% endif %}
+            </div>
+            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+                <a class="btn-padrao" href="{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}">Conferir Equipe B</a>
+                <a class="btn-secundario" href="{{ url_for('apontadores.definir_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}">Definir capitão</a>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top:14px; color:var(--muted);">
+        A conferência permite checar nome, CPF e preencher a numeração. Atletas sem número não entram na papeleta.
+    </div>
+
+    {% if not precisa_conferencia %}
+    <div style="margin-top:20px;">
+        <a class="btn-padrao"
+           href="{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}">
+           Ir para papeleta
+        </a>
+    </div>
+    {% else %}
+    <div style="margin-top:20px; color:#b45309; font-weight:700;">
+        Faça a primeira conferência das duas equipes para liberar a papeleta.
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block titulo %}Apontadores{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Apontadores</div>
+</div>
+
+{% if apontadores %}
+<div class="card-painel">
+    <table>
+        <thead>
+            <tr>
+                <th>Nome</th>
+                <th>CPF</th>
+                <th>Status</th>
+                <th>Primeiro acesso</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in apontadores %}
+            <tr>
+                <td>{{ a.nome }}</td>
+                <td>{{ a.cpf }}</td>
+                <td>
+                    {% if a.ativo %}
+                        <span class="tag tag-aprovado">Ativo</span>
+                    {% else %}
+                        <span class="tag tag-reprovado">Inativo</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if a.primeiro_acesso %}
+                        <span class="tag tag-pendente">Pendente</span>
+                    {% else %}
+                        <span class="tag tag-info">Concluído</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card-painel">
+    Nenhum apontador cadastrado ainda.
+</div>
+{% endif %}
+{% endblock %}

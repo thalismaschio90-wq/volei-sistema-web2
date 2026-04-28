@@ -1,0 +1,2847 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+{% set modo_operacao_jogo = modo_operacao if modo_operacao is defined else 'simples' %}
+
+<div class="topo-secao">
+    <div class="titulo-secao">Jogo ao vivo</div>
+</div>
+
+
+<div id="alerta-solicitacao" class="alerta-solicitacao" aria-live="assertive">
+    <strong>Solicitação do treinador</strong>
+    <span id="alerta-solicitacao-texto">Aguardando…</span>
+</div>
+
+<style>
+    header, nav, .topbar, .navbar {
+        display: none !important;
+    }
+
+    .topo-jogo-mini {
+        padding: 12px 16px !important;
+    }
+
+    .topo-jogo-mini .linha-secundaria {
+        margin-top: 4px;
+        font-size: 14px;
+        color: #6b7c8c;
+    }
+
+    .topo-jogo-mini .linha-principal {
+        margin-top: 8px;
+        font-size: 18px;
+        font-weight: 900;
+        color: #183247;
+    }
+
+    .quadras-wrap {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: flex-start;
+    }
+
+    .quadra-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 240px;
+    }
+
+    .quadra-titulo {
+        text-align: center;
+        font-weight: 900;
+        color: #183247;
+        margin-bottom: 10px;
+        font-size: 18px;
+    }
+
+    .quadra {
+        display: grid;
+        grid-template-columns: repeat(3, 60px);
+        grid-template-rows: repeat(2, 60px);
+        gap: 8px;
+        margin-top: 4px;
+    }
+
+    .pos {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #e9f2ff;
+        border-radius: 10px;
+        font-weight: 900;
+        font-size: 22px;
+        color: #183247;
+        border: 1px solid #d6e2f0;
+        transition: background-color .12s ease, color .12s ease, border-color .12s ease, transform .12s ease;
+        will-change: transform, background-color, color;
+    }
+
+    .pos-atualizando {
+        transform: scale(1.03);
+    }
+
+    .pos-substituto {
+        background: #fecaca !important;
+        color: #991b1b !important;
+        border-color: #fca5a5 !important;
+    }
+
+    .pos-retorno {
+        background: #bbf7d0 !important;
+        color: #166534 !important;
+        border-color: #86efac !important;
+    }
+
+    .acoes-jogo {
+        display: flex;
+        gap: 14px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .acoes-tempo {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+
+    .substituicoes-info,
+    .sancoes-info {
+        margin-top: 10px;
+        font-size: 14px;
+        text-align: center;
+        color: #5c6b78;
+    }
+
+    .substituicao-modal-fundo,
+    .sancao-modal-fundo,
+    .verde-modal-fundo,
+    .ponto-modal-fundo {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 9999;
+    }
+
+    .substituicao-modal,
+    .sancao-modal,
+    .verde-modal,
+    .ponto-modal {
+        width: 100%;
+        max-width: 520px;
+        background: #fff;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 18px 40px rgba(0,0,0,.18);
+    }
+
+    .substituicao-bloco,
+    .sancao-bloco,
+    .verde-bloco,
+    .ponto-bloco {
+        margin-top: 14px;
+    }
+
+    .substituicao-label,
+    .sancao-label,
+    .verde-label,
+    .ponto-label {
+        font-size: 14px;
+        font-weight: 800;
+        color: #183247;
+        margin-bottom: 8px;
+    }
+
+    .substituicao-lista,
+    .sancao-lista,
+    .verde-lista,
+    .ponto-lista {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .substituicao-card,
+    .sancao-card,
+    .verde-card,
+    .ponto-card {
+        min-width: 82px;
+        padding: 10px 12px;
+        border: 1px solid #d6e2f0;
+        border-radius: 10px;
+        background: #f8fbff;
+        color: #183247;
+        font-size: 14px;
+        font-weight: 900;
+        text-align: center;
+        cursor: pointer;
+        transition: .15s ease;
+        user-select: none;
+    }
+
+    .ponto-card {
+        min-width: 126px;
+    }
+
+    .substituicao-card:hover,
+    .sancao-card:hover,
+    .verde-card:hover,
+    .ponto-card:hover {
+        transform: translateY(-1px);
+        background: #eef6ff;
+    }
+
+    .substituicao-card.ativo-sai {
+        background: #fee2e2;
+        border-color: #fca5a5;
+        color: #991b1b;
+    }
+
+    .substituicao-card.ativo-entra,
+    .sancao-card.ativo,
+    .verde-card.ativo,
+    .ponto-card.ativo {
+        background: #dcfce7;
+        border-color: #86efac;
+        color: #166534;
+    }
+
+    .substituicao-acoes,
+    .sancao-acoes,
+    .verde-acoes,
+    .ponto-acoes {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 16px;
+        flex-wrap: wrap;
+    }
+
+    .substituicao-resumo,
+    .sancao-resumo,
+    .verde-resumo,
+    .ponto-resumo {
+        margin-top: 12px;
+        font-size: 14px;
+        color: #5c6b78;
+        line-height: 1.4;
+    }
+
+    .ponto-atalhos {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #f8fbff;
+        border: 1px solid #d6e2f0;
+        font-size: 12px;
+        color: #5c6b78;
+        line-height: 1.5;
+    }
+
+.jogo-area-central {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.jogo-coluna-principal {
+    flex: 1 1 700px;
+    min-width: 320px;
+}
+
+.jogo-coluna-lateral {
+    width: 280px;
+    max-width: 100%;
+}
+
+.ultima-acao-barra {
+    background: #f3e4ad;
+    border: 1px solid #d9c98f;
+    color: #183247;
+    font-weight: 900;
+    text-align: center;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+}
+
+
+.alerta-solicitacao {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 10050;
+    min-width: 280px;
+    max-width: 420px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+    display: none;
+    font-weight: 700;
+}
+
+.alerta-solicitacao strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #7c2d12;
+}
+
+.historico-card {
+    border: 1px solid #d6e2f0;
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px;
+    min-height: 360px;
+}
+
+.historico-titulo {
+    font-size: 16px;
+    font-weight: 900;
+    color: #183247;
+    margin-bottom: 10px;
+}
+
+.historico-acoes {
+    max-height: 330px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.historico-item {
+    border: 1px solid #d6e2f0;
+    border-radius: 10px;
+    background: #f8fbff;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #183247;
+    line-height: 1.35;
+}
+
+.acoes-extra {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.acoes-quadra {
+    margin-top: 26px;
+}
+
+</style>
+
+<div class="card-painel topo-jogo-mini">
+    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+
+    <div class="linha-secundaria">
+        Jogo {{ partida.ordem or '-' }}
+        {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
+        {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
+    </div>
+
+    <div class="linha-principal">
+        <span id="nome-a">{{ partida.equipe_a }}</span> x <span id="nome-b">{{ partida.equipe_b }}</span>
+    </div>
+</div>
+
+<div class="card-painel" style="text-align:center;">
+    <div id="set-atual" style="font-size:20px; font-weight:900;">
+        {{ estado.set_atual or 1 }}º SET
+    </div>
+
+    <div id="placar-principal" style="font-size:56px; font-weight:900; line-height:1; margin:22px 0 10px;">
+        <span id="pontos-a">{{ estado.pontos_a or 0 }}</span>
+        <span> x </span>
+        <span id="pontos-b">{{ estado.pontos_b or 0 }}</span>
+    </div>
+
+    <div style="font-size:16px; color:#5c6b78;">
+        Sets:
+        <span id="sets-a">{{ estado.sets_a or 0 }}</span>
+        <span> x </span>
+        <span id="sets-b">{{ estado.sets_b or 0 }}</span>
+    </div>
+
+    <div id="saque-info" style="margin-top:8px; font-size:14px; color:#5c6b78;">
+        {% if estado.saque_atual %}
+            Saque atual: {{ estado.saque_atual }}
+        {% else %}
+            Saque atual ainda não definido
+        {% endif %}
+    </div>
+
+    <div id="info-tempos" style="margin-top:10px; font-size:14px; text-align:center;">
+        Tempos:
+        <strong id="tempo-restante-a">{{ estado.tempos_a if estado.tempos_a is defined else 2 }}</strong> x
+        <strong id="tempo-restante-b">{{ estado.tempos_b if estado.tempos_b is defined else 2 }}</strong>
+    </div>
+
+    <div id="cronometro-tempo" style="margin-top:10px; font-size:22px; font-weight:900; text-align:center; display:none;">
+        ⏱️ 30
+    </div>
+
+    <div class="substituicoes-info">
+        Substituições:
+        <strong id="subs-a">{{ estado.subs_a if estado.subs_a is defined else 0 }}</strong> x
+        <strong id="subs-b">{{ estado.subs_b if estado.subs_b is defined else 0 }}</strong>
+        <span style="margin-left:6px;">(limite: <strong id="subs-limite">{{ estado.limite_substituicoes if estado.limite_substituicoes is defined else 6 }}</strong>)</span>
+    </div>
+
+    <div class="sancoes-info">
+        Sanções:
+        <strong id="sancoes-a">{{ estado.sancoes_a|length if estado.sancoes_a is defined else 0 }}</strong> x
+        <strong id="sancoes-b">{{ estado.sancoes_b|length if estado.sancoes_b is defined else 0 }}</strong>
+        &nbsp;•&nbsp;
+        Verdes:
+        <strong id="verdes-a">{{ estado.cartoes_verdes_a|length if estado.cartoes_verdes_a is defined else 0 }}</strong> x
+        <strong id="verdes-b">{{ estado.cartoes_verdes_b|length if estado.cartoes_verdes_b is defined else 0 }}</strong>
+    </div>
+</div>
+
+<div id="ultima-acao" class="ultima-acao-barra">ÚLTIMA AÇÃO: -</div>
+
+<div class="jogo-area-central">
+    <div class="jogo-coluna-principal">
+        <div class="card-painel">
+            <div class="quadras-wrap">
+                <div class="quadra-box">
+                    <div class="quadra-titulo">{{ partida.equipe_a }}</div>
+                    <div id="quadra-a" class="quadra"></div>
+                </div>
+
+                <div class="quadra-box">
+                    <div class="quadra-titulo">{{ partida.equipe_b }}</div>
+                    <div id="quadra-b" class="quadra"></div>
+                </div>
+            </div>
+
+            <div class="acoes-quadra">
+                <div class="acoes-jogo">
+                    <button id="btn-ponto-a" class="btn-padrao" type="button">+ ponto {{ partida.equipe_a }}</button>
+                    <button id="btn-ponto-b" class="btn-secundario" type="button">+ ponto {{ partida.equipe_b }}</button>
+                    <button id="btn-desfazer" class="btn-secundario" type="button">⟲ Desfazer</button>
+                </div>
+
+                <div class="acoes-tempo">
+                    <button id="btn-tempo-a" class="btn-secundario" type="button">Tempo {{ partida.equipe_a }}</button>
+                    <button id="btn-tempo-b" class="btn-secundario" type="button">Tempo {{ partida.equipe_b }}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="jogo-coluna-lateral">
+        <div class="historico-card">
+            <div class="historico-titulo">Últimas ações</div>
+            <div id="historico-acoes" class="historico-acoes">
+                <div class="historico-item">Nenhuma ação registrada.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card-painel">
+    <div style="font-size:16px; font-weight:900; margin-bottom:14px;">Registrar ação</div>
+
+    <div class="acoes-tempo">
+        <button id="btn-sub-a" class="btn-secundario" type="button">Substituição {{ partida.equipe_a }}</button>
+        <button id="btn-sub-b" class="btn-secundario" type="button">Substituição {{ partida.equipe_b }}</button>
+    </div>
+
+    <div class="acoes-tempo">
+        <button id="btn-sancao" class="btn-secundario" type="button">Sanção</button>
+        <button id="btn-verde" class="btn-secundario" type="button">Cartão verde</button>
+    </div>
+
+    <div class="acoes-extra">
+        <button id="btn-retardamento" class="btn-secundario" type="button">Retardamento</button>
+        <button id="btn-sub-excepcional" class="btn-secundario" type="button">Subst. excepcional</button>
+        <button id="btn-fullscreen" class="btn-secundario" type="button">Tela cheia</button>
+        <button id="btn-inverter-lados" class="btn-secundario" type="button">Inverter lados</button>
+    </div>
+
+    <div id="erro-jogo" style="display:none; margin-top:14px; color:#b91c1c; font-weight:700; text-align:center;"></div>
+</div>
+
+<div id="substituicao-modal-fundo" class="substituicao-modal-fundo">
+    <div class="substituicao-modal">
+        <div style="font-size:18px; font-weight:900; color:#183247;">Substituição</div>
+        <div id="substituicao-equipe-texto" style="margin-top:6px; font-size:14px; color:#5c6b78;"></div>
+
+        <div class="substituicao-bloco">
+            <div class="substituicao-label">Sai da quadra</div>
+            <div id="substituicao-sai-lista" class="substituicao-lista"></div>
+        </div>
+
+        <div class="substituicao-bloco">
+            <div class="substituicao-label">Entra do banco</div>
+            <div id="substituicao-entra-lista" class="substituicao-lista"></div>
+        </div>
+
+        <div id="substituicao-resumo" class="substituicao-resumo">
+            Selecione quem sai e quem entra.
+        </div>
+
+        <div class="substituicao-acoes">
+            <button id="btn-sub-cancelar" class="btn-secundario" type="button">Cancelar</button>
+            <button id="btn-sub-confirmar" class="btn-padrao" type="button">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<div id="sancao-modal-fundo" class="sancao-modal-fundo">
+    <div class="sancao-modal">
+        <div style="font-size:18px; font-weight:900; color:#183247;">Sanção</div>
+
+        <div class="sancao-bloco">
+            <div class="sancao-label">Equipe</div>
+            <div id="sancao-equipe-lista" class="sancao-lista"></div>
+        </div>
+
+        <div class="sancao-bloco">
+            <div class="sancao-label">Tipo de pessoa</div>
+            <div id="sancao-tipo-pessoa-lista" class="sancao-lista"></div>
+        </div>
+
+        <div class="sancao-bloco">
+            <div class="sancao-label">Alvo</div>
+            <div id="sancao-alvo-lista" class="sancao-lista"></div>
+        </div>
+
+        <div class="sancao-bloco">
+            <div class="sancao-label">Tipo de sanção</div>
+            <div id="sancao-tipo-lista" class="sancao-lista"></div>
+        </div>
+
+        <div id="sancao-resumo" class="sancao-resumo">Selecione equipe, pessoa, alvo e sanção.</div>
+
+        <div class="sancao-acoes">
+            <button id="btn-sancao-cancelar" class="btn-secundario" type="button">Cancelar</button>
+            <button id="btn-sancao-confirmar" class="btn-padrao" type="button">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<div id="verde-modal-fundo" class="verde-modal-fundo">
+    <div class="verde-modal">
+        <div style="font-size:18px; font-weight:900; color:#183247;">Cartão verde</div>
+
+        <div class="verde-bloco">
+            <div class="verde-label">Equipe</div>
+            <div id="verde-equipe-lista" class="verde-lista"></div>
+        </div>
+
+        <div class="verde-bloco">
+            <div class="verde-label">Tipo de pessoa</div>
+            <div id="verde-tipo-pessoa-lista" class="verde-lista"></div>
+        </div>
+
+        <div class="verde-bloco">
+            <div class="verde-label">Alvo</div>
+            <div id="verde-alvo-lista" class="verde-lista"></div>
+        </div>
+
+        <div id="verde-resumo" class="verde-resumo">Selecione equipe e alvo do cartão verde.</div>
+
+        <div class="verde-acoes">
+            <button id="btn-verde-cancelar" class="btn-secundario" type="button">Cancelar</button>
+            <button id="btn-verde-confirmar" class="btn-padrao" type="button">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<div id="ponto-modal-fundo" class="ponto-modal-fundo">
+    <div class="ponto-modal">
+        <div style="font-size:18px; font-weight:900; color:#183247;">Justificativa do ponto</div>
+        <div id="ponto-equipe-texto" style="margin-top:6px; font-size:14px; color:#5c6b78;"></div>
+
+        <div class="ponto-bloco">
+            <div class="ponto-label">1. O que aconteceu?</div>
+            <div id="ponto-fundamento-lista" class="ponto-lista"></div>
+        </div>
+
+        <div id="ponto-resultado-bloco" class="ponto-bloco" style="display:none;">
+            <div class="ponto-label">2. Qual foi o lance?</div>
+            <div id="ponto-resultado-lista" class="ponto-lista"></div>
+        </div>
+
+        <div id="ponto-tipo-erro-bloco" class="ponto-bloco" style="display:none;">
+            <div class="ponto-label">3. Detalhe do lance</div>
+            <div id="ponto-tipo-erro-lista" class="ponto-lista"></div>
+        </div>
+
+        <div id="ponto-atleta-bloco" class="ponto-bloco" style="display:none;">
+            <div id="ponto-atleta-label" class="ponto-label">4. Quem fez?</div>
+            <div id="ponto-atleta-lista" class="ponto-lista"></div>
+        </div>
+
+        <div id="ponto-resumo" class="ponto-resumo">Escolha primeiro se foi ponto, erro ou falta.</div>
+
+        <div class="ponto-atalhos">
+            Atalhos: P ponto • E erro • F falta • 1/2/3 escolhem a opção visível • Enter confirma • Esc cancela
+        </div>
+
+        <div class="ponto-acoes">
+            <button id="btn-ponto-cancelar" class="btn-secundario" type="button">Cancelar</button>
+            <button id="btn-ponto-confirmar" class="btn-padrao" type="button">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<div id="retardamento-modal-fundo" class="sancao-modal-fundo">
+    <div class="sancao-modal">
+        <div style="font-size:18px; font-weight:900; color:#183247;">Retardamento</div>
+        <div class="sancao-bloco">
+            <div class="sancao-label">Equipe</div>
+            <div id="retardamento-equipe-lista" class="sancao-lista"></div>
+        </div>
+        <div id="retardamento-resumo" class="sancao-resumo">Selecione a equipe que cometeu o retardamento.</div>
+        <div class="sancao-acoes">
+            <button id="btn-retardamento-cancelar" class="btn-secundario" type="button">Cancelar</button>
+            <button id="btn-retardamento-confirmar" class="btn-padrao" type="button">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<div id="subex-modal-fundo" class="substituicao-modal-fundo">
+    <div class="substituicao-modal">
+        <div style="font-size:18px; font-weight:900; color:#183247;">Substituição excepcional</div>
+        <div id="subex-equipe-texto" style="margin-top:6px; font-size:14px; color:#5c6b78;"></div>
+        <div class="substituicao-bloco">
+            <div class="substituicao-label">Sai da quadra</div>
+            <div id="subex-sai-lista" class="substituicao-lista"></div>
+        </div>
+        <div class="substituicao-bloco">
+            <div class="substituicao-label">Entra excepcionalmente</div>
+            <div id="subex-entra-lista" class="substituicao-lista"></div>
+        </div>
+        <div class="substituicao-bloco">
+            <div class="substituicao-label">Motivo</div>
+            <input id="subex-motivo" type="text" style="width:100%; padding:10px; border:1px solid #d6e2f0; border-radius:10px;" placeholder="Ex.: lesão, sangramento, indisposição">
+        </div>
+        <div id="subex-resumo" class="substituicao-resumo">Selecione equipe, quem sai e quem entra.</div>
+        <div class="substituicao-acoes">
+            <button id="btn-subex-cancelar" class="btn-secundario" type="button">Cancelar</button>
+            <button id="btn-subex-confirmar" class="btn-padrao" type="button">Confirmar</button>
+        </div>
+    </div>
+</div>
+
+<div class="card-painel" style="display:flex; gap:12px; flex-wrap:wrap;">
+    <a class="btn-secundario" href="{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}">
+        Voltar para papeleta
+    </a>
+    <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">
+        Voltar para partidas
+    </a>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+(function () {
+    const btnA = document.getElementById("btn-ponto-a");
+    const btnB = document.getElementById("btn-ponto-b");
+    const erroBox = document.getElementById("erro-jogo");
+    const btnDesfazer = document.getElementById("btn-desfazer");
+    const btnTempoA = document.getElementById("btn-tempo-a");
+    const btnTempoB = document.getElementById("btn-tempo-b");
+    const btnSubA = document.getElementById("btn-sub-a");
+    const btnSubB = document.getElementById("btn-sub-b");
+    const btnSancao = document.getElementById("btn-sancao");
+    const btnVerde = document.getElementById("btn-verde");
+
+    const modalSubFundo = document.getElementById("substituicao-modal-fundo");
+    const subEquipeTexto = document.getElementById("substituicao-equipe-texto");
+    const subSaiLista = document.getElementById("substituicao-sai-lista");
+    const subEntraLista = document.getElementById("substituicao-entra-lista");
+    const subResumo = document.getElementById("substituicao-resumo");
+    const btnSubCancelar = document.getElementById("btn-sub-cancelar");
+    const btnSubConfirmar = document.getElementById("btn-sub-confirmar");
+
+    const modalSancaoFundo = document.getElementById("sancao-modal-fundo");
+    const sancaoEquipeLista = document.getElementById("sancao-equipe-lista");
+    const sancaoTipoPessoaLista = document.getElementById("sancao-tipo-pessoa-lista");
+    const sancaoAlvoLista = document.getElementById("sancao-alvo-lista");
+    const sancaoTipoLista = document.getElementById("sancao-tipo-lista");
+    const sancaoResumo = document.getElementById("sancao-resumo");
+    const btnSancaoCancelar = document.getElementById("btn-sancao-cancelar");
+    const btnSancaoConfirmar = document.getElementById("btn-sancao-confirmar");
+
+    const modalVerdeFundo = document.getElementById("verde-modal-fundo");
+    const verdeEquipeLista = document.getElementById("verde-equipe-lista");
+    const verdeTipoPessoaLista = document.getElementById("verde-tipo-pessoa-lista");
+    const verdeAlvoLista = document.getElementById("verde-alvo-lista");
+    const verdeResumo = document.getElementById("verde-resumo");
+    const btnVerdeCancelar = document.getElementById("btn-verde-cancelar");
+    const btnVerdeConfirmar = document.getElementById("btn-verde-confirmar");
+
+    const modalPontoFundo = document.getElementById("ponto-modal-fundo");
+    const pontoEquipeTexto = document.getElementById("ponto-equipe-texto");
+    const pontoFundamentoLista = document.getElementById("ponto-fundamento-lista");
+    const pontoResultadoBloco = document.getElementById("ponto-resultado-bloco");
+    const pontoResultadoLista = document.getElementById("ponto-resultado-lista");
+    const pontoTipoErroBloco = document.getElementById("ponto-tipo-erro-bloco");
+    const pontoTipoErroLista = document.getElementById("ponto-tipo-erro-lista");
+    const pontoAtletaBloco = document.getElementById("ponto-atleta-bloco");
+    const pontoAtletaLabel = document.getElementById("ponto-atleta-label");
+    const pontoAtletaLista = document.getElementById("ponto-atleta-lista");
+    const pontoResumo = document.getElementById("ponto-resumo");
+    const btnPontoCancelar = document.getElementById("btn-ponto-cancelar");
+    const btnPontoConfirmar = document.getElementById("btn-ponto-confirmar");
+const btnRetardamento = document.getElementById("btn-retardamento");
+const btnSubExcepcional = document.getElementById("btn-sub-excepcional");
+const btnFullscreen = document.getElementById("btn-fullscreen");
+const btnInverterLados = document.getElementById("btn-inverter-lados");
+
+const ultimaAcaoEl = document.getElementById("ultima-acao");
+const historicoAcoesEl = document.getElementById("historico-acoes");
+
+const modalRetardamentoFundo = document.getElementById("retardamento-modal-fundo");
+const retardamentoEquipeLista = document.getElementById("retardamento-equipe-lista");
+const retardamentoResumo = document.getElementById("retardamento-resumo");
+const btnRetardamentoCancelar = document.getElementById("btn-retardamento-cancelar");
+const btnRetardamentoConfirmar = document.getElementById("btn-retardamento-confirmar");
+
+const modalSubExFundo = document.getElementById("subex-modal-fundo");
+const subExEquipeTexto = document.getElementById("subex-equipe-texto");
+const subExSaiLista = document.getElementById("subex-sai-lista");
+const subExEntraLista = document.getElementById("subex-entra-lista");
+const subExMotivoInput = document.getElementById("subex-motivo");
+const subExResumo = document.getElementById("subex-resumo");
+const btnSubExCancelar = document.getElementById("btn-subex-cancelar");
+const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
+
+
+    const pontosA = document.getElementById("pontos-a");
+    const pontosB = document.getElementById("pontos-b");
+    const setsA = document.getElementById("sets-a");
+    const setsB = document.getElementById("sets-b");
+    const setAtual = document.getElementById("set-atual");
+    const saqueInfo = document.getElementById("saque-info");
+    const tempoRestanteA = document.getElementById("tempo-restante-a");
+    const tempoRestanteB = document.getElementById("tempo-restante-b");
+    const cronometroEl = document.getElementById("cronometro-tempo");
+    const subsAEl = document.getElementById("subs-a");
+    const subsBEl = document.getElementById("subs-b");
+    const subsLimiteEl = document.getElementById("subs-limite");
+    const sancoesAEl = document.getElementById("sancoes-a");
+    const sancoesBEl = document.getElementById("sancoes-b");
+    const verdesAEl = document.getElementById("verdes-a");
+    const verdesBEl = document.getElementById("verdes-b");
+    const quadraAEl = document.getElementById("quadra-a");
+    const quadraBEl = document.getElementById("quadra-b");
+
+    const modoOperacao = {{ modo_operacao_jogo | tojson }};
+
+    let partidaFinalizada = false;
+    let enviando = false;
+    let intervaloTempo = null;
+    let tempoAtual = 0;
+
+    let bloquearSyncAte = 0;
+    let placarProtegidoAte = 0;
+    let rotacaoProtegidaAte = 0;
+    let saqueAtual = {{ (estado.saque_atual if estado.saque_atual is defined else "") | tojson }};
+
+    let equipeSubAtual = null;
+    let numeroSaiSelecionado = "";
+    let numeroEntraSelecionado = "";
+
+    let sancaoEquipeAtual = "";
+    let sancaoTipoPessoaAtual = "";
+    let sancaoAlvoAtual = "";
+    let sancaoAlvoNomeAtual = "";
+    let sancaoAlvoLabelAtual = "";
+    let sancaoTipoAtual = "";
+
+    let verdeEquipeAtual = "";
+    let verdeTipoPessoaAtual = "";
+    let verdeAlvoAtual = "";
+    let verdeAlvoNomeAtual = "";
+    let verdeAlvoLabelAtual = "";
+
+    let equipePontoTemp = "";
+    let tipoLancePontoTemp = "";
+    let detalheLancePontoTemp = "";
+    let atletaNumeroPontoTemp = "";
+    let atletaNomePontoTemp = "";
+    let atletaLabelPontoTemp = "";
+
+    let ladosInvertidos = false;
+    let equipeRetardamentoAtual = "";
+    let equipeSubExAtual = "";
+    let numeroSaiSubEx = "";
+    let numeroEntraSubEx = "";
+
+    let statusJogadoresA = {{ (estado.status_jogadores_a if estado.status_jogadores_a is defined else {}) | tojson }};
+    let statusJogadoresB = {{ (estado.status_jogadores_b if estado.status_jogadores_b is defined else {}) | tojson }};
+    let sancoesA = {{ (estado.sancoes_a if estado.sancoes_a is defined else []) | tojson }};
+    let sancoesB = {{ (estado.sancoes_b if estado.sancoes_b is defined else []) | tojson }};
+    let verdesA = {{ (estado.cartoes_verdes_a if estado.cartoes_verdes_a is defined else []) | tojson }};
+    let verdesB = {{ (estado.cartoes_verdes_b if estado.cartoes_verdes_b is defined else []) | tojson }};
+
+    let syncTimer = null;
+    let socketConectado = false;
+    const socket = (typeof io === "function")
+        ? io({ transports: ["websocket"], upgrade: false, reconnection: true })
+        : null;
+
+    let alertaSolicitacaoTimer = null;
+    const alertaSolicitacaoEl = document.getElementById("alerta-solicitacao");
+    const alertaSolicitacaoTextoEl = document.getElementById("alerta-solicitacao-texto");
+
+    function mostrarAlertaSolicitacao(texto) {
+        if (!alertaSolicitacaoEl || !alertaSolicitacaoTextoEl) return;
+        alertaSolicitacaoTextoEl.textContent = texto || "Nova solicitação recebida.";
+        alertaSolicitacaoEl.style.display = "block";
+        if (alertaSolicitacaoTimer) clearTimeout(alertaSolicitacaoTimer);
+        alertaSolicitacaoTimer = setTimeout(() => {
+            alertaSolicitacaoEl.style.display = "none";
+        }, 6500);
+    }
+
+    if (socket) {
+        socket.on("connect", function () {
+            socketConectado = true;
+            socket.emit("entrar_partida", {
+                competicao: "{{ competicao_nome }}",
+                partida_id: {{ partida.id }}
+            });
+        });
+
+        socket.on("disconnect", function () {
+            socketConectado = false;
+            agendarSincronizacao(400);
+        });
+
+        socket.on("estado_jogo_atualizado", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+        });
+
+        socket.on("solicitacao_treinador", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            const mensagem = String(dados.mensagem || "Solicitação do treinador recebida.").trim();
+            mostrarAlertaSolicitacao(mensagem);
+        });
+
+        socket.on("resposta_solicitacao", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            if (dados.mensagem) mostrarAlertaSolicitacao(String(dados.mensagem));
+        });
+    }
+    let ultimoTokenSync = 0;
+    let renderPendente = false;
+    let renderAnteriorA = [];
+    let renderAnteriorB = [];
+
+    const atletasA = {{ (atletas_a if atletas_a is defined else []) | tojson }};
+    const atletasB = {{ (atletas_b if atletas_b is defined else []) | tojson }};
+
+    const fallbackRotA = [
+        "{{ papeleta_a.get(4, '') }}",
+        "{{ papeleta_a.get(3, '') }}",
+        "{{ papeleta_a.get(2, '') }}",
+        "{{ papeleta_a.get(5, '') }}",
+        "{{ papeleta_a.get(6, '') }}",
+        "{{ papeleta_a.get(1, '') }}"
+    ];
+
+    const fallbackRotB = [
+        "{{ papeleta_b.get(4, '') }}",
+        "{{ papeleta_b.get(3, '') }}",
+        "{{ papeleta_b.get(2, '') }}",
+        "{{ papeleta_b.get(5, '') }}",
+        "{{ papeleta_b.get(6, '') }}",
+        "{{ papeleta_b.get(1, '') }}"
+    ];
+
+    const mapaTipoSancao = {
+        advertencia: "advertencia",
+        penalidade: "penalidade",
+        expulsao: "expulsao",
+        desqualificacao: "desqualificacao"
+    };
+
+    const tiposLancePonto = [
+        { valor: "ponto", label: "Ponto" },
+        { valor: "erro", label: "Erro" },
+        { valor: "falta", label: "Falta" }
+    ];
+
+    function opcoesDetalhePorTipo() {
+        const saque = String(saqueAtual || "").trim().toUpperCase();
+        const oponente = ladoOponente(equipePontoTemp);
+
+        if (tipoLancePontoTemp === "ponto") {
+            const opcoes = [
+                { valor: "ataque", label: "1 Ataque" },
+                { valor: "bloqueio", label: "2 Bloqueio" }
+            ];
+            if (saque && saque === equipePontoTemp) {
+                opcoes.push({ valor: "ace", label: "3 Ace" });
+            }
+            return opcoes;
+        }
+
+        if (tipoLancePontoTemp === "erro") {
+            const opcoes = [];
+
+            if (saque && saque === oponente) {
+                opcoes.push({ valor: "erro_saque", label: "1 Erro de saque" });
+                opcoes.push({ valor: "erro_geral", label: "2 Erro geral" });
+            } else {
+                opcoes.push({ valor: "erro_geral", label: "1 Erro geral" });
+                opcoes.push({ valor: "erro_saque", label: "2 Erro de saque" });
+            }
+
+            return opcoes;
+        }
+
+        if (tipoLancePontoTemp === "falta") {
+            return [
+                { valor: "rede", label: "1 Rede" },
+                { valor: "invasao", label: "2 Invasão" },
+                { valor: "rotacao", label: "3 Rotação" },
+                { valor: "conducao", label: "4 Condução" },
+                { valor: "dois_toques", label: "5 Dois toques" }
+            ];
+        }
+
+        return [];
+    }
+
+    function rotacaoValida(rot) {
+        return Array.isArray(rot) && rot.length === 6;
+    }
+
+    function normalizarRotacao(rot, fallback) {
+        if (!rotacaoValida(rot)) {
+            return [...fallback];
+        }
+        const limpa = rot.map((x) => x == null ? "" : String(x));
+        const temAlgo = limpa.some((x) => x.trim() !== "");
+        return temAlgo ? limpa : [...fallback];
+    }
+
+    function girarRotacaoLocal(lado) {
+        if (lado === "A") {
+            if (!Array.isArray(rotA) || rotA.length !== 6) return;
+            rotA = [rotA[3], rotA[0], rotA[1], rotA[4], rotA[5], rotA[2]];
+        } else {
+            if (!Array.isArray(rotB) || rotB.length !== 6) return;
+            rotB = [rotB[3], rotB[0], rotB[1], rotB[4], rotB[5], rotB[2]];
+        }
+    }
+
+    let rotA = normalizarRotacao(
+        {{ (estado.rotacao_a if estado.rotacao_a is defined else []) | tojson }},
+        fallbackRotA
+    );
+
+    let rotB = normalizarRotacao(
+        {{ (estado.rotacao_b if estado.rotacao_b is defined else []) | tojson }},
+        fallbackRotB
+    );
+
+
+function atualizarUltimaAcao(texto) {
+    const finalTexto = String(texto || "-").trim() || "-";
+    if (ultimaAcaoEl) ultimaAcaoEl.textContent = "ÚLTIMA AÇÃO: " + finalTexto;
+}
+
+function renderHistoricoBackend(lista) {
+    if (!historicoAcoesEl) return;
+
+    historicoAcoesEl.innerHTML = "";
+
+    if (!lista || !lista.length) {
+        const item = document.createElement("div");
+        item.className = "historico-item";
+        item.textContent = "Nenhuma ação registrada.";
+        historicoAcoesEl.appendChild(item);
+        return;
+    }
+
+    lista.forEach((acao) => {
+        const item = document.createElement("div");
+        item.className = "historico-item";
+        item.textContent = acao.descricao || acao;
+        historicoAcoesEl.appendChild(item);
+    });
+}
+
+function alternarTelaCheia() {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+        document.exitFullscreen().catch(() => {});
+    }
+}
+
+function inverterLadosVisual() {
+    ladosInvertidos = !ladosInvertidos;
+    const wrap = document.querySelector(".quadras-wrap");
+    if (wrap) wrap.style.flexDirection = ladosInvertidos ? "row-reverse" : "row";
+}
+
+    function travarBotoes(travar) {
+        btnA.disabled = travar || partidaFinalizada;
+        btnB.disabled = travar || partidaFinalizada;
+        btnDesfazer.disabled = travar;
+        btnTempoA.disabled = travar || partidaFinalizada;
+        btnTempoB.disabled = travar || partidaFinalizada;
+        btnSubA.disabled = travar || partidaFinalizada;
+        btnSubB.disabled = travar || partidaFinalizada;
+        btnSancao.disabled = travar || partidaFinalizada;
+        btnVerde.disabled = travar || partidaFinalizada;
+        btnSubConfirmar.disabled = travar || partidaFinalizada;
+        btnSancaoConfirmar.disabled = travar || partidaFinalizada;
+        btnVerdeConfirmar.disabled = travar || partidaFinalizada;
+    }
+
+    function mostrarErro(msg) {
+        erroBox.textContent = msg || "Erro ao registrar ação.";
+        erroBox.style.display = "block";
+    }
+
+    function limparErro() {
+        erroBox.textContent = "";
+        erroBox.style.display = "none";
+    }
+
+    function iniciarCronometro(segundos = 30) {
+        tempoAtual = segundos;
+        cronometroEl.style.display = "block";
+        cronometroEl.textContent = "⏱️ " + tempoAtual;
+
+        if (intervaloTempo) clearInterval(intervaloTempo);
+
+        intervaloTempo = setInterval(() => {
+            tempoAtual--;
+            cronometroEl.textContent = "⏱️ " + tempoAtual;
+
+            if (tempoAtual <= 0) {
+                clearInterval(intervaloTempo);
+                cronometroEl.textContent = "⏱️ FIM DO TEMPO";
+            }
+        }, 1000);
+    }
+
+    function classePosicao(numero, lado) {
+        const chave = String(numero || "").trim();
+        const mapa = lado === "A" ? statusJogadoresA : statusJogadoresB;
+        const st = mapa[chave];
+
+        if (!st || !st.tipo) return "";
+        if (st.tipo === "substituto") return " pos-substituto";
+        if (st.tipo === "retorno") return " pos-retorno";
+        return "";
+    }
+
+    function criarCelulasQuadra(container) {
+        container.innerHTML = "";
+        const celulas = [];
+        for (let i = 0; i < 6; i++) {
+            const div = document.createElement("div");
+            div.className = "pos";
+            div.textContent = "";
+            container.appendChild(div);
+            celulas.push(div);
+        }
+        return celulas;
+    }
+
+    const celulasQuadraA = criarCelulasQuadra(quadraAEl);
+    const celulasQuadraB = criarCelulasQuadra(quadraBEl);
+
+    function atualizarCelulas(celulas, rotacao, lado, anterior) {
+        for (let i = 0; i < 6; i++) {
+            const numero = rotacao[i] || "";
+            const classeExtra = classePosicao(numero, lado);
+            const mudou = String(anterior[i] || "") !== String(numero || "");
+            celulas[i].textContent = numero;
+            celulas[i].className = "pos" + classeExtra + (mudou ? " pos-atualizando" : "");
+        }
+    }
+
+    function limparAnimacaoCelulas() {
+        celulasQuadraA.forEach((c) => c.classList.remove("pos-atualizando"));
+        celulasQuadraB.forEach((c) => c.classList.remove("pos-atualizando"));
+    }
+
+    function renderQuadra() {
+        if (renderPendente) return;
+
+        renderPendente = true;
+        requestAnimationFrame(() => {
+            atualizarCelulas(celulasQuadraA, rotA, "A", renderAnteriorA);
+            atualizarCelulas(celulasQuadraB, rotB, "B", renderAnteriorB);
+            renderAnteriorA = [...rotA];
+            renderAnteriorB = [...rotB];
+            setTimeout(limparAnimacaoCelulas, 130);
+            renderPendente = false;
+        });
+    }
+
+    function atualizarContadoresDisciplinares() {
+        sancoesAEl.textContent = Array.isArray(sancoesA) ? sancoesA.length : 0;
+        sancoesBEl.textContent = Array.isArray(sancoesB) ? sancoesB.length : 0;
+        verdesAEl.textContent = Array.isArray(verdesA) ? verdesA.length : 0;
+        verdesBEl.textContent = Array.isArray(verdesB) ? verdesB.length : 0;
+    }
+
+    function aplicarEstado(dados) {
+        const agora = Date.now();
+
+        const atualA = parseInt(pontosA.textContent || "0", 10);
+        const atualB = parseInt(pontosB.textContent || "0", 10);
+        const novoA = parseInt(dados.pontos_a ?? atualA, 10);
+        const novoB = parseInt(dados.pontos_b ?? atualB, 10);
+
+        const totalAtual = atualA + atualB;
+        const totalNovo = novoA + novoB;
+
+        const estadoAntigoDuranteProtecao = (
+            (agora < placarProtegidoAte || agora < rotacaoProtegidaAte) &&
+            totalNovo < totalAtual
+        );
+
+        if (!estadoAntigoDuranteProtecao) {
+            pontosA.textContent = novoA;
+            pontosB.textContent = novoB;
+        }
+
+        setsA.textContent = dados.sets_a ?? setsA.textContent;
+        setsB.textContent = dados.sets_b ?? setsB.textContent;
+        setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
+
+        if (!estadoAntigoDuranteProtecao) {
+            if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
+                saqueAtual = dados.saque_atual || "";
+            }
+
+            if (saqueAtual) {
+                saqueInfo.textContent = `Saque atual: ${saqueAtual}`;
+            } else {
+                saqueInfo.textContent = "Saque atual ainda não definido";
+            }
+        }
+
+        if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
+            tempoRestanteA.textContent = dados.tempos_a;
+        }
+        if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
+            tempoRestanteB.textContent = dados.tempos_b;
+        }
+
+        if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
+            statusJogadoresA = dados.status_jogadores_a;
+        }
+        if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
+            statusJogadoresB = dados.status_jogadores_b;
+        }
+
+        if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
+            sancoesA = dados.sancoes_a;
+        }
+        if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
+            sancoesB = dados.sancoes_b;
+        }
+        if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
+            verdesA = dados.cartoes_verdes_a;
+        }
+        if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
+            verdesB = dados.cartoes_verdes_b;
+        }
+
+        if (dados.subs_a !== undefined && dados.subs_a !== null) {
+            subsAEl.textContent = dados.subs_a;
+        }
+        if (dados.subs_b !== undefined && dados.subs_b !== null) {
+            subsBEl.textContent = dados.subs_b;
+        }
+        if (dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
+            subsLimiteEl.textContent = dados.limite_substituicoes;
+        }
+
+        if (!estadoAntigoDuranteProtecao) {
+            if (dados.rotacao_a !== undefined) {
+                rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA);
+            }
+            if (dados.rotacao_b !== undefined) {
+                rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB);
+            }
+        }
+
+        if (dados.ultima_acao !== undefined) {
+            atualizarUltimaAcao(dados.ultima_acao || "-");
+        }
+
+        if (Array.isArray(dados.historico) && dados.historico.length) {
+            renderHistoricoBackend(dados.historico);
+        }
+
+        atualizarContadoresDisciplinares();
+        renderQuadra();
+
+        partidaFinalizada = !!dados.partida_finalizada;
+        if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
+            saqueInfo.textContent += " • Partida finalizada";
+        }
+    }
+
+    function nomeEquipePorLado(lado) {
+        return lado === "A" ? "{{ partida.equipe_a }}" : "{{ partida.equipe_b }}";
+    }
+
+    function ladoOponente(lado) {
+        return lado === "A" ? "B" : "A";
+    }
+
+    function tituloBonitoScout(valor) {
+        const texto = String(valor || "").trim();
+        if (!texto) return "-";
+        return texto.replaceAll("_", " ");
+    }
+
+    function normalizarNumeroScout(valor) {
+    return String(valor ?? "").trim();
+    }
+
+    function ladoOponente(lado) {
+        return lado === "A" ? "B" : "A";
+    }
+
+    function ladoResponsavelScout() {
+        if (!equipePontoTemp || !tipoLancePontoTemp) return "";
+
+        if (tipoLancePontoTemp === "ponto") {
+            return equipePontoTemp;
+        }
+
+        if (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta") {
+            return ladoOponente(equipePontoTemp);
+        }
+
+        return "";
+    }
+
+    function atletasEquipePorLado(lado) {
+        return lado === "A" ? atletasA : atletasB;
+    }
+
+    function statusMapaPorLado(lado) {
+        return lado === "A" ? statusJogadoresA : statusJogadoresB;
+    }
+
+    function atualizarResumoPonto() {
+        const equipeNome = equipePontoTemp ? nomeEquipePorLado(equipePontoTemp) : "-";
+        const tipoNome = tipoLancePontoTemp ? tituloBonitoScout(tipoLancePontoTemp) : "-";
+        const detalheNome = detalheLancePontoTemp ? tituloBonitoScout(detalheLancePontoTemp) : "-";
+        const atletaNome = atletaLabelPontoTemp || "-";
+
+        let html = `Equipe que pontua: <strong>${equipeNome}</strong>`;
+        if (tipoLancePontoTemp) html += ` &nbsp;•&nbsp; Tipo: <strong>${tipoNome}</strong>`;
+        if (detalheLancePontoTemp) html += ` &nbsp;•&nbsp; Lance: <strong>${detalheNome}</strong>`;
+        if (atletaLabelPontoTemp) html += ` &nbsp;•&nbsp; Atleta: <strong>${atletaNome}</strong>`;
+
+        pontoResumo.innerHTML = html;
+
+        if (btnPontoConfirmar) {
+            btnPontoConfirmar.disabled = !podeConfirmarPontoAvancado();
+        }
+    }
+
+    function atletaDaPosicao(rotacao, posicao) {
+        if (!Array.isArray(rotacao)) return "";
+
+        const mapa = {
+            1: 5,
+            2: 2,
+            3: 1,
+            4: 0,
+            5: 3,
+            6: 4
+        };
+
+        const idx = mapa[posicao];
+        if (idx === undefined) return "";
+        return normalizarNumeroScout(rotacao[idx] || "");
+    }
+
+    function atletasEmQuadraDoLado(lado) {
+        const rotacao = lado === "A" ? rotA : rotB;
+        const elenco = atletasEquipePorLado(lado) || [];
+
+        const mapaElenco = new Map();
+        elenco.forEach((a) => {
+            const numero = normalizarNumeroScout(a.numero);
+            if (!numero) return;
+
+            mapaElenco.set(numero, {
+                valor: numero,
+                label: numero,
+                title: `${numero} - ${a.nome || "Atleta"}`,
+                nome: String(a.nome || "").trim(),
+                labelCompleto: `${numero} - ${a.nome || "Atleta"}`,
+                baseClass: "ponto-card"
+            });
+        });
+
+        const usados = new Set();
+        const opcoes = [];
+
+        (rotacao || []).forEach((numeroBruto) => {
+            const numero = normalizarNumeroScout(numeroBruto);
+            if (!numero || usados.has(numero)) return;
+
+            usados.add(numero);
+
+            if (mapaElenco.has(numero)) {
+                opcoes.push(mapaElenco.get(numero));
+            } else {
+                opcoes.push({
+                    valor: numero,
+                    label: numero,
+                    title: numero,
+                    nome: "",
+                    labelCompleto: numero,
+                    baseClass: "ponto-card"
+                });
+            }
+        });
+
+        return opcoes;
+    }
+
+    function opcoesAtletaScoutPonto() {
+        const lado = ladoResponsavelScout();
+        if (!lado) return [];
+
+        const atletasQuadra = atletasEmQuadraDoLado(lado);
+        if (!atletasQuadra.length) return [];
+
+        if (detalheLancePontoTemp === "ataque") {
+            return atletasQuadra;
+        }
+
+        if (detalheLancePontoTemp === "bloqueio") {
+            const rotacao = lado === "A" ? rotA : rotB;
+            const numerosPermitidos = new Set(
+                [2, 3, 4]
+                    .map((p) => atletaDaPosicao(rotacao, p))
+                    .filter(Boolean)
+            );
+
+            return atletasQuadra.filter((a) => numerosPermitidos.has(normalizarNumeroScout(a.valor)));
+        }
+
+        if (detalheLancePontoTemp === "ace") {
+            const rotacao = lado === "A" ? rotA : rotB;
+            const sacador = atletaDaPosicao(rotacao, 1);
+            if (!sacador) return [];
+
+            return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
+        }
+
+        return [];
+    }
+
+    function pontoExigeDetalhe() {
+        return !!tipoLancePontoTemp;
+    }
+
+    function pontoExigeAtleta() {
+        if (!tipoLancePontoTemp || !detalheLancePontoTemp) return false;
+
+        if (tipoLancePontoTemp === "erro") return false;
+        if (tipoLancePontoTemp === "falta") return false;
+
+        return [
+            "ataque",
+            "bloqueio",
+            "ace"
+        ].includes(detalheLancePontoTemp);
+    }
+
+    function podeConfirmarPontoAvancado() {
+        if (!equipePontoTemp) return false;
+        if (!tipoLancePontoTemp) return false;
+        if (pontoExigeDetalhe() && !detalheLancePontoTemp) return false;
+        if (pontoExigeAtleta() && !normalizarNumeroScout(atletaNumeroPontoTemp)) return false;
+        return true;
+    }
+
+    function renderFundamentosPonto() {
+        const opcoes = tiposLancePonto.map((item) => ({
+            valor: item.valor,
+            label: item.label,
+            baseClass: "ponto-card"
+        }));
+
+        renderLista(
+            pontoFundamentoLista,
+            opcoes,
+            tipoLancePontoTemp,
+            "ativo",
+            function (valor) {
+                tipoLancePontoTemp = String(valor || "").trim();
+                detalheLancePontoTemp = "";
+                atletaNumeroPontoTemp = "";
+                atletaNomePontoTemp = "";
+                atletaLabelPontoTemp = "";
+                renderFluxoPonto();
+            },
+            "Nenhuma opção disponível."
+        );
+    }
+
+    function renderDetalhesPonto() {
+        const opcoes = opcoesDetalhePorTipo().map((item) => ({
+            valor: item.valor,
+            label: item.label,
+            baseClass: "ponto-card"
+        }));
+
+        pontoResultadoBloco.style.display = tipoLancePontoTemp ? "block" : "none";
+
+        renderLista(
+            pontoResultadoLista,
+            opcoes,
+            detalheLancePontoTemp,
+            "ativo",
+            function (valor) {
+                detalheLancePontoTemp = String(valor || "").trim();
+                atletaNumeroPontoTemp = "";
+                atletaNomePontoTemp = "";
+                atletaLabelPontoTemp = "";
+                renderFluxoPonto();
+            },
+            "Selecione primeiro o tipo."
+        );
+    }
+
+    function renderAtletasPonto() {
+        const exige = pontoExigeAtleta();
+
+        pontoAtletaBloco.style.display = exige ? "block" : "none";
+        pontoTipoErroBloco.style.display = "none";
+        pontoAtletaLabel.textContent = "4. Quem fez?";
+
+        if (!exige) {
+            atletaNumeroPontoTemp = "";
+            atletaNomePontoTemp = "";
+            atletaLabelPontoTemp = "";
+            pontoAtletaLista.innerHTML = "";
+            atualizarResumoPonto();
+            return;
+        }
+
+        const opcoes = opcoesAtletaScoutPonto();
+
+        if (
+            atletaNumeroPontoTemp &&
+            !opcoes.some((o) => normalizarNumeroScout(o.valor) === normalizarNumeroScout(atletaNumeroPontoTemp))
+        ) {
+            atletaNumeroPontoTemp = "";
+            atletaNomePontoTemp = "";
+            atletaLabelPontoTemp = "";
+        }
+
+        renderLista(
+            pontoAtletaLista,
+            opcoes,
+            atletaNumeroPontoTemp,
+            "ativo",
+            function (valor) {
+                const selecionado = opcoes.find((o) => normalizarNumeroScout(o.valor) === normalizarNumeroScout(valor));
+                atletaNumeroPontoTemp = normalizarNumeroScout(valor);
+                atletaNomePontoTemp = String((selecionado && selecionado.nome) || "").trim();
+                atletaLabelPontoTemp = String(
+                    (selecionado && (selecionado.labelCompleto || selecionado.title || selecionado.label)) || valor || ""
+                ).trim();
+                atualizarResumoPonto();
+            },
+            "Nenhum atleta disponível para este lance."
+        );
+
+        atualizarResumoPonto();
+    }
+
+    function renderFluxoPonto() {
+        renderFundamentosPonto();
+        renderDetalhesPonto();
+        renderAtletasPonto();
+        atualizarResumoPonto();
+    }
+
+        function normalizarNumeroScout(valor) {
+        return String(valor ?? "").trim();
+    }
+    
+    function atletaDaPosicao(rotacao, posicao) {
+        if (!Array.isArray(rotacao)) return "";
+        const mapa = { 1: 5, 2: 2, 3: 1, 4: 0, 5: 3, 6: 4 };
+        const idx = mapa[posicao];
+        if (idx === undefined) return "";
+        return normalizarNumeroScout(rotacao[idx] || "");
+    }
+
+    function atletasEmQuadraDoLado(lado) {
+        const rotacao = lado === "A" ? rotA : rotB;
+        const elenco = atletasEquipePorLado(lado) || [];
+
+        const mapaElenco = new Map();
+        elenco.forEach((a) => {
+            const numero = normalizarNumeroScout(a.numero);
+            if (!numero) return;
+
+            mapaElenco.set(numero, {
+                valor: numero,
+                label: numero,
+                title: `${numero} - ${a.nome || "Atleta"}`,
+                nome: String(a.nome || "").trim(),
+                labelCompleto: `${numero} - ${a.nome || "Atleta"}`,
+                baseClass: "ponto-card"
+            });
+        });
+
+        const usados = new Set();
+        const opcoes = [];
+
+        (rotacao || []).forEach((numeroBruto) => {
+            const numero = normalizarNumeroScout(numeroBruto);
+            if (!numero || usados.has(numero)) return;
+
+            usados.add(numero);
+
+            if (mapaElenco.has(numero)) {
+                opcoes.push(mapaElenco.get(numero));
+            } else {
+                opcoes.push({
+                    valor: numero,
+                    label: numero,
+                    title: numero,
+                    nome: "",
+                    labelCompleto: numero,
+                    baseClass: "ponto-card"
+                });
+            }
+        });
+
+        return opcoes;
+    }
+
+    function opcoesAtletaScoutPonto() {
+        const lado = ladoResponsavelScout();
+        if (!lado) return [];
+
+        const atletasQuadra = atletasEmQuadraDoLado(lado);
+        if (!atletasQuadra.length) return [];
+
+        if (detalheLancePontoTemp === "ataque") {
+            return atletasQuadra;
+        }
+
+        if (detalheLancePontoTemp === "bloqueio") {
+            const rotacao = lado === "A" ? rotA : rotB;
+            const numerosPermitidos = new Set(
+                [2, 3, 4]
+                    .map((p) => atletaDaPosicao(rotacao, p))
+                    .filter(Boolean)
+            );
+
+            return atletasQuadra.filter((a) => numerosPermitidos.has(normalizarNumeroScout(a.valor)));
+        }
+
+        if (detalheLancePontoTemp === "ace") {
+            const rotacao = lado === "A" ? rotA : rotB;
+            const sacador = atletaDaPosicao(rotacao, 1);
+            if (!sacador) return [];
+
+            return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
+        }
+
+        return [];
+    }
+
+    function pontoExigeDetalhe() {
+        return !!tipoLancePontoTemp;
+    }
+
+    function pontoExigeAtleta() {
+        if (!tipoLancePontoTemp || !detalheLancePontoTemp) return false;
+
+        if (tipoLancePontoTemp === "erro") return false;
+        if (tipoLancePontoTemp === "falta") return false;
+
+        return [
+            "ataque",
+            "bloqueio",
+            "ace"
+        ].includes(detalheLancePontoTemp);
+    }
+
+    function podeConfirmarPontoAvancado() {
+        if (!equipePontoTemp) return false;
+        if (!tipoLancePontoTemp) return false;
+        if (pontoExigeDetalhe() && !detalheLancePontoTemp) return false;
+        if (pontoExigeAtleta() && !normalizarNumeroScout(atletaNumeroPontoTemp)) return false;
+        return true;
+    }
+
+    function renderLista(container, opcoes, selecionado, classeAtiva, onSelect, vazioTexto) {
+        container.innerHTML = "";
+        if (!opcoes.length) {
+            container.innerHTML = `<div style="font-size:13px; color:#6b7c8c;">${vazioTexto}</div>`;
+            return;
+        }
+
+        opcoes.forEach((opcao) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = (opcao.baseClass || "substituicao-card") + (String(selecionado) === String(opcao.valor) ? ` ${classeAtiva}` : "");
+            btn.textContent = opcao.label;
+            btn.title = opcao.title || opcao.label;
+            btn.addEventListener("click", function () {
+                onSelect(opcao.valor);
+            });
+            container.appendChild(btn);
+        });
+    }
+
+    function opcoesSaidaPorLado(lado) {
+        const rotacao = lado === "A" ? rotA : rotB;
+        const elenco = atletasEquipePorLado(lado);
+        const emQuadra = new Set(rotacao.map((n) => String(n || "").trim()).filter(Boolean));
+
+        return elenco
+            .filter((a) => emQuadra.has(String(a.numero).trim()))
+            .map((a) => ({
+                valor: String(a.numero).trim(),
+                label: String(a.numero).trim(),
+                title: `${a.numero} - ${a.nome || "Atleta"}`,
+                baseClass: "substituicao-card"
+            }));
+    }
+
+    function opcoesEntradaPorLado(lado, numeroSai) {
+        const rotacao = lado === "A" ? rotA : rotB;
+        const elenco = atletasEquipePorLado(lado);
+        const emQuadra = new Set(rotacao.map((n) => String(n || "").trim()).filter(Boolean));
+        const mapaStatus = statusMapaPorLado(lado);
+        const statusSai = mapaStatus[String(numeroSai || "").trim()];
+
+        if (statusSai && statusSai.tipo === "substituto" && statusSai.vinculo) {
+            return elenco
+                .filter((a) => String(a.numero).trim() === String(statusSai.vinculo).trim())
+                .map((a) => ({
+                    valor: String(a.numero).trim(),
+                    label: String(a.numero).trim(),
+                    title: `${a.numero} - ${a.nome || "Atleta"}`,
+                    baseClass: "substituicao-card"
+                }));
+        }
+
+        return elenco
+            .filter((a) => !emQuadra.has(String(a.numero).trim()))
+            .map((a) => ({
+                valor: String(a.numero).trim(),
+                label: String(a.numero).trim(),
+                title: `${a.numero} - ${a.nome || "Atleta"}`,
+                baseClass: "substituicao-card"
+            }));
+    }
+
+    function atualizarOpcoesEntrada() {
+        if (!equipeSubAtual || !numeroSaiSelecionado) {
+            renderLista(subEntraLista, [], "", "ativo-entra", function(){}, "Nenhuma opção válida para entrada.");
+            return;
+        }
+
+        const opcoes = opcoesEntradaPorLado(equipeSubAtual, numeroSaiSelecionado);
+
+        if (numeroEntraSelecionado && !opcoes.some((o) => String(o.valor) === String(numeroEntraSelecionado))) {
+            numeroEntraSelecionado = "";
+        }
+
+        renderLista(
+            subEntraLista,
+            opcoes,
+            numeroEntraSelecionado,
+            "ativo-entra",
+            function (valor) {
+                numeroEntraSelecionado = String(valor);
+                atualizarOpcoesEntrada();
+                atualizarResumoSubstituicao();
+            },
+            "Nenhuma opção válida para entrada."
+        );
+    }
+
+    function atualizarResumoSubstituicao() {
+    if (!subResumo) return;
+
+    if (!equipeSubAtual) {
+        subResumo.textContent = "Selecione quem sai e quem entra.";
+        return;
+    }
+
+    const nomeEquipe = nomeEquipePorLado(equipeSubAtual);
+
+    const sai = numeroSaiSelecionado
+        ? `sai #${numeroSaiSelecionado}`
+        : "selecione quem sai";
+
+    const entra = numeroEntraSelecionado
+        ? `entra #${numeroEntraSelecionado}`
+        : "selecione quem entra";
+
+    subResumo.textContent = `Equipe ${nomeEquipe}: ${sai} • ${entra}`;
+}
+
+    function renderSaidaSubstituicao(lado) {
+        const opcoesSai = opcoesSaidaPorLado(lado);
+
+        renderLista(
+            subSaiLista,
+            opcoesSai,
+            numeroSaiSelecionado,
+            "ativo-sai",
+            function (valor) {
+                numeroSaiSelecionado = String(valor);
+                numeroEntraSelecionado = "";
+                renderSaidaSubstituicao(lado);
+                atualizarOpcoesEntrada();
+                atualizarResumoSubstituicao();
+            },
+            "Nenhum atleta disponível em quadra."
+        );
+    }
+
+    function abrirModalSubstituicao(lado) {
+        equipeSubAtual = lado;
+        numeroSaiSelecionado = "";
+        numeroEntraSelecionado = "";
+        subEquipeTexto.textContent = `Equipe ${nomeEquipePorLado(lado)}`;
+        renderSaidaSubstituicao(lado);
+        renderLista(subEntraLista, [], "", "ativo-entra", function(){}, "Nenhuma opção válida para entrada.");
+        atualizarResumoSubstituicao();
+        modalSubFundo.style.display = "flex";
+    }
+
+    function fecharModalSubstituicao() {
+        modalSubFundo.style.display = "none";
+        equipeSubAtual = null;
+        numeroSaiSelecionado = "";
+        numeroEntraSelecionado = "";
+        subSaiLista.innerHTML = "";
+        subEntraLista.innerHTML = "";
+        subResumo.textContent = "Selecione quem sai e quem entra.";
+    }
+
+    function membrosEquipePorLado(lado, tipoPessoa) {
+        const atletas = atletasEquipePorLado(lado).map((a) => {
+            const numero = String(a.numero || a.id || a.nome || "").trim();
+            const nome = String(a.nome || "Atleta").trim();
+            return {
+                valor: numero,
+                label: numero || nome,
+                title: `${numero || "-"} - ${nome}`,
+                nome: nome,
+                labelCompleto: numero ? `#${numero} - ${nome}` : nome
+            };
+        });
+
+        if (tipoPessoa === "atleta") {
+            return atletas;
+        }
+
+        return [
+            { valor: "tecnico", label: "Técnico", title: "Técnico", nome: "Técnico", labelCompleto: "Técnico" },
+            { valor: "auxiliar", label: "Auxiliar", title: "Auxiliar", nome: "Auxiliar", labelCompleto: "Auxiliar" },
+            { valor: "membro", label: "Membro", title: "Membro autorizado", nome: "Membro", labelCompleto: "Membro autorizado" }
+        ];
+    }
+
+    function atualizarResumoSancao() {
+        sancaoResumo.innerHTML = `Equipe: <strong>${sancaoEquipeAtual || "-"}</strong> &nbsp;•&nbsp; Pessoa: <strong>${sancaoTipoPessoaAtual || "-"}</strong> &nbsp;•&nbsp; Alvo: <strong>${sancaoAlvoLabelAtual || sancaoAlvoAtual || "-"}</strong> &nbsp;•&nbsp; Tipo: <strong>${sancaoTipoAtual || "-"}</strong>`;
+    }
+
+    function renderSancaoEquipe() {
+        renderLista(
+            sancaoEquipeLista,
+            [
+                { valor: "A", label: "{{ partida.equipe_a }}", baseClass: "sancao-card" },
+                { valor: "B", label: "{{ partida.equipe_b }}", baseClass: "sancao-card" }
+            ],
+            sancaoEquipeAtual,
+            "ativo",
+            function (valor) {
+                sancaoEquipeAtual = valor;
+                sancaoAlvoAtual = "";
+                sancaoAlvoNomeAtual = "";
+                sancaoAlvoLabelAtual = "";
+                renderSancaoEquipe();
+                renderSancaoAlvo();
+                atualizarResumoSancao();
+            },
+            "Sem equipes."
+        );
+    }
+
+    function renderSancaoTipoPessoa() {
+        renderLista(
+            sancaoTipoPessoaLista,
+            [
+                { valor: "atleta", label: "Atleta", baseClass: "sancao-card" },
+                { valor: "tecnico", label: "Técnico", baseClass: "sancao-card" },
+                { valor: "auxiliar", label: "Auxiliar", baseClass: "sancao-card" },
+                { valor: "membro", label: "Membro", baseClass: "sancao-card" }
+            ],
+            sancaoTipoPessoaAtual,
+            "ativo",
+            function (valor) {
+                sancaoTipoPessoaAtual = valor;
+                sancaoAlvoAtual = "";
+                sancaoAlvoNomeAtual = "";
+                sancaoAlvoLabelAtual = "";
+                renderSancaoTipoPessoa();
+                renderSancaoAlvo();
+                atualizarResumoSancao();
+            },
+            "Sem tipos."
+        );
+    }
+
+    function renderSancaoAlvo() {
+        const opcoesAlvo = (sancaoEquipeAtual && sancaoTipoPessoaAtual)
+            ? membrosEquipePorLado(sancaoEquipeAtual, sancaoTipoPessoaAtual).map((o) => ({ ...o, baseClass: "sancao-card" }))
+            : [];
+
+        renderLista(
+            sancaoAlvoLista,
+            opcoesAlvo,
+            sancaoAlvoAtual,
+            "ativo",
+            function (valor) {
+                const selecionado = opcoesAlvo.find((o) => String(o.valor) === String(valor));
+                sancaoAlvoAtual = valor;
+                sancaoAlvoNomeAtual = String((selecionado && selecionado.nome) || "").trim();
+                sancaoAlvoLabelAtual = String((selecionado && (selecionado.labelCompleto || selecionado.title || selecionado.label)) || valor || "").trim();
+                renderSancaoAlvo();
+                atualizarResumoSancao();
+            },
+            "Selecione equipe e tipo."
+        );
+    }
+
+    function renderSancaoTipo() {
+        renderLista(
+            sancaoTipoLista,
+            [
+                { valor: "advertencia", label: "Advertência", baseClass: "sancao-card" },
+                { valor: "penalidade", label: "Penalidade", baseClass: "sancao-card" },
+                { valor: "expulsao", label: "Expulsão", baseClass: "sancao-card" },
+                { valor: "desqualificacao", label: "Desqualificação", baseClass: "sancao-card" }
+            ],
+            sancaoTipoAtual,
+            "ativo",
+            function (valor) {
+                sancaoTipoAtual = valor;
+                renderSancaoTipo();
+                atualizarResumoSancao();
+            },
+            "Sem tipos."
+        );
+    }
+
+function renderRetardamentoEquipe() {
+    renderLista(
+        retardamentoEquipeLista,
+        [
+            { valor: "A", label: nomeEquipePorLado("A"), baseClass: "sancao-card" },
+            { valor: "B", label: nomeEquipePorLado("B"), baseClass: "sancao-card" }
+        ],
+        equipeRetardamentoAtual,
+        "ativo",
+        function (valor) {
+            equipeRetardamentoAtual = valor;
+            retardamentoResumo.innerHTML = `Equipe: <strong>${nomeEquipePorLado(valor)}</strong>`;
+            renderRetardamentoEquipe();
+        },
+        "Sem equipes."
+    );
+}
+
+function abrirModalRetardamento() {
+    equipeRetardamentoAtual = "";
+    renderRetardamentoEquipe();
+    retardamentoResumo.textContent = "Selecione a equipe que cometeu o retardamento.";
+    modalRetardamentoFundo.style.display = "flex";
+}
+
+function fecharModalRetardamento() {
+    modalRetardamentoFundo.style.display = "none";
+    equipeRetardamentoAtual = "";
+}
+
+function abrirModalSubExcepcional(equipe) {
+    if (partidaFinalizada || enviando) return;
+    equipeSubExAtual = equipe;
+    numeroSaiSubEx = "";
+    numeroEntraSubEx = "";
+    if (subExMotivoInput) subExMotivoInput.value = "";
+    subExEquipeTexto.textContent = `Equipe: ${nomeEquipePorLado(equipe)}`;
+    renderSubExSai();
+    renderSubExEntra();
+    atualizarResumoSubEx();
+    modalSubExFundo.style.display = "flex";
+}
+
+function fecharModalSubExcepcional() {
+    modalSubExFundo.style.display = "none";
+    equipeSubExAtual = "";
+    numeroSaiSubEx = "";
+    numeroEntraSubEx = "";
+    if (subExMotivoInput) subExMotivoInput.value = "";
+    subExResumo.textContent = "Selecione equipe, quem sai e quem entra.";
+}
+
+function renderSubExSai() {
+    const rotacao = equipeSubExAtual === "A" ? rotA : rotB;
+    const atletas = atletasEquipePorLado(equipeSubExAtual);
+    const opcoes = atletas
+        .filter((a) => rotacao.map((n) => String(n || "").trim()).includes(String(a.numero || "").trim()))
+        .map((a) => ({ valor: String(a.numero || "").trim(), label: String(a.numero || "").trim(), title: `${a.numero || "-"} - ${a.nome || "Atleta"}`, baseClass: "substituicao-card" }));
+    renderLista(subExSaiLista, opcoes, numeroSaiSubEx, "ativo-sai", function (valor) {
+        numeroSaiSubEx = valor;
+        if (numeroEntraSubEx === valor) numeroEntraSubEx = "";
+        renderSubExSai();
+        renderSubExEntra();
+        atualizarResumoSubEx();
+    }, "Sem atletas em quadra.");
+}
+
+function renderSubExEntra() {
+    const rotacao = equipeSubExAtual === "A" ? rotA : rotB;
+    const atletas = atletasEquipePorLado(equipeSubExAtual);
+    const bloqueios = dictSubExBloqueios(equipeSubExAtual);
+    const emQuadra = rotacao.map((n) => String(n || "").trim());
+    const opcoes = atletas
+        .filter((a) => {
+            const n = String(a.numero || "").trim();
+            if (!n || emQuadra.includes(n) || n === numeroSaiSubEx) return false;
+            return !bloqueios[n];
+        })
+        .map((a) => ({ valor: String(a.numero || "").trim(), label: String(a.numero || "").trim(), title: `${a.numero || "-"} - ${a.nome || "Atleta"}`, baseClass: "substituicao-card" }));
+    renderLista(subExEntraLista, opcoes, numeroEntraSubEx, "ativo-entra", function (valor) {
+        numeroEntraSubEx = valor;
+        renderSubExEntra();
+        atualizarResumoSubEx();
+    }, "Sem atletas disponíveis.");
+}
+
+function dictSubExBloqueios(equipe) {
+    const mapa = equipe === "A" ? statusJogadoresA : statusJogadoresB;
+    const out = {};
+    Object.keys(mapa || {}).forEach((k) => {
+        if ((mapa[k] || {}).tipo === "bloqueado_excepcional") out[k] = true;
+    });
+    return out;
+}
+
+function atualizarResumoSubEx() {
+    subExResumo.innerHTML = `Sai: <strong>${numeroSaiSubEx || "-"}</strong> &nbsp;•&nbsp; Entra: <strong>${numeroEntraSubEx || "-"}</strong> &nbsp;•&nbsp; Motivo: <strong>${(subExMotivoInput && subExMotivoInput.value.trim()) || "-"}</strong>`;
+}
+
+    function abrirModalSancao() {
+        sancaoEquipeAtual = "";
+        sancaoTipoPessoaAtual = "";
+        sancaoAlvoAtual = "";
+        sancaoAlvoNomeAtual = "";
+        sancaoAlvoLabelAtual = "";
+        sancaoTipoAtual = "";
+
+        renderSancaoEquipe();
+        renderSancaoTipoPessoa();
+        renderSancaoAlvo();
+        renderSancaoTipo();
+        atualizarResumoSancao();
+        modalSancaoFundo.style.display = "flex";
+    }
+
+    function fecharModalSancao() {
+        modalSancaoFundo.style.display = "none";
+        sancaoEquipeAtual = "";
+        sancaoTipoPessoaAtual = "";
+        sancaoAlvoAtual = "";
+        sancaoAlvoNomeAtual = "";
+        sancaoAlvoLabelAtual = "";
+        sancaoTipoAtual = "";
+        sancaoResumo.textContent = "Selecione equipe, pessoa, alvo e sanção.";
+    }
+
+    function atualizarResumoVerde() {
+        verdeResumo.innerHTML = `Equipe: <strong>${verdeEquipeAtual || "-"}</strong> &nbsp;•&nbsp; Pessoa: <strong>${verdeTipoPessoaAtual || "-"}</strong> &nbsp;•&nbsp; Alvo: <strong>${verdeAlvoLabelAtual || verdeAlvoAtual || "-"}</strong>`;
+    }
+
+    function renderVerdeEquipe() {
+        renderLista(
+            verdeEquipeLista,
+            [
+                { valor: "A", label: "{{ partida.equipe_a }}", baseClass: "verde-card" },
+                { valor: "B", label: "{{ partida.equipe_b }}", baseClass: "verde-card" }
+            ],
+            verdeEquipeAtual,
+            "ativo",
+            function (valor) {
+                verdeEquipeAtual = valor;
+                verdeAlvoAtual = "";
+                verdeAlvoNomeAtual = "";
+                verdeAlvoLabelAtual = "";
+                renderVerdeEquipe();
+                renderVerdeAlvo();
+                atualizarResumoVerde();
+            },
+            "Sem equipes."
+        );
+    }
+
+    function renderVerdeTipoPessoa() {
+        renderLista(
+            verdeTipoPessoaLista,
+            [
+                { valor: "atleta", label: "Atleta", baseClass: "verde-card" },
+                { valor: "tecnico", label: "Técnico", baseClass: "verde-card" },
+                { valor: "auxiliar", label: "Auxiliar", baseClass: "verde-card" },
+                { valor: "membro", label: "Membro", baseClass: "verde-card" }
+            ],
+            verdeTipoPessoaAtual,
+            "ativo",
+            function (valor) {
+                verdeTipoPessoaAtual = valor;
+                verdeAlvoAtual = "";
+                verdeAlvoNomeAtual = "";
+                verdeAlvoLabelAtual = "";
+                renderVerdeTipoPessoa();
+                renderVerdeAlvo();
+                atualizarResumoVerde();
+            },
+            "Sem tipos."
+        );
+    }
+
+    function renderVerdeAlvo() {
+        const opcoesAlvo = (verdeEquipeAtual && verdeTipoPessoaAtual)
+            ? membrosEquipePorLado(verdeEquipeAtual, verdeTipoPessoaAtual).map((o) => ({ ...o, baseClass: "verde-card" }))
+            : [];
+
+        renderLista(
+            verdeAlvoLista,
+            opcoesAlvo,
+            verdeAlvoAtual,
+            "ativo",
+            function (valor) {
+                const selecionado = opcoesAlvo.find((o) => String(o.valor) === String(valor));
+                verdeAlvoAtual = valor;
+                verdeAlvoNomeAtual = String((selecionado && selecionado.nome) || "").trim();
+                verdeAlvoLabelAtual = String((selecionado && (selecionado.labelCompleto || selecionado.title || selecionado.label)) || valor || "").trim();
+                renderVerdeAlvo();
+                atualizarResumoVerde();
+            },
+            "Selecione equipe e tipo."
+        );
+    }
+
+    function abrirModalPonto(equipe) {
+        equipePontoTemp = equipe;
+        tipoLancePontoTemp = "";
+        detalheLancePontoTemp = "";
+        atletaNumeroPontoTemp = "";
+        atletaNomePontoTemp = "";
+        atletaLabelPontoTemp = "";
+        pontoEquipeTexto.textContent = `Equipe que recebeu o ponto: ${nomeEquipePorLado(equipe)}`;
+        renderFluxoPonto();
+        modalPontoFundo.style.display = "flex";
+    }
+
+    function fecharModalPonto() {
+        modalPontoFundo.style.display = "none";
+        equipePontoTemp = "";
+        tipoLancePontoTemp = "";
+        detalheLancePontoTemp = "";
+        atletaNumeroPontoTemp = "";
+        atletaNomePontoTemp = "";
+        atletaLabelPontoTemp = "";
+        pontoResultadoBloco.style.display = "none";
+        pontoTipoErroBloco.style.display = "none";
+        pontoAtletaBloco.style.display = "none";
+        pontoFundamentoLista.innerHTML = "";
+        pontoResultadoLista.innerHTML = "";
+        pontoTipoErroLista.innerHTML = "";
+        pontoAtletaLista.innerHTML = "";
+        pontoResumo.textContent = "Escolha primeiro se foi ponto, erro ou falta.";
+        if (btnPontoConfirmar) btnPontoConfirmar.disabled = false;
+    }
+
+    function renderFundamentosPonto() {
+        const opcoes = tiposLancePonto.map((item) => ({
+            valor: item.valor,
+            label: item.label,
+            baseClass: "ponto-card"
+        }));
+
+        renderLista(
+            pontoFundamentoLista,
+            opcoes,
+            tipoLancePontoTemp,
+            "ativo",
+            function (valor) {
+                tipoLancePontoTemp = String(valor || "").trim();
+                detalheLancePontoTemp = "";
+                atletaNumeroPontoTemp = "";
+                atletaNomePontoTemp = "";
+                atletaLabelPontoTemp = "";
+                renderFluxoPonto();
+            },
+            "Nenhuma opção disponível."
+        );
+    }
+
+    function renderDetalhesPonto() {
+        const opcoes = opcoesDetalhePorTipo().map((item) => ({
+            valor: item.valor,
+            label: item.label,
+            baseClass: "ponto-card"
+        }));
+
+        pontoResultadoBloco.style.display = tipoLancePontoTemp ? "block" : "none";
+
+        renderLista(
+            pontoResultadoLista,
+            opcoes,
+            detalheLancePontoTemp,
+            "ativo",
+            function (valor) {
+                detalheLancePontoTemp = String(valor || "").trim();
+                atletaNumeroPontoTemp = "";
+                atletaNomePontoTemp = "";
+                atletaLabelPontoTemp = "";
+                renderFluxoPonto();
+            },
+            "Selecione primeiro o tipo."
+        );
+    }
+
+    function renderAtletasPonto() {
+        const exige = pontoExigeAtleta();
+
+        pontoAtletaBloco.style.display = exige ? "block" : "none";
+        pontoTipoErroBloco.style.display = "none";
+        pontoAtletaLabel.textContent = "4. Quem fez?";
+
+        if (!exige) {
+            atletaNumeroPontoTemp = "";
+            atletaNomePontoTemp = "";
+            atletaLabelPontoTemp = "";
+            pontoAtletaLista.innerHTML = "";
+            atualizarResumoPonto();
+            return;
+        }
+
+        const opcoes = opcoesAtletaScoutPonto();
+
+        if (
+            atletaNumeroPontoTemp &&
+            !opcoes.some((o) => normalizarNumeroScout(o.valor) === normalizarNumeroScout(atletaNumeroPontoTemp))
+        ) {
+            atletaNumeroPontoTemp = "";
+            atletaNomePontoTemp = "";
+            atletaLabelPontoTemp = "";
+        }
+
+        renderLista(
+            pontoAtletaLista,
+            opcoes,
+            atletaNumeroPontoTemp,
+            "ativo",
+            function (valor) {
+                const selecionado = opcoes.find((o) => normalizarNumeroScout(o.valor) === normalizarNumeroScout(valor));
+                atletaNumeroPontoTemp = normalizarNumeroScout(valor);
+                atletaNomePontoTemp = String((selecionado && selecionado.nome) || "").trim();
+                atletaLabelPontoTemp = String(
+                    (selecionado && (selecionado.labelCompleto || selecionado.title || selecionado.label)) || valor || ""
+                ).trim();
+                atualizarResumoPonto();
+            },
+            "Nenhum atleta disponível para este lance."
+        );
+
+        atualizarResumoPonto();
+    }
+
+    function renderFluxoPonto() {
+        renderFundamentosPonto();
+        renderDetalhesPonto();
+        renderAtletasPonto();
+        atualizarResumoPonto();
+    }
+
+    function normalizarRespostaJogo(dados) {
+        if (!dados || typeof dados !== "object") return {};
+
+        if (dados.estado && typeof dados.estado === "object") {
+            dados = {
+                ...dados.estado,
+                ok: dados.ok,
+                mensagem: dados.mensagem || dados.estado.mensagem || "",
+                evento: dados.evento,
+                set_finalizado: dados.set_finalizado,
+                redirecionar_papeleta: dados.redirecionar_papeleta,
+                redirecionar_tiebreak: dados.redirecionar_tiebreak,
+                partida_finalizada: dados.partida_finalizada,
+                abrir_observacoes: dados.abrir_observacoes,
+                encerrado: dados.encerrado,
+                url: dados.url,
+                url_redirecionamento: dados.url_redirecionamento
+            };
+        }
+
+        const pontosA = dados.pontos_a ?? dados.placar_a ?? 0;
+        const pontosB = dados.pontos_b ?? dados.placar_b ?? 0;
+        const rotacaoA = dados.rotacao_a ?? (dados.rotacao && dados.rotacao.equipe_a) ?? [];
+        const rotacaoB = dados.rotacao_b ?? (dados.rotacao && dados.rotacao.equipe_b) ?? [];
+
+        return {
+            ...dados,
+            pontos_a: pontosA,
+            pontos_b: pontosB,
+            placar_a: pontosA,
+            placar_b: pontosB,
+            rotacao_a: rotacaoA,
+            rotacao_b: rotacaoB,
+            historico: Array.isArray(dados.historico) ? dados.historico.slice(0, 5) : [],
+            ultima_acao: dados.ultima_acao ?? "-"
+        };
+    }
+
+    function agendarSincronizacao(delay = 250, forcar = false) {
+        if (!forcar && socketConectado) return;
+
+        if (syncTimer) clearTimeout(syncTimer);
+
+        syncTimer = setTimeout(() => {
+            sincronizarEstadoJogo();
+        }, delay);
+    }
+
+
+    async function sincronizarEstadoJogo() {
+        if (socketConectado) return;
+        if (Date.now() < bloquearSyncAte) return;
+
+        const token = ++ultimoTokenSync;
+
+        try {
+            const resposta = await fetch(
+                "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
+                {
+                    method: "GET",
+                    headers: { "X-Requested-With": "fetch" },
+                    cache: "no-store"
+                }
+            );
+
+            const bruto = await resposta.json();
+            const dados = normalizarRespostaJogo(bruto);
+
+            if (!resposta.ok || !dados.ok) return;
+            if (token !== ultimoTokenSync) return;
+
+            aplicarEstado(dados);
+        } catch (e) {
+            // silencioso
+        }
+    }
+
+
+    function aplicarPontoOtimista(equipe, scout) {
+        const atualA = parseInt(pontosA.textContent || "0", 10);
+        const atualB = parseInt(pontosB.textContent || "0", 10);
+
+        const novoA = equipe === "A" ? atualA + 1 : atualA;
+        const novoB = equipe === "B" ? atualB + 1 : atualB;
+
+        pontosA.textContent = novoA;
+        pontosB.textContent = novoB;
+
+        // Protege a tela contra pacote/socket antigo chegando atrasado.
+        placarProtegidoAte = Date.now() + 1800;
+        bloquearSyncAte = Date.now() + 900;
+
+        const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
+        atualizarUltimaAcao(`Registrando ${detalhe} para equipe ${equipe}...`);
+    }
+
+    function registrarPonto(equipe, scout) {
+    if (partidaFinalizada) return;
+
+    limparErro();
+
+    const pontosAntesA = parseInt(pontosA.textContent || "0", 10);
+    const pontosAntesB = parseInt(pontosB.textContent || "0", 10);
+    const rotAntesA = [...rotA];
+    const rotAntesB = [...rotB];
+    const saqueAntes = saqueAtual;
+
+    aplicarPontoOtimista(equipe, scout);
+    fecharModalPonto();
+
+    fetch("{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "fetch"
+        },
+        body: JSON.stringify({
+            equipe,
+            fundamento: scout?.fundamento || "",
+            resultado: scout?.resultado || "",
+            tipo_lance: scout?.tipo_lance || "",
+            detalhe_lance: scout?.detalhe_lance || "",
+            tipo_erro: scout?.tipo_erro || "",
+            atleta_numero: scout?.atleta_numero || "",
+            atleta_nome: scout?.atleta_nome || "",
+            atleta_label: scout?.atleta_label || ""
+        })
+    })
+    .then(res => res.json())
+    .then(dados => {
+
+        if (!dados.ok) {
+            // rollback
+            pontosA.textContent = pontosAntesA;
+            pontosB.textContent = pontosAntesB;
+            rotA = rotAntesA;
+            rotB = rotAntesB;
+            saqueAtual = saqueAntes;
+            renderQuadra();
+            mostrarErro(dados.mensagem || "Erro ao registrar ponto.");
+            return;
+        }
+
+        ultimoTokenSync++;
+
+        placarProtegidoAte = Date.now() + 600;
+        bloquearSyncAte = Date.now() + 300;
+        rotacaoProtegidaAte = Date.now() + 600;
+
+        aplicarEstado(dados);
+
+        if (dados.set_finalizado) {
+            atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
+
+            if (dados.partida_finalizada) {
+                partidaFinalizada = true;
+                alert("Partida encerrada.");
+                return;
+            }
+
+            if (dados.redirecionar_tiebreak) {
+                window.location.href = "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}";
+                return;
+            }
+
+            if (dados.redirecionar_papeleta) {
+                window.location.href = "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}";
+                return;
+            }
+        }
+    })
+    .catch(() => {
+        pontosA.textContent = pontosAntesA;
+        pontosB.textContent = pontosAntesB;
+        rotA = rotAntesA;
+        rotB = rotAntesB;
+        saqueAtual = saqueAntes;
+        renderQuadra();
+        mostrarErro("Erro de conexão.");
+    });
+}
+
+    async function registrarSubstituicao() {
+        if (enviando || partidaFinalizada || !equipeSubAtual) return;
+        if (!numeroSaiSelecionado || !numeroEntraSelecionado) {
+            mostrarErro("Selecione corretamente quem sai e quem entra.");
+            return;
+        }
+
+        enviando = true;
+        travarBotoes(true);
+        limparErro();
+
+        try {
+            const resposta = await fetch(
+                "{{ url_for('apontadores.registrar_substituicao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "fetch"
+                    },
+                    body: JSON.stringify({
+                        equipe: equipeSubAtual,
+                        numero_sai: numeroSaiSelecionado,
+                        numero_entra: numeroEntraSelecionado
+                    })
+                }
+            );
+
+            const bruto = await resposta.json();
+            const dados = normalizarRespostaJogo(bruto);
+            if (!resposta.ok || !dados.ok) {
+                mostrarErro(dados.mensagem || "Erro ao registrar substituição.");
+                return;
+            }
+
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+            fecharModalSubstituicao();
+        } catch (e) {
+            mostrarErro("Falha ao registrar substituição.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
+    }
+
+    function confirmarPontoAvancado() {
+        if (!podeConfirmarPontoAvancado()) {
+            mostrarErro("Complete o scout antes de confirmar.");
+            return;
+        }
+
+        const scout = {
+            fundamento: detalheLancePontoTemp || null,
+            resultado: tipoLancePontoTemp || null,
+            tipo_erro: tipoLancePontoTemp === "erro" ? (detalheLancePontoTemp || null) : null,
+            tipo_lance: tipoLancePontoTemp || null,
+            detalhe_lance: detalheLancePontoTemp || null,
+            responsavel_lado: tipoLancePontoTemp === "ponto" ? equipePontoTemp : ladoOponente(equipePontoTemp),
+            atleta_numero: atletaNumeroPontoTemp || null,
+            atleta_nome: atletaNomePontoTemp || null,
+            atleta_label: atletaLabelPontoTemp || null
+        };
+
+        const equipe = equipePontoTemp;
+        registrarPonto(equipe, scout);
+    }
+
+    async function desfazerAcao() {
+        if (enviando) return;
+
+        enviando = true;
+        travarBotoes(true);
+        limparErro();
+
+        try {
+            const resposta = await fetch(
+                "{{ url_for('apontadores.desfazer_acao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+                {
+                    method: "POST",
+                    headers: { "X-Requested-With": "fetch" }
+                }
+            );
+
+            const dadosBrutos = await resposta.json();
+            const dados = normalizarRespostaJogo(dadosBrutos);
+
+            if (!resposta.ok || !dados.ok) {
+                mostrarErro(dados.mensagem || "Erro ao desfazer.");
+                return;
+            }
+
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+        } catch (e) {
+            mostrarErro("Falha ao desfazer ação.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
+    }
+
+    async function registrarTempo(equipe) {
+        if (enviando || partidaFinalizada) return;
+
+        enviando = true;
+        travarBotoes(true);
+        limparErro();
+
+        try {
+            const resposta = await fetch(
+                "{{ url_for('apontadores.registrar_tempo_view', competicao=competicao_nome, partida_id=partida.id) }}",
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                    body: JSON.stringify({ equipe: equipe })
+                }
+            );
+
+            const dadosBrutos = await resposta.json();
+            const dados = normalizarRespostaJogo(dadosBrutos);
+
+            if (!resposta.ok || !dados.ok) {
+                mostrarErro(dados.mensagem || "Erro ao registrar tempo.");
+                return;
+            }
+
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+            iniciarCronometro(30);
+        } catch (e) {
+            mostrarErro("Erro ao registrar tempo.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
+    }
+
+    async function registrarSancao() {
+        if (enviando || partidaFinalizada) return;
+
+        if (!sancaoEquipeAtual || !sancaoTipoPessoaAtual || !sancaoAlvoAtual || !sancaoTipoAtual) {
+            mostrarErro("Selecione equipe, tipo de pessoa, alvo e sanção.");
+            return;
+        }
+
+        const tipoBackend = mapaTipoSancao[sancaoTipoAtual];
+        if (!tipoBackend) {
+            mostrarErro("Tipo de sanção inválido.");
+            return;
+        }
+
+        const payload = {
+            equipe: sancaoEquipeAtual,
+            tipo_pessoa: sancaoTipoPessoaAtual,
+            alvo: sancaoAlvoAtual,
+            tipo_sancao: tipoBackend,
+            numero: sancaoTipoPessoaAtual === "atleta" ? sancaoAlvoAtual : "",
+            nome: sancaoTipoPessoaAtual === "atleta" ? sancaoAlvoNomeAtual : (sancaoAlvoNomeAtual || sancaoAlvoAtual)
+        };
+
+        enviando = true;
+        travarBotoes(true);
+        limparErro();
+
+        try {
+            const resposta = await fetch(
+                "{{ url_for('apontadores.registrar_sancao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "fetch"
+                    },
+                    body: JSON.stringify(payload)
+                }
+            );
+
+            const dadosBrutos = await resposta.json();
+            const dados = normalizarRespostaJogo(dadosBrutos);
+
+            if (!resposta.ok || !dados.ok) {
+                mostrarErro(dados.mensagem || "Erro ao registrar sanção.");
+                return;
+            }
+
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+            fecharModalSancao();
+        } catch (e) {
+            mostrarErro("Falha ao registrar sanção.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
+    }
+
+    async function registrarCartaoVerde() {
+        if (enviando || partidaFinalizada) return;
+
+        if (!verdeEquipeAtual || !verdeTipoPessoaAtual || !verdeAlvoAtual) {
+            mostrarErro("Selecione equipe, tipo de pessoa e alvo.");
+            return;
+        }
+
+        const payload = {
+            equipe: verdeEquipeAtual,
+            tipo_pessoa: verdeTipoPessoaAtual,
+            alvo: verdeAlvoAtual,
+            numero: verdeTipoPessoaAtual === "atleta" ? verdeAlvoAtual : "",
+            nome: verdeTipoPessoaAtual === "atleta" ? verdeAlvoNomeAtual : (verdeAlvoNomeAtual || verdeAlvoAtual)
+        };
+
+        enviando = true;
+        travarBotoes(true);
+        limparErro();
+
+        try {
+            const resposta = await fetch(
+                "{{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) }}",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "fetch"
+                    },
+                    body: JSON.stringify(payload)
+                }
+            );
+
+            const dadosBrutos = await resposta.json();
+            const dados = normalizarRespostaJogo(dadosBrutos);
+
+            if (!resposta.ok || !dados.ok) {
+                mostrarErro(dados.mensagem || "Erro ao registrar cartão verde.");
+                return;
+            }
+
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+            fecharModalPonto();
+        } catch (e) {
+            mostrarErro("Falha ao registrar cartão verde.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
+    }
+
+async function registrarRetardamento() {
+    if (enviando || partidaFinalizada || !equipeRetardamentoAtual) return;
+    enviando = true;
+    travarBotoes(true);
+    limparErro();
+    try {
+        const resposta = await fetch(
+            "{{ url_for('apontadores.registrar_retardamento_view', competicao=competicao_nome, partida_id=partida.id) }}",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                body: JSON.stringify({ equipe: equipeRetardamentoAtual })
+            }
+        );
+        const dadosBrutos = await resposta.json();
+        const dados = normalizarRespostaJogo(dadosBrutos);
+        if (!resposta.ok || !dados.ok) {
+            mostrarErro(dados.mensagem || "Erro ao registrar retardamento.");
+            return;
+        }
+        ultimoTokenSync++;
+        aplicarEstado(dados);
+        fecharModalRetardamento();
+    } catch (e) {
+        mostrarErro("Falha ao registrar retardamento.");
+    } finally {
+        enviando = false;
+        travarBotoes(false);
+    }
+}
+
+async function registrarSubstituicaoExcepcional() {
+    if (enviando || partidaFinalizada || !equipeSubExAtual) return;
+    const numeroSai = String(numeroSaiSubEx || "").trim();
+    const numeroEntra = String(numeroEntraSubEx || "").trim();
+    const motivo = String((subExMotivoInput && subExMotivoInput.value) || "").trim();
+    if (!numeroSai || !numeroEntra) {
+        mostrarErro("Selecione corretamente quem sai e quem entra.");
+        return;
+    }
+    enviando = true;
+    travarBotoes(true);
+    limparErro();
+    try {
+        const resposta = await fetch(
+            "{{ url_for('apontadores.registrar_substituicao_excepcional_view', competicao=competicao_nome, partida_id=partida.id) }}",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                body: JSON.stringify({ equipe: equipeSubExAtual, numero_sai: numeroSai, numero_entra: numeroEntra, motivo: motivo })
+            }
+        );
+        const dadosBrutos = await resposta.json();
+        const dados = normalizarRespostaJogo(dadosBrutos);
+        if (!resposta.ok || !dados.ok) {
+            mostrarErro(dados.mensagem || "Erro ao registrar substituição excepcional.");
+            return;
+        }
+        ultimoTokenSync++;
+        aplicarEstado(dados);
+        fecharModalSubExcepcional();
+    } catch (e) {
+        mostrarErro("Falha ao registrar substituição excepcional.");
+    } finally {
+        enviando = false;
+        travarBotoes(false);
+    }
+}
+
+    function tratarCliquePonto(equipe) {
+        limparErro();
+        if (enviando || partidaFinalizada) return;
+        abrirModalPonto(equipe);
+    }
+
+    function tratarAtalhosModalPonto(event) {
+        if (modalPontoFundo.style.display !== "flex") return;
+        const tecla = String(event.key || "").toLowerCase();
+
+        if (tecla === "escape") {
+            event.preventDefault();
+            fecharModalPonto();
+            return;
+        }
+
+        if ((tecla === "enter" || tecla === "return") && podeConfirmarPontoAvancado()) {
+            event.preventDefault();
+            confirmarPontoAvancado();
+            return;
+        }
+
+        if (!tipoLancePontoTemp) {
+            const mapa = { "p": "ponto", "e": "erro", "f": "falta" };
+            if (mapa[tecla]) {
+                event.preventDefault();
+                tipoLancePontoTemp = mapa[tecla];
+                detalheLancePontoTemp = "";
+                atletaNumeroPontoTemp = "";
+                atletaNomePontoTemp = "";
+                atletaLabelPontoTemp = "";
+                renderFluxoPonto();
+            }
+            return;
+        }
+
+        if (tipoLancePontoTemp && !detalheLancePontoTemp) {
+            const opcoes = opcoesDetalhePorTipo();
+            const idx = ["1","2","3","4","5"].indexOf(tecla);
+            if (idx >= 0 && opcoes[idx]) {
+                event.preventDefault();
+                detalheLancePontoTemp = opcoes[idx].valor;
+                atletaNumeroPontoTemp = "";
+                atletaNomePontoTemp = "";
+                atletaLabelPontoTemp = "";
+                renderFluxoPonto();
+            }
+            return;
+        }
+
+        if (pontoExigeAtleta() && !atletaNumeroPontoTemp) {
+            const opcoes = opcoesAtletaScoutPonto();
+            const idx = ["1","2","3","4","5","6"].indexOf(tecla);
+            if (idx >= 0 && opcoes[idx]) {
+                event.preventDefault();
+                atletaNumeroPontoTemp = String(opcoes[idx].valor || "").trim();
+                atletaNomePontoTemp = String(opcoes[idx].nome || "").trim();
+                atletaLabelPontoTemp = String(opcoes[idx].labelCompleto || opcoes[idx].title || opcoes[idx].valor || "").trim();
+                atualizarResumoPonto();
+            }
+        }
+    }
+
+    btnA.addEventListener("click", function () { tratarCliquePonto("A"); });
+    btnB.addEventListener("click", function () { tratarCliquePonto("B"); });
+    btnDesfazer.addEventListener("click", function () { desfazerAcao(); });
+    btnTempoA.addEventListener("click", function () { registrarTempo("A"); });
+    btnTempoB.addEventListener("click", function () { registrarTempo("B"); });
+    btnSubA.addEventListener("click", function () { abrirModalSubstituicao("A"); });
+    btnSubB.addEventListener("click", function () { abrirModalSubstituicao("B"); });
+    btnSancao.addEventListener("click", function () { abrirModalSancao(); });
+    btnVerde.addEventListener("click", function () { abrirModalVerde(); });
+
+btnRetardamento.addEventListener("click", function () { abrirModalRetardamento(); });
+btnSubExcepcional.addEventListener("click", function () {
+    const equipe = window.prompt("Substituição excepcional de qual equipe? Digite A ou B", "A");
+    if (!equipe) return;
+    const lado = String(equipe).trim().toUpperCase();
+    if (lado !== "A" && lado !== "B") return;
+    abrirModalSubExcepcional(lado);
+});
+btnFullscreen.addEventListener("click", alternarTelaCheia);
+btnInverterLados.addEventListener("click", inverterLadosVisual);
+
+btnRetardamentoCancelar.addEventListener("click", fecharModalRetardamento);
+btnRetardamentoConfirmar.addEventListener("click", registrarRetardamento);
+
+btnSubExCancelar.addEventListener("click", fecharModalSubExcepcional);
+btnSubExConfirmar.addEventListener("click", registrarSubstituicaoExcepcional);
+
+    btnSubCancelar.addEventListener("click", fecharModalSubstituicao);
+    btnSubConfirmar.addEventListener("click", registrarSubstituicao);
+
+    btnSancaoCancelar.addEventListener("click", fecharModalSancao);
+    btnSancaoConfirmar.addEventListener("click", registrarSancao);
+
+    btnVerdeCancelar.addEventListener("click", fecharModalPonto);
+    btnVerdeConfirmar.addEventListener("click", registrarCartaoVerde);
+
+    btnPontoCancelar.addEventListener("click", fecharModalPonto);
+    btnPontoConfirmar.addEventListener("click", confirmarPontoAvancado);
+
+modalRetardamentoFundo.addEventListener("click", function (event) {
+    if (event.target === modalRetardamentoFundo) fecharModalRetardamento();
+});
+
+modalSubExFundo.addEventListener("click", function (event) {
+    if (event.target === modalSubExFundo) fecharModalSubExcepcional();
+});
+
+    modalSubFundo.addEventListener("click", function (event) {
+        if (event.target === modalSubFundo) fecharModalSubstituicao();
+    });
+
+    modalSancaoFundo.addEventListener("click", function (event) {
+        if (event.target === modalSancaoFundo) fecharModalSancao();
+    });
+
+    modalVerdeFundo.addEventListener("click", function (event) {
+        if (event.target === modalVerdeFundo) fecharModalPonto();
+    });
+
+    modalPontoFundo.addEventListener("click", function (event) {
+        if (event.target === modalPontoFundo) fecharModalPonto();
+    });
+
+    document.addEventListener("visibilitychange", function () {
+        if (!document.hidden) agendarSincronizacao(120, true);
+    });
+
+    document.addEventListener("keydown", tratarAtalhosModalPonto);
+
+    atualizarContadoresDisciplinares();
+    renderQuadra();
+    agendarSincronizacao(120, true);
+})();
+</script>
+{% endblock %}
