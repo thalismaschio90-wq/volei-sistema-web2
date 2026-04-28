@@ -119,8 +119,8 @@ def _obter_pool():
                 "sslmode": "require",
                 "prepare_threshold": None,
             },
-            min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 1)),
-            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 15)),
+            min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 0)),
+            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 2)),
             timeout=float(os.environ.get("DB_POOL_TIMEOUT", 30)),
             open=False,
         )
