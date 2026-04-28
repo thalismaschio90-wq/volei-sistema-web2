@@ -112,37 +112,55 @@ def _obter_pool():
         if _DB_POOL is not None:
             return _DB_POOL
 
-        pool = ConnectionPool(
+        _DB_POOL = ConnectionPool(
             conninfo=_obter_database_url(),
             kwargs={
                 "row_factory": dict_row,
                 "sslmode": "require",
+                "connect_timeout": 5,
                 "prepare_threshold": None,
             },
             min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 1)),
-            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 20)),
-            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 10)),
+            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 10)),
+            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 20)),
             max_idle=60,
             max_lifetime=300,
-            reconnect_timeout=10,
-            open=False,
+            reconnect_timeout=5,
+            open=True,
         )
 
-        pool.open(wait=False)
-        _DB_POOL = pool
         return _DB_POOL
+
+
+def _fechar_pool_quebrado():
+    global _DB_POOL
+
+    try:
+        if _DB_POOL is not None:
+            _DB_POOL.close(timeout=2)
+    except Exception:
+        pass
+
+    _DB_POOL = None
 
 
 def conectar():
     pool = _obter_pool()
 
     if pool is not None:
-        return pool.connection(timeout=float(os.environ.get("DB_POOL_TIMEOUT", 10)))
+        try:
+            return pool.connection(timeout=float(os.environ.get("DB_POOL_TIMEOUT", 20)))
+        except Exception as e:
+            print("ERRO AO PEGAR CONEXAO DO POOL, RECRIANDO:", repr(e))
+            _fechar_pool_quebrado()
+            pool = _obter_pool()
+            return pool.connection(timeout=float(os.environ.get("DB_POOL_TIMEOUT", 20)))
 
     return connect(
         _obter_database_url(),
         row_factory=dict_row,
         sslmode="require",
+        connect_timeout=5,
         prepare_threshold=None,
     )
 
@@ -6753,6 +6771,23 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
 
 
 def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=None):
+    def _int(v, padrao=0):
+        try:
+            return int(v or padrao)
+        except Exception:
+            return padrao
+
+    def _txt(v):
+        return str(v or "").strip()
+
+    def _normalizar_rotacao(rotacao):
+        if not isinstance(rotacao, list):
+            rotacao = []
+        rotacao = [_txt(x) for x in rotacao]
+        while len(rotacao) < 6:
+            rotacao.append("")
+        return rotacao[:6]
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -6767,30 +6802,93 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
     if not partida:
         return None
 
-    equipe_a = partida.get("equipe_a_operacional") or partida.get("equipe_a") or ""
-    equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b") or ""
+    equipe_a = _txt(partida.get("equipe_a_operacional") or partida.get("equipe_a"))
+    equipe_b = _txt(partida.get("equipe_b_operacional") or partida.get("equipe_b"))
 
-    lado_final = (lado or "").strip().upper()
+    lado_final = _txt(lado).upper()
 
     if lado_final not in {"A", "B"} and equipe_nome:
-        nome = (equipe_nome or "").strip().lower()
-        if nome == equipe_a.strip().lower():
+        nome = _txt(equipe_nome).lower()
+        if nome == equipe_a.lower():
             lado_final = "A"
-        elif nome == equipe_b.strip().lower():
+        elif nome == equipe_b.lower():
             lado_final = "B"
 
     if lado_final not in {"A", "B"}:
         return None
 
+    lado_adversario = "B" if lado_final == "A" else "A"
+    equipe_atual = equipe_a if lado_final == "A" else equipe_b
+    equipe_adversaria = equipe_b if lado_final == "A" else equipe_a
+
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-    fase = (partida.get("fase_partida") or estado.get("fase_partida") or "").strip().lower()
-    status_jogo = (partida.get("status_jogo") or estado.get("status_jogo") or "").strip().lower()
-    status_operacao = (partida.get("status_operacao") or "").strip().lower()
+    pontos_a = _int(estado.get("pontos_a") or estado.get("placar_a") or partida.get("pontos_a"))
+    pontos_b = _int(estado.get("pontos_b") or estado.get("placar_b") or partida.get("pontos_b"))
+    sets_a = _int(estado.get("sets_a") or partida.get("sets_a"))
+    sets_b = _int(estado.get("sets_b") or partida.get("sets_b"))
+    set_atual = _int(estado.get("set_atual") or partida.get("set_atual"), 1)
 
-    pontos_a = int(estado.get("pontos_a") or partida.get("pontos_a") or 0)
-    pontos_b = int(estado.get("pontos_b") or partida.get("pontos_b") or 0)
-    set_atual = int(estado.get("set_atual") or partida.get("set_atual") or 1)
+    rotacao_a = _normalizar_rotacao(estado.get("rotacao_a") or [])
+    rotacao_b = _normalizar_rotacao(estado.get("rotacao_b") or [])
+    rotacao_propria = rotacao_a if lado_final == "A" else rotacao_b
+
+    comp = buscar_competicao_por_nome(competicao) or {}
+    tempos_limite = _int(comp.get("tempos_por_set") or partida.get("tempos_por_set"), 2)
+    subs_limite = _int(comp.get("substituicoes_por_set") or partida.get("substituicoes_por_set"), 6)
+
+    tempos_a = _int(estado.get("tempos_a") or partida.get("tempos_a"))
+    tempos_b = _int(estado.get("tempos_b") or partida.get("tempos_b"))
+    subs_a = _int(estado.get("subs_a") or partida.get("subs_a"))
+    subs_b = _int(estado.get("subs_b") or partida.get("subs_b"))
+
+    tempos_usados = tempos_a if lado_final == "A" else tempos_b
+    subs_usadas = subs_a if lado_final == "A" else subs_b
+
+    tempos_restantes = max(0, tempos_limite - tempos_usados)
+    subs_restantes = max(0, subs_limite - subs_usadas)
+
+    saque_inicial = _txt(partida.get("saque_inicial") or estado.get("saque_inicial"))
+    saque_atual = _txt(estado.get("saque_atual") or partida.get("saque_atual") or saque_inicial)
+
+    saque_inicial_nome = equipe_a if saque_inicial == "A" else equipe_b if saque_inicial == "B" else "-"
+    saque_atual_nome = equipe_a if saque_atual == "A" else equipe_b if saque_atual == "B" else "-"
+
+    atletas = listar_atletas_aprovados_da_equipe(equipe_atual, competicao) or []
+    atletas = [a for a in atletas if a.get("numero") not in (None, "")]
+    atletas.sort(key=lambda a: _int(a.get("numero")))
+
+    numeros_quadra = {str(n or "").strip() for n in rotacao_propria if str(n or "").strip()}
+    banco = [
+        a for a in atletas
+        if str(a.get("numero") or "").strip() not in numeros_quadra
+    ]
+
+    papeleta_rows = listar_papeleta(partida_id, competicao, equipe_atual, set_atual) or []
+    papeleta = {
+        _int(row.get("posicao")): str(row.get("numero") or "")
+        for row in papeleta_rows
+    }
+    for i in range(1, 7):
+        papeleta.setdefault(i, "")
+
+    scout = resumir_scout_equipe_partida(partida_id, competicao, lado_final) or {}
+    scout.setdefault("equipe", {})
+    scout.setdefault("atletas_lista", [])
+
+    try:
+        solicitacoes = listar_solicitacoes_treinador(
+            partida_id,
+            competicao,
+            equipe=lado_final,
+            limite=20
+        ) or []
+    except Exception:
+        solicitacoes = []
+
+    fase = _txt(partida.get("fase_partida") or estado.get("fase_partida")).lower()
+    status_jogo = _txt(partida.get("status_jogo") or estado.get("status_jogo")).lower()
+    status_operacao = _txt(partida.get("status_operacao")).lower()
 
     papeleta_liberada = False
     papeleta_editavel = False
@@ -6812,120 +6910,70 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
             if pontos_a == 0 and pontos_b == 0:
                 papeleta_editavel = True
 
-    scout = resumir_scout_equipe_partida(partida_id, competicao, lado_final) or {}
-    atletas_lista = scout.get("atletas_lista", [])
+    placar_proprio = pontos_a if lado_final == "A" else pontos_b
+    placar_adversario = pontos_b if lado_final == "A" else pontos_a
+    sets_proprios = sets_a if lado_final == "A" else sets_b
+    sets_adversario = sets_b if lado_final == "A" else sets_a
 
-    if lado_final == "A":
-        equipe_atual = equipe_a
-        equipe_adversaria = equipe_b
-        placar_proprio = pontos_a
-        placar_adversario = pontos_b
-        sets_proprios = int(estado.get("sets_a") or partida.get("sets_a") or 0)
-        sets_adversario = int(estado.get("sets_b") or partida.get("sets_b") or 0)
-        rotacao = estado.get("rotacao_a") or []
-    else:
-        equipe_atual = equipe_b
-        equipe_adversaria = equipe_a
-        placar_proprio = pontos_b
-        placar_adversario = pontos_a
-        sets_proprios = int(estado.get("sets_b") or partida.get("sets_b") or 0)
-        sets_adversario = int(estado.get("sets_a") or partida.get("sets_a") or 0)
-        rotacao = estado.get("rotacao_b") or []
-
-    saque_inicial = (
-        partida.get("saque_inicial")
-        or estado.get("saque_inicial")
-        or ""
-    )
-
-    saque_atual = (
-        estado.get("saque_atual")
-        or partida.get("saque_atual")
-        or saque_inicial
-        or ""
-    )
-
-    saque_atual_nome = "-"
-    if saque_atual == "A":
-        saque_atual_nome = equipe_a or "Equipe A"
-    elif saque_atual == "B":
-        saque_atual_nome = equipe_b or "Equipe B"
-
-    saque_inicial_nome = "-"
-    if saque_inicial == "A":
-        saque_inicial_nome = equipe_a or "Equipe A"
-    elif saque_inicial == "B":
-        saque_inicial_nome = equipe_b or "Equipe B"
-
-    lado_esquerdo = (partida.get("lado_esquerdo") or "").strip()
-    lado_direito = (partida.get("lado_direito") or "").strip()
-
-    if equipe_atual and lado_esquerdo and equipe_atual.strip().lower() == lado_esquerdo.lower():
-        lado_quadra = "Esquerda"
-    elif equipe_atual and lado_direito and equipe_atual.strip().lower() == lado_direito.lower():
-        lado_quadra = "Direita"
-    else:
-        lado_quadra = "Esquerda" if lado_final == "A" else "Direita"
-
-    comp = buscar_competicao_por_nome(competicao) or {}
-
-    tempos_limite = int(comp.get("tempos_por_set") or partida.get("tempos_por_set") or 2)
-    subs_limite = int(comp.get("substituicoes_por_set") or partida.get("substituicoes_por_set") or 6)
-
-    tempos_restantes = int(
-        estado.get("tempos_a" if lado_final == "A" else "tempos_b")
-        if estado.get("tempos_a" if lado_final == "A" else "tempos_b") is not None
-        else tempos_limite
-    )
-
-    subs_usadas = int(estado.get("subs_a" if lado_final == "A" else "subs_b") or 0)
-    subs_restantes = max(subs_limite - subs_usadas, 0)
+    descricao_set = "SET ÚNICO" if set_atual <= 0 else f"{set_atual}º SET"
 
     return {
         "partida": partida,
         "estado": estado,
+
         "lado": lado_final,
-        "lado_quadra": lado_quadra,
+        "lado_adversario": lado_adversario,
+        "lado_quadra": "Esquerda" if lado_final == "A" else "Direita",
 
         "equipe_nome": equipe_atual,
         "equipe_adversaria": equipe_adversaria,
         "equipe_a": equipe_a,
         "equipe_b": equipe_b,
-        "set_atual": set_atual,
 
-        "papeleta_liberada": papeleta_liberada,
-        "papeleta_editavel": papeleta_editavel,
+        "set_atual": set_atual,
+        "descricao_set": descricao_set,
+
+        "pontos_a": pontos_a,
+        "pontos_b": pontos_b,
+        "placar_a": pontos_a,
+        "placar_b": pontos_b,
+        "sets_a": sets_a,
+        "sets_b": sets_b,
 
         "placar_proprio": placar_proprio,
         "placar_adversario": placar_adversario,
         "sets_proprios": sets_proprios,
         "sets_adversario": sets_adversario,
 
-        "pontos_a": pontos_a,
-        "pontos_b": pontos_b,
-        "sets_a": int(estado.get("sets_a") or partida.get("sets_a") or 0),
-        "sets_b": int(estado.get("sets_b") or partida.get("sets_b") or 0),
-
         "saque_inicial": saque_inicial,
-        "saque_atual": saque_atual,
         "saque_inicial_nome": saque_inicial_nome,
+        "saque_atual": saque_atual,
         "saque_atual_nome": saque_atual_nome,
 
         "tempos_limite": tempos_limite,
         "subs_limite": subs_limite,
+        "tempos_a": tempos_a,
+        "tempos_b": tempos_b,
+        "subs_a": subs_a,
+        "subs_b": subs_b,
         "tempos_restantes": tempos_restantes,
         "subs_restantes": subs_restantes,
 
-        "tempos_a": int(estado.get("tempos_a") if estado.get("tempos_a") is not None else tempos_limite),
-        "tempos_b": int(estado.get("tempos_b") if estado.get("tempos_b") is not None else tempos_limite),
+        "rotacao": rotacao_propria,
+        "rotacao_a": rotacao_a,
+        "rotacao_b": rotacao_b,
 
-        "subs_a": int(estado.get("subs_a") or 0),
-        "subs_b": int(estado.get("subs_b") or 0),
+        "atletas": atletas,
+        "jogadores": [a.get("numero") for a in atletas],
+        "banco": banco,
+        "papeleta": papeleta,
+        "papeleta_liberada": papeleta_liberada,
+        "papeleta_editavel": papeleta_editavel,
+        "papeleta_completa": len(papeleta_rows) == 6,
 
-        "rotacao": rotacao,
         "scout": scout,
-        "eventos": scout.get("eventos", []),
-        "atletas_lista": atletas_lista,
-        "atletas": atletas_lista,
-        "solicitacoes": [],
+        "eventos": scout.get("eventos") or [],
+        "atletas_lista": scout.get("atletas_lista") or [],
+
+        "solicitacoes": solicitacoes,
     }
