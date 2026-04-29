@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="topo-secao">
+    <div>
+        <div class="titulo-secao">Conferência de Atletas</div>
+        <p class="subtexto-conferencia">
+            Confira os atletas inscritos por equipe. Em caso de irregularidade, utilize o botão de contestação.
+        </p>
+    </div>
+</div>
+
+<style>
+.subtexto-conferencia {
+    margin-top: -8px;
+    color: #6b7c8c;
+    font-size: 14px;
+}
+
+.abas {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.aba-btn {
+    padding: 9px 14px;
+    border-radius: 10px;
+    border: 1px solid #d1d5db;
+    background: white;
+    cursor: pointer;
+    font-weight: 700;
+    color: #123852;
+}
+
+.aba-btn.ativa {
+    background: #123852;
+    color: white;
+    border-color: #123852;
+}
+
+.aba-conteudo {
+    display: none;
+}
+
+.aba-conteudo.ativa {
+    display: block;
+}
+
+.topo-conferencia {
+    margin-bottom: 16px;
+}
+
+.linha-info {
+    margin-bottom: 10px;
+    color: #183247;
+    font-size: 15px;
+}
+
+.btn-protesto {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 8px;
+    background: #b45309;
+    color: white;
+    padding: 10px 16px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.btn-protesto:hover {
+    background: #92400e;
+}
+
+.sem-link {
+    margin-top: 8px;
+    color: #6b7c8c;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.aviso-encerrado {
+    background: #fff0f0;
+    border: 1px solid #f0c9c9;
+    padding: 12px;
+    border-radius: 10px;
+    color: #a13d3d;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.titulo-equipe-conferencia {
+    font-size: 18px;
+    font-weight: 900;
+    margin-bottom: 12px;
+    color: #183247;
+}
+
+@media (max-width: 700px) {
+    .abas {
+        flex-direction: column;
+    }
+
+    .aba-btn {
+        width: 100%;
+        text-align: left;
+    }
+
+    table {
+        font-size: 13px;
+    }
+}
+</style>
+
+<div class="card-painel topo-conferencia">
+    {% if prazo %}
+        <div class="linha-info">
+            <strong>Prazo para contestação:</strong> {{ prazo }}
+        </div>
+    {% endif %}
+
+    {% if link %}
+        <a href="{{ link }}" target="_blank" class="btn-protesto">
+            Registrar Protesto / Contestação
+        </a>
+    {% else %}
+        <div class="sem-link">
+            A organização ainda não cadastrou o link para protestos.
+        </div>
+    {% endif %}
+</div>
+
+{% if encerrado %}
+    <div class="aviso-encerrado">
+        ⚠️ Conferência encerrada pela organização.
+    </div>
+{% endif %}
+
+{% if equipes %}
+
+<div class="abas">
+    {% for nome in equipes.keys() %}
+        <button type="button" class="aba-btn {% if loop.first %}ativa{% endif %}" onclick="abrirAba('{{ loop.index0 }}')">
+            {{ nome }}
+        </button>
+    {% endfor %}
+</div>
+
+{% for nome, atletas in equipes.items() %}
+<div class="aba-conteudo {% if loop.first %}ativa{% endif %}" id="aba-{{ loop.index0 }}">
+    <div class="card-painel">
+        <div class="titulo-equipe-conferencia">{{ nome }}</div>
+
+        <table>
+            <tr>
+                <th>Nome</th>
+                <th>CPF</th>
+                <th>Data de nascimento</th>
+            </tr>
+
+            {% for a in atletas %}
+            <tr>
+                <td>{{ a.nome }}</td>
+                <td>{{ a.cpf }}</td>
+                <td>{{ a.data_nascimento }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endfor %}
+
+{% else %}
+    <div class="card-painel">
+        Nenhum atleta encontrado para esta competição.
+    </div>
+{% endif %}
+
+<script>
+function abrirAba(index) {
+    const botoes = document.querySelectorAll(".aba-btn");
+    const abas = document.querySelectorAll(".aba-conteudo");
+
+    botoes.forEach(btn => btn.classList.remove("ativa"));
+    abas.forEach(div => div.classList.remove("ativa"));
+
+    if (botoes[index]) {
+        botoes[index].classList.add("ativa");
+    }
+
+    const aba = document.getElementById("aba-" + index);
+    if (aba) {
+        aba.classList.add("ativa");
+    }
+}
+</script>
+
+{% endblock %}

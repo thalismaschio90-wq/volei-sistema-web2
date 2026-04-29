@@ -25,7 +25,7 @@
 }
 
 .btn-sucesso {
-    background: #166534; /* verde mais fechado */
+    background: #166534;
     color: #ecfdf5;
     border: none;
     padding: 6px 12px;
@@ -39,7 +39,7 @@
 }
 
 .btn-perigo {
-    background: #991b1b; /* vermelho mais sóbrio */
+    background: #991b1b;
     color: #fef2f2;
     border: none;
     padding: 6px 12px;
@@ -76,7 +76,84 @@
     color: #991b1b;
     font-weight: 700;
 }
+
+.conferencia-box {
+    margin-bottom: 22px;
+}
+
+.conferencia-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.conferencia-grid input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+}
+
+.conferencia-acoes {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.status-conferencia {
+    margin-top: 12px;
+    font-weight: 700;
+}
 </style>
+
+<div class="card-painel conferencia-box">
+    <div class="titulo-equipe">Conferência de Atletas</div>
+
+    <form method="post" action="{{ url_for('equipes.salvar_config_conferencia', competicao=competicao.nome) }}">
+        <div class="conferencia-grid">
+            <div>
+                <label>Prazo para protestos</label>
+                <input type="text" name="prazo" value="{{ competicao.conferencia_prazo or '' }}" placeholder="Ex: até 10/05 às 18h">
+            </div>
+
+            <div>
+                <label>Link do formulário de protesto</label>
+                <input type="text" name="link" value="{{ competicao.conferencia_link or '' }}" placeholder="Cole aqui o link do Google Forms">
+            </div>
+        </div>
+
+        <div class="conferencia-acoes">
+            <button class="btn-sucesso" type="submit">Salvar Configuração</button>
+        </div>
+    </form>
+
+    <hr>
+
+    <div class="conferencia-acoes">
+        <form method="post" action="{{ url_for('equipes.liberar_conferencia', competicao=competicao.nome) }}">
+            <button class="btn-sucesso" type="submit">Liberar Conferência</button>
+        </form>
+
+        <form method="post" action="{{ url_for('equipes.encerrar_conferencia', competicao=competicao.nome) }}">
+            <button class="btn-perigo" type="submit">Encerrar Conferência</button>
+        </form>
+    </div>
+
+    <div class="status-conferencia">
+        Status:
+        {% if competicao.conferencia_liberada %}
+            {% if competicao.conferencia_encerrada %}
+                <span class="badge-perigo">Encerrada</span>
+            {% else %}
+                <span class="badge-sucesso">Aberta</span>
+            {% endif %}
+        {% else %}
+            <span>Não liberada</span>
+        {% endif %}
+    </div>
+</div>
 
 {% if atletas and atletas|length > 0 %}
 

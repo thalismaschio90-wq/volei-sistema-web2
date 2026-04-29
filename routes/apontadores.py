@@ -652,53 +652,49 @@ def jogo_view(competicao, partida_id):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    inicializar_jogo_partida(partida_id, competicao)
-    partida = buscar_partida_operacional(partida_id, competicao)
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
+    status_jogo = (partida.get("status_jogo") or "").strip().lower()
 
-    if fluxo.get("fase_partida") == "encerrado":
+    # Só inicializa se ainda não estiver em jogo.
+    if status_jogo not in {"em_andamento", "entre_sets", "finalizada"}:
+        partida = inicializar_jogo_partida(partida_id, competicao) or partida
+
+    if (partida.get("status_jogo") or "").strip().lower() == "finalizada":
         flash("A partida já está finalizada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    if fluxo.get("fase_partida") == "pre_jogo":
-        flash("Finalize primeiro o pré-jogo para iniciar o jogo.", "erro")
-        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
-
-    if fluxo.get("fase_partida") == "tiebreak_sorteio":
-        flash("Antes do tie-break, faça o sorteio específico do set decisivo.", "erro")
-        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
-
-    if not fluxo.get("papeleta_a_completa") or not fluxo.get("papeleta_b_completa"):
-        flash("Complete as papeletas antes de iniciar o jogo.", "erro")
-        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
-
-    garantir_estado_partida(partida_id, competicao)
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
     equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
-        partida_id, competicao, partida, estado
+        partida_id,
+        competicao,
+        partida,
+        estado
     )
 
-    atletas_a = []
-    atletas_b = []
-
     try:
-        if equipe_a:
-            atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) or []
-        if equipe_b:
-            atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) or []
+        atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
+        atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
     except Exception:
         atletas_a = []
         atletas_b = []
 
+    atletas_a = [a for a in atletas_a if a.get("numero")]
+    atletas_b = [a for a in atletas_b if a.get("numero")]
+
     if not estado.get("rotacao_a"):
         estado["rotacao_a"] = _rotacao_fallback_por_papeleta(papeleta_a)
+
     if not estado.get("rotacao_b"):
         estado["rotacao_b"] = _rotacao_fallback_por_papeleta(papeleta_b)
 
-    historico_inicial, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
+    # Histórico inicial apenas para abrir a tela já preenchida.
+    try:
+        historico_inicial, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
+    except Exception:
+        historico_inicial, ultima_acao = [], estado.get("ultima_acao") or "-"
+
     estado["historico"] = historico_inicial
-    estado["ultima_acao"] = ultima_acao or (estado.get("ultima_acao") or "-")
+    estado["ultima_acao"] = ultima_acao or estado.get("ultima_acao") or "-"
 
     resposta = make_response(render_template(
         "jogo_apontador.html",
@@ -796,10 +792,13 @@ def ponto_view(competicao, partida_id):
 
         estado = retorno if isinstance(retorno, dict) else {}
 
-        if "historico" not in estado or "ultima_acao" not in estado:
-            historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
-            estado.setdefault("historico", historico)
-            estado.setdefault("ultima_acao", ultima_acao)
+        if "ultima_acao" not in estado:
+            estado["ultima_acao"] = "Ponto registrado"
+
+        try:
+            emitir_estado_partida(partida_id, estado)
+        except Exception as e:
+            print("ERRO emitir_estado_partida PONTO:", e)
 
         return _json_no_cache({
             "ok": True,
@@ -810,7 +809,7 @@ def ponto_view(competicao, partida_id):
     except Exception as e:
         print("ERRO ponto_view:", e)
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar ponto: {e}"}, 500)
-
+    
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/desfazer", methods=["POST"])
 @exigir_perfil("apontador")

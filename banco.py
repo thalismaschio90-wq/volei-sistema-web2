@@ -524,6 +524,19 @@ def criar_campos_travamento_competicoes():
         conn.commit()
 
 
+def criar_campos_conferencia_atletas():
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE competicoes
+                ADD COLUMN IF NOT EXISTS conferencia_liberada BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS conferencia_encerrada BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS conferencia_prazo TEXT,
+                ADD COLUMN IF NOT EXISTS conferencia_link TEXT;
+            """)
+        conn.commit()
+
+
 def listar_competicoes():
     campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
 
@@ -4061,9 +4074,19 @@ def _registrar_linha_sancao_partida(partida_id, competicao, equipe, tipo_pessoa=
 
 
 def inicializar_jogo_partida(partida_id, competicao):
-    criar_campos_sets_partida()
-    criar_campos_jogo_partida()
-    criar_tabela_eventos()
+    """
+    Inicializa o jogo somente quando necessário.
+    Não recria tabelas nem reconstrói snapshot toda vez que abre a tela.
+    """
+
+    partida = buscar_partida_operacional(partida_id, competicao)
+    if not partida:
+        return None
+
+    status_jogo = (partida.get("status_jogo") or "").strip().lower()
+
+    if status_jogo in {"em_andamento", "entre_sets", "finalizada"}:
+        return partida
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -4082,27 +4105,16 @@ def inicializar_jogo_partida(partida_id, competicao):
         conn.commit()
 
     partida = buscar_partida_operacional(partida_id, competicao)
-    if partida:
+    if not partida:
+        return None
+
+    try:
+        estado = buscar_estado_jogo_partida(partida_id, competicao)
+    except Exception:
+        estado = None
+
+    if not estado:
         _reconstruir_e_salvar_snapshot(partida_id, competicao, partida)
-        fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida)
-        if fluxo:
-            with conectar() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE partidas
-                        SET fase_partida = %s,
-                            sets_max = %s,
-                            sets_para_vencer = %s
-                        WHERE id = %s
-                          AND competicao = %s
-                    """, (
-                        fluxo["fase_partida"],
-                        fluxo["sets_max"],
-                        fluxo["sets_para_vencer"],
-                        partida_id,
-                        competicao,
-                    ))
-                conn.commit()
 
     return buscar_partida_operacional(partida_id, competicao)
 
@@ -5116,46 +5128,74 @@ def _emitir_estado_tempo_real(partida_id, competicao):
     
 
 def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalhes=None):
-    # IMPORTANTE:
-    # Não criar/alterar tabelas a cada ponto.
-    # Isso deixa o site lento no Render/Supabase.
-
     equipe = (equipe or "").strip().upper()
     if equipe not in {"A", "B"}:
         return False, "Equipe inválida."
 
-    partida = buscar_partida_operacional(partida_id, competicao)
-    if not partida:
-        return False, "Partida não encontrada."
-
-    if (partida.get("status_jogo") or "").lower() == "finalizada":
-        return False, "A partida já está finalizada."
-
-    estado = buscar_estado_jogo_partida(partida_id, competicao)
-    if not estado:
-        return False, "Estado da partida não encontrado."
-
     regras = _regras_jogo_competicao(competicao)
-    set_atual = int(partida.get("set_atual") or 1)
-    pontos_a = int(partida.get("pontos_a") or 0)
-    pontos_b = int(partida.get("pontos_b") or 0)
-    sets_a = int(partida.get("sets_a") or 0)
-    sets_b = int(partida.get("sets_b") or 0)
 
-    rotacao_a_nova = list(estado.get("rotacao_a") or ["", "", "", "", "", ""])
-    rotacao_b_nova = list(estado.get("rotacao_b") or ["", "", "", "", "", ""])
-    saque_antes = (estado.get("saque_atual") or "").strip().upper()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    id,
+                    competicao,
+                    pontos_a,
+                    pontos_b,
+                    sets_a,
+                    sets_b,
+                    set_atual,
+                    saque_atual,
+                    status_jogo
+                FROM partidas
+                WHERE id = %s
+                  AND competicao = %s
+                LIMIT 1
+            """, (partida_id, competicao))
 
-    if equipe == "A":
-        pontos_a += 1
-    else:
-        pontos_b += 1
+            partida = cur.fetchone()
 
-    if saque_antes in {"A", "B"} and equipe != saque_antes:
-        if equipe == "A":
-            rotacao_a_nova = _girar_rotacao_visual_horario(rotacao_a_nova)
-        else:
-            rotacao_b_nova = _girar_rotacao_visual_horario(rotacao_b_nova)
+            if not partida:
+                return False, "Partida não encontrada."
+
+            if (partida.get("status_jogo") or "").lower() == "finalizada":
+                return False, "A partida já está finalizada."
+
+            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+            set_atual = int(partida.get("set_atual") or 1)
+            pontos_a = int(partida.get("pontos_a") or 0)
+            pontos_b = int(partida.get("pontos_b") or 0)
+            sets_a = int(partida.get("sets_a") or 0)
+            sets_b = int(partida.get("sets_b") or 0)
+
+            rotacao_a_nova = list(estado.get("rotacao_a") or ["", "", "", "", "", ""])
+            rotacao_b_nova = list(estado.get("rotacao_b") or ["", "", "", "", "", ""])
+            saque_antes = (estado.get("saque_atual") or partida.get("saque_atual") or "").strip().upper()
+
+            if equipe == "A":
+                pontos_a += 1
+            else:
+                pontos_b += 1
+
+            if saque_antes in {"A", "B"} and equipe != saque_antes:
+                if equipe == "A":
+                    rotacao_a_nova = _girar_rotacao_visual_horario(rotacao_a_nova)
+                else:
+                    rotacao_b_nova = _girar_rotacao_visual_horario(rotacao_b_nova)
+
+            cur.execute("""
+                UPDATE partidas
+                SET pontos_a = %s,
+                    pontos_b = %s,
+                    saque_atual = %s,
+                    status_jogo = 'em_andamento',
+                    status_operacao = 'em_andamento'
+                WHERE id = %s
+                  AND competicao = %s
+            """, (pontos_a, pontos_b, equipe, partida_id, competicao))
+
+        conn.commit()
 
     detalhes_evento = detalhes or {}
     if isinstance(detalhes_evento, dict):
@@ -5167,20 +5207,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     detalhes_evento["saque_antes"] = saque_antes
     detalhes_evento["rotacao_a_antes"] = list(estado.get("rotacao_a", []) or [])
     detalhes_evento["rotacao_b_antes"] = list(estado.get("rotacao_b", []) or [])
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE partidas
-                SET pontos_a = %s,
-                    pontos_b = %s,
-                    saque_atual = %s,
-                    status_jogo = 'em_andamento',
-                    status_operacao = 'em_andamento'
-                WHERE id = %s
-                  AND competicao = %s
-            """, (pontos_a, pontos_b, equipe, partida_id, competicao))
-        conn.commit()
 
     travar_competicao(competicao, motivo="primeiro_ponto")
 
@@ -5211,9 +5237,18 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     )
 
     estado_snapshot = {
+        "pontos_a": pontos_a,
+        "pontos_b": pontos_b,
+        "placar_a": pontos_a,
+        "placar_b": pontos_b,
+        "sets_a": sets_a,
+        "sets_b": sets_b,
+        "set_atual": set_atual,
+
         "saque_atual": equipe,
         "status_jogo": "em_andamento",
         "fase_partida": "jogo",
+
         "rotacao_a": rotacao_a_nova,
         "rotacao_b": rotacao_b_nova,
         "status_jogadores_a": estado.get("status_jogadores_a", {}),
@@ -5271,7 +5306,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     }
 
     if not venceu_set:
-        _emitir_estado_tempo_real(partida_id, competicao)
         return True, base_resposta
 
     if equipe == "A":
@@ -5325,7 +5359,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             "fase_partida": "encerrado",
             "partida_finalizada": True,
         })
-        _emitir_estado_tempo_real(partida_id, competicao)
         return True, base_resposta
 
     proximo_set = set_atual + 1
@@ -5358,7 +5391,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     estado_proximo = _reconstruir_e_salvar_snapshot(partida_id, competicao, partida_proximo_set)
 
     tempos_proximo = buscar_tempos_restantes_partida(partida_id, competicao)
-    _emitir_estado_tempo_real(partida_id, competicao)
 
     return True, {
         "mensagem": "Set encerrado.",
@@ -6621,10 +6653,10 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
     for ev in eventos:
         lado_evento = (ev.get("equipe") or "").strip().upper()
 
-        # IMPORTANTE:
-        # O evento pertence ao time que realizou a ação.
-        # Se foi erro/falta, conta para o time que errou, não para o adversário.
-        if lado_evento != lado:
+        # Não deixa evento sem lado entrar.
+        # Mas não bloqueia mais apenas por lado_evento != lado,
+        # porque no teu banco apareceu caso de evento B com atleta da equipe A.
+        if lado_evento not in {"A", "B"}:
             continue
 
         detalhes_json = _detalhes_evento_dict(ev.get("detalhes"))
@@ -6669,7 +6701,11 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
 
         resumo["eventos"].append(ev)
 
-        tem_atleta = str(numero or "").strip() not in {"", "0", "None"} or bool(str(nome or "").strip())
+        tem_atleta = (
+            str(numero or "").strip() not in {"", "0", "None"}
+            or bool(str(nome or "").strip())
+        )
+
         bucket = atleta_bucket(numero, nome) if tem_atleta else None
 
         eh_erro_saque = (
@@ -6716,23 +6752,28 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
         )
 
         if eh_erro_saque:
-            resumo["equipe"]["erros_saque"] += 1
-            resumo["equipe"]["erros_gerais"] += 1
+            if lado_evento == lado:
+                resumo["equipe"]["erros_saque"] += 1
+                resumo["equipe"]["erros_gerais"] += 1
             continue
 
         if eh_falta:
-            resumo["equipe"]["faltas"] += 1
-            resumo["equipe"]["erros_gerais"] += 1
+            if lado_evento == lado:
+                resumo["equipe"]["faltas"] += 1
+                resumo["equipe"]["erros_gerais"] += 1
 
-            if eh_rotacao:
-                resumo["equipe"]["erros_rotacao"] += 1
-
+                if eh_rotacao:
+                    resumo["equipe"]["erros_rotacao"] += 1
             continue
 
         if eh_erro_geral:
-            resumo["equipe"]["erros_gerais"] += 1
+            if lado_evento == lado:
+                resumo["equipe"]["erros_gerais"] += 1
             continue
 
+        # Pontos positivos: conta para a equipe do evento.
+        # Como teu banco teve inconsistência entre equipe e atleta_nome,
+        # aqui a gente deixa aparecer no scout para não ficar zerado.
         if eh_ataque:
             resumo["equipe"]["ataques"] += 1
             resumo["equipe"]["pontos"] += 1
@@ -6758,6 +6799,7 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             continue
 
     resumo["eventos"] = resumo["eventos"][:30]
+
     resumo["atletas_lista"] = sorted(
         resumo["atletas"].values(),
         key=lambda x: (
@@ -6977,3 +7019,39 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
 
         "solicitacoes": solicitacoes,
     }
+
+def buscar_config_conferencia_atletas(nome_competicao):
+    criar_campos_conferencia_atletas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    nome,
+                    conferencia_liberada,
+                    conferencia_encerrada,
+                    conferencia_prazo,
+                    conferencia_link
+                FROM competicoes
+                WHERE nome = %s
+                LIMIT 1
+            """, (nome_competicao,))
+            return cur.fetchone()
+
+
+def listar_atletas_para_conferencia(nome_competicao):
+    criar_campos_conferencia_atletas()
+    
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    equipe,
+                    nome,
+                    cpf,
+                    data_nascimento
+                FROM atletas
+                WHERE competicao = %s
+                ORDER BY equipe, nome
+            """, (nome_competicao,))
+            return cur.fetchall()

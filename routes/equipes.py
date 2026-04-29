@@ -6,6 +6,10 @@ from banco import (
     criar_equipe_com_credenciais,
     redefinir_senha_da_equipe,
     excluir_equipe,
+    buscar_config_conferencia_atletas,
+    listar_atletas_para_conferencia,
+    criar_campos_conferencia_atletas,
+    conectar,
 
     # ATLETAS - EQUIPE
     cadastrar_atleta,
@@ -496,4 +500,102 @@ def reprovar_atleta(id):
 def excluir_atleta_organizador(id):
     ok, msg = excluir_atleta(id)
     flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
+
+
+@equipes_bp.route("/conferencia-atletas")
+@exigir_perfil("equipe")
+def conferencia_atletas():
+    criar_campos_conferencia_atletas()
+
+    usuario = session.get("usuario")
+    equipe = buscar_equipe_por_login(usuario)
+
+    if not equipe:
+        flash("Equipe não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    competicao = equipe["competicao"]
+    comp = buscar_config_conferencia_atletas(competicao)
+
+    if not comp or not comp.get("conferencia_liberada"):
+        flash("Conferência de atletas ainda não liberada pela organização.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if comp.get("conferencia_encerrada"):
+        flash("Conferência de atletas encerrada pela organização.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    atletas = listar_atletas_para_conferencia(competicao)
+
+    equipes = {}
+    for a in atletas:
+        nome_equipe = a.get("equipe") or "Sem equipe"
+        equipes.setdefault(nome_equipe, []).append(a)
+
+    return render_template(
+        "conferencia_atletas.html",
+        equipes=equipes,
+        prazo=comp.get("conferencia_prazo"),
+        link=comp.get("conferencia_link"),
+        encerrado=comp.get("conferencia_encerrada"),
+        competicao=comp
+    )
+
+
+@equipes_bp.route("/conferencia-atletas/config/<competicao>", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_config_conferencia(competicao):
+    prazo = request.form.get("prazo", "").strip()
+    link = request.form.get("link", "").strip()
+    criar_campos_conferencia_atletas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE competicoes
+                SET conferencia_prazo = %s,
+                    conferencia_link = %s
+                WHERE nome = %s
+            """, (prazo, link, competicao))
+        conn.commit()
+
+    flash("Configuração da conferência salva com sucesso.", "sucesso")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
+
+
+@equipes_bp.route("/conferencia-atletas/liberar/<competicao>", methods=["POST"])
+@exigir_perfil("organizador")
+def liberar_conferencia(competicao):
+    criar_campos_conferencia_atletas()
+    
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE competicoes
+                SET conferencia_liberada = TRUE,
+                    conferencia_encerrada = FALSE
+                WHERE nome = %s
+            """, (competicao,))
+        conn.commit()
+
+    flash("Conferência de atletas liberada para as equipes.", "sucesso")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
+
+
+@equipes_bp.route("/conferencia-atletas/encerrar/<competicao>", methods=["POST"])
+@exigir_perfil("organizador")
+def encerrar_conferencia(competicao):
+    criar_campos_conferencia_atletas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE competicoes
+                SET conferencia_encerrada = TRUE
+                WHERE nome = %s
+            """, (competicao,))
+        conn.commit()
+
+    flash("Conferência de atletas encerrada.", "sucesso")
     return redirect(url_for("equipes.listar_atletas_organizador"))

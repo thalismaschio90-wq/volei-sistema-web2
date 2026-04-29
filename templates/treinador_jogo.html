@@ -161,6 +161,11 @@
     transform: translateY(-1px);
 }
 
+.btn-acao-treinador:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
 .status-retorno {
     margin-top: 12px;
     padding: 10px 12px;
@@ -312,6 +317,8 @@
 
 {% set aba_ativa = request.args.get('aba', 'papeleta') %}
 {% set ordem_quadra = [4, 3, 2, 5, 6, 1] %}
+{% set scout_equipe = scout.get('equipe', {}) if scout else {} %}
+{% set scout_atletas = scout.get('atletas_lista', []) if scout else [] %}
 
 <div class="topo-secao">
     <div class="titulo-secao">Modo treinador</div>
@@ -320,36 +327,23 @@
 <div class="treinador-topo">
     <div class="card-painel">
         <div style="font-size: 24px; font-weight: 900;">{{ equipe_nome }}</div>
-        <div style="margin-top: 6px;">{{ descricao_set }}</div>
+        <div style="margin-top: 6px;" data-descricao-set>{{ descricao_set }}</div>
         <div style="margin-top: 6px;" class="muted">Adversário: {{ equipe_adversaria or '-' }}</div>
 
         <div class="barra-topo-jogo">
             <div class="badge-jogo">
                 <strong>Saque:</strong>
-                <span data-saque-atual>
-                    {% if saque_atual == lado %}
-                        Minha equipe
-                    {% elif saque_atual %}
-                        Adversário
-                    {% else %}
-                        -
-                    {% endif %}
-                </span>
+                <span data-saque-atual>{{ saque_atual_nome or saque_atual or '-' }}</span>
             </div>
 
             <div class="badge-jogo">
                 <strong>Saque inicial:</strong>
-                {% if saque_inicial == lado %}
-                    minha equipe
-                {% elif saque_inicial %}
-                    adversário
-                {% else %}
-                    -
-                {% endif %}
+                <span data-saque-inicial>{{ saque_inicial_nome or saque_inicial or '-' }}</span>
             </div>
 
             <div class="badge-jogo">
-                <strong>Lado:</strong> {{ lado or '-' }}
+                <strong>Lado:</strong>
+                <span>{{ lado_quadra or lado or '-' }}</span>
             </div>
         </div>
     </div>
@@ -357,11 +351,28 @@
     <div class="card-painel">
         <div>
             <strong>Placar:</strong>
-            <span data-placar-proprio>{{ placar_proprio }}</span> x <span data-placar-adversario>{{ placar_adversario }}</span>
+            <span data-pontos-a>{{ pontos_a }}</span> x <span data-pontos-b>{{ pontos_b }}</span>
         </div>
-        <div><strong>Sets:</strong> <span data-sets-proprios>{{ sets_proprios }}</span> x <span data-sets-adversario>{{ sets_adversario }}</span></div>
-        <div><strong>Tempos restantes:</strong> <span data-tempos-restantes>{{ tempos_restantes if tempos_restantes is not none else '-' }}</span></div>
-        <div><strong>Substituições restantes:</strong> <span data-subs-restantes>{{ subs_restantes if subs_restantes is not none else '-' }}</span></div>
+
+        <div>
+            <strong>Sets:</strong>
+            <span data-sets-a>{{ sets_a }}</span> x <span data-sets-b>{{ sets_b }}</span>
+        </div>
+
+        <div>
+            <strong>Saque atual:</strong>
+            <span data-saque-atual>{{ saque_atual_nome or saque_atual or '-' }}</span>
+        </div>
+
+        <div>
+            <strong>Tempos por set:</strong>
+            <span>{{ tempos_limite }}</span>
+        </div>
+
+        <div>
+            <strong>Substituições por set:</strong>
+            <span>{{ subs_limite }}</span>
+        </div>
     </div>
 </div>
 
@@ -489,7 +500,7 @@
 
                 <div class="info-linha">
                     <span>Set</span>
-                    <strong>{{ descricao_set }}</strong>
+                    <strong data-descricao-set>{{ descricao_set }}</strong>
                 </div>
 
                 <div class="info-linha">
@@ -501,20 +512,14 @@
 
                 <div class="info-linha">
                     <span>Sets</span>
-                    <strong><span data-sets-proprios>{{ sets_proprios }}</span> x <span data-sets-adversario>{{ sets_adversario }}</span></strong>
+                    <strong>
+                        <span data-sets-proprios>{{ sets_proprios }}</span> x <span data-sets-adversario>{{ sets_adversario }}</span>
+                    </strong>
                 </div>
 
                 <div class="info-linha">
                     <span>Saque atual</span>
-                    <strong data-saque-atual>
-                        {% if saque_atual == lado %}
-                            Minha equipe
-                        {% elif saque_atual %}
-                            Adversário
-                        {% else %}
-                            -
-                        {% endif %}
-                    </strong>
+                    <strong data-saque-atual>{{ saque_atual_nome or saque_atual or '-' }}</strong>
                 </div>
 
                 <div class="info-linha">
@@ -529,12 +534,28 @@
             </div>
 
             <div class="acoes-jogo">
-                <button type="button" class="btn-acao-treinador" onclick="pedirTempo()">
-                    Pedir tempo
+                <button type="button"
+                        class="btn-acao-treinador"
+                        data-btn-tempo
+                        onclick="pedirTempo()"
+                        {% if not tempos_restantes or tempos_restantes|int <= 0 %}disabled{% endif %}>
+                    {% if tempos_restantes and tempos_restantes|int > 0 %}
+                        Pedir tempo
+                    {% else %}
+                        Sem tempos
+                    {% endif %}
                 </button>
 
-                <button type="button" class="btn-acao-treinador" onclick="pedirSubstituicao()">
-                    Pedir substituição
+                <button type="button"
+                        class="btn-acao-treinador"
+                        data-btn-sub
+                        onclick="pedirSubstituicao()"
+                        {% if not subs_restantes or subs_restantes|int <= 0 %}disabled{% endif %}>
+                    {% if subs_restantes and subs_restantes|int > 0 %}
+                        Pedir substituição
+                    {% else %}
+                        Sem substituições
+                    {% endif %}
                 </button>
             </div>
 
@@ -544,8 +565,7 @@
         <div class="card-painel">
             <h3 style="margin-top:0;">Banco</h3>
 
-            {% if banco %}
-            <div class="lista-banco">
+            <div class="lista-banco" id="lista-banco" {% if not banco %}style="display:none;"{% endif %}>
                 {% for atleta in banco %}
                 <div class="atleta-chip">
                     <span>{{ atleta.get('numero', '-') if atleta is mapping else atleta }}</span>
@@ -553,16 +573,16 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="muted">Nenhum atleta no banco no momento.</div>
-            {% endif %}
+
+            <div class="muted" id="banco-vazio" {% if banco %}style="display:none;"{% endif %}>
+                Nenhum atleta no banco no momento.
+            </div>
         </div>
 
         <div class="card-painel">
             <h3 style="margin-top:0;">Solicitações</h3>
 
-            {% if solicitacoes %}
-            <div class="info-lista">
+            <div class="info-lista" id="lista-solicitacoes" {% if not solicitacoes %}style="display:none;"{% endif %}>
                 {% for solicitacao in solicitacoes %}
                 <div class="info-linha">
                     <span>
@@ -575,17 +595,15 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="muted">Nenhuma solicitação registrada ainda.</div>
-            {% endif %}
+
+            <div class="muted" id="solicitacoes-vazio" {% if solicitacoes %}style="display:none;"{% endif %}>
+                Nenhuma solicitação registrada ainda.
+            </div>
         </div>
     </div>
 </div>
 
 {% else %}
-
-{% set scout_equipe = scout.get('equipe', {}) if scout else {} %}
-{% set scout_atletas = scout.get('atletas_lista', []) if scout else [] %}
 
 <div class="card-painel">
     <h3 style="margin-top:0;">Scout da partida</h3>
@@ -596,32 +614,31 @@
     <div class="resumo-scout">
         <div class="box-resumo">
             <div class="label">Pontos</div>
-            <div class="valor">{{ scout_equipe.get('pontos', 0) }}</div>
+            <div class="valor" data-scout-pontos>{{ scout_equipe.get('pontos', 0) }}</div>
         </div>
 
         <div class="box-resumo">
             <div class="label">Aces</div>
-            <div class="valor">{{ scout_equipe.get('aces', 0) }}</div>
+            <div class="valor" data-scout-aces>{{ scout_equipe.get('aces', 0) }}</div>
         </div>
 
         <div class="box-resumo">
             <div class="label">Bloqueios</div>
-            <div class="valor">{{ scout_equipe.get('bloqueios', 0) }}</div>
+            <div class="valor" data-scout-bloqueios>{{ scout_equipe.get('bloqueios', 0) }}</div>
         </div>
 
         <div class="box-resumo">
             <div class="label">Erros de saque</div>
-            <div class="valor">{{ scout_equipe.get('erros_saque', 0) }}</div>
+            <div class="valor" data-scout-erros-saque>{{ scout_equipe.get('erros_saque', 0) }}</div>
         </div>
 
         <div class="box-resumo">
             <div class="label">Faltas</div>
-            <div class="valor">{{ scout_equipe.get('faltas', 0) }}</div>
+            <div class="valor" data-scout-faltas>{{ scout_equipe.get('faltas', 0) }}</div>
         </div>
     </div>
 
-    {% if scout_atletas %}
-    <div style="overflow-x:auto;">
+    <div id="box-tabela-scout" style="overflow-x:auto; {% if not scout_atletas %}display:none;{% endif %}">
         <table class="tabela-scout">
             <thead>
                 <tr>
@@ -633,7 +650,7 @@
                     <th>Bloqueios</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="corpo-scout-atletas">
                 {% for atleta in scout_atletas %}
                 <tr>
                     <td><strong>{{ atleta.get('numero', '-') or '-' }}</strong></td>
@@ -647,9 +664,10 @@
             </tbody>
         </table>
     </div>
-    {% else %}
-    <div class="muted">Ainda não há dados de scout para esta partida.</div>
-    {% endif %}
+
+    <div class="muted" id="scout-vazio" {% if scout_atletas %}style="display:none;"{% endif %}>
+        Ainda não há dados de scout para esta partida.
+    </div>
 </div>
 
 {% endif %}
@@ -657,70 +675,256 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 let posicaoAtual = null;
+
 const atletas = {{ atletas | tojson }};
 const socket = io();
 
-socket.on("connect", () => {
-    socket.emit("entrar_partida", {
-        competicao: "{{ competicao_nome }}",
-        partida_id: {{ partida.id }}
-    });
-});
+const LADO_TREINADOR = "{{ lado }}";
+const EQUIPE_NOME = "{{ equipe_nome }}";
+const EQUIPE_A_NOME = "{{ equipe_a }}";
+const EQUIPE_B_NOME = "{{ equipe_b }}";
 
-socket.on("estado_jogo_atualizado", (dados) => {
+function nomeEquipePorLado(lado) {
+    if (lado === "A") return EQUIPE_A_NOME || "Equipe A";
+    if (lado === "B") return EQUIPE_B_NOME || "Equipe B";
+    return "-";
+}
+
+function setTextoTodos(seletor, valor) {
+    document.querySelectorAll(seletor).forEach(el => {
+        el.textContent = (valor === null || valor === undefined || valor === "") ? "-" : valor;
+    });
+}
+
+function numeroSeguro(valor, padrao = 0) {
+    const n = parseInt(valor ?? padrao, 10);
+    return Number.isNaN(n) ? padrao : n;
+}
+
+function atualizarBotoesOperacao(temposRestantes, subsRestantes) {
+    const btnTempo = document.querySelector("[data-btn-tempo]");
+    const btnSub = document.querySelector("[data-btn-sub]");
+
+    if (btnTempo) {
+        const acabou = numeroSeguro(temposRestantes) <= 0;
+        btnTempo.disabled = acabou;
+        btnTempo.textContent = acabou ? "Sem tempos" : "Pedir tempo";
+    }
+
+    if (btnSub) {
+        const acabou = numeroSeguro(subsRestantes) <= 0;
+        btnSub.disabled = acabou;
+        btnSub.textContent = acabou ? "Sem substituições" : "Pedir substituição";
+    }
+}
+
+function atualizarBanco(banco) {
+    const lista = document.getElementById("lista-banco");
+    const vazio = document.getElementById("banco-vazio");
+
+    if (!lista || !vazio) return;
+
+    banco = Array.isArray(banco) ? banco : [];
+    lista.innerHTML = "";
+
+    if (!banco.length) {
+        lista.style.display = "none";
+        vazio.style.display = "block";
+        return;
+    }
+
+    lista.style.display = "flex";
+    vazio.style.display = "none";
+
+    banco.forEach(atleta => {
+        const numero = typeof atleta === "object" ? (atleta.numero || "-") : atleta;
+        const nome = typeof atleta === "object" ? (atleta.nome || "") : "";
+
+        const chip = document.createElement("div");
+        chip.className = "atleta-chip";
+        chip.innerHTML = `
+            <span>${numero}</span>
+            <small>${nome}</small>
+        `;
+        lista.appendChild(chip);
+    });
+}
+
+function atualizarSolicitacoes(solicitacoes) {
+    const lista = document.getElementById("lista-solicitacoes");
+    const vazio = document.getElementById("solicitacoes-vazio");
+
+    if (!lista || !vazio) return;
+
+    solicitacoes = Array.isArray(solicitacoes) ? solicitacoes : [];
+    lista.innerHTML = "";
+
+    if (!solicitacoes.length) {
+        lista.style.display = "none";
+        vazio.style.display = "block";
+        return;
+    }
+
+    lista.style.display = "grid";
+    vazio.style.display = "none";
+
+    solicitacoes.forEach(s => {
+        const tipo = s.tipo || "-";
+        const momento = s.momento ? ` — ${s.momento}` : "";
+        const status = s.status || "pendente";
+
+        const linha = document.createElement("div");
+        linha.className = "info-linha";
+        linha.innerHTML = `
+            <span>${tipo.charAt(0).toUpperCase() + tipo.slice(1)}${momento}</span>
+            <strong>${status}</strong>
+        `;
+        lista.appendChild(linha);
+    });
+}
+
+function atualizarScout(scout) {
+    scout = scout || {};
+    const equipe = scout.equipe || {};
+
+    setTextoTodos("[data-scout-pontos]", equipe.pontos ?? 0);
+    setTextoTodos("[data-scout-aces]", equipe.aces ?? 0);
+    setTextoTodos("[data-scout-bloqueios]", equipe.bloqueios ?? 0);
+    setTextoTodos("[data-scout-erros-saque]", equipe.erros_saque ?? 0);
+    setTextoTodos("[data-scout-faltas]", equipe.faltas ?? 0);
+
+    const atletasScout = scout.atletas_lista || [];
+    const corpo = document.getElementById("corpo-scout-atletas");
+    const boxTabela = document.getElementById("box-tabela-scout");
+    const vazio = document.getElementById("scout-vazio");
+
+    if (!corpo || !boxTabela || !vazio) return;
+
+    corpo.innerHTML = "";
+
+    if (!atletasScout.length) {
+        boxTabela.style.display = "none";
+        vazio.style.display = "block";
+        return;
+    }
+
+    boxTabela.style.display = "block";
+    vazio.style.display = "none";
+
+    atletasScout.forEach(atleta => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><strong>${atleta.numero || "-"}</strong></td>
+            <td class="nome-atleta">${atleta.nome || "-"}</td>
+            <td>${atleta.pontos || atleta.pontos_total || 0}</td>
+            <td>${atleta.ataques || atleta.ataque || 0}</td>
+            <td>${atleta.aces || 0}</td>
+            <td>${atleta.bloqueios || atleta.bloqueio || 0}</td>
+        `;
+        corpo.appendChild(tr);
+    });
+}
+
+function aplicarEstadoTreinador(dados) {
     if (!dados) return;
 
-    const minhaRotacao = "{{ lado }}" === "A"
-        ? (dados.rotacao?.equipe_a || [])
-        : (dados.rotacao?.equipe_b || []);
+    const rotacaoDados = dados.rotacao || {};
+    const minhaRotacao = rotacaoDados.propria || (
+        LADO_TREINADOR === "A"
+            ? (rotacaoDados.equipe_a || dados.rotacao_a || [])
+            : (rotacaoDados.equipe_b || dados.rotacao_b || [])
+    );
 
     for (let i = 0; i < 6; i++) {
         const el = document.getElementById(`rotacao_pos_${i}`);
         if (el) el.textContent = minhaRotacao[i] || "-";
     }
 
-    document.querySelectorAll("[data-placar-proprio]").forEach(el => {
-        el.textContent = "{{ lado }}" === "A" ? (dados.placar_a ?? 0) : (dados.placar_b ?? 0);
-    });
+    const pontosA = dados.placar_a ?? dados.pontos_a ?? 0;
+    const pontosB = dados.placar_b ?? dados.pontos_b ?? 0;
+    const setsA = dados.sets_a ?? 0;
+    const setsB = dados.sets_b ?? 0;
 
-    document.querySelectorAll("[data-placar-adversario]").forEach(el => {
-        el.textContent = "{{ lado }}" === "A" ? (dados.placar_b ?? 0) : (dados.placar_a ?? 0);
-    });
+    setTextoTodos("[data-pontos-a]", pontosA);
+    setTextoTodos("[data-pontos-b]", pontosB);
+    setTextoTodos("[data-sets-a]", setsA);
+    setTextoTodos("[data-sets-b]", setsB);
 
-    document.querySelectorAll("[data-sets-proprios]").forEach(el => {
-        el.textContent = "{{ lado }}" === "A" ? (dados.sets_a ?? 0) : (dados.sets_b ?? 0);
-    });
+    const placarProprio = dados.placar_proprio ?? (
+        LADO_TREINADOR === "A" ? pontosA : pontosB
+    );
 
-    document.querySelectorAll("[data-sets-adversario]").forEach(el => {
-        el.textContent = "{{ lado }}" === "A" ? (dados.sets_b ?? 0) : (dados.sets_a ?? 0);
-    });
+    const placarAdversario = dados.placar_adversario ?? (
+        LADO_TREINADOR === "A" ? pontosB : pontosA
+    );
 
-    document.querySelectorAll("[data-tempos-restantes]").forEach(el => {
-        const valor = "{{ lado }}" === "A"
-            ? (dados.tempos_a ?? el.textContent)
-            : (dados.tempos_b ?? el.textContent);
-        el.textContent = valor;
-    });
+    const setsProprios = dados.sets_proprios ?? (
+        LADO_TREINADOR === "A" ? setsA : setsB
+    );
 
-    document.querySelectorAll("[data-subs-restantes]").forEach(el => {
-        const valor = "{{ lado }}" === "A"
-            ? (dados.subs_a ?? el.textContent)
-            : (dados.subs_b ?? el.textContent);
-        el.textContent = valor;
-    });
+    const setsAdversario = dados.sets_adversario ?? (
+        LADO_TREINADOR === "A" ? setsB : setsA
+    );
 
-    document.querySelectorAll("[data-saque-atual]").forEach(el => {
-        if (!dados.saque_atual) {
-            el.textContent = "-";
-        } else {
-            el.textContent = dados.saque_atual === "{{ lado }}" ? "Minha equipe" : "Adversário";
+    setTextoTodos("[data-placar-proprio]", placarProprio);
+    setTextoTodos("[data-placar-adversario]", placarAdversario);
+    setTextoTodos("[data-sets-proprios]", setsProprios);
+    setTextoTodos("[data-sets-adversario]", setsAdversario);
+
+    if (dados.descricao_set) {
+        setTextoTodos("[data-descricao-set]", dados.descricao_set);
+    }
+
+    const saqueNome = dados.saque_atual_nome || nomeEquipePorLado(dados.saque_atual);
+    setTextoTodos("[data-saque-atual]", saqueNome || "-");
+
+    const saqueInicialNome = dados.saque_inicial_nome || nomeEquipePorLado(dados.saque_inicial);
+    setTextoTodos("[data-saque-inicial]", saqueInicialNome || "-");
+
+    const temposRestantes = dados.tempos_restantes ?? "-";
+    const subsRestantes = dados.subs_restantes ?? "-";
+
+    setTextoTodos("[data-tempos-restantes]", temposRestantes);
+    setTextoTodos("[data-subs-restantes]", subsRestantes);
+    atualizarBotoesOperacao(temposRestantes, subsRestantes);
+
+    atualizarBanco(dados.banco || []);
+    atualizarSolicitacoes(dados.solicitacoes || []);
+
+    if (dados.scout) {
+        atualizarScout(dados.scout);
+    }
+}
+
+function buscarEstadoTreinador() {
+    fetch("{{ url_for('treinador.estado_treinador_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+        headers: {
+            "X-Requested-With": "XMLHttpRequest"
         }
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d && d.ok) aplicarEstadoTreinador(d);
+    })
+    .catch(() => {});
+}
+
+socket.on("connect", () => {
+    socket.emit("entrar_partida", {
+        competicao: "{{ competicao_nome }}",
+        partida_id: {{ partida.id }},
+        equipe_nome: "{{ equipe_nome }}"
     });
+});
+
+socket.on("estado_jogo_atualizado", (dados) => {
+    aplicarEstadoTreinador(dados);
 });
 
 socket.on("resposta_solicitacao", (dados) => {
     if (!dados) return;
-    mostrarRetorno(dados.mensagem || "Atualização recebida.", !!dados.ok);
+    mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
+    buscarEstadoTreinador();
 });
 
 function obterSelecionados() {
@@ -741,24 +945,34 @@ function abrirModal(pos) {
     posicaoAtual = pos;
 
     const lista = document.getElementById("lista-atletas");
+    if (!lista) return;
+
     lista.innerHTML = "";
 
     const usados = obterSelecionados();
     const atualInput = document.getElementById(`input_${pos}`);
     const atual = atualInput ? atualInput.value : "";
 
-    atletas.forEach(a => {
-        if (!a.numero) return;
+    const listaAtletas = Array.isArray(atletas) ? atletas : [];
 
-        if (usados.includes(String(a.numero)) && String(a.numero) !== String(atual)) {
+    listaAtletas.forEach(item => {
+        const numero = typeof item === "object" ? item.numero : item;
+        const nome = typeof item === "object" ? item.nome : "";
+
+        if (numero === undefined || numero === null || String(numero).trim() === "") {
+            return;
+        }
+
+        if (usados.includes(String(numero)) && String(numero) !== String(atual)) {
             return;
         }
 
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn-atleta";
-        btn.innerText = `${a.numero}${a.nome ? " - " + a.nome : ""}`;
-        btn.onclick = () => selecionar(a.numero);
+        btn.innerText = nome ? `#${numero} ${nome}` : String(numero);
+        btn.onclick = () => selecionar(numero);
+
         lista.appendChild(btn);
     });
 
@@ -794,6 +1008,12 @@ function mostrarRetorno(msg, ok = true) {
 }
 
 function pedirTempo() {
+    const restantes = numeroSeguro(document.querySelector("[data-tempos-restantes]")?.textContent || "0");
+    if (restantes <= 0) {
+        mostrarRetorno("Sua equipe não tem mais tempos disponíveis.", false);
+        return;
+    }
+
     fetch("{{ url_for('treinador.solicitar_tempo_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
         method: "POST",
         headers: {
@@ -810,6 +1030,12 @@ function pedirTempo() {
 }
 
 function pedirSubstituicao() {
+    const restantes = numeroSeguro(document.querySelector("[data-subs-restantes]")?.textContent || "0");
+    if (restantes <= 0) {
+        mostrarRetorno("Sua equipe não tem mais substituições disponíveis.", false);
+        return;
+    }
+
     fetch("{{ url_for('treinador.solicitar_substituicao_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
         method: "POST",
         headers: {
@@ -824,5 +1050,8 @@ function pedirSubstituicao() {
         mostrarRetorno("Não foi possível enviar a solicitação de substituição.", false);
     });
 }
+
+buscarEstadoTreinador();
+setInterval(buscarEstadoTreinador, 3000);
 </script>
 {% endblock %}

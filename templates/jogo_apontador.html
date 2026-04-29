@@ -415,7 +415,9 @@
     </div>
 </div>
 
-<div id="ultima-acao" class="ultima-acao-barra">ÚLTIMA AÇÃO: -</div>
+<div id="ultima-acao" class="ultima-acao-barra">
+    ÚLTIMA AÇÃO: {{ estado.ultima_acao or '-' }}
+</div>
 
 <div class="jogo-area-central">
     <div class="jogo-coluna-principal">
@@ -451,7 +453,15 @@
         <div class="historico-card">
             <div class="historico-titulo">Últimas ações</div>
             <div id="historico-acoes" class="historico-acoes">
-                <div class="historico-item">Nenhuma ação registrada.</div>
+                {% if estado.historico %}
+                    {% for acao in estado.historico %}
+                        <div class="historico-item">
+                            {{ acao.descricao if acao.descricao is defined else acao }}
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="historico-item">Nenhuma ação registrada.</div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -1120,35 +1130,38 @@ function inverterLadosVisual() {
         const totalAtual = atualA + atualB;
         const totalNovo = novoA + novoB;
 
-        const estadoAntigoDuranteProtecao = (
-            (agora < placarProtegidoAte || agora < rotacaoProtegidaAte) &&
-            totalNovo < totalAtual
-        );
-
-        if (!estadoAntigoDuranteProtecao) {
-            pontosA.textContent = novoA;
-            pontosB.textContent = novoB;
+        // Nunca aceita estado antigo voltando placar.
+        // Desfazer deve ter fluxo próprio, não pode vir como sync comum.
+        if (totalNovo < totalAtual && !dados.desfazer) {
+            return;
         }
+
+        // Durante envio recente, ignora estado igual ou antigo.
+        if (agora < bloquearSyncAte && totalNovo <= totalAtual) {
+            return;
+        }
+
+        pontosA.textContent = novoA;
+        pontosB.textContent = novoB;
 
         setsA.textContent = dados.sets_a ?? setsA.textContent;
         setsB.textContent = dados.sets_b ?? setsB.textContent;
         setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
 
-        if (!estadoAntigoDuranteProtecao) {
-            if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
-                saqueAtual = dados.saque_atual || "";
-            }
+        if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
+            saqueAtual = dados.saque_atual || "";
+        }
 
-            if (saqueAtual) {
-                saqueInfo.textContent = `Saque atual: ${saqueAtual}`;
-            } else {
-                saqueInfo.textContent = "Saque atual ainda não definido";
-            }
+        if (saqueAtual) {
+            saqueInfo.textContent = `Saque atual: ${saqueAtual}`;
+        } else {
+            saqueInfo.textContent = "Saque atual ainda não definido";
         }
 
         if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
             tempoRestanteA.textContent = dados.tempos_a;
         }
+
         if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
             tempoRestanteB.textContent = dados.tempos_b;
         }
@@ -1156,6 +1169,7 @@ function inverterLadosVisual() {
         if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
             statusJogadoresA = dados.status_jogadores_a;
         }
+
         if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
             statusJogadoresB = dados.status_jogadores_b;
         }
@@ -1163,12 +1177,15 @@ function inverterLadosVisual() {
         if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
             sancoesA = dados.sancoes_a;
         }
+
         if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
             sancoesB = dados.sancoes_b;
         }
+
         if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
             verdesA = dados.cartoes_verdes_a;
         }
+
         if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
             verdesB = dados.cartoes_verdes_b;
         }
@@ -1176,17 +1193,20 @@ function inverterLadosVisual() {
         if (dados.subs_a !== undefined && dados.subs_a !== null) {
             subsAEl.textContent = dados.subs_a;
         }
+
         if (dados.subs_b !== undefined && dados.subs_b !== null) {
             subsBEl.textContent = dados.subs_b;
         }
+
         if (dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
             subsLimiteEl.textContent = dados.limite_substituicoes;
         }
 
-        if (!estadoAntigoDuranteProtecao) {
+        if (Date.now() >= rotacaoProtegidaAte) {
             if (dados.rotacao_a !== undefined) {
                 rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA);
             }
+
             if (dados.rotacao_b !== undefined) {
                 rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB);
             }
@@ -2257,53 +2277,167 @@ function atualizarResumoSubEx() {
 
 
     async function sincronizarEstadoJogo() {
-        if (socketConectado) return;
-        if (Date.now() < bloquearSyncAte) return;
+    if (socketConectado) return;
+    if (Date.now() < bloquearSyncAte) return;
 
-        const token = ++ultimoTokenSync;
+    const token = ++ultimoTokenSync;
 
-        try {
-            const resposta = await fetch(
-                "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
-                {
-                    method: "GET",
-                    headers: { "X-Requested-With": "fetch" },
-                    cache: "no-store"
-                }
-            );
+    try {
+        const resposta = await fetch(
+            "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
+            {
+                method: "GET",
+                headers: { "X-Requested-With": "fetch" },
+                cache: "no-store"
+            }
+        );
 
-            const bruto = await resposta.json();
-            const dados = normalizarRespostaJogo(bruto);
+        const bruto = await resposta.json();
+        const dados = normalizarRespostaJogo(bruto);
 
-            if (!resposta.ok || !dados.ok) return;
-            if (token !== ultimoTokenSync) return;
+        if (!resposta.ok || !dados.ok) return;
+        if (token !== ultimoTokenSync) return;
 
-            aplicarEstado(dados);
-        } catch (e) {
-            // silencioso
+        aplicarEstado(dados);
+    } catch (e) {}
+}
+
+
+function aplicarEstado(dados) {
+    if (!dados) return;
+
+    const agora = Date.now();
+
+    const atualA = parseInt(pontosA.textContent || "0", 10);
+    const atualB = parseInt(pontosB.textContent || "0", 10);
+    const novoA = parseInt(dados.pontos_a ?? dados.placar_a ?? atualA, 10);
+    const novoB = parseInt(dados.pontos_b ?? dados.placar_b ?? atualB, 10);
+
+    const totalAtual = atualA + atualB;
+    const totalNovo = novoA + novoB;
+
+    // Proteção principal: nunca deixa pacote antigo voltar o placar.
+    if (agora < placarProtegidoAte && totalNovo < totalAtual) {
+        return;
+    }
+
+    // Durante envio recente, ignora estado que não avançou.
+    if (agora < bloquearSyncAte && totalNovo <= totalAtual) {
+        return;
+    }
+
+    pontosA.textContent = novoA;
+    pontosB.textContent = novoB;
+
+    setsA.textContent = dados.sets_a ?? setsA.textContent;
+    setsB.textContent = dados.sets_b ?? setsB.textContent;
+    setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
+
+    if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
+        saqueAtual = dados.saque_atual || "";
+    }
+
+    saqueInfo.textContent = saqueAtual
+        ? `Saque atual: ${saqueAtual}`
+        : "Saque atual ainda não definido";
+
+    if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
+        tempoRestanteA.textContent = dados.tempos_a;
+    }
+
+    if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
+        tempoRestanteB.textContent = dados.tempos_b;
+    }
+
+    if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
+        statusJogadoresA = dados.status_jogadores_a;
+    }
+
+    if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
+        statusJogadoresB = dados.status_jogadores_b;
+    }
+
+    if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
+        sancoesA = dados.sancoes_a;
+    }
+
+    if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
+        sancoesB = dados.sancoes_b;
+    }
+
+    if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
+        verdesA = dados.cartoes_verdes_a;
+    }
+
+    if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
+        verdesB = dados.cartoes_verdes_b;
+    }
+
+    if (dados.subs_a !== undefined && dados.subs_a !== null) {
+        subsAEl.textContent = dados.subs_a;
+    }
+
+    if (dados.subs_b !== undefined && dados.subs_b !== null) {
+        subsBEl.textContent = dados.subs_b;
+    }
+
+    if (dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
+        subsLimiteEl.textContent = dados.limite_substituicoes;
+    }
+
+    if (agora >= rotacaoProtegidaAte) {
+        if (dados.rotacao_a !== undefined) {
+            rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA);
+        }
+
+        if (dados.rotacao_b !== undefined) {
+            rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB);
         }
     }
 
-
-    function aplicarPontoOtimista(equipe, scout) {
-        const atualA = parseInt(pontosA.textContent || "0", 10);
-        const atualB = parseInt(pontosB.textContent || "0", 10);
-
-        const novoA = equipe === "A" ? atualA + 1 : atualA;
-        const novoB = equipe === "B" ? atualB + 1 : atualB;
-
-        pontosA.textContent = novoA;
-        pontosB.textContent = novoB;
-
-        // Protege a tela contra pacote/socket antigo chegando atrasado.
-        placarProtegidoAte = Date.now() + 1800;
-        bloquearSyncAte = Date.now() + 900;
-
-        const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
-        atualizarUltimaAcao(`Registrando ${detalhe} para equipe ${equipe}...`);
+    if (dados.ultima_acao !== undefined) {
+        atualizarUltimaAcao(dados.ultima_acao || "-");
     }
 
-    function registrarPonto(equipe, scout) {
+    if (Array.isArray(dados.historico)) {
+        renderHistoricoBackend(dados.historico);
+    }
+
+    atualizarContadoresDisciplinares();
+    renderQuadra();
+
+    partidaFinalizada = !!dados.partida_finalizada;
+
+    if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
+        saqueInfo.textContent += " • Partida finalizada";
+    }
+}
+
+
+function aplicarPontoOtimista(equipe, scout) {
+    const atualA = parseInt(pontosA.textContent || "0", 10);
+    const atualB = parseInt(pontosB.textContent || "0", 10);
+
+    const novoA = equipe === "A" ? atualA + 1 : atualA;
+    const novoB = equipe === "B" ? atualB + 1 : atualB;
+
+    pontosA.textContent = novoA;
+    pontosB.textContent = novoB;
+
+    // Proteção mais forte para impedir placar voltando.
+    placarProtegidoAte = Date.now() + 3000;
+    bloquearSyncAte = Date.now() + 1800;
+    rotacaoProtegidaAte = Date.now() + 1200;
+
+    const detalhe = scout && scout.detalhe_lance
+        ? tituloBonitoScout(scout.detalhe_lance)
+        : "ponto";
+
+    atualizarUltimaAcao(`Registrando ${detalhe} para equipe ${equipe}.`);
+}
+
+
+function registrarPonto(equipe, scout) {
     if (partidaFinalizada) return;
 
     limparErro();
@@ -2314,6 +2448,7 @@ function atualizarResumoSubEx() {
     const rotAntesB = [...rotB];
     const saqueAntes = saqueAtual;
 
+    // Atualiza na hora.
     aplicarPontoOtimista(equipe, scout);
     fecharModalPonto();
 
@@ -2324,22 +2459,22 @@ function atualizarResumoSubEx() {
             "X-Requested-With": "fetch"
         },
         body: JSON.stringify({
-            equipe,
-            fundamento: scout?.fundamento || "",
-            resultado: scout?.resultado || "",
-            tipo_lance: scout?.tipo_lance || "",
-            detalhe_lance: scout?.detalhe_lance || "",
-            tipo_erro: scout?.tipo_erro || "",
-            atleta_numero: scout?.atleta_numero || "",
-            atleta_nome: scout?.atleta_nome || "",
-            atleta_label: scout?.atleta_label || ""
+            equipe: equipe,
+            fundamento: (scout && scout.fundamento) || "",
+            resultado: (scout && (scout.resultado || scout.tipo_lance)) || "",
+            tipo_lance: (scout && scout.tipo_lance) || "",
+            detalhe_lance: (scout && scout.detalhe_lance) || "",
+            tipo_erro: (scout && scout.tipo_erro) || "",
+            atleta_numero: (scout && scout.atleta_numero) || "",
+            atleta_nome: (scout && scout.atleta_nome) || "",
+            atleta_label: (scout && scout.atleta_label) || ""
         })
     })
     .then(res => res.json())
-    .then(dados => {
+    .then(bruto => {
+        const dados = normalizarRespostaJogo(bruto);
 
         if (!dados.ok) {
-            // rollback
             pontosA.textContent = pontosAntesA;
             pontosB.textContent = pontosAntesB;
             rotA = rotAntesA;
@@ -2352,11 +2487,15 @@ function atualizarResumoSubEx() {
 
         ultimoTokenSync++;
 
-        placarProtegidoAte = Date.now() + 600;
-        bloquearSyncAte = Date.now() + 300;
-        rotacaoProtegidaAte = Date.now() + 600;
+        // Protege contra socket atrasado, mas libera a resposta oficial do backend
+        placarProtegidoAte = Date.now() + 1800;
+        rotacaoProtegidaAte = Date.now() + 900;
 
+        bloquearSyncAte = 0;
         aplicarEstado(dados);
+
+        // Depois volta a bloquear sync antigo
+        bloquearSyncAte = Date.now() + 900;
 
         if (dados.set_finalizado) {
             atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
