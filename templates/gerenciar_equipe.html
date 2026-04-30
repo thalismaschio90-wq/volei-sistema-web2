@@ -1,43 +1,98 @@
 {% extends "base.html" %}
 
-{% block content %}
-<div class="card">
-    <h2>Gerenciar Equipe</h2>
+{% block conteudo %}
+<div class="topo-secao">
+    <div>
+        <div class="titulo-secao">Gerenciar Equipe</div>
+        <p style="margin:0;color:var(--muted);">
+            Ajuste dados da equipe, liberação especial e ações administrativas.
+        </p>
+    </div>
 
-    {% if erro %}
-        <p class="msg-erro">{{ erro }}</p>
-    {% endif %}
+    <a href="{{ url_for('equipes.listar_equipes_view') }}" class="btn-secundario">
+        Voltar
+    </a>
+</div>
 
-    {% if sucesso %}
-        <p class="msg-sucesso">{{ sucesso }}</p>
-    {% endif %}
+{% if erro %}
+    <div class="flash-erro">{{ erro }}</div>
+{% endif %}
 
-    <p><strong>Nome atual:</strong> {{ equipe.nome }}</p>
-    <p><strong>Login:</strong> {{ equipe.login }}</p>
-    <p><strong>Competição:</strong> {{ equipe.competicao or "-" }}</p>
+{% if sucesso %}
+    <div class="flash-sucesso">{{ sucesso }}</div>
+{% endif %}
 
-    <hr><br>
+<div class="hero-box">
+    <div class="hero-titulo">{{ equipe.nome }}</div>
+    <p class="hero-texto">
+        <strong>Login:</strong> {{ equipe.login }}<br>
+        <strong>Competição:</strong> {{ equipe.competicao or "-" }}
+    </p>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top:0;">Dados da equipe</h3>
 
     <form method="post">
         <input type="hidden" name="acao" value="salvar">
-        <div class="linha-form">
+
+        <label>Nome da equipe</label>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;">
             <input name="nome" value="{{ equipe.nome }}" required>
-            <button type="submit">Salvar nome</button>
+            <button type="submit" class="btn-padrao">Salvar nome</button>
         </div>
     </form>
+</div>
 
-    <br>
+<div class="card-painel">
+    <h3 style="margin-top:0;">Liberação especial de inscrição</h3>
+    <p style="color:var(--muted);margin-top:-4px;">
+        Use esta opção para liberar cadastro ou edição de atletas apenas para esta equipe.
+    </p>
 
     <form method="post">
-        <input type="hidden" name="acao" value="resetar_senha">
-        <button type="submit">Resetar senha</button>
-    </form>
+        <input type="hidden" name="acao" value="salvar_liberacao">
 
-    <br>
+        <label style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
+            <input type="checkbox" name="liberacao_extra_inscricao"
+                {% if equipe.liberacao_extra_inscricao %}checked{% endif %}
+                style="width:18px;height:18px;">
+            Liberar inscrição/edição para esta equipe
+        </label>
 
-    <form method="post" onsubmit="return confirm('Tem certeza que deseja excluir esta equipe?');">
-        <input type="hidden" name="acao" value="excluir">
-        <button type="submit" style="background:#b91c1c;">Excluir equipe</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+                <label>Data limite extra</label>
+                <input type="date" name="liberacao_extra_data" value="{{ equipe.liberacao_extra_data or '' }}">
+            </div>
+
+            <div>
+                <label>Hora limite extra</label>
+                <input type="time" name="liberacao_extra_hora" value="{{ equipe.liberacao_extra_hora or '' }}">
+            </div>
+        </div>
+
+        <br>
+
+        <button type="submit" class="btn-padrao">
+            Salvar liberação especial
+        </button>
     </form>
+</div>
+
+<div class="card-painel">
+    <h3 style="margin-top:0;">Ações administrativas</h3>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <form method="post">
+            <input type="hidden" name="acao" value="resetar_senha">
+            <button type="submit" class="btn-secundario">Resetar senha</button>
+        </form>
+
+        <form method="post" onsubmit="return confirm('Tem certeza que deseja excluir esta equipe?');">
+            <input type="hidden" name="acao" value="excluir">
+            <button type="submit" class="btn-danger">Excluir equipe</button>
+        </form>
+    </div>
 </div>
 {% endblock %}

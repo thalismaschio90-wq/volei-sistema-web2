@@ -1,3 +1,4 @@
+print(">>> CARREGOU O ARQUIVO EQUIPES.PY CERTO <<<")
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash
 from banco import (
     buscar_competicao_por_organizador,
@@ -145,15 +146,18 @@ def excluir_equipe_view(nome):
 # =========================
 # ORGANIZADOR - GERENCIAR EQUIPE
 # =========================
-@equipes_bp.route("/equipes/<nome>/gerenciar", methods=["GET", "POST"])
+@equipes_bp.route("/equipes/<path:nome>/gerenciar", methods=["GET", "POST"])
 @exigir_perfil("organizador")
 def gerenciar_equipe_view(nome):
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
     if not competicao:
         flash("Nenhuma competição vinculada ao organizador.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    equipe = buscar_equipe_por_nome_e_competicao(nome, competicao["nome"])
+    nome_competicao = competicao["nome"]
+
+    equipe = buscar_equipe_por_nome_e_competicao(nome, nome_competicao)
     if not equipe:
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("equipes.listar_equipes_view"))
@@ -166,78 +170,105 @@ def gerenciar_equipe_view(nome):
 
         if acao == "salvar":
             novo_nome = request.form.get("nome", "").strip()
+
             if not novo_nome:
                 erro = "Informe o nome da equipe."
-            elif novo_nome.lower() != equipe["nome"].lower() and equipe_existe_na_competicao(novo_nome, competicao["nome"]):
+
+            elif (
+                novo_nome.lower() != equipe["nome"].lower()
+                and equipe_existe_na_competicao(novo_nome, nome_competicao)
+            ):
                 erro = "Já existe uma equipe com esse nome nesta competição."
+
+            elif competicao_esta_travada(nome_competicao):
+                erro = "A competição está travada. O nome da equipe não pode mais ser alterado."
+
             else:
-                if competicao_esta_travada(competicao["nome"]):
-                    erro = "A competição está travada. O nome da equipe não pode mais ser alterado."
-                else:
-                    atualizar_nome_equipe(equipe["nome"], competicao["nome"], novo_nome)
-                    sucesso = "Nome da equipe atualizado com sucesso."
-                    nome = novo_nome
+                atualizar_nome_equipe(equipe["nome"], nome_competicao, novo_nome)
+                sucesso = "Nome da equipe atualizado com sucesso."
+                nome = novo_nome
 
         elif acao == "salvar_tecnico":
-            ok_edicao, mensagem_edicao = validar_edicao_atletas_equipe(competicao["nome"], equipe["nome"])
+            ok_edicao, mensagem_edicao = validar_edicao_atletas_equipe(
+                nome_competicao,
+                equipe["nome"]
+            )
+
             if not ok_edicao:
                 erro = mensagem_edicao
             else:
                 atualizar_quadro_tecnico_equipe(
-                equipe["nome"],
-                competicao["nome"],
-                request.form.get("treinador", "").strip(),
-                request.form.get("auxiliar_tecnico", "").strip(),
-                request.form.get("preparador_fisico", "").strip(),
-                request.form.get("medico", "").strip(),
+                    equipe["nome"],
+                    nome_competicao,
+                    request.form.get("treinador", "").strip(),
+                    request.form.get("auxiliar_tecnico", "").strip(),
+                    request.form.get("preparador_fisico", "").strip(),
+                    request.form.get("medico", "").strip(),
                 )
                 sucesso = "Quadro técnico atualizado com sucesso."
 
         elif acao == "salvar_liberacao":
-            if competicao_esta_travada(competicao["nome"]):
+            if competicao_esta_travada(nome_competicao):
                 erro = "A competição está travada. Não é possível alterar permissões especiais agora."
             else:
+                liberado = request.form.get("liberacao_extra_inscricao") == "on"
+                data_extra = request.form.get("liberacao_extra_data", "").strip() or None
+                hora_extra = request.form.get("liberacao_extra_hora", "").strip() or None
+
                 salvar_liberacao_extra_equipe(
-                equipe["nome"],
-                competicao["nome"],
-                request.form.get("liberacao_extra_inscricao") == "on",
-                request.form.get("liberacao_extra_data", "").strip(),
-                request.form.get("liberacao_extra_hora", "").strip(),
+                    equipe["nome"],
+                    nome_competicao,
+                    liberado,
+                    data_extra,
+                    hora_extra,
                 )
+
                 sucesso = "Permissão especial atualizada com sucesso."
 
         elif acao == "resetar_senha":
-            resultado = redefinir_senha_da_equipe(equipe["nome"], competicao["nome"])
+            resultado = redefinir_senha_da_equipe(equipe["nome"], nome_competicao)
+
             if resultado:
                 session["senha_redefinida_equipe"] = {
                     "nome": equipe["nome"],
                     "login": resultado["login"],
-                    "senha": resultado["senha"]
+                    "senha": resultado["senha"],
                 }
                 return redirect(url_for("equipes.listar_equipes_view"))
+
             erro = "Não foi possível redefinir a senha."
 
         elif acao == "excluir":
-            if competicao_esta_travada(competicao["nome"]):
+            if competicao_esta_travada(nome_competicao):
                 erro = "A competição está travada. Não é possível excluir equipes."
             else:
-                ok = excluir_equipe(equipe["nome"], competicao["nome"])
+                ok = excluir_equipe(equipe["nome"], nome_competicao)
+
                 if ok:
                     flash("Equipe excluída com sucesso.", "sucesso")
                     return redirect(url_for("equipes.listar_equipes_view"))
+
                 erro = "Não foi possível excluir a equipe."
 
-        equipe = buscar_equipe_por_nome_e_competicao(nome, competicao["nome"])
+        else:
+            erro = "Ação inválida."
 
-    atletas = listar_atletas_da_equipe(equipe["nome"], competicao["nome"])
+        equipe = buscar_equipe_por_nome_e_competicao(nome, nome_competicao)
+
+        if not equipe:
+            flash("Equipe não encontrada após a atualização.", "erro")
+            return redirect(url_for("equipes.listar_equipes_view"))
+
+    atletas = listar_atletas_da_equipe(equipe["nome"], nome_competicao)
 
     return render_template(
-        "gerenciar_equipe.html",
-        equipe=equipe,
-        atletas=atletas,
-        erro=erro,
-        sucesso=sucesso
-    )
+    "gerenciar_equipe.html",
+    equipe=equipe,
+    atletas=atletas,
+    erro=erro,
+    sucesso=sucesso,
+    competicao=competicao,
+)
 
 
 # =========================
