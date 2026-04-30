@@ -76,6 +76,25 @@
     color: var(--muted);
 }
 
+.topo-competicao-apontador {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.botao-telao {
+    background: #0f766e !important;
+    color: white !important;
+    text-decoration: none;
+}
+
+.botao-telao:hover {
+    filter: brightness(0.95);
+}
+
 @media (max-width: 700px) {
     .card-jogo {
         align-items: flex-start;
@@ -86,13 +105,27 @@
         width: 100%;
         justify-content: flex-start;
     }
+
+    .topo-competicao-apontador {
+        align-items: flex-start;
+        flex-direction: column;
+    }
 }
 </style>
 
 {% if modo_partidas %}
 <div class="card-painel">
-    <div style="font-size:20px; font-weight:900; margin-bottom:10px;">
-        {{ competicao_nome }}
+
+    <div class="topo-competicao-apontador">
+        <div style="font-size:20px; font-weight:900;">
+            {{ competicao_nome }}
+        </div>
+
+        <a class="btn-padrao botao-telao"
+           href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}"
+           target="_blank">
+            🖥️ Abrir Telão / Placar ao vivo
+        </a>
     </div>
 
     {% if partidas %}

@@ -677,7 +677,16 @@
 let posicaoAtual = null;
 
 const atletas = {{ atletas | tojson }};
-const socket = io();
+const socket = (typeof io === "function") ? io({
+    transports: ["websocket"],
+    upgrade: false,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 2000,
+    timeout: 5000,
+    forceNew: true
+}) : null;
 
 const LADO_TREINADOR = "{{ lado }}";
 const EQUIPE_NOME = "{{ equipe_nome }}";
@@ -825,15 +834,29 @@ function atualizarScout(scout) {
     });
 }
 
+function rotacaoTemValor(rotacao) {
+    return Array.isArray(rotacao) && rotacao.some(v => String(v || "").trim() !== "");
+}
+
 function aplicarEstadoTreinador(dados) {
     if (!dados) return;
 
     const rotacaoDados = dados.rotacao || {};
-    const minhaRotacao = rotacaoDados.propria || (
-        LADO_TREINADOR === "A"
+
+    let minhaRotacao = rotacaoDados.propria || [];
+
+    // Correção importante:
+    // uma lista ["", "", "", "", "", ""] é "verdadeira" no JS,
+    // então antes ele não caía no fallback e a quadrinha ficava toda com "-".
+    if (!rotacaoTemValor(minhaRotacao)) {
+        minhaRotacao = LADO_TREINADOR === "A"
             ? (rotacaoDados.equipe_a || dados.rotacao_a || [])
-            : (rotacaoDados.equipe_b || dados.rotacao_b || [])
-    );
+            : (rotacaoDados.equipe_b || dados.rotacao_b || []);
+    }
+
+    if (!rotacaoTemValor(minhaRotacao)) {
+        minhaRotacao = dados.rotacao_propria || [];
+    }
 
     for (let i = 0; i < 6; i++) {
         const el = document.getElementById(`rotacao_pos_${i}`);
@@ -896,36 +919,69 @@ function aplicarEstadoTreinador(dados) {
     }
 }
 
-function buscarEstadoTreinador() {
+let buscandoEstadoTreinador = false;
+let ultimaBuscaEstadoTreinador = 0;
+
+function buscarEstadoTreinadorSeguro(forcar = false) {
+    if (buscandoEstadoTreinador) return;
+
+    /*
+      IMPORTANTE:
+      Se o socket estiver conectado, não fica fazendo consulta no banco toda hora.
+      Isso evita PoolTimeout e deixa o ponto do apontador salvar muito mais rápido.
+    */
+    if (!forcar && socket && socket.connected) return;
+
+    const agora = Date.now();
+    if (!forcar && agora - ultimaBuscaEstadoTreinador < 12000) return;
+
+    buscandoEstadoTreinador = true;
+    ultimaBuscaEstadoTreinador = agora;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+
     fetch("{{ url_for('treinador.estado_treinador_view', competicao=competicao_nome, partida_id=partida.id) }}", {
         headers: {
             "X-Requested-With": "XMLHttpRequest"
-        }
+        },
+        cache: "no-store",
+        signal: controller.signal
     })
     .then(r => r.json())
     .then(d => {
         if (d && d.ok) aplicarEstadoTreinador(d);
     })
-    .catch(() => {});
+    .catch(() => {})
+    .finally(() => {
+        clearTimeout(timeout);
+        buscandoEstadoTreinador = false;
+    });
 }
 
-socket.on("connect", () => {
-    socket.emit("entrar_partida", {
-        competicao: "{{ competicao_nome }}",
-        partida_id: {{ partida.id }},
-        equipe_nome: "{{ equipe_nome }}"
+if (socket) {
+    socket.on("connect", () => {
+        socket.emit("entrar_partida", {
+            competicao: "{{ competicao_nome }}",
+            partida_id: {{ partida.id }},
+            equipe_nome: "{{ equipe_nome }}"
+        });
     });
-});
 
-socket.on("estado_jogo_atualizado", (dados) => {
-    aplicarEstadoTreinador(dados);
-});
+    socket.on("connect_error", () => {
+        buscarEstadoTreinadorSeguro(true);
+    });
 
-socket.on("resposta_solicitacao", (dados) => {
-    if (!dados) return;
-    mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
-    buscarEstadoTreinador();
-});
+    socket.on("estado_jogo_atualizado", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
+    socket.on("resposta_solicitacao", (dados) => {
+        if (!dados) return;
+        mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
+        buscarEstadoTreinadorSeguro(true);
+    });
+}
 
 function obterSelecionados() {
     const usados = [];
@@ -1051,7 +1107,10 @@ function pedirSubstituicao() {
     });
 }
 
-buscarEstadoTreinador();
-setInterval(buscarEstadoTreinador, 3000);
+// busca uma vez ao abrir a tela
+buscarEstadoTreinadorSeguro(true);
+
+// fallback leve: só consulta banco se o socket cair
+setInterval(() => buscarEstadoTreinadorSeguro(false), 15000);
 </script>
 {% endblock %}

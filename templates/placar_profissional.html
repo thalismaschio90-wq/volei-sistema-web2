@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Placar ao Vivo</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<style>
+:root {
+    --bg: #080808;
+    --line: rgba(242, 242, 242, .16);
+    --text: #F2F2F2;
+    --muted: #B8B8B8;
+    --gold: #F6C945;
+    --blue: #2E6BE6;
+    --blue-dark: #173A8A;
+    --red: #E53935;
+    --red-dark: #8F1F1C;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+    background:
+        radial-gradient(circle at 18% 15%, rgba(46, 107, 230, .22), transparent 32%),
+        radial-gradient(circle at 82% 15%, rgba(229, 57, 53, .20), transparent 32%),
+        linear-gradient(180deg, #111 0%, #070707 100%);
+}
+
+.telao {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: 16 / 9;
+    display: grid;
+    grid-template-rows: 76px minmax(0, 1fr) 205px;
+    gap: 16px;
+    padding: 18px 24px 20px;
+}
+
+.topo {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 16px;
+}
+
+.status {
+    justify-self: center;
+    max-width: 980px;
+    min-width: 520px;
+    padding: 10px 26px;
+    border: 2px solid rgba(246, 201, 69, .34);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .36);
+    color: var(--gold);
+    text-align: center;
+    font-size: clamp(21px, 2vw, 32px);
+    font-weight: 1000;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.btn-inverter {
+    justify-self: end;
+    border: 2px solid rgba(242, 242, 242, .20);
+    background: rgba(242, 242, 242, .08);
+    color: rgba(242, 242, 242, .84);
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: 900;
+    cursor: pointer;
+    user-select: none;
+}
+
+.miolo {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 210px minmax(0, 1fr);
+    gap: 20px;
+    align-items: stretch;
+}
+
+.equipe {
+    min-width: 0;
+    border-radius: 30px;
+    overflow: hidden;
+    border: 4px solid var(--line);
+    display: grid;
+    grid-template-rows: 98px minmax(0, 1fr) 72px;
+}
+
+.equipe-a {
+    border-color: rgba(46, 107, 230, .62);
+    background: linear-gradient(180deg, rgba(46, 107, 230, .38), rgba(11, 22, 50, .97));
+}
+
+.equipe-b {
+    border-color: rgba(229, 57, 53, .62);
+    background: linear-gradient(180deg, rgba(229, 57, 53, .35), rgba(54, 13, 13, .97));
+}
+
+.nome-equipe {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 20px;
+    border-bottom: 4px solid rgba(242, 242, 242, .10);
+    font-size: clamp(32px, 3.8vw, 66px);
+    line-height: .96;
+    font-weight: 1000;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: -.035em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pontos {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(190px, 22vw, 350px);
+    line-height: .82;
+    font-weight: 1000;
+    letter-spacing: -.08em;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.pontos.animar {
+    animation: popPonto .24s ease-out;
+}
+
+@keyframes popPonto {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.07); }
+    100% { transform: scale(1); }
+}
+
+.saque {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 72px;
+    font-size: clamp(25px, 2.3vw, 40px);
+    font-weight: 1000;
+    letter-spacing: .10em;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: rgba(246, 201, 69, .15);
+    border-top: 4px solid rgba(246, 201, 69, .56);
+}
+
+.saque.vazio {
+    color: rgba(242, 242, 242, .22);
+    background: rgba(0, 0, 0, .22);
+    border-top-color: rgba(242, 242, 242, .08);
+}
+
+.centro {
+    min-width: 0;
+    display: grid;
+    grid-template-rows: 1fr auto 1fr;
+    gap: 18px;
+    align-items: center;
+}
+
+.sets-centro {
+    display: grid;
+    gap: 14px;
+    align-items: center;
+    justify-items: center;
+}
+
+.set-label {
+    font-size: 22px;
+    font-weight: 1000;
+    color: var(--muted);
+    letter-spacing: .18em;
+    text-transform: uppercase;
+}
+
+.sets-valor {
+    display: grid;
+    grid-template-columns: 80px 42px 80px;
+    align-items: center;
+    gap: 12px;
+}
+
+.set-num {
+    width: 80px;
+    height: 80px;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 52px;
+    line-height: 1;
+    font-weight: 1000;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.set-a {
+    background: linear-gradient(180deg, var(--blue), var(--blue-dark));
+    border: 3px solid rgba(242, 242, 242, .20);
+}
+
+.set-b {
+    background: linear-gradient(180deg, var(--red), var(--red-dark));
+    border: 3px solid rgba(242, 242, 242, .20);
+}
+
+.set-x {
+    text-align: center;
+    font-size: 34px;
+    font-weight: 1000;
+    color: var(--muted);
+}
+
+.set-atual {
+    min-width: 160px;
+    border: 2px solid rgba(246, 201, 69, .32);
+    background: rgba(0, 0, 0, .30);
+    border-radius: 999px;
+    padding: 10px 18px;
+    text-align: center;
+    color: var(--gold);
+    font-size: 22px;
+    font-weight: 1000;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.rodape {
+    min-height: 0;
+    border-radius: 24px;
+    border: 3px solid rgba(242, 242, 242, .15);
+    background: rgba(0, 0, 0, .44);
+    padding: 12px 18px 16px;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+}
+
+.evolucao-topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.evolucao-titulo {
+    color: var(--gold);
+    font-size: 20px;
+    font-weight: 1000;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.evolucao-contador {
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 1000;
+    font-variant-numeric: tabular-nums;
+}
+
+.evolucao-dupla {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    gap: 13px;
+}
+
+.linha-evolucao-wrap {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 78px 1fr;
+    align-items: center;
+    gap: 12px;
+}
+
+.label-evolucao {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 42px;
+    border-radius: 12px;
+    font-size: 22px;
+    font-weight: 1000;
+    color: var(--text);
+}
+
+.label-a {
+    background: linear-gradient(180deg, var(--blue), var(--blue-dark));
+}
+
+.label-b {
+    background: linear-gradient(180deg, var(--red), var(--red-dark));
+}
+
+.linha-evolucao {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(50, minmax(10px, 1fr));
+    gap: 7px;
+    align-items: center;
+}
+
+.bolinha {
+    width: min(100%, 30px);
+    max-width: 30px;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    justify-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid rgba(242, 242, 242, .24);
+    background: rgba(242, 242, 242, .08);
+    color: var(--text);
+    font-size: clamp(9px, .8vw, 13px);
+    font-weight: 1000;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.bolinha.a {
+    background: var(--blue);
+    border-color: rgba(242, 242, 242, .38);
+}
+
+.bolinha.b {
+    background: var(--red);
+    border-color: rgba(242, 242, 242, .38);
+}
+
+.bolinha.vazia {
+    opacity: .18;
+    color: transparent;
+}
+
+.sem-jogo .equipe-a,
+.sem-jogo .equipe-b {
+    opacity: .82;
+}
+</style>
+</head>
+
+<body>
+<div id="telao" class="telao sem-jogo">
+
+    <div class="topo">
+        <div></div>
+        <div class="status" id="infoJogo">AGUARDANDO JOGO AO VIVO</div>
+        <button id="btnInverter" class="btn-inverter" type="button">↔ Inverter lados</button>
+    </div>
+
+    <main class="miolo">
+        <section id="cardA" class="equipe equipe-a">
+            <div id="nomeA" class="nome-equipe">Equipe A</div>
+            <div id="pontosA" class="pontos">0</div>
+            <div id="saqueA" class="saque vazio">—</div>
+        </section>
+
+        <aside class="centro">
+            <div></div>
+            <div class="sets-centro">
+                <div class="set-label">SETS</div>
+                <div class="sets-valor">
+                    <div id="setsA" class="set-num set-a">0</div>
+                    <div class="set-x">×</div>
+                    <div id="setsB" class="set-num set-b">0</div>
+                </div>
+                <div id="setAtual" class="set-atual">1º SET</div>
+            </div>
+            <div></div>
+        </aside>
+
+        <section id="cardB" class="equipe equipe-b">
+            <div id="nomeB" class="nome-equipe">Equipe B</div>
+            <div id="pontosB" class="pontos">0</div>
+            <div id="saqueB" class="saque vazio">—</div>
+        </section>
+    </main>
+
+    <footer class="rodape">
+        <div class="evolucao-topo">
+            <div class="evolucao-titulo">Evolução ponto a ponto</div>
+            <div id="evolucaoContador" class="evolucao-contador">0 pontos</div>
+        </div>
+
+        <div class="evolucao-dupla">
+            <div class="linha-evolucao-wrap">
+                <div class="label-evolucao label-a" id="labelEvolucaoA">A</div>
+                <div id="linhaEvolucaoA" class="linha-evolucao"></div>
+            </div>
+
+            <div class="linha-evolucao-wrap">
+                <div class="label-evolucao label-b" id="labelEvolucaoB">B</div>
+                <div id="linhaEvolucaoB" class="linha-evolucao"></div>
+            </div>
+        </div>
+    </footer>
+
+</div>
+
+<script>
+const apontador = {{ (apontador if apontador is defined else '') | tojson }};
+const socket = io();
+
+const telao = document.getElementById("telao");
+const infoJogo = document.getElementById("infoJogo");
+
+const nomeA = document.getElementById("nomeA");
+const nomeB = document.getElementById("nomeB");
+const pontosA = document.getElementById("pontosA");
+const pontosB = document.getElementById("pontosB");
+
+const setsA = document.getElementById("setsA");
+const setsB = document.getElementById("setsB");
+const setAtualEl = document.getElementById("setAtual");
+
+const saqueA = document.getElementById("saqueA");
+const saqueB = document.getElementById("saqueB");
+
+const btnInverter = document.getElementById("btnInverter");
+const linhaEvolucaoA = document.getElementById("linhaEvolucaoA");
+const linhaEvolucaoB = document.getElementById("linhaEvolucaoB");
+const evolucaoContador = document.getElementById("evolucaoContador");
+
+let ultimoEstado = null;
+let ultimosPontosA = 0;
+let ultimosPontosB = 0;
+
+function chaveInversao(dados) {
+    const partida = dados && dados.partida_id ? String(dados.partida_id) : "sem_partida";
+    const ap = apontador || "sem_apontador";
+    return `placar_invertido_${ap}_${partida}`;
+}
+
+function getInvertidoVisual(dados) {
+    return localStorage.getItem(chaveInversao(dados)) === "1";
+}
+
+function setInvertidoVisual(dados, valor) {
+    localStorage.setItem(chaveInversao(dados), valor ? "1" : "0");
+}
+
+btnInverter.addEventListener("click", function () {
+    const atual = getInvertidoVisual(ultimoEstado || {});
+    setInvertidoVisual(ultimoEstado || {}, !atual);
+    if (ultimoEstado) aplicarEstado(ultimoEstado);
+});
+
+socket.on("connect", () => {
+    if (apontador) {
+        socket.emit("entrar_placar_apontador", { apontador: apontador });
+    }
+});
+
+function normalizarLado(valor) {
+    const v = String(valor || "").trim().toUpperCase();
+    if (v === "A" || v === "EQUIPE_A" || v === "AZUL") return "A";
+    if (v === "B" || v === "EQUIPE_B" || v === "VERMELHO") return "B";
+    return "";
+}
+
+function nomeEquipeA(dados) {
+    return dados.equipe_a || dados.equipe_a_operacional || dados.equipe_a_nome || dados.nome_a || dados.time_a || "Equipe A";
+}
+
+function nomeEquipeB(dados) {
+    return dados.equipe_b || dados.equipe_b_operacional || dados.equipe_b_nome || dados.nome_b || dados.time_b || "Equipe B";
+}
+
+function ladoQuePontuou(ev) {
+    if (typeof ev === "string") {
+        return normalizarLado(ev);
+    }
+
+    if (ev && typeof ev === "object") {
+        let lado = normalizarLado(
+            ev.ponto_para ||
+            ev.equipe_ponto ||
+            ev.equipe_que_pontuou ||
+            ev.lado_ponto ||
+            ev.lado_marcou ||
+            ev.marcou ||
+            ev.vencedor_ponto ||
+            ev.lado
+        );
+
+        if (lado) return lado;
+
+        const equipe = normalizarLado(ev.equipe);
+        const tipo = String(ev.tipo || ev.tipo_evento || "").toLowerCase();
+        const resultado = String(ev.resultado || ev.tipo_lance || ev.fundamento || "").toLowerCase();
+
+        const ehErroOuFalta =
+            tipo.includes("erro") ||
+            tipo.includes("falta") ||
+            resultado.includes("erro") ||
+            resultado.includes("falta");
+
+        if (equipe && ehErroOuFalta) {
+            return equipe === "A" ? "B" : "A";
+        }
+
+        return equipe;
+    }
+
+    return "";
+}
+
+function ordenarEventosPorOrdemReal(lista) {
+    return [...lista].sort((a, b) => {
+        if (typeof a !== "object" || typeof b !== "object") return 0;
+
+        const ia = Number(a.ordem || a.sequencia || a.id || 0);
+        const ib = Number(b.ordem || b.sequencia || b.id || 0);
+
+        if (ia && ib && ia !== ib) return ia - ib;
+
+        const ta = new Date(a.criado_em || a.data_hora || a.timestamp || 0).getTime();
+        const tb = new Date(b.criado_em || b.data_hora || b.timestamp || 0).getTime();
+
+        if (ta && tb && ta !== tb) return ta - tb;
+
+        return 0;
+    });
+}
+
+function extrairSequenciaPontos(dados) {
+    const fontesOrdenadas = [
+        dados.evolucao_pontos,
+        dados.evolucao,
+        dados.progressao,
+        dados.progressao_pontos,
+        dados.pontos_evolucao,
+        dados.timeline
+    ];
+
+    for (const fonte of fontesOrdenadas) {
+        if (!Array.isArray(fonte) || !fonte.length) continue;
+        const lista = fonte.map(ladoQuePontuou).filter(Boolean);
+        if (lista.length) return lista.slice(-50);
+    }
+
+    const fontesEventos = [
+        dados.eventos,
+        dados.historico
+    ];
+
+    for (const fonte of fontesEventos) {
+        if (!Array.isArray(fonte) || !fonte.length) continue;
+
+        const lista = ordenarEventosPorOrdemReal(fonte)
+            .map(ladoQuePontuou)
+            .filter(Boolean);
+
+        if (lista.length) return lista.slice(-50);
+    }
+
+    /*
+      Sem a ordem real dos pontos, o navegador não consegue adivinhar a sequência.
+      Nesse caso, deixamos a evolução vazia em vez de mostrar uma ordem errada.
+      Para aparecer perfeito, o backend/socket precisa mandar:
+      evolucao_pontos: ["A", "B", "A", "A", "B"]
+    */
+    return [];
+}
+
+function renderizarLinhaVazia() {
+    linhaEvolucaoA.innerHTML = "";
+    linhaEvolucaoB.innerHTML = "";
+
+    for (let i = 0; i < 50; i++) {
+        const bolaA = document.createElement("div");
+        const bolaB = document.createElement("div");
+        bolaA.className = "bolinha vazia";
+        bolaB.className = "bolinha vazia";
+        linhaEvolucaoA.appendChild(bolaA);
+        linhaEvolucaoB.appendChild(bolaB);
+    }
+}
+
+function renderEvolucao(dados, invertido) {
+    linhaEvolucaoA.innerHTML = "";
+    linhaEvolucaoB.innerHTML = "";
+
+    let sequencia = extrairSequenciaPontos(dados);
+
+    if (invertido) {
+        sequencia = sequencia.map((lado) => {
+            if (lado === "A") return "B";
+            if (lado === "B") return "A";
+            return lado;
+        });
+    }
+
+    let placarLinhaA = 0;
+    let placarLinhaB = 0;
+
+    evolucaoContador.textContent = `${sequencia.length} ponto${sequencia.length === 1 ? "" : "s"}`;
+
+    for (let i = 0; i < 50; i++) {
+        const lado = sequencia[i];
+
+        const bolaA = document.createElement("div");
+        const bolaB = document.createElement("div");
+
+        bolaA.className = "bolinha vazia";
+        bolaB.className = "bolinha vazia";
+
+        /*
+          Cada i é UMA COLUNA da ordem real do jogo.
+          Se o ponto i foi da A: bolinha azul em cima e embaixo vazio.
+          Se o ponto i foi da B: em cima vazio e bolinha vermelha embaixo.
+          O número é o placar DAQUELA equipe naquele momento.
+        */
+        if (lado === "A") {
+            placarLinhaA++;
+            bolaA.className = "bolinha a";
+            bolaA.textContent = placarLinhaA;
+        }
+
+        if (lado === "B") {
+            placarLinhaB++;
+            bolaB.className = "bolinha b";
+            bolaB.textContent = placarLinhaB;
+        }
+
+        linhaEvolucaoA.appendChild(bolaA);
+        linhaEvolucaoB.appendChild(bolaB);
+    }
+}
+
+function animarSeMudou(el, novo, antigo) {
+    const n = Number(novo) || 0;
+    const a = Number(antigo) || 0;
+
+    if (n !== a) {
+        el.classList.remove("animar");
+        void el.offsetWidth;
+        el.classList.add("animar");
+    }
+}
+
+function aplicarSaque(saque) {
+    saqueA.textContent = "—";
+    saqueB.textContent = "—";
+    saqueA.classList.add("vazio");
+    saqueB.classList.add("vazio");
+
+    if (saque === "A") {
+        saqueA.textContent = "● SAQUE";
+        saqueA.classList.remove("vazio");
+    }
+
+    if (saque === "B") {
+        saqueB.textContent = "● SAQUE";
+        saqueB.classList.remove("vazio");
+    }
+}
+
+function aplicarEstado(dados) {
+    if (!dados || typeof dados !== "object") return;
+
+    ultimoEstado = dados;
+    telao.classList.remove("sem-jogo");
+
+    const invertido = getInvertidoVisual(dados);
+
+    let equipeA = nomeEquipeA(dados);
+    let equipeB = nomeEquipeB(dados);
+
+    let pA = Number(dados.pontos_a ?? dados.placar_a ?? 0) || 0;
+    let pB = Number(dados.pontos_b ?? dados.placar_b ?? 0) || 0;
+
+    let sA = Number(dados.sets_a ?? 0) || 0;
+    let sB = Number(dados.sets_b ?? 0) || 0;
+
+    let saque = normalizarLado(dados.saque_atual || dados.saque);
+
+    if (invertido) {
+        [equipeA, equipeB] = [equipeB, equipeA];
+        [pA, pB] = [pB, pA];
+        [sA, sB] = [sB, sA];
+
+        if (saque === "A") saque = "B";
+        else if (saque === "B") saque = "A";
+    }
+
+    animarSeMudou(pontosA, pA, ultimosPontosA);
+    animarSeMudou(pontosB, pB, ultimosPontosB);
+
+    ultimosPontosA = pA;
+    ultimosPontosB = pB;
+
+    nomeA.textContent = equipeA;
+    nomeB.textContent = equipeB;
+
+    pontosA.textContent = pA;
+    pontosB.textContent = pB;
+
+    setsA.textContent = sA;
+    setsB.textContent = sB;
+
+    const setAtual = dados.set_atual || 1;
+    setAtualEl.textContent = `${setAtual}º SET`;
+
+    aplicarSaque(saque);
+
+    const competicao = dados.competicao || "";
+    if (competicao) {
+        infoJogo.textContent = `${competicao} • ${setAtual}º SET`;
+    } else if (apontador) {
+        infoJogo.textContent = `TELÃO ${apontador} • AGUARDANDO JOGO`;
+    } else {
+        infoJogo.textContent = `${setAtual}º SET`;
+    }
+
+    renderEvolucao(dados, invertido);
+}
+
+renderizarLinhaVazia();
+
+socket.on("placar_apontador_atualizado", aplicarEstado);
+</script>
+
+</body>
+</html>

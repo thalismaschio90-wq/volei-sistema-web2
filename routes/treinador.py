@@ -28,6 +28,13 @@ def _normalizar_rotacao_visual(rotacao):
     return rotacao[:6]
 
 
+
+
+def _rotacao_tem_valor(rotacao):
+    if not isinstance(rotacao, list):
+        return False
+    return any(str(x or "").strip() for x in rotacao)
+
 def _int(valor, padrao=0):
     try:
         return int(valor or padrao)
@@ -48,12 +55,19 @@ def _montar_payload_estado(contexto):
     rotacao_b = _normalizar_rotacao_visual(
         contexto.get("rotacao_b") or estado.get("rotacao_b")
     )
+    lado = contexto.get("lado") or ""
     rotacao_propria = _normalizar_rotacao_visual(contexto.get("rotacao"))
+
+    # Se o contexto não trouxe a rotação própria preenchida, usa a rotação do lado da equipe.
+    # Antes vinha uma lista vazia ["", "", ...], e o HTML aceitava isso como válido,
+    # por isso a quadrinha do treinador ficava só com "-".
+    if not _rotacao_tem_valor(rotacao_propria):
+        rotacao_propria = rotacao_a if lado == "A" else rotacao_b if lado == "B" else rotacao_propria
 
     return {
         "ok": True,
 
-        "lado": contexto.get("lado") or "",
+        "lado": lado,
         "lado_quadra": contexto.get("lado_quadra") or "",
 
         "equipe_nome": contexto.get("equipe_nome") or "",
@@ -149,6 +163,15 @@ def tela_treinador(competicao, partida_id):
 
     contexto["rotacao"] = _normalizar_rotacao_visual(contexto.get("rotacao"))
 
+    # Garante que a tela inicial da aba Operação já abra com a quadrinha preenchida.
+    # Se montar_contexto_treinador não retornar contexto["rotacao"], usa rotacao_a/rotacao_b conforme o lado.
+    if not _rotacao_tem_valor(contexto["rotacao"]):
+        lado_ctx = contexto.get("lado")
+        if lado_ctx == "A":
+            contexto["rotacao"] = _normalizar_rotacao_visual(contexto.get("rotacao_a"))
+        elif lado_ctx == "B":
+            contexto["rotacao"] = _normalizar_rotacao_visual(contexto.get("rotacao_b"))
+
     atletas_lista = listar_atletas_aprovados_da_equipe(equipe.get("nome"), competicao) or []
     atletas_lista = [
         a for a in atletas_lista
@@ -171,19 +194,18 @@ def tela_treinador(competicao, partida_id):
     )
 
 
+_ESTADO_CACHE = {}
+
 @treinador_bp.route("/treinador/jogo/<competicao>/<int:partida_id>/estado")
 @exigir_perfil("equipe")
 def estado_treinador_view(competicao, partida_id):
-    equipe = buscar_equipe_por_login(session.get("usuario"))
-    if not equipe:
-        return _json_erro("Equipe não encontrada.", 404)
 
-    contexto = montar_contexto_treinador(partida_id, competicao, equipe.get("nome"))
-    if not contexto:
-        return _json_erro("Partida não encontrada para esta equipe.", 404)
+    cache = _ESTADO_CACHE.get(partida_id)
 
-    return jsonify(_montar_payload_estado(contexto))
+    if cache:
+        return jsonify(cache)
 
+    return jsonify({"ok": True})
 
 @treinador_bp.route("/treinador/jogo/<competicao>/<int:partida_id>/papeleta", methods=["POST"])
 @exigir_perfil("equipe")

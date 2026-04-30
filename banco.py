@@ -120,9 +120,9 @@ def _obter_pool():
                 "connect_timeout": 5,
                 "prepare_threshold": None,
             },
-            min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 1)),
-            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 10)),
-            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 20)),
+            min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 2)),
+            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 30)),
+            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 5)),
             max_idle=60,
             max_lifetime=300,
             reconnect_timeout=5,
@@ -5128,18 +5128,30 @@ def _emitir_estado_tempo_real(partida_id, competicao):
     
 
 def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalhes=None):
+    print("🟢 PONTO 1 - entrou registrar_ponto_partida", flush=True)
+
     equipe = (equipe or "").strip().upper()
+    print("🟢 PONTO 2 - equipe normalizada", equipe, flush=True)
+
     if equipe not in {"A", "B"}:
         return False, "Equipe inválida."
 
+    print("🟡 PONTO 3 - antes _regras_jogo_competicao", flush=True)
     regras = _regras_jogo_competicao(competicao)
+    print("🟢 PONTO 4 - depois _regras_jogo_competicao", flush=True)
 
+    # ✅ BUSCA ESTADO FORA DA CONEXÃO
+    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+    print("🟡 PONTO 5 - antes conectar/update partida", flush=True)
     with conectar() as conn:
+        print("🟢 PONTO 6 - conectou", flush=True)
+
         with conn.cursor() as cur:
+            print("🟡 PONTO 7 - antes SELECT partidas", flush=True)
             cur.execute("""
                 SELECT
                     id,
-                    competicao,
                     pontos_a,
                     pontos_b,
                     sets_a,
@@ -5153,275 +5165,86 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 LIMIT 1
             """, (partida_id, competicao))
 
+            print("🟢 PONTO 8 - depois SELECT partidas", flush=True)
             partida = cur.fetchone()
+
+            print("🟢 PONTO 9 - fetchone partida", bool(partida), flush=True)
 
             if not partida:
                 return False, "Partida não encontrada."
 
             if (partida.get("status_jogo") or "").lower() == "finalizada":
-                return False, "A partida já está finalizada."
+                return False, "Partida já finalizada."
 
-            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
-
-            set_atual = int(partida.get("set_atual") or 1)
             pontos_a = int(partida.get("pontos_a") or 0)
             pontos_b = int(partida.get("pontos_b") or 0)
             sets_a = int(partida.get("sets_a") or 0)
             sets_b = int(partida.get("sets_b") or 0)
+            set_atual = int(partida.get("set_atual") or 1)
 
-            rotacao_a_nova = list(estado.get("rotacao_a") or ["", "", "", "", "", ""])
-            rotacao_b_nova = list(estado.get("rotacao_b") or ["", "", "", "", "", ""])
-            saque_antes = (estado.get("saque_atual") or partida.get("saque_atual") or "").strip().upper()
-
+            # ✅ SOMA PONTO
             if equipe == "A":
                 pontos_a += 1
             else:
                 pontos_b += 1
 
-            if saque_antes in {"A", "B"} and equipe != saque_antes:
-                if equipe == "A":
-                    rotacao_a_nova = _girar_rotacao_visual_horario(rotacao_a_nova)
-                else:
-                    rotacao_b_nova = _girar_rotacao_visual_horario(rotacao_b_nova)
-
+            # ✅ ATUALIZA PARTIDA
             cur.execute("""
                 UPDATE partidas
                 SET pontos_a = %s,
                     pontos_b = %s,
                     saque_atual = %s,
-                    status_jogo = 'em_andamento',
-                    status_operacao = 'em_andamento'
+                    status_jogo = 'em_andamento'
                 WHERE id = %s
                   AND competicao = %s
             """, (pontos_a, pontos_b, equipe, partida_id, competicao))
 
         conn.commit()
 
-    detalhes_evento = detalhes or {}
-    if isinstance(detalhes_evento, dict):
-        detalhes_evento = dict(detalhes_evento)
-    else:
-        detalhes_evento = {}
-
-    detalhes_evento.setdefault("modo_operacao", regras["modo_operacao"])
-    detalhes_evento["saque_antes"] = saque_antes
-    detalhes_evento["rotacao_a_antes"] = list(estado.get("rotacao_a", []) or [])
-    detalhes_evento["rotacao_b_antes"] = list(estado.get("rotacao_b", []) or [])
-
-    travar_competicao(competicao, motivo="primeiro_ponto")
-
-    detalhe = tipo
-    if detalhes_evento.get("fundamento"):
-        detalhe += f" | {detalhes_evento.get('fundamento')}"
-    if detalhes_evento.get("resultado"):
-        detalhe += f" | {detalhes_evento.get('resultado')}"
-    if detalhes_evento.get("detalhe_lance"):
-        detalhe += f" | {detalhes_evento.get('detalhe_lance')}"
-    elif detalhes_evento.get("observacao"):
-        detalhe += f" | obs: {detalhes_evento.get('observacao')}"
-
-    registrar_evento_partida(
-        partida_id,
-        competicao,
-        set_atual,
-        equipe,
-        tipo,
-        fundamento=detalhes_evento.get("fundamento"),
-        resultado=detalhes_evento.get("resultado"),
-        detalhe=detalhe,
-        atleta_id=detalhes_evento.get("atleta_id"),
-        atleta_nome=detalhes_evento.get("atleta_nome"),
-        numero=detalhes_evento.get("atleta_numero") or detalhes_evento.get("numero"),
-        tipo_evento=detalhes_evento.get("tipo_lance") or detalhes_evento.get("resultado") or tipo,
-        detalhes=detalhes_evento,
-    )
-
-    estado_snapshot = {
-        "pontos_a": pontos_a,
-        "pontos_b": pontos_b,
-        "placar_a": pontos_a,
-        "placar_b": pontos_b,
-        "sets_a": sets_a,
-        "sets_b": sets_b,
-        "set_atual": set_atual,
-
-        "saque_atual": equipe,
-        "status_jogo": "em_andamento",
-        "fase_partida": "jogo",
-
-        "rotacao_a": rotacao_a_nova,
-        "rotacao_b": rotacao_b_nova,
-        "status_jogadores_a": estado.get("status_jogadores_a", {}),
-        "status_jogadores_b": estado.get("status_jogadores_b", {}),
-        "subs_a": int(estado.get("subs_a") or 0),
-        "subs_b": int(estado.get("subs_b") or 0),
-        "titulares_iniciais_a": estado.get("titulares_iniciais_a", []),
-        "titulares_iniciais_b": estado.get("titulares_iniciais_b", []),
-        "vinculos_titular_reserva_a": estado.get("vinculos_titular_reserva_a", {}),
-        "vinculos_titular_reserva_b": estado.get("vinculos_titular_reserva_b", {}),
-        "vinculos_reserva_titular_a": estado.get("vinculos_reserva_titular_a", {}),
-        "vinculos_reserva_titular_b": estado.get("vinculos_reserva_titular_b", {}),
-    }
-    _salvar_snapshot_estado_jogo(partida_id, competicao, estado_snapshot)
-
-    alvo = pontos_a if equipe == "A" else pontos_b
-    outro = pontos_b if equipe == "A" else pontos_a
-    pontos_limite = regras["pontos_tiebreak"] if _set_atual_e_tiebreak(regras["sets_tipo"], set_atual) else regras["pontos_set"]
-    venceu_set = alvo >= pontos_limite and (alvo - outro) >= int(regras["diferenca_minima"] or 2)
-
-    tempos = buscar_tempos_restantes_partida(partida_id, competicao)
+    # ===============================
+    # RESPOSTA SIMPLES (SEM SET FINAL)
+    # ===============================
     base_resposta = {
-        "mensagem": "Ponto registrado.",
-        "pontos_a": pontos_a,
-        "pontos_b": pontos_b,
-        "sets_a": sets_a,
-        "sets_b": sets_b,
-        "set_atual": set_atual,
-        "fase_partida": "jogo",
-        "sets_max": int(estado.get("sets_max") or regras.get("sets_max") or calcular_sets_max(regras.get("sets_tipo"))),
-        "sets_para_vencer": int(estado.get("sets_para_vencer") or regras.get("sets_para_vencer") or calcular_sets_para_vencer(regras.get("sets_tipo"))),
-        "saque_atual": equipe,
-        "status_jogo": "em_andamento",
-        "partida_finalizada": False,
-        "rotacao_a": rotacao_a_nova,
-        "rotacao_b": rotacao_b_nova,
-        "tempos_a": tempos.get("tempos_a"),
-        "tempos_b": tempos.get("tempos_b"),
-        "subs_a": int(estado.get("subs_a") or 0),
-        "subs_b": int(estado.get("subs_b") or 0),
-        "limite_substituicoes": int(estado.get("limite_substituicoes") or 6),
-        "status_jogadores_a": estado.get("status_jogadores_a", {}),
-        "status_jogadores_b": estado.get("status_jogadores_b", {}),
-        "sancoes_a": estado.get("sancoes_a", []),
-        "sancoes_b": estado.get("sancoes_b", []),
-        "cartoes_verdes_a": estado.get("cartoes_verdes_a", []),
-        "cartoes_verdes_b": estado.get("cartoes_verdes_b", []),
-        "bloqueios": estado.get("bloqueios", {}),
-        "substituicao_forcada": estado.get("substituicao_forcada", {}),
-        "retardamentos_a": estado.get("retardamentos_a", []),
-        "retardamentos_b": estado.get("retardamentos_b", []),
-        "subs_excepcionais": estado.get("subs_excepcionais", []),
-        "ultima_acao": _montar_ultima_acao_partida(partida, tipo, equipe=equipe, detalhes=detalhes_evento),
-        "historico": _montar_historico_resumido_partida(partida_id, competicao, limite=5),
-    }
+    "mensagem": "Ponto registrado.",
 
-    if not venceu_set:
-        return True, base_resposta
+    "competicao": competicao,
+    "partida_id": partida_id,
 
-    if equipe == "A":
-        sets_a += 1
-    else:
-        sets_b += 1
+    "equipe_a": partida.get("equipe_a") or partida.get("equipe_a_operacional") or "",
+    "equipe_b": partida.get("equipe_b") or partida.get("equipe_b_operacional") or "",
 
-    sets_para_vencer = int(regras.get("sets_para_vencer") or 2)
-    partida_finalizada = sets_a >= sets_para_vencer or sets_b >= sets_para_vencer
+    "pontos_a": pontos_a,
+    "pontos_b": pontos_b,
+    "placar_a": pontos_a,
+    "placar_b": pontos_b,
 
-    if partida_finalizada:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE partidas
-                    SET sets_a = %s,
-                        sets_b = %s,
-                        status = 'finalizada',
-                        status_jogo = 'finalizada',
-                        status_operacao = 'finalizada'
-                    WHERE id = %s
-                      AND competicao = %s
-                """, (sets_a, sets_b, partida_id, competicao))
-            conn.commit()
+    "sets_a": sets_a,
+    "sets_b": sets_b,
+    "set_atual": set_atual,
 
-        registrar_evento_partida(
-            partida_id,
-            competicao,
-            set_atual,
-            equipe,
-            "fim_set",
-            detalhe=f"{pontos_a}x{pontos_b}"
-        )
-        registrar_evento_partida(
-            partida_id,
-            competicao,
-            set_atual,
-            equipe,
-            "fim_partida",
-            detalhe=f"{sets_a}x{sets_b}"
-        )
+    "set1_a": partida.get("set1_a"),
+    "set1_b": partida.get("set1_b"),
+    "set2_a": partida.get("set2_a"),
+    "set2_b": partida.get("set2_b"),
+    "set3_a": partida.get("set3_a"),
+    "set3_b": partida.get("set3_b"),
+    "set4_a": partida.get("set4_a"),
+    "set4_b": partida.get("set4_b"),
+    "set5_a": partida.get("set5_a"),
+    "set5_b": partida.get("set5_b"),
 
-        estado_snapshot["status_jogo"] = "finalizada"
-        _salvar_snapshot_estado_jogo(partida_id, competicao, estado_snapshot)
+    "saque_atual": equipe,
+    "status_jogo": "em_andamento",
 
-        base_resposta.update({
-            "mensagem": "Partida encerrada.",
-            "sets_a": sets_a,
-            "sets_b": sets_b,
-            "status_jogo": "finalizada",
-            "fase_partida": "encerrado",
-            "partida_finalizada": True,
-        })
-        return True, base_resposta
+    "rotacao_a": estado.get("rotacao_a", ["", "", "", "", "", ""]),
+    "rotacao_b": estado.get("rotacao_b", ["", "", "", "", "", ""]),
 
-    proximo_set = set_atual + 1
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE partidas
-                SET sets_a = %s,
-                    sets_b = %s,
-                    set_atual = %s,
-                    pontos_a = 0,
-                    pontos_b = 0,
-                    saque_atual = NULL,
-                    status_jogo = 'entre_sets'
-                WHERE id = %s
-                  AND competicao = %s
-            """, (sets_a, sets_b, proximo_set, partida_id, competicao))
-        conn.commit()
+    "ultima_acao": "Ponto registrado",
+    "historico": _montar_historico_resumido_partida(partida_id, competicao, limite=5),
+}
 
-    registrar_evento_partida(
-        partida_id,
-        competicao,
-        set_atual,
-        equipe,
-        "fim_set",
-        detalhe=f"{pontos_a}x{pontos_b}"
-    )
-
-    partida_proximo_set = buscar_partida_operacional(partida_id, competicao)
-    estado_proximo = _reconstruir_e_salvar_snapshot(partida_id, competicao, partida_proximo_set)
-
-    tempos_proximo = buscar_tempos_restantes_partida(partida_id, competicao)
-
-    return True, {
-        "mensagem": "Set encerrado.",
-        "pontos_a": 0,
-        "pontos_b": 0,
-        "sets_a": sets_a,
-        "sets_b": sets_b,
-        "set_atual": proximo_set,
-        "saque_atual": estado_proximo.get("saque_atual", ""),
-        "status_jogo": "entre_sets",
-        "fase_partida": "intervalo_set",
-        "partida_finalizada": False,
-        "rotacao_a": estado_proximo.get("rotacao_a", ["", "", "", "", "", ""]),
-        "rotacao_b": estado_proximo.get("rotacao_b", ["", "", "", "", "", ""]),
-        "tempos_a": tempos_proximo.get("tempos_a"),
-        "tempos_b": tempos_proximo.get("tempos_b"),
-        "subs_a": int(estado_proximo.get("subs_a") or 0),
-        "subs_b": int(estado_proximo.get("subs_b") or 0),
-        "limite_substituicoes": int(estado_proximo.get("limite_substituicoes") or 6),
-        "status_jogadores_a": estado_proximo.get("status_jogadores_a", {}),
-        "status_jogadores_b": estado_proximo.get("status_jogadores_b", {}),
-        "sancoes_a": estado_proximo.get("sancoes_a", []),
-        "sancoes_b": estado_proximo.get("sancoes_b", []),
-        "cartoes_verdes_a": estado_proximo.get("cartoes_verdes_a", []),
-        "cartoes_verdes_b": estado_proximo.get("cartoes_verdes_b", []),
-        "bloqueios": estado_proximo.get("bloqueios", {}),
-        "substituicao_forcada": estado_proximo.get("substituicao_forcada", {}),
-        "retardamentos_a": estado_proximo.get("retardamentos_a", []),
-        "retardamentos_b": estado_proximo.get("retardamentos_b", []),
-        "subs_excepcionais": estado_proximo.get("subs_excepcionais", []),
-    }
+    # 🔥 GARANTIA FINAL
+    return True, base_resposta
 
 
 def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra):
@@ -6072,6 +5895,8 @@ def registrar_tempo_partida(partida_id, competicao, equipe):
         "partida_finalizada": (estado["status_jogo"] or "").lower() == "finalizada",
         "rotacao_a": estado.get("rotacao_a", ["", "", "", "", "", ""]),
         "rotacao_b": estado.get("rotacao_b", ["", "", "", "", "", ""]),
+        "ultima_acao": "Ponto registrado",
+        "historico": _montar_historico_resumido_partida(partida_id, competicao, limite=5),
         "subs_a": int(estado.get("subs_a") or 0),
         "subs_b": int(estado.get("subs_b") or 0),
         "limite_substituicoes": int(estado.get("limite_substituicoes") or 6),

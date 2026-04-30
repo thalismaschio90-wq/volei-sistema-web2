@@ -41,7 +41,12 @@ from banco import (
     listar_eventos_partida,
 )
 from routes.utils import exigir_perfil
-from socket_events import emitir_estado_partida, emitir_resposta_solicitacao
+from socket_events import (
+    emitir_estado_partida,
+    emitir_placar_apontador,
+    emitir_resposta_solicitacao,
+    obter_estado_cache
+)
 
 apontadores_bp = Blueprint("apontadores", __name__)
 
@@ -140,6 +145,162 @@ def _rotacao_fallback_por_papeleta(papeleta):
         papeleta.get(6, ""),
         papeleta.get(1, ""),
     ]
+
+
+def _montar_evolucao_pontos(partida_id, competicao):
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=300) or []
+    except TypeError:
+        try:
+            eventos = listar_eventos_partida(partida_id, competicao) or []
+        except Exception:
+            return []
+    except Exception:
+        return []
+
+    def chave_ordem(ev):
+        return (
+            ev.get("id") or 0,
+            str(ev.get("criado_em") or "")
+        )
+
+    eventos = sorted(eventos, key=chave_ordem)
+
+    evolucao = []
+
+    for ev in eventos:
+        tipo_evento = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+        equipe = str(ev.get("equipe") or "").strip().upper()
+
+        fundamento = str(ev.get("fundamento") or "").strip().lower()
+        resultado = str(ev.get("resultado") or "").strip().lower()
+        tipo_lance = str(
+            ev.get("tipo_lance")
+            or ev.get("detalhe")
+            or ev.get("detalhes")
+            or ""
+        ).strip().lower()
+
+        if equipe not in {"A", "B"}:
+            continue
+
+        if tipo_evento not in {"ponto", "pontuacao", "pontuação"}:
+            continue
+
+        eh_ponto_proprio = (
+            resultado == "ponto"
+            or tipo_lance == "ponto"
+            or fundamento in {"ataque", "bloqueio", "ace"}
+        )
+
+        eh_erro_ou_falta = (
+            resultado in {"erro", "falta"}
+            or tipo_lance in {"erro", "falta"}
+            or fundamento in {
+                "erro_saque",
+                "erro_geral",
+                "rede",
+                "invasao",
+                "rotacao",
+                "conducao",
+                "dois_toques",
+            }
+        )
+
+        if eh_erro_ou_falta:
+            evolucao.append("B" if equipe == "A" else "A")
+        elif eh_ponto_proprio:
+            evolucao.append(equipe)
+
+    return evolucao[-50:]
+
+
+def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=None):
+    """
+    Garante que o payload enviado ao telão sempre tenha:
+    - nomes das equipes
+    - competição
+    - partida_id
+    - placar atual
+    - evolução ponto a ponto em ordem real
+    """
+    estado = dict(estado or {})
+
+    if partida is None:
+        try:
+            partida = buscar_partida_operacional(partida_id, competicao) or {}
+        except Exception:
+            partida = {}
+
+    estado["competicao"] = estado.get("competicao") or competicao
+    estado["partida_id"] = estado.get("partida_id") or partida_id
+
+    estado["equipe_a"] = (
+        estado.get("equipe_a")
+        or estado.get("equipeA")
+        or estado.get("equipe_a_nome")
+        or estado.get("nome_equipe_a")
+        or estado.get("nome_a")
+        or estado.get("time_a")
+        or partida.get("equipe_a")
+        or partida.get("equipe_a_operacional")
+        or ""
+    )
+
+    estado["equipe_b"] = (
+        estado.get("equipe_b")
+        or estado.get("equipeB")
+        or estado.get("equipe_b_nome")
+        or estado.get("nome_equipe_b")
+        or estado.get("nome_b")
+        or estado.get("time_b")
+        or partida.get("equipe_b")
+        or partida.get("equipe_b_operacional")
+        or ""
+    )
+
+    if "pontos_a" not in estado:
+        estado["pontos_a"] = estado.get("placar_a", 0)
+
+    if "pontos_b" not in estado:
+        estado["pontos_b"] = estado.get("placar_b", 0)
+
+    if "placar_a" not in estado:
+        estado["placar_a"] = estado.get("pontos_a", 0)
+
+    if "placar_b" not in estado:
+        estado["placar_b"] = estado.get("pontos_b", 0)
+
+    estado["evolucao_pontos"] = _montar_evolucao_pontos(partida_id, competicao)
+
+    return estado
+
+
+def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, origem=""):
+    """
+    Emite o estado para a sala da partida e também para o telão fixo.
+    """
+    estado = _preparar_estado_para_placar(partida_id, competicao, estado, partida)
+
+    apontador_login = (
+        session.get("usuario")
+        or estado.get("apontador")
+        or estado.get("apontador_login")
+        or estado.get("operador_login")
+        or (partida or {}).get("operador_login")
+        or ""
+    )
+
+    if apontador_login:
+        estado["apontador"] = apontador_login
+
+    try:
+        emitir_estado_partida(partida_id, estado)
+        emitir_placar_apontador(apontador_login, partida_id, estado)
+    except Exception as e:
+        print(f"ERRO emitir estado/placar {origem}:", e)
+
+    return estado
 
 
 # =========================================================
@@ -696,6 +857,14 @@ def jogo_view(competicao, partida_id):
     estado["historico"] = historico_inicial
     estado["ultima_acao"] = ultima_acao or estado.get("ultima_acao") or "-"
 
+    estado = _emitir_estado_e_placar(
+        partida_id,
+        competicao,
+        estado,
+        partida=partida,
+        origem="JOGO_VIEW"
+    )
+
     resposta = make_response(render_template(
         "jogo_apontador.html",
         competicao_nome=competicao,
@@ -718,6 +887,7 @@ def jogo_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/ponto", methods=["POST"])
 @exigir_perfil("apontador")
 def ponto_view(competicao, partida_id):
+    print("🔥 ENTROU NO PONTO_VIEW POST")
     try:
         corpo = request.get_json(silent=True) or {}
 
@@ -795,10 +965,7 @@ def ponto_view(competicao, partida_id):
         if "ultima_acao" not in estado:
             estado["ultima_acao"] = "Ponto registrado"
 
-        try:
-            emitir_estado_partida(partida_id, estado)
-        except Exception as e:
-            print("ERRO emitir_estado_partida PONTO:", e)
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="PONTO")
 
         return _json_no_cache({
             "ok": True,
@@ -816,11 +983,26 @@ def ponto_view(competicao, partida_id):
 def desfazer_acao_view(competicao, partida_id):
     try:
         ok, retorno = desfazer_ultima_acao_partida(partida_id, competicao)
+
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
-        return _json_no_cache({"ok": True, **retorno})
+
+        estado = retorno if isinstance(retorno, dict) else {}
+
+        estado["desfazer"] = True
+
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="DESFAZER")
+
+        return _json_no_cache({
+            "ok": True,
+            **estado
+        })
+
     except Exception as e:
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao desfazer ação: {e}"}, 500)
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao desfazer ação: {e}"
+        }, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/tempo", methods=["POST"])
@@ -839,10 +1021,7 @@ def registrar_tempo_view(competicao, partida_id):
 
         estado = retorno if isinstance(retorno, dict) else {}
 
-        try:
-            emitir_estado_partida(partida_id, estado)
-        except Exception as e:
-            print("ERRO emitir_estado_partida TEMPO:", e)
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="TEMPO")
 
         try:
             emitir_resposta_solicitacao(partida_id, {
@@ -881,10 +1060,7 @@ def registrar_substituicao_view(competicao, partida_id):
 
         estado = retorno if isinstance(retorno, dict) else {}
 
-        try:
-            emitir_estado_partida(partida_id, estado)
-        except Exception as e:
-            print("ERRO emitir_estado_partida SUBSTITUICAO:", e)
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="SUBSTITUICAO")
 
         try:
             emitir_resposta_solicitacao(partida_id, {
@@ -917,15 +1093,31 @@ def registrar_substituicao_excepcional_view(competicao, partida_id):
         if not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
-        ok, retorno = registrar_substituicao_excepcional_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
+        ok, retorno = registrar_substituicao_excepcional_partida(
+            partida_id,
+            competicao,
+            equipe,
+            numero_sai,
+            numero_entra
+        )
+
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        return _json_no_cache({"ok": True, **retorno})
+        estado = retorno if isinstance(retorno, dict) else {}
+
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="SUBSTITUICAO_EXCEPCIONAL")
+
+        return _json_no_cache({
+            "ok": True,
+            **estado
+        })
 
     except Exception as e:
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional: {e}"}, 500)
-
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao registrar substituição excepcional: {e}"
+        }, 500)
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/retardamento", methods=["POST"])
 @exigir_perfil("apontador")
@@ -941,7 +1133,10 @@ def registrar_retardamento_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        return _json_no_cache({"ok": True, **retorno})
+        estado = retorno if isinstance(retorno, dict) else {}
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="RETARDAMENTO")
+
+        return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar retardamento: {e}"}, 500)
@@ -974,7 +1169,10 @@ def registrar_sancao_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        return _json_no_cache({"ok": True, **retorno})
+        estado = retorno if isinstance(retorno, dict) else {}
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="SANCAO")
+
+        return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar sanção: {e}"}, 500)
@@ -1003,7 +1201,10 @@ def registrar_cartao_verde_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        return _json_no_cache({"ok": True, **retorno})
+        estado = retorno if isinstance(retorno, dict) else {}
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="CARTAO_VERDE")
+
+        return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar cartão verde: {e}"}, 500)
@@ -1103,13 +1304,19 @@ def encerrar_partida_view(competicao, partida_id):
 
         encerrar_partida(partida_id, competicao, observacoes)
         estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        estado["encerrado"] = True
+        estado["partida_finalizada"] = True
+        estado["status_jogo"] = "finalizada"
+
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_PARTIDA")
 
         return _json_no_cache({
             "ok": True,
             "mensagem": "Partida encerrada com sucesso.",
             "encerrado": True,
             "estado": estado,
-            "partida_finalizada": True
+            "partida_finalizada": True,
+            **estado
         })
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao encerrar partida: {e}"}, 500)
@@ -1132,6 +1339,66 @@ def observacoes_view(competicao, partida_id):
 def salvar_observacoes_view(competicao, partida_id):
     observacoes = request.form.get("observacoes")
     encerrar_partida(partida_id, competicao, observacoes)
+
+    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+    estado["encerrado"] = True
+    estado["partida_finalizada"] = True
+    estado["status_jogo"] = "finalizada"
+    _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_OBSERVACOES")
+
     return redirect("/")
 
 # FIX: garantir fundamento/resultado corretos para falta e erro_saque
+
+@apontadores_bp.route("/apontador/inverter-lados/<int:partida_id>", methods=["POST"])
+@exigir_perfil("apontador")
+def inverter_lados(partida_id):
+    competicao = session.get("competicao_apontador") or ""
+    estado = obter_estado_cache(partida_id) or {}
+
+    if competicao and not estado:
+        estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+    estado["invertido"] = not bool(estado.get("invertido", False))
+
+    if competicao:
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="INVERTER_LADOS")
+    else:
+        apontador_login = session.get("usuario") or estado.get("apontador") or ""
+        if apontador_login:
+            estado["apontador"] = apontador_login
+        emitir_estado_partida(partida_id, estado)
+        emitir_placar_apontador(apontador_login, partida_id, estado)
+
+    return _json_no_cache({
+        "ok": True,
+        "invertido": estado["invertido"]
+    })
+
+@apontadores_bp.route("/placar-ao-vivo")
+def placar_ao_vivo_redirect():
+    apontador = session.get("usuario") or ""
+
+    if apontador:
+        return redirect(url_for("apontadores.placar_ao_vivo_apontador", apontador=apontador))
+
+    return render_template(
+        "placar_profissional.html",
+        estado={},
+        partida={},
+        apontador=""
+    )
+
+
+@apontadores_bp.route("/placar-ao-vivo/<apontador>")
+def placar_ao_vivo_apontador(apontador):
+    from socket_events import obter_ultimo_placar_apontador
+
+    estado = obter_ultimo_placar_apontador(apontador) or {}
+
+    return render_template(
+        "placar_profissional.html",
+        estado=estado,
+        partida=estado,
+        apontador=apontador
+    )

@@ -484,6 +484,7 @@
         <button id="btn-retardamento" class="btn-secundario" type="button">Retardamento</button>
         <button id="btn-sub-excepcional" class="btn-secundario" type="button">Subst. excepcional</button>
         <button id="btn-fullscreen" class="btn-secundario" type="button">Tela cheia</button>
+        <button id="btn-abrir-placar" class="btn-secundario" type="button">Abrir placar ao vivo</button>
         <button id="btn-inverter-lados" class="btn-secundario" type="button">Inverter lados</button>
     </div>
 
@@ -718,6 +719,7 @@
 const btnRetardamento = document.getElementById("btn-retardamento");
 const btnSubExcepcional = document.getElementById("btn-sub-excepcional");
 const btnFullscreen = document.getElementById("btn-fullscreen");
+const btnAbrirPlacar = document.getElementById("btn-abrir-placar");
 const btnInverterLados = document.getElementById("btn-inverter-lados");
 
 const ultimaAcaoEl = document.getElementById("ultima-acao");
@@ -810,7 +812,16 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let syncTimer = null;
     let socketConectado = false;
     const socket = (typeof io === "function")
-        ? io({ transports: ["websocket"], upgrade: false, reconnection: true })
+        ? io({
+            transports: ["websocket"],
+            upgrade: false,
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 500,
+            reconnectionDelayMax: 2000,
+            timeout: 5000,
+            forceNew: true
+        })
         : null;
 
     let alertaSolicitacaoTimer = null;
@@ -839,6 +850,11 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         socket.on("disconnect", function () {
             socketConectado = false;
             agendarSincronizacao(400);
+        });
+
+        socket.on("connect_error", function () {
+            socketConectado = false;
+            agendarSincronizacao(500, true);
         });
 
         socket.on("estado_jogo_atualizado", function (dados) {
@@ -1007,10 +1023,40 @@ function alternarTelaCheia() {
     }
 }
 
-function inverterLadosVisual() {
+function abrirPlacarAoVivo() {
+    window.open("{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}", "_blank");
+}
+
+async function inverterLadosVisual() {
     ladosInvertidos = !ladosInvertidos;
+
     const wrap = document.querySelector(".quadras-wrap");
     if (wrap) wrap.style.flexDirection = ladosInvertidos ? "row-reverse" : "row";
+
+    // Atualiza também o telão/placar geral, se a rota já existir no backend.
+    try {
+        const resposta = await fetch("/apontador/inverter-lados/{{ partida.id }}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "fetch"
+            },
+            body: JSON.stringify({
+                invertido: ladosInvertidos,
+                competicao: {{ competicao_nome | tojson }}
+            })
+        });
+
+        if (resposta.ok) {
+            const dadosBrutos = await resposta.json().catch(() => ({}));
+            const dados = normalizarRespostaJogo(dadosBrutos);
+            if (dados && dados.ok) {
+                aplicarEstado(dados);
+            }
+        }
+    } catch (e) {
+        // Se o backend ainda não tiver essa rota, mantém pelo menos a inversão visual local.
+    }
 }
 
     function travarBotoes(travar) {
@@ -2437,9 +2483,11 @@ function aplicarPontoOtimista(equipe, scout) {
 }
 
 
-function registrarPonto(equipe, scout) {
-    if (partidaFinalizada) return;
+async function registrarPonto(equipe, scout) {
+    if (enviando || partidaFinalizada) return;
 
+    enviando = true;
+    travarBotoes(true);
     limparErro();
 
     const pontosAntesA = parseInt(pontosA.textContent || "0", 10);
@@ -2448,33 +2496,44 @@ function registrarPonto(equipe, scout) {
     const rotAntesB = [...rotB];
     const saqueAntes = saqueAtual;
 
-    // Atualiza na hora.
     aplicarPontoOtimista(equipe, scout);
     fecharModalPonto();
 
-    fetch("{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "X-Requested-With": "fetch"
-        },
-        body: JSON.stringify({
-            equipe: equipe,
-            fundamento: (scout && scout.fundamento) || "",
-            resultado: (scout && (scout.resultado || scout.tipo_lance)) || "",
-            tipo_lance: (scout && scout.tipo_lance) || "",
-            detalhe_lance: (scout && scout.detalhe_lance) || "",
-            tipo_erro: (scout && scout.tipo_erro) || "",
-            atleta_numero: (scout && scout.atleta_numero) || "",
-            atleta_nome: (scout && scout.atleta_nome) || "",
-            atleta_label: (scout && scout.atleta_label) || ""
-        })
-    })
-    .then(res => res.json())
-    .then(bruto => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    try {
+        const resposta = await fetch("{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "fetch"
+            },
+            cache: "no-store",
+            signal: controller.signal,
+            body: JSON.stringify({
+                equipe: equipe,
+                fundamento: (scout && scout.fundamento) || "",
+                resultado: (scout && (scout.resultado || scout.tipo_lance)) || "",
+                tipo_lance: (scout && scout.tipo_lance) || "",
+                detalhe_lance: (scout && scout.detalhe_lance) || "",
+                tipo_erro: (scout && scout.tipo_erro) || "",
+                atleta_numero: (scout && scout.atleta_numero) || "",
+                atleta_nome: (scout && scout.atleta_nome) || "",
+                atleta_label: (scout && scout.atleta_label) || ""
+            })
+        });
+
+        let bruto = {};
+        try {
+            bruto = await resposta.json();
+        } catch (e) {
+            bruto = { ok: false, mensagem: "Resposta inválida do servidor." };
+        }
+
         const dados = normalizarRespostaJogo(bruto);
 
-        if (!dados.ok) {
+        if (!resposta.ok || !dados.ok) {
             pontosA.textContent = pontosAntesA;
             pontosB.textContent = pontosAntesB;
             rotA = rotAntesA;
@@ -2482,20 +2541,29 @@ function registrarPonto(equipe, scout) {
             saqueAtual = saqueAntes;
             renderQuadra();
             mostrarErro(dados.mensagem || "Erro ao registrar ponto.");
+            atualizarUltimaAcao("Erro ao registrar ponto.");
             return;
         }
 
         ultimoTokenSync++;
-
-        // Protege contra socket atrasado, mas libera a resposta oficial do backend
-        placarProtegidoAte = Date.now() + 1800;
-        rotacaoProtegidaAte = Date.now() + 900;
-
+        placarProtegidoAte = Date.now() + 2500;
+        rotacaoProtegidaAte = Date.now() + 1200;
         bloquearSyncAte = 0;
-        aplicarEstado(dados);
 
-        // Depois volta a bloquear sync antigo
-        bloquearSyncAte = Date.now() + 900;
+        const temEstadoCompleto = (
+            bruto.estado ||
+            bruto.pontos_a !== undefined || bruto.placar_a !== undefined ||
+            bruto.pontos_b !== undefined || bruto.placar_b !== undefined
+        );
+
+        if (temEstadoCompleto) {
+            aplicarEstado(dados);
+        } else {
+            atualizarUltimaAcao((dados.mensagem || "Ponto registrado com sucesso.").replace(/^ok$/i, "Ponto registrado com sucesso."));
+            agendarSincronizacao(250, true);
+        }
+
+        bloquearSyncAte = Date.now() + 1200;
 
         if (dados.set_finalizado) {
             atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
@@ -2516,16 +2584,20 @@ function registrarPonto(equipe, scout) {
                 return;
             }
         }
-    })
-    .catch(() => {
+    } catch (e) {
         pontosA.textContent = pontosAntesA;
         pontosB.textContent = pontosAntesB;
         rotA = rotAntesA;
         rotB = rotAntesB;
         saqueAtual = saqueAntes;
         renderQuadra();
-        mostrarErro("Erro de conexão.");
-    });
+        mostrarErro(e && e.name === "AbortError" ? "Tempo esgotado ao registrar ponto." : "Erro de conexão.");
+        atualizarUltimaAcao("Erro ao registrar ponto.");
+    } finally {
+        clearTimeout(timeout);
+        enviando = false;
+        travarBotoes(false);
+    }
 }
 
     async function registrarSubstituicao() {
@@ -2928,6 +3000,7 @@ btnSubExcepcional.addEventListener("click", function () {
     abrirModalSubExcepcional(lado);
 });
 btnFullscreen.addEventListener("click", alternarTelaCheia);
+if (btnAbrirPlacar) btnAbrirPlacar.addEventListener("click", abrirPlacarAoVivo);
 btnInverterLados.addEventListener("click", inverterLadosVisual);
 
 btnRetardamentoCancelar.addEventListener("click", fecharModalRetardamento);
