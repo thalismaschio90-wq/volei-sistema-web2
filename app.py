@@ -3,6 +3,9 @@ import os
 
 from extensions import socketio
 
+# 🔥 IMPORTANTE (ROTAÇÃO PROFISSIONAL)
+from banco import criar_estrutura_rotacao_profissional
+
 from routes.auth import auth_bp
 from routes.painel import painel_bp
 from routes.competicoes import competicoes_bp
@@ -19,11 +22,15 @@ from routes.treinador import treinador_bp
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "voleitablepro")
 
+# 🔥 ESSENCIAL — GARANTE BANCO PRONTO
+criar_estrutura_rotacao_profissional()
+
 socketio.init_app(
     app,
     cors_allowed_origins="*",
 )
 
+# 🔥 REGISTRO DAS ROTAS
 app.register_blueprint(auth_bp)
 app.register_blueprint(painel_bp)
 app.register_blueprint(competicoes_bp)
@@ -47,6 +54,7 @@ def healthz():
     return "ok", 200
 
 
+# 🔥 SOCKET EVENTS (DEIXA NO FINAL)
 import socket_events  # noqa: E402,F401
 
 

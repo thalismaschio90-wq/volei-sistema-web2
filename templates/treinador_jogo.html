@@ -689,25 +689,43 @@ const socket = (typeof io === "function") ? io({
 }) : null;
 
 const LADO_TREINADOR = "{{ lado }}";
-const EQUIPE_NOME = "{{ equipe_nome }}";
-const EQUIPE_A_NOME = "{{ equipe_a }}";
-const EQUIPE_B_NOME = "{{ equipe_b }}";
+let equipeNomeTreinador = "{{ equipe_nome }}";
+let equipeANome = "{{ equipe_a }}";
+let equipeBNome = "{{ equipe_b }}";
 
-function nomeEquipePorLado(lado) {
-    if (lado === "A") return EQUIPE_A_NOME || "Equipe A";
-    if (lado === "B") return EQUIPE_B_NOME || "Equipe B";
-    return "-";
-}
-
-function setTextoTodos(seletor, valor) {
-    document.querySelectorAll(seletor).forEach(el => {
-        el.textContent = (valor === null || valor === undefined || valor === "") ? "-" : valor;
-    });
+function textoSeguro(valor, padrao = "-") {
+    if (valor === null || valor === undefined || valor === "") return padrao;
+    return String(valor);
 }
 
 function numeroSeguro(valor, padrao = 0) {
     const n = parseInt(valor ?? padrao, 10);
     return Number.isNaN(n) ? padrao : n;
+}
+
+function setTextoTodos(seletor, valor) {
+    document.querySelectorAll(seletor).forEach(el => {
+        el.textContent = textoSeguro(valor);
+    });
+}
+
+function nomeEquipePorLado(lado, dados = {}) {
+    const la = textoSeguro(dados.equipe_a || equipeANome, "");
+    const lb = textoSeguro(dados.equipe_b || equipeBNome, "");
+    if (lado === "A") return la || "Equipe A";
+    if (lado === "B") return lb || "Equipe B";
+    return "-";
+}
+
+function rotacaoTemValor(rotacao) {
+    return Array.isArray(rotacao) && rotacao.some(v => String(v || "").trim() !== "");
+}
+
+function normalizarRotacao(rotacao) {
+    rotacao = Array.isArray(rotacao) ? rotacao : [];
+    rotacao = rotacao.map(v => String(v || "").trim());
+    while (rotacao.length < 6) rotacao.push("");
+    return rotacao.slice(0, 6);
 }
 
 function atualizarBotoesOperacao(temposRestantes, subsRestantes) {
@@ -727,10 +745,45 @@ function atualizarBotoesOperacao(temposRestantes, subsRestantes) {
     }
 }
 
+function atualizarRotacao(dados) {
+    const rotacaoDados = dados.rotacao || {};
+
+    let minhaRotacao = dados.rotacao_propria || rotacaoDados.propria || [];
+
+    const minhaEquipe = String(dados.equipe_nome || "").trim().toLowerCase();
+    const nomeEquipeA = String(dados.equipe_a || "").trim().toLowerCase();
+    const nomeEquipeB = String(dados.equipe_b || "").trim().toLowerCase();
+
+    // Só decide fallback se NÃO veio rotação própria
+    if (!rotacaoTemValor(minhaRotacao)) {
+
+        if (minhaEquipe && minhaEquipe === nomeEquipeA) {
+            minhaRotacao = dados.rotacao_a || rotacaoDados.equipe_a || [];
+
+        } else if (minhaEquipe && minhaEquipe === nomeEquipeB) {
+            minhaRotacao = dados.rotacao_b || rotacaoDados.equipe_b || [];
+
+        }
+    }
+
+    // PROTEÇÃO: nunca sobrescreve com vazio (evita sumir quadra)
+    if (!rotacaoTemValor(minhaRotacao)) {
+        return;
+    }
+
+    minhaRotacao = normalizarRotacao(minhaRotacao);
+
+    for (let i = 0; i < 6; i++) {
+        const el = document.getElementById(`rotacao_pos_${i}`);
+        if (el) {
+            el.textContent = minhaRotacao[i] || "-";
+        }
+    }
+}
+
 function atualizarBanco(banco) {
     const lista = document.getElementById("lista-banco");
     const vazio = document.getElementById("banco-vazio");
-
     if (!lista || !vazio) return;
 
     banco = Array.isArray(banco) ? banco : [];
@@ -748,13 +801,9 @@ function atualizarBanco(banco) {
     banco.forEach(atleta => {
         const numero = typeof atleta === "object" ? (atleta.numero || "-") : atleta;
         const nome = typeof atleta === "object" ? (atleta.nome || "") : "";
-
         const chip = document.createElement("div");
         chip.className = "atleta-chip";
-        chip.innerHTML = `
-            <span>${numero}</span>
-            <small>${nome}</small>
-        `;
+        chip.innerHTML = `<span>${numero}</span><small>${nome}</small>`;
         lista.appendChild(chip);
     });
 }
@@ -762,7 +811,6 @@ function atualizarBanco(banco) {
 function atualizarSolicitacoes(solicitacoes) {
     const lista = document.getElementById("lista-solicitacoes");
     const vazio = document.getElementById("solicitacoes-vazio");
-
     if (!lista || !vazio) return;
 
     solicitacoes = Array.isArray(solicitacoes) ? solicitacoes : [];
@@ -778,16 +826,12 @@ function atualizarSolicitacoes(solicitacoes) {
     vazio.style.display = "none";
 
     solicitacoes.forEach(s => {
-        const tipo = s.tipo || "-";
+        const tipo = textoSeguro(s.tipo, "-");
         const momento = s.momento ? ` — ${s.momento}` : "";
-        const status = s.status || "pendente";
-
+        const status = textoSeguro(s.status, "pendente");
         const linha = document.createElement("div");
         linha.className = "info-linha";
-        linha.innerHTML = `
-            <span>${tipo.charAt(0).toUpperCase() + tipo.slice(1)}${momento}</span>
-            <strong>${status}</strong>
-        `;
+        linha.innerHTML = `<span>${tipo.charAt(0).toUpperCase() + tipo.slice(1)}${momento}</span><strong>${status}</strong>`;
         lista.appendChild(linha);
     });
 }
@@ -802,11 +846,10 @@ function atualizarScout(scout) {
     setTextoTodos("[data-scout-erros-saque]", equipe.erros_saque ?? 0);
     setTextoTodos("[data-scout-faltas]", equipe.faltas ?? 0);
 
-    const atletasScout = scout.atletas_lista || [];
+    const atletasScout = Array.isArray(scout.atletas_lista) ? scout.atletas_lista : [];
     const corpo = document.getElementById("corpo-scout-atletas");
     const boxTabela = document.getElementById("box-tabela-scout");
     const vazio = document.getElementById("scout-vazio");
-
     if (!corpo || !boxTabela || !vazio) return;
 
     corpo.innerHTML = "";
@@ -834,78 +877,54 @@ function atualizarScout(scout) {
     });
 }
 
-function rotacaoTemValor(rotacao) {
-    return Array.isArray(rotacao) && rotacao.some(v => String(v || "").trim() !== "");
-}
-
 function aplicarEstadoTreinador(dados) {
-    if (!dados) return;
+    if (!dados || dados.ok === false) return;
 
-    const rotacaoDados = dados.rotacao || {};
+    equipeANome = dados.equipe_a || equipeANome;
+    equipeBNome = dados.equipe_b || equipeBNome;
+    equipeNomeTreinador = dados.equipe_nome || equipeNomeTreinador;
 
-    let minhaRotacao = rotacaoDados.propria || [];
+    atualizarRotacao(dados);
 
-    // Correção importante:
-    // uma lista ["", "", "", "", "", ""] é "verdadeira" no JS,
-    // então antes ele não caía no fallback e a quadrinha ficava toda com "-".
-    if (!rotacaoTemValor(minhaRotacao)) {
-        minhaRotacao = LADO_TREINADOR === "A"
-            ? (rotacaoDados.equipe_a || dados.rotacao_a || [])
-            : (rotacaoDados.equipe_b || dados.rotacao_b || []);
-    }
-
-    if (!rotacaoTemValor(minhaRotacao)) {
-        minhaRotacao = dados.rotacao_propria || [];
-    }
-
-    for (let i = 0; i < 6; i++) {
-        const el = document.getElementById(`rotacao_pos_${i}`);
-        if (el) el.textContent = minhaRotacao[i] || "-";
-    }
-
-    const pontosA = dados.placar_a ?? dados.pontos_a ?? 0;
-    const pontosB = dados.placar_b ?? dados.pontos_b ?? 0;
-    const setsA = dados.sets_a ?? 0;
-    const setsB = dados.sets_b ?? 0;
+    const pontosA = numeroSeguro(dados.pontos_a ?? dados.placar_a);
+    const pontosB = numeroSeguro(dados.pontos_b ?? dados.placar_b);
+    const setsA = numeroSeguro(dados.sets_a);
+    const setsB = numeroSeguro(dados.sets_b);
 
     setTextoTodos("[data-pontos-a]", pontosA);
     setTextoTodos("[data-pontos-b]", pontosB);
     setTextoTodos("[data-sets-a]", setsA);
     setTextoTodos("[data-sets-b]", setsB);
 
-    const placarProprio = dados.placar_proprio ?? (
-        LADO_TREINADOR === "A" ? pontosA : pontosB
-    );
-
-    const placarAdversario = dados.placar_adversario ?? (
-        LADO_TREINADOR === "A" ? pontosB : pontosA
-    );
-
-    const setsProprios = dados.sets_proprios ?? (
-        LADO_TREINADOR === "A" ? setsA : setsB
-    );
-
-    const setsAdversario = dados.sets_adversario ?? (
-        LADO_TREINADOR === "A" ? setsB : setsA
-    );
+    const placarProprio = dados.placar_proprio ?? (LADO_TREINADOR === "A" ? pontosA : pontosB);
+    const placarAdversario = dados.placar_adversario ?? (LADO_TREINADOR === "A" ? pontosB : pontosA);
+    const setsProprios = dados.sets_proprios ?? (LADO_TREINADOR === "A" ? setsA : setsB);
+    const setsAdversario = dados.sets_adversario ?? (LADO_TREINADOR === "A" ? setsB : setsA);
 
     setTextoTodos("[data-placar-proprio]", placarProprio);
     setTextoTodos("[data-placar-adversario]", placarAdversario);
     setTextoTodos("[data-sets-proprios]", setsProprios);
     setTextoTodos("[data-sets-adversario]", setsAdversario);
 
-    if (dados.descricao_set) {
-        setTextoTodos("[data-descricao-set]", dados.descricao_set);
-    }
+    if (dados.descricao_set) setTextoTodos("[data-descricao-set]", dados.descricao_set);
 
-    const saqueNome = dados.saque_atual_nome || nomeEquipePorLado(dados.saque_atual);
+    const saqueNome = dados.saque_atual_nome || nomeEquipePorLado(dados.saque_atual, dados);
+    const saqueInicialNome = dados.saque_inicial_nome || nomeEquipePorLado(dados.saque_inicial, dados);
     setTextoTodos("[data-saque-atual]", saqueNome || "-");
-
-    const saqueInicialNome = dados.saque_inicial_nome || nomeEquipePorLado(dados.saque_inicial);
     setTextoTodos("[data-saque-inicial]", saqueInicialNome || "-");
 
-    const temposRestantes = dados.tempos_restantes ?? "-";
-    const subsRestantes = dados.subs_restantes ?? "-";
+    const temposLimite = numeroSeguro(dados.tempos_limite);
+    const subsLimite = numeroSeguro(dados.subs_limite);
+
+    // IMPORTANTE:
+    // No apontador, tempos_a/tempos_b representam tempos RESTANTES.
+    // Já subs_a/subs_b representam substituições USADAS.
+    // Então não pode fazer limite - tempos_a, senão 2 tempos restantes vira 0.
+    const temposRestantesSocket = LADO_TREINADOR === "A" ? numeroSeguro(dados.tempos_a, temposLimite) : numeroSeguro(dados.tempos_b, temposLimite);
+    const subsUsadas = LADO_TREINADOR === "A" ? numeroSeguro(dados.subs_a) : numeroSeguro(dados.subs_b);
+
+    const temposRestantes = dados.tempos_restantes ?? temposRestantesSocket;
+    const subsRestantes = dados.subs_restantes ?? Math.max(0, subsLimite - subsUsadas);
 
     setTextoTodos("[data-tempos-restantes]", temposRestantes);
     setTextoTodos("[data-subs-restantes]", subsRestantes);
@@ -913,10 +932,7 @@ function aplicarEstadoTreinador(dados) {
 
     atualizarBanco(dados.banco || []);
     atualizarSolicitacoes(dados.solicitacoes || []);
-
-    if (dados.scout) {
-        atualizarScout(dados.scout);
-    }
+    atualizarScout(dados.scout || {});
 }
 
 let buscandoEstadoTreinador = false;
@@ -924,12 +940,6 @@ let ultimaBuscaEstadoTreinador = 0;
 
 function buscarEstadoTreinadorSeguro(forcar = false) {
     if (buscandoEstadoTreinador) return;
-
-    /*
-      IMPORTANTE:
-      Se o socket estiver conectado, não fica fazendo consulta no banco toda hora.
-      Isso evita PoolTimeout e deixa o ponto do apontador salvar muito mais rápido.
-    */
     if (!forcar && socket && socket.connected) return;
 
     const agora = Date.now();
@@ -939,19 +949,15 @@ function buscarEstadoTreinadorSeguro(forcar = false) {
     ultimaBuscaEstadoTreinador = agora;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
+    const timeout = setTimeout(() => controller.abort(), 3500);
 
     fetch("{{ url_for('treinador.estado_treinador_view', competicao=competicao_nome, partida_id=partida.id) }}", {
-        headers: {
-            "X-Requested-With": "XMLHttpRequest"
-        },
+        headers: {"X-Requested-With": "XMLHttpRequest"},
         cache: "no-store",
         signal: controller.signal
     })
     .then(r => r.json())
-    .then(d => {
-        if (d && d.ok) aplicarEstadoTreinador(d);
-    })
+    .then(d => aplicarEstadoTreinador(d))
     .catch(() => {})
     .finally(() => {
         clearTimeout(timeout);
@@ -966,11 +972,11 @@ if (socket) {
             partida_id: {{ partida.id }},
             equipe_nome: "{{ equipe_nome }}"
         });
-    });
-
-    socket.on("connect_error", () => {
         buscarEstadoTreinadorSeguro(true);
     });
+
+    socket.on("connect_error", () => buscarEstadoTreinadorSeguro(true));
+    socket.on("disconnect", () => buscarEstadoTreinadorSeguro(true));
 
     socket.on("estado_jogo_atualizado", (dados) => {
         aplicarEstadoTreinador(dados);
@@ -987,9 +993,7 @@ function obterSelecionados() {
     const usados = [];
     for (let i = 1; i <= 6; i++) {
         const input = document.getElementById(`input_${i}`);
-        if (input && input.value) {
-            usados.push(String(input.value));
-        }
+        if (input && input.value) usados.push(String(input.value));
     }
     return usados;
 }
@@ -999,36 +1003,27 @@ function abrirModal(pos) {
     if (!modal) return;
 
     posicaoAtual = pos;
-
     const lista = document.getElementById("lista-atletas");
     if (!lista) return;
 
     lista.innerHTML = "";
-
     const usados = obterSelecionados();
     const atualInput = document.getElementById(`input_${pos}`);
     const atual = atualInput ? atualInput.value : "";
-
     const listaAtletas = Array.isArray(atletas) ? atletas : [];
 
     listaAtletas.forEach(item => {
         const numero = typeof item === "object" ? item.numero : item;
         const nome = typeof item === "object" ? item.nome : "";
 
-        if (numero === undefined || numero === null || String(numero).trim() === "") {
-            return;
-        }
-
-        if (usados.includes(String(numero)) && String(numero) !== String(atual)) {
-            return;
-        }
+        if (numero === undefined || numero === null || String(numero).trim() === "") return;
+        if (usados.includes(String(numero)) && String(numero) !== String(atual)) return;
 
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn-atleta";
         btn.innerText = nome ? `#${numero} ${nome}` : String(numero);
         btn.onclick = () => selecionar(numero);
-
         lista.appendChild(btn);
     });
 
@@ -1037,18 +1032,14 @@ function abrirModal(pos) {
 
 function fecharModal() {
     const modal = document.getElementById("modal");
-    if (modal) {
-        modal.style.display = "none";
-    }
+    if (modal) modal.style.display = "none";
 }
 
 function selecionar(numero) {
     const numEl = document.getElementById(`num_${posicaoAtual}`);
     const inputEl = document.getElementById(`input_${posicaoAtual}`);
-
     if (numEl) numEl.innerText = numero;
     if (inputEl) inputEl.value = numero;
-
     fecharModal();
 }
 
@@ -1058,7 +1049,6 @@ function mostrarRetorno(msg, ok = true) {
         alert(msg);
         return;
     }
-
     box.className = "status-retorno " + (ok ? "ok" : "erro");
     box.textContent = msg;
 }
@@ -1072,17 +1062,11 @@ function pedirTempo() {
 
     fetch("{{ url_for('treinador.solicitar_tempo_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
         method: "POST",
-        headers: {
-            "X-Requested-With": "XMLHttpRequest"
-        }
+        headers: {"X-Requested-With": "XMLHttpRequest"}
     })
     .then(r => r.json())
-    .then(d => {
-        mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok);
-    })
-    .catch(() => {
-        mostrarRetorno("Não foi possível enviar a solicitação de tempo.", false);
-    });
+    .then(d => mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok))
+    .catch(() => mostrarRetorno("Não foi possível enviar a solicitação de tempo.", false));
 }
 
 function pedirSubstituicao() {
@@ -1094,23 +1078,15 @@ function pedirSubstituicao() {
 
     fetch("{{ url_for('treinador.solicitar_substituicao_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
         method: "POST",
-        headers: {
-            "X-Requested-With": "XMLHttpRequest"
-        }
+        headers: {"X-Requested-With": "XMLHttpRequest"}
     })
     .then(r => r.json())
-    .then(d => {
-        mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok);
-    })
-    .catch(() => {
-        mostrarRetorno("Não foi possível enviar a solicitação de substituição.", false);
-    });
+    .then(d => mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok))
+    .catch(() => mostrarRetorno("Não foi possível enviar a solicitação de substituição.", false));
 }
 
-// busca uma vez ao abrir a tela
-buscarEstadoTreinadorSeguro(true);
-
-// fallback leve: só consulta banco se o socket cair
-setInterval(() => buscarEstadoTreinadorSeguro(false), 15000);
+// Carrega o complemento pesado (scout/banco/solicitações) depois que a tela já abriu.
+setTimeout(() => buscarEstadoTreinadorSeguro(true), 350);
+setInterval(() => buscarEstadoTreinadorSeguro(false), 20000);
 </script>
 {% endblock %}

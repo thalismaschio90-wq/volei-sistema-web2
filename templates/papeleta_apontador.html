@@ -35,17 +35,46 @@
     font-size:28px;
     transition:.2s;
     background: var(--card-bg, transparent);
-    min-height: 120px;
+    min-height:120px;
 }
 
 .posicao:hover {
     background:rgba(255,255,255,0.05);
+    transform:translateY(-2px);
 }
 
 .posicao small {
     font-size:14px;
     margin-top:6px;
     color:var(--muted);
+}
+
+.barra-acoes-papeleta {
+    margin-top:28px;
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    justify-content:center;
+}
+
+.btn-iniciar-jogo {
+    padding:14px 24px;
+    border-radius:12px;
+    border:none;
+    background:#16a34a;
+    color:white;
+    font-weight:900;
+    font-size:16px;
+    cursor:pointer;
+}
+
+.btn-iniciar-jogo:hover {
+    background:#15803d;
+}
+
+.btn-iniciar-jogo:disabled {
+    opacity:.7;
+    cursor:not-allowed;
 }
 
 .modal {
@@ -103,85 +132,90 @@
 
 <div class="card-painel">
     <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+
     <div style="margin-top:6px;">
         Jogo {{ partida.ordem or '-' }}
         {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
         {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
     </div>
+
     <div style="margin-top:10px; font-size:18px; font-weight:900;">
         {{ equipe_a }} x {{ equipe_b }}
     </div>
+
     <div style="margin-top:8px; font-size:18px; font-weight:900;">
         {{ partida.set_atual or 1 }}º SET
     </div>
+
     <div style="margin-top:4px; color:var(--muted);">
         Sets: {{ partida.sets_a or 0 }} x {{ partida.sets_b or 0 }}
     </div>
 </div>
 
-<form method="post">
+<form method="post" id="form-papeleta">
 
-<div class="quadra-container">
+    <div class="quadra-container">
 
-    <div>
-        <h3>Equipe A — {{ equipe_a }}</h3>
-        <div class="quadra">
-            {% for i in [4,3,2,5,6,1] %}
-            <div class="posicao" onclick="abrirModal('A', {{ i }})">
-                <span id="num_A_{{ i }}">
-                    {{ papeleta_a[i] if papeleta_a and papeleta_a[i] else '-' }}
-                </span>
-                <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
-                <input
-                    type="hidden"
-                    name="A_{{ i }}"
-                    id="input_A_{{ i }}"
-                    value="{{ papeleta_a[i] if papeleta_a and papeleta_a[i] else '' }}"
-                >
+        <div>
+            <h3>Equipe A — {{ equipe_a }}</h3>
+
+            <div class="quadra">
+                {% for i in [4,3,2,5,6,1] %}
+                <div class="posicao" onclick="abrirModal('A', {{ i }})">
+                    <span id="num_A_{{ i }}">
+                        {{ papeleta_a[i] if papeleta_a and papeleta_a[i] else '-' }}
+                    </span>
+
+                    <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
+
+                    <input
+                        type="hidden"
+                        name="A_{{ i }}"
+                        id="input_A_{{ i }}"
+                        value="{{ papeleta_a[i] if papeleta_a and papeleta_a[i] else '' }}"
+                    >
+                </div>
+                {% endfor %}
             </div>
-            {% endfor %}
         </div>
+
+        <div>
+            <h3>Equipe B — {{ equipe_b }}</h3>
+
+            <div class="quadra">
+                {% for i in [4,3,2,5,6,1] %}
+                <div class="posicao" onclick="abrirModal('B', {{ i }})">
+                    <span id="num_B_{{ i }}">
+                        {{ papeleta_b[i] if papeleta_b and papeleta_b[i] else '-' }}
+                    </span>
+
+                    <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
+
+                    <input
+                        type="hidden"
+                        name="B_{{ i }}"
+                        id="input_B_{{ i }}"
+                        value="{{ papeleta_b[i] if papeleta_b and papeleta_b[i] else '' }}"
+                    >
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
     </div>
 
-    <div>
-        <h3>Equipe B — {{ equipe_b }}</h3>
-        <div class="quadra">
-            {% for i in [4,3,2,5,6,1] %}
-            <div class="posicao" onclick="abrirModal('B', {{ i }})">
-                <span id="num_B_{{ i }}">
-                    {{ papeleta_b[i] if papeleta_b and papeleta_b[i] else '-' }}
-                </span>
-                <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
-                <input
-                    type="hidden"
-                    name="B_{{ i }}"
-                    id="input_B_{{ i }}"
-                    value="{{ papeleta_b[i] if papeleta_b and papeleta_b[i] else '' }}"
-                >
-            </div>
-            {% endfor %}
-        </div>
+    <div class="barra-acoes-papeleta">
+        <button class="btn-iniciar-jogo" type="submit" id="btn-iniciar-jogo">
+            Iniciar jogo
+        </button>
+
+        <a class="btn-secundario"
+           href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">
+            Voltar
+        </a>
     </div>
-
-</div>
-
-<div style="margin-top:25px; display:flex; gap:12px; flex-wrap:wrap;">
-    <button class="btn-padrao" type="submit">Salvar papeleta</button>
-    <a class="btn-secundario"
-       href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">
-        Voltar
-    </a>
-</div>
 
 </form>
-
-<div style="margin-top:20px; display:flex; gap:12px; flex-wrap:wrap;">
-
-    <a class="btn-padrao"
-       href="{{ url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=partida.id) }}">
-        Iniciar jogo
-    </a>
-</div>
 
 <div id="modal" class="modal">
     <div class="modal-content">
@@ -194,6 +228,7 @@
 <script>
 let ladoAtual = null;
 let posicaoAtual = null;
+let enviandoPapeleta = false;
 
 const atletasA = {{ atletas_a | tojson }};
 const atletasB = {{ atletas_b | tojson }};
@@ -203,7 +238,9 @@ function obterSelecionadosDoLado(lado) {
     const posicoes = [1, 2, 3, 4, 5, 6];
 
     posicoes.forEach(pos => {
-        const valor = document.getElementById(`input_${lado}_${pos}`).value;
+        const campo = document.getElementById(`input_${lado}_${pos}`);
+        const valor = campo ? campo.value : "";
+
         if (valor !== "") {
             selecionados.push(String(valor));
         }
@@ -252,6 +289,41 @@ function selecionarNumero(numero) {
     document.getElementById(`input_${ladoAtual}_${posicaoAtual}`).value = numero;
     fecharModal();
 }
+
+function validarPapeleta() {
+    const lados = ["A", "B"];
+
+    for (const lado of lados) {
+        for (let pos = 1; pos <= 6; pos++) {
+            const valor = document.getElementById(`input_${lado}_${pos}`).value;
+
+            if (!valor) {
+                alert(`Preencha todas as posições da equipe ${lado} antes de iniciar o jogo.`);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+document.getElementById("form-papeleta").addEventListener("submit", function(e) {
+    if (enviandoPapeleta) {
+        e.preventDefault();
+        return;
+    }
+
+    if (!validarPapeleta()) {
+        e.preventDefault();
+        return;
+    }
+
+    enviandoPapeleta = true;
+
+    const btn = document.getElementById("btn-iniciar-jogo");
+    btn.disabled = true;
+    btn.innerText = "Iniciando jogo...";
+});
 </script>
 
 {% endblock %}

@@ -345,6 +345,45 @@
     margin-top: 26px;
 }
 
+
+.alerta-point {
+    display: none;
+    margin: 14px auto 0;
+    max-width: 420px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: #b91c1c;
+    color: white;
+    font-size: 22px;
+    font-weight: 900;
+    text-align: center;
+    letter-spacing: 1px;
+    box-shadow: 0 10px 24px rgba(185, 28, 28, 0.35);
+}
+
+.btn-wo {
+    background: #7f1d1d !important;
+    color: #fff !important;
+    border-color: #7f1d1d !important;
+}
+
+.btn-wo:hover {
+    background: #991b1b !important;
+}
+
+
+.offline-pendente {
+    display:inline-block;
+    margin-left:8px;
+    padding:3px 8px;
+    border-radius:999px;
+    background:#fff7ed;
+    color:#9a3412;
+    border:1px solid #fdba74;
+    font-size:12px;
+    font-weight:900;
+}
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -371,6 +410,8 @@
         <span> x </span>
         <span id="pontos-b">{{ estado.pontos_b or 0 }}</span>
     </div>
+
+    <div id="alerta-point" class="alerta-point"></div>
 
     <div style="font-size:16px; color:#5c6b78;">
         Sets:
@@ -439,6 +480,8 @@
                     <button id="btn-ponto-a" class="btn-padrao" type="button">+ ponto {{ partida.equipe_a }}</button>
                     <button id="btn-ponto-b" class="btn-secundario" type="button">+ ponto {{ partida.equipe_b }}</button>
                     <button id="btn-desfazer" class="btn-secundario" type="button">⟲ Desfazer</button>
+                    <button id="btn-wo-a" class="btn-wo btn-secundario" type="button">WO {{ partida.equipe_a }}</button>
+                    <button id="btn-wo-b" class="btn-wo btn-secundario" type="button">WO {{ partida.equipe_b }}</button>
                 </div>
 
                 <div class="acoes-tempo">
@@ -721,6 +764,9 @@ const btnSubExcepcional = document.getElementById("btn-sub-excepcional");
 const btnFullscreen = document.getElementById("btn-fullscreen");
 const btnAbrirPlacar = document.getElementById("btn-abrir-placar");
 const btnInverterLados = document.getElementById("btn-inverter-lados");
+const btnWoA = document.getElementById("btn-wo-a");
+const btnWoB = document.getElementById("btn-wo-b");
+const alertaPointEl = document.getElementById("alerta-point");
 
 const ultimaAcaoEl = document.getElementById("ultima-acao");
 const historicoAcoesEl = document.getElementById("historico-acoes");
@@ -763,6 +809,7 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const modoOperacao = {{ modo_operacao_jogo | tojson }};
 
     let partidaFinalizada = false;
+    let observacoesAbrindo = false;
     let enviando = false;
     let intervaloTempo = null;
     let tempoAtual = 0;
@@ -858,6 +905,12 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         });
 
         socket.on("estado_jogo_atualizado", function (dados) {
+            if (!dados || typeof dados !== "object") return;
+            ultimoTokenSync++;
+            aplicarEstado(normalizarRespostaJogo(dados));
+        });
+
+        socket.on("estado_partida", function (dados) {
             if (!dados || typeof dados !== "object") return;
             ultimoTokenSync++;
             aplicarEstado(normalizarRespostaJogo(dados));
@@ -959,13 +1012,20 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         return Array.isArray(rot) && rot.length === 6;
     }
 
-    function normalizarRotacao(rot, fallback) {
-        if (!rotacaoValida(rot)) {
-            return [...fallback];
+    function normalizarRotacao(rot, fallback, atual) {
+        // Se veio válido, usa
+        if (Array.isArray(rot) && rot.length === 6) {
+            const limpa = rot.map(x => x ? String(x) : "");
+            if (limpa.some(x => x !== "")) return limpa;
         }
-        const limpa = rot.map((x) => x == null ? "" : String(x));
-        const temAlgo = limpa.some((x) => x.trim() !== "");
-        return temAlgo ? limpa : [...fallback];
+
+        // Se não veio, mantém a atual (não deixa sumir)
+        if (Array.isArray(atual) && atual.length === 6) {
+            return atual;
+        }
+
+        // Só usa fallback como último recurso
+        return Array.isArray(fallback) ? [...fallback] : ["", "", "", "", "", ""];
     }
 
     function girarRotacaoLocal(lado) {
@@ -999,7 +1059,7 @@ function renderHistoricoBackend(lista) {
 
     historicoAcoesEl.innerHTML = "";
 
-    if (!lista || !lista.length) {
+    if (!Array.isArray(lista) || !lista.length) {
         const item = document.createElement("div");
         item.className = "historico-item";
         item.textContent = "Nenhuma ação registrada.";
@@ -1007,10 +1067,16 @@ function renderHistoricoBackend(lista) {
         return;
     }
 
-    lista.forEach((acao) => {
+    lista.slice(0, 5).forEach((acao) => {
         const item = document.createElement("div");
         item.className = "historico-item";
-        item.textContent = acao.descricao || acao;
+
+        if (typeof acao === "string") {
+            item.textContent = acao;
+        } else {
+            item.textContent = acao.descricao || acao.mensagem || JSON.stringify(acao);
+        }
+
         historicoAcoesEl.appendChild(item);
     });
 }
@@ -1059,22 +1125,85 @@ async function inverterLadosVisual() {
     }
 }
 
+    function numeroInteiro(valor, padrao = 0) {
+        const n = parseInt(valor, 10);
+        return Number.isFinite(n) ? n : padrao;
+    }
+
+    function tempoRestanteDoLado(lado, dados) {
+        if (lado === "A") return numeroInteiro(dados?.tempos_a ?? tempoRestanteA?.textContent, 0);
+        return numeroInteiro(dados?.tempos_b ?? tempoRestanteB?.textContent, 0);
+    }
+
+    function substituicoesUsadasDoLado(lado, dados) {
+        if (lado === "A") return numeroInteiro(dados?.subs_a ?? subsAEl?.textContent, 0);
+        return numeroInteiro(dados?.subs_b ?? subsBEl?.textContent, 0);
+    }
+
+    function limiteSubstituicoesAtual(dados) {
+        return numeroInteiro(dados?.limite_substituicoes ?? subsLimiteEl?.textContent, 6);
+    }
+
+    function podePedirTempo(lado, dados) {
+        return !partidaFinalizada && tempoRestanteDoLado(lado, dados) > 0;
+    }
+
+    function podePedirSubstituicao(lado, dados) {
+        return !partidaFinalizada && substituicoesUsadasDoLado(lado, dados) < limiteSubstituicoesAtual(dados);
+    }
+
+    function atualizarTravasOperacionais(dados) {
+        const travadoGeral = !!partidaFinalizada || !!enviando;
+
+        if (btnTempoA) {
+            btnTempoA.disabled = travadoGeral || !podePedirTempo("A", dados);
+            btnTempoA.title = !podePedirTempo("A", dados) ? "Limite de tempos atingido para esta equipe neste set." : "";
+        }
+
+        if (btnTempoB) {
+            btnTempoB.disabled = travadoGeral || !podePedirTempo("B", dados);
+            btnTempoB.title = !podePedirTempo("B", dados) ? "Limite de tempos atingido para esta equipe neste set." : "";
+        }
+
+        if (btnSubA) {
+            btnSubA.disabled = travadoGeral || !podePedirSubstituicao("A", dados);
+            btnSubA.title = !podePedirSubstituicao("A", dados) ? "Limite de substituições atingido para esta equipe neste set." : "";
+        }
+
+        if (btnSubB) {
+            btnSubB.disabled = travadoGeral || !podePedirSubstituicao("B", dados);
+            btnSubB.title = !podePedirSubstituicao("B", dados) ? "Limite de substituições atingido para esta equipe neste set." : "";
+        }
+    }
+
     function travarBotoes(travar) {
-        btnA.disabled = travar || partidaFinalizada;
-        btnB.disabled = travar || partidaFinalizada;
-        btnDesfazer.disabled = travar;
-        btnTempoA.disabled = travar || partidaFinalizada;
-        btnTempoB.disabled = travar || partidaFinalizada;
-        btnSubA.disabled = travar || partidaFinalizada;
-        btnSubB.disabled = travar || partidaFinalizada;
-        btnSancao.disabled = travar || partidaFinalizada;
-        btnVerde.disabled = travar || partidaFinalizada;
-        btnSubConfirmar.disabled = travar || partidaFinalizada;
-        btnSancaoConfirmar.disabled = travar || partidaFinalizada;
-        btnVerdeConfirmar.disabled = travar || partidaFinalizada;
+        const travado = !!travar || !!partidaFinalizada;
+
+        if (btnA) btnA.disabled = travado;
+        if (btnB) btnB.disabled = travado;
+        if (btnDesfazer) btnDesfazer.disabled = !!travar;
+        if (btnSancao) btnSancao.disabled = travado;
+        if (btnVerde) btnVerde.disabled = travado;
+        if (btnSubConfirmar) btnSubConfirmar.disabled = travado;
+        if (btnSancaoConfirmar) btnSancaoConfirmar.disabled = travado;
+        if (btnVerdeConfirmar) btnVerdeConfirmar.disabled = travado;
+        if (btnWoA) btnWoA.disabled = travado;
+        if (btnWoB) btnWoB.disabled = travado;
+
+        if (travar) {
+            if (btnTempoA) btnTempoA.disabled = true;
+            if (btnTempoB) btnTempoB.disabled = true;
+            if (btnSubA) btnSubA.disabled = true;
+            if (btnSubB) btnSubB.disabled = true;
+        } else {
+            atualizarTravasOperacionais();
+        }
     }
 
     function mostrarErro(msg) {
+        // 🔥 IGNORA erro durante envio (evita falso erro)
+        if (enviando) return;
+
         erroBox.textContent = msg || "Erro ao registrar ação.";
         erroBox.style.display = "block";
     }
@@ -1165,44 +1294,155 @@ async function inverterLadosVisual() {
         verdesBEl.textContent = Array.isArray(verdesB) ? verdesB.length : 0;
     }
 
+
+    function abrirObservacoesAutomaticamente() {
+        if (observacoesAbrindo) return;
+        observacoesAbrindo = true;
+        setTimeout(() => {
+            window.location.href = "{{ url_for('apontadores.observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}";
+        }, 700);
+    }
+
+    function mostrarAnimacaoPonto(lado) {
+        if (!alertaPointEl) return;
+
+        const nome = nomeEquipePorLado(lado);
+
+        alertaPointEl.textContent = "PONTO - " + nome;
+        alertaPointEl.style.display = "block";
+
+        alertaPointEl.style.transform = "scale(1.25)";
+        alertaPointEl.style.opacity = "1";
+
+        setTimeout(() => {
+            alertaPointEl.style.transform = "scale(1)";
+        }, 120);
+
+        setTimeout(() => {
+            alertaPointEl.style.opacity = "0";
+            setTimeout(() => {
+                alertaPointEl.style.display = "none";
+                alertaPointEl.style.opacity = "1";
+            }, 200);
+        }, 1000);
+    }
+
+    function atualizarAvisoPoint(dados) {
+        if (!alertaPointEl) return;
+
+        // 🟢 Placar atual
+        const pontosA = parseInt(dados?.pontos_a ?? dados?.placar_a ?? 0, 10) || 0;
+        const pontosB = parseInt(dados?.pontos_b ?? dados?.placar_b ?? 0, 10) || 0;
+
+        // 🟢 Sets
+        const setsA = parseInt(dados?.sets_a ?? 0, 10) || 0;
+        const setsB = parseInt(dados?.sets_b ?? 0, 10) || 0;
+
+        const setAtual = parseInt(dados?.set_atual ?? 1, 10) || 1;
+        const setsParaVencer = parseInt(dados?.sets_para_vencer ?? 2, 10) || 2;
+
+        // 🟢 Regras da competição (DINÂMICO)
+        const pontosSet = parseInt(dados?.pontos_set ?? 25, 10) || 25;
+        const pontosTiebreak = parseInt(dados?.pontos_tiebreak ?? 15, 10) || 15;
+        const diferencaMinima = parseInt(dados?.diferenca_minima ?? 2, 10) || 2;
+
+        const setsTipo = String(dados?.sets_tipo ?? "").toLowerCase();
+
+        // 🟢 Detecta se é tiebreak
+        const ehTiebreak =
+            (setsTipo === "melhor_de_3" && setAtual === 3) ||
+            (setsTipo === "melhor_de_5" && setAtual === 5);
+
+        const limite = ehTiebreak ? pontosTiebreak : pontosSet;
+
+        // 🚨 REGRA CORRETA DE SET POINT
+        let lado = null;
+
+        if (
+            pontosA >= (limite - 1) &&
+            (pontosA - pontosB) >= (diferencaMinima - 1)
+        ) {
+            lado = "A";
+        }
+
+        if (
+            pontosB >= (limite - 1) &&
+            (pontosB - pontosA) >= (diferencaMinima - 1)
+        ) {
+            lado = "B";
+        }
+
+        // ❌ NÃO MOSTRA NADA
+        if (!lado || dados?.partida_finalizada) {
+            alertaPointEl.style.display = "none";
+            alertaPointEl.textContent = "";
+            return;
+        }
+
+        // 🔥 MATCH POINT OU SET POINT
+        const setsDoLado = lado === "A" ? setsA : setsB;
+        const ehMatchPoint = (setsDoLado + 1) >= setsParaVencer;
+
+        const nome = nomeEquipePorLado(lado);
+
+        alertaPointEl.textContent =
+            `${ehMatchPoint ? "MATCH POINT" : "SET POINT"} - ${nome}`;
+
+        alertaPointEl.style.display = "block";
+    }
+
+
     function aplicarEstado(dados) {
+        if (!dados) return;
+
         const agora = Date.now();
 
-        const atualA = parseInt(pontosA.textContent || "0", 10);
-        const atualB = parseInt(pontosB.textContent || "0", 10);
-        const novoA = parseInt(dados.pontos_a ?? atualA, 10);
-        const novoB = parseInt(dados.pontos_b ?? atualB, 10);
+        const atualA = numeroInteiro(pontosA.textContent, 0);
+        const atualB = numeroInteiro(pontosB.textContent, 0);
+        const novoA = numeroInteiro(dados.pontos_a ?? dados.placar_a ?? atualA, atualA);
+        const novoB = numeroInteiro(dados.pontos_b ?? dados.placar_b ?? atualB, atualB);
 
         const totalAtual = atualA + atualB;
         const totalNovo = novoA + novoB;
 
-        // Nunca aceita estado antigo voltando placar.
-        // Desfazer deve ter fluxo próprio, não pode vir como sync comum.
-        if (totalNovo < totalAtual && !dados.desfazer) {
-            return;
+        // Protege SOMENTE o placar/rotação contra pacote antigo.
+        // Tempos, substituições, sanções e histórico precisam atualizar mesmo sem mudar ponto.
+        const podeAtualizarPlacar =
+            !(agora < placarProtegidoAte && totalNovo < totalAtual) &&
+            !(agora < bloquearSyncAte && totalNovo <= totalAtual);
+
+        const fezPontoA = podeAtualizarPlacar && novoA > atualA;
+        const fezPontoB = podeAtualizarPlacar && novoB > atualB;
+
+        if (podeAtualizarPlacar) {
+            pontosA.textContent = novoA;
+            pontosB.textContent = novoB;
+
+            if (fezPontoA && typeof animarNumero === "function") animarNumero(pontosA);
+            if (fezPontoB && typeof animarNumero === "function") animarNumero(pontosB);
+            if (fezPontoA) mostrarAnimacaoPonto("A");
+            if (fezPontoB) mostrarAnimacaoPonto("B");
+
+            setsA.textContent = dados.sets_a ?? setsA.textContent;
+            setsB.textContent = dados.sets_b ?? setsB.textContent;
+            setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
+
+            if (Array.isArray(dados.rotacao_a) && dados.rotacao_a.length === 6) {
+                rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA, rotA);
+            }
+
+            if (Array.isArray(dados.rotacao_b) && dados.rotacao_b.length === 6) {
+                rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB, rotB);
+            }
         }
-
-        // Durante envio recente, ignora estado igual ou antigo.
-        if (agora < bloquearSyncAte && totalNovo <= totalAtual) {
-            return;
-        }
-
-        pontosA.textContent = novoA;
-        pontosB.textContent = novoB;
-
-        setsA.textContent = dados.sets_a ?? setsA.textContent;
-        setsB.textContent = dados.sets_b ?? setsB.textContent;
-        setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
 
         if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
             saqueAtual = dados.saque_atual || "";
         }
 
-        if (saqueAtual) {
-            saqueInfo.textContent = `Saque atual: ${saqueAtual}`;
-        } else {
-            saqueInfo.textContent = "Saque atual ainda não definido";
-        }
+        saqueInfo.textContent = saqueAtual
+            ? `Saque atual: ${saqueAtual}`
+            : "Saque atual ainda não definido";
 
         if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
             tempoRestanteA.textContent = dados.tempos_a;
@@ -1210,30 +1450,6 @@ async function inverterLadosVisual() {
 
         if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
             tempoRestanteB.textContent = dados.tempos_b;
-        }
-
-        if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
-            statusJogadoresA = dados.status_jogadores_a;
-        }
-
-        if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
-            statusJogadoresB = dados.status_jogadores_b;
-        }
-
-        if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
-            sancoesA = dados.sancoes_a;
-        }
-
-        if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
-            sancoesB = dados.sancoes_b;
-        }
-
-        if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
-            verdesA = dados.cartoes_verdes_a;
-        }
-
-        if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
-            verdesB = dados.cartoes_verdes_b;
         }
 
         if (dados.subs_a !== undefined && dados.subs_a !== null) {
@@ -1248,39 +1464,63 @@ async function inverterLadosVisual() {
             subsLimiteEl.textContent = dados.limite_substituicoes;
         }
 
-        if (Date.now() >= rotacaoProtegidaAte) {
-            if (dados.rotacao_a !== undefined) {
-                rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA);
-            }
+        if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
+            statusJogadoresA = dados.status_jogadores_a;
+        }
 
-            if (dados.rotacao_b !== undefined) {
-                rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB);
-            }
+        if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
+            statusJogadoresB = dados.status_jogadores_b;
+        }
+
+        if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
+            sancoesA = Array.isArray(dados.sancoes_a) ? dados.sancoes_a : sancoesA;
+            sancoesAEl.textContent = Array.isArray(dados.sancoes_a) ? dados.sancoes_a.length : dados.sancoes_a;
+        }
+
+        if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
+            sancoesB = Array.isArray(dados.sancoes_b) ? dados.sancoes_b : sancoesB;
+            sancoesBEl.textContent = Array.isArray(dados.sancoes_b) ? dados.sancoes_b.length : dados.sancoes_b;
+        }
+
+        if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
+            verdesA = Array.isArray(dados.cartoes_verdes_a) ? dados.cartoes_verdes_a : verdesA;
+            verdesAEl.textContent = Array.isArray(dados.cartoes_verdes_a) ? dados.cartoes_verdes_a.length : dados.cartoes_verdes_a;
+        }
+
+        if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
+            verdesB = Array.isArray(dados.cartoes_verdes_b) ? dados.cartoes_verdes_b : verdesB;
+            verdesBEl.textContent = Array.isArray(dados.cartoes_verdes_b) ? dados.cartoes_verdes_b.length : dados.cartoes_verdes_b;
         }
 
         if (dados.ultima_acao !== undefined) {
             atualizarUltimaAcao(dados.ultima_acao || "-");
         }
 
-        if (Array.isArray(dados.historico) && dados.historico.length) {
+        if (Array.isArray(dados.historico)) {
             renderHistoricoBackend(dados.historico);
         }
 
+        partidaFinalizada = !!dados.partida_finalizada;
+
+        atualizarAvisoPoint(dados);
         atualizarContadoresDisciplinares();
+        atualizarTravasOperacionais(dados);
         renderQuadra();
 
-        partidaFinalizada = !!dados.partida_finalizada;
+        if (dados.fim_set && !dados.partida_finalizada) {
+            atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
+            travarBotoes(true);
+            setTimeout(() => window.location.reload(), 900);
+        }
+
         if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
             saqueInfo.textContent += " • Partida finalizada";
+            travarBotoes(true);
         }
     }
 
     function nomeEquipePorLado(lado) {
         return lado === "A" ? "{{ partida.equipe_a }}" : "{{ partida.equipe_b }}";
-    }
-
-    function ladoOponente(lado) {
-        return lado === "A" ? "B" : "A";
     }
 
     function tituloBonitoScout(valor) {
@@ -1354,51 +1594,6 @@ async function inverterLadosVisual() {
         return normalizarNumeroScout(rotacao[idx] || "");
     }
 
-    function atletasEmQuadraDoLado(lado) {
-        const rotacao = lado === "A" ? rotA : rotB;
-        const elenco = atletasEquipePorLado(lado) || [];
-
-        const mapaElenco = new Map();
-        elenco.forEach((a) => {
-            const numero = normalizarNumeroScout(a.numero);
-            if (!numero) return;
-
-            mapaElenco.set(numero, {
-                valor: numero,
-                label: numero,
-                title: `${numero} - ${a.nome || "Atleta"}`,
-                nome: String(a.nome || "").trim(),
-                labelCompleto: `${numero} - ${a.nome || "Atleta"}`,
-                baseClass: "ponto-card"
-            });
-        });
-
-        const usados = new Set();
-        const opcoes = [];
-
-        (rotacao || []).forEach((numeroBruto) => {
-            const numero = normalizarNumeroScout(numeroBruto);
-            if (!numero || usados.has(numero)) return;
-
-            usados.add(numero);
-
-            if (mapaElenco.has(numero)) {
-                opcoes.push(mapaElenco.get(numero));
-            } else {
-                opcoes.push({
-                    valor: numero,
-                    label: numero,
-                    title: numero,
-                    nome: "",
-                    labelCompleto: numero,
-                    baseClass: "ponto-card"
-                });
-            }
-        });
-
-        return opcoes;
-    }
-
     function opcoesAtletaScoutPonto() {
         const lado = ladoResponsavelScout();
         if (!lado) return [];
@@ -1430,31 +1625,6 @@ async function inverterLadosVisual() {
         }
 
         return [];
-    }
-
-    function pontoExigeDetalhe() {
-        return !!tipoLancePontoTemp;
-    }
-
-    function pontoExigeAtleta() {
-        if (!tipoLancePontoTemp || !detalheLancePontoTemp) return false;
-
-        if (tipoLancePontoTemp === "erro") return false;
-        if (tipoLancePontoTemp === "falta") return false;
-
-        return [
-            "ataque",
-            "bloqueio",
-            "ace"
-        ].includes(detalheLancePontoTemp);
-    }
-
-    function podeConfirmarPontoAvancado() {
-        if (!equipePontoTemp) return false;
-        if (!tipoLancePontoTemp) return false;
-        if (pontoExigeDetalhe() && !detalheLancePontoTemp) return false;
-        if (pontoExigeAtleta() && !normalizarNumeroScout(atletaNumeroPontoTemp)) return false;
-        return true;
     }
 
     function renderFundamentosPonto() {
@@ -1560,18 +1730,6 @@ async function inverterLadosVisual() {
         atualizarResumoPonto();
     }
 
-        function normalizarNumeroScout(valor) {
-        return String(valor ?? "").trim();
-    }
-    
-    function atletaDaPosicao(rotacao, posicao) {
-        if (!Array.isArray(rotacao)) return "";
-        const mapa = { 1: 5, 2: 2, 3: 1, 4: 0, 5: 3, 6: 4 };
-        const idx = mapa[posicao];
-        if (idx === undefined) return "";
-        return normalizarNumeroScout(rotacao[idx] || "");
-    }
-
     function atletasEmQuadraDoLado(lado) {
         const rotacao = lado === "A" ? rotA : rotB;
         const elenco = atletasEquipePorLado(lado) || [];
@@ -1615,39 +1773,6 @@ async function inverterLadosVisual() {
         });
 
         return opcoes;
-    }
-
-    function opcoesAtletaScoutPonto() {
-        const lado = ladoResponsavelScout();
-        if (!lado) return [];
-
-        const atletasQuadra = atletasEmQuadraDoLado(lado);
-        if (!atletasQuadra.length) return [];
-
-        if (detalheLancePontoTemp === "ataque") {
-            return atletasQuadra;
-        }
-
-        if (detalheLancePontoTemp === "bloqueio") {
-            const rotacao = lado === "A" ? rotA : rotB;
-            const numerosPermitidos = new Set(
-                [2, 3, 4]
-                    .map((p) => atletaDaPosicao(rotacao, p))
-                    .filter(Boolean)
-            );
-
-            return atletasQuadra.filter((a) => numerosPermitidos.has(normalizarNumeroScout(a.valor)));
-        }
-
-        if (detalheLancePontoTemp === "ace") {
-            const rotacao = lado === "A" ? rotA : rotB;
-            const sacador = atletaDaPosicao(rotacao, 1);
-            if (!sacador) return [];
-
-            return atletasQuadra.filter((a) => normalizarNumeroScout(a.valor) === sacador);
-        }
-
-        return [];
     }
 
     function pontoExigeDetalhe() {
@@ -1805,6 +1930,14 @@ async function inverterLadosVisual() {
     }
 
     function abrirModalSubstituicao(lado) {
+        if (partidaFinalizada || enviando) return;
+
+        if (!podePedirSubstituicao(lado)) {
+            mostrarErro("Limite de substituições atingido para esta equipe neste set.");
+            atualizarTravasOperacionais();
+            return;
+        }
+
         equipeSubAtual = lado;
         numeroSaiSelecionado = "";
         numeroEntraSelecionado = "";
@@ -1838,14 +1971,14 @@ async function inverterLadosVisual() {
             };
         });
 
-        if (tipoPessoa === "atleta") {
+        if (tipoPessoa === "jogador") {
             return atletas;
         }
 
         return [
-            { valor: "tecnico", label: "Técnico", title: "Técnico", nome: "Técnico", labelCompleto: "Técnico" },
-            { valor: "auxiliar", label: "Auxiliar", title: "Auxiliar", nome: "Auxiliar", labelCompleto: "Auxiliar" },
-            { valor: "membro", label: "Membro", title: "Membro autorizado", nome: "Membro", labelCompleto: "Membro autorizado" }
+            { valor: "comissao_tecnico", label: "Técnico", title: "Técnico", nome: "Técnico", labelCompleto: "Técnico" },
+            { valor: "comissao_auxiliar", label: "Auxiliar", title: "Auxiliar", nome: "Auxiliar", labelCompleto: "Auxiliar" },
+            { valor: "comissao_membro", label: "Membro", title: "Membro autorizado", nome: "Membro", labelCompleto: "Membro autorizado" }
         ];
     }
 
@@ -1879,10 +2012,8 @@ async function inverterLadosVisual() {
         renderLista(
             sancaoTipoPessoaLista,
             [
-                { valor: "atleta", label: "Atleta", baseClass: "sancao-card" },
-                { valor: "tecnico", label: "Técnico", baseClass: "sancao-card" },
-                { valor: "auxiliar", label: "Auxiliar", baseClass: "sancao-card" },
-                { valor: "membro", label: "Membro", baseClass: "sancao-card" }
+                { valor: "jogador", label: "Jogador", baseClass: "sancao-card" },
+                { valor: "comissao", label: "Comissão", baseClass: "sancao-card" }
             ],
             sancaoTipoPessoaAtual,
             "ativo",
@@ -2097,10 +2228,8 @@ function atualizarResumoSubEx() {
         renderLista(
             verdeTipoPessoaLista,
             [
-                { valor: "atleta", label: "Atleta", baseClass: "verde-card" },
-                { valor: "tecnico", label: "Técnico", baseClass: "verde-card" },
-                { valor: "auxiliar", label: "Auxiliar", baseClass: "verde-card" },
-                { valor: "membro", label: "Membro", baseClass: "verde-card" }
+                { valor: "jogador", label: "Jogador", baseClass: "verde-card" },
+                { valor: "comissao", label: "Comissão", baseClass: "verde-card" }
             ],
             verdeTipoPessoaAtual,
             "ativo",
@@ -2137,6 +2266,30 @@ function atualizarResumoSubEx() {
             },
             "Selecione equipe e tipo."
         );
+    }
+
+
+    function abrirModalVerde() {
+        verdeEquipeAtual = "";
+        verdeTipoPessoaAtual = "";
+        verdeAlvoAtual = "";
+        verdeAlvoNomeAtual = "";
+        verdeAlvoLabelAtual = "";
+        renderVerdeEquipe();
+        renderVerdeTipoPessoa();
+        renderVerdeAlvo();
+        atualizarResumoVerde();
+        modalVerdeFundo.style.display = "flex";
+    }
+
+    function fecharModalVerde() {
+        modalVerdeFundo.style.display = "none";
+        verdeEquipeAtual = "";
+        verdeTipoPessoaAtual = "";
+        verdeAlvoAtual = "";
+        verdeAlvoNomeAtual = "";
+        verdeAlvoLabelAtual = "";
+        verdeResumo.textContent = "Selecione equipe e alvo do cartão verde.";
     }
 
     function abrirModalPonto(equipe) {
@@ -2350,114 +2503,131 @@ function atualizarResumoSubEx() {
 
 
 function aplicarEstado(dados) {
-    if (!dados) return;
+        if (!dados) return;
 
-    const agora = Date.now();
+        const agora = Date.now();
 
-    const atualA = parseInt(pontosA.textContent || "0", 10);
-    const atualB = parseInt(pontosB.textContent || "0", 10);
-    const novoA = parseInt(dados.pontos_a ?? dados.placar_a ?? atualA, 10);
-    const novoB = parseInt(dados.pontos_b ?? dados.placar_b ?? atualB, 10);
+        const atualA = numeroInteiro(pontosA.textContent, 0);
+        const atualB = numeroInteiro(pontosB.textContent, 0);
+        const novoA = numeroInteiro(dados.pontos_a ?? dados.placar_a ?? atualA, atualA);
+        const novoB = numeroInteiro(dados.pontos_b ?? dados.placar_b ?? atualB, atualB);
 
-    const totalAtual = atualA + atualB;
-    const totalNovo = novoA + novoB;
+        const totalAtual = atualA + atualB;
+        const totalNovo = novoA + novoB;
 
-    // Proteção principal: nunca deixa pacote antigo voltar o placar.
-    if (agora < placarProtegidoAte && totalNovo < totalAtual) {
-        return;
-    }
+        // Protege SOMENTE o placar/rotação contra pacote antigo.
+        // Tempos, substituições, sanções e histórico precisam atualizar mesmo sem mudar ponto.
+        const podeAtualizarPlacar =
+            !(agora < placarProtegidoAte && totalNovo < totalAtual) &&
+            !(agora < bloquearSyncAte && totalNovo <= totalAtual);
 
-    // Durante envio recente, ignora estado que não avançou.
-    if (agora < bloquearSyncAte && totalNovo <= totalAtual) {
-        return;
-    }
+        const fezPontoA = podeAtualizarPlacar && novoA > atualA;
+        const fezPontoB = podeAtualizarPlacar && novoB > atualB;
 
-    pontosA.textContent = novoA;
-    pontosB.textContent = novoB;
+        if (podeAtualizarPlacar) {
+            pontosA.textContent = novoA;
+            pontosB.textContent = novoB;
 
-    setsA.textContent = dados.sets_a ?? setsA.textContent;
-    setsB.textContent = dados.sets_b ?? setsB.textContent;
-    setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
+            if (fezPontoA && typeof animarNumero === "function") animarNumero(pontosA);
+            if (fezPontoB && typeof animarNumero === "function") animarNumero(pontosB);
+            if (fezPontoA) mostrarAnimacaoPonto("A");
+            if (fezPontoB) mostrarAnimacaoPonto("B");
 
-    if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
-        saqueAtual = dados.saque_atual || "";
-    }
+            setsA.textContent = dados.sets_a ?? setsA.textContent;
+            setsB.textContent = dados.sets_b ?? setsB.textContent;
+            setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
 
-    saqueInfo.textContent = saqueAtual
-        ? `Saque atual: ${saqueAtual}`
-        : "Saque atual ainda não definido";
+            if (Array.isArray(dados.rotacao_a) && dados.rotacao_a.length === 6) {
+                rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA, rotA);
+            }
 
-    if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
-        tempoRestanteA.textContent = dados.tempos_a;
-    }
-
-    if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
-        tempoRestanteB.textContent = dados.tempos_b;
-    }
-
-    if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
-        statusJogadoresA = dados.status_jogadores_a;
-    }
-
-    if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
-        statusJogadoresB = dados.status_jogadores_b;
-    }
-
-    if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
-        sancoesA = dados.sancoes_a;
-    }
-
-    if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
-        sancoesB = dados.sancoes_b;
-    }
-
-    if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
-        verdesA = dados.cartoes_verdes_a;
-    }
-
-    if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
-        verdesB = dados.cartoes_verdes_b;
-    }
-
-    if (dados.subs_a !== undefined && dados.subs_a !== null) {
-        subsAEl.textContent = dados.subs_a;
-    }
-
-    if (dados.subs_b !== undefined && dados.subs_b !== null) {
-        subsBEl.textContent = dados.subs_b;
-    }
-
-    if (dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
-        subsLimiteEl.textContent = dados.limite_substituicoes;
-    }
-
-    if (agora >= rotacaoProtegidaAte) {
-        if (dados.rotacao_a !== undefined) {
-            rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA);
+            if (Array.isArray(dados.rotacao_b) && dados.rotacao_b.length === 6) {
+                rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB, rotB);
+            }
         }
 
-        if (dados.rotacao_b !== undefined) {
-            rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB);
+        if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
+            saqueAtual = dados.saque_atual || "";
+        }
+
+        saqueInfo.textContent = saqueAtual
+            ? `Saque atual: ${saqueAtual}`
+            : "Saque atual ainda não definido";
+
+        if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
+            tempoRestanteA.textContent = dados.tempos_a;
+        }
+
+        if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
+            tempoRestanteB.textContent = dados.tempos_b;
+        }
+
+        if (dados.subs_a !== undefined && dados.subs_a !== null) {
+            subsAEl.textContent = dados.subs_a;
+        }
+
+        if (dados.subs_b !== undefined && dados.subs_b !== null) {
+            subsBEl.textContent = dados.subs_b;
+        }
+
+        if (dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
+            subsLimiteEl.textContent = dados.limite_substituicoes;
+        }
+
+        if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) {
+            statusJogadoresA = dados.status_jogadores_a;
+        }
+
+        if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) {
+            statusJogadoresB = dados.status_jogadores_b;
+        }
+
+        if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) {
+            sancoesA = Array.isArray(dados.sancoes_a) ? dados.sancoes_a : sancoesA;
+            sancoesAEl.textContent = Array.isArray(dados.sancoes_a) ? dados.sancoes_a.length : dados.sancoes_a;
+        }
+
+        if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) {
+            sancoesB = Array.isArray(dados.sancoes_b) ? dados.sancoes_b : sancoesB;
+            sancoesBEl.textContent = Array.isArray(dados.sancoes_b) ? dados.sancoes_b.length : dados.sancoes_b;
+        }
+
+        if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) {
+            verdesA = Array.isArray(dados.cartoes_verdes_a) ? dados.cartoes_verdes_a : verdesA;
+            verdesAEl.textContent = Array.isArray(dados.cartoes_verdes_a) ? dados.cartoes_verdes_a.length : dados.cartoes_verdes_a;
+        }
+
+        if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) {
+            verdesB = Array.isArray(dados.cartoes_verdes_b) ? dados.cartoes_verdes_b : verdesB;
+            verdesBEl.textContent = Array.isArray(dados.cartoes_verdes_b) ? dados.cartoes_verdes_b.length : dados.cartoes_verdes_b;
+        }
+
+        if (dados.ultima_acao !== undefined) {
+            atualizarUltimaAcao(dados.ultima_acao || "-");
+        }
+
+        if (Array.isArray(dados.historico)) {
+            renderHistoricoBackend(dados.historico);
+        }
+
+        partidaFinalizada = !!dados.partida_finalizada;
+
+        atualizarAvisoPoint(dados);
+        atualizarContadoresDisciplinares();
+        atualizarTravasOperacionais(dados);
+        renderQuadra();
+
+        if (dados.fim_set && !dados.partida_finalizada) {
+            atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
+            travarBotoes(true);
+            setTimeout(() => window.location.reload(), 900);
+        }
+
+        if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
+            saqueInfo.textContent += " • Partida finalizada";
+            travarBotoes(true);
         }
     }
-
-    if (dados.ultima_acao !== undefined) {
-        atualizarUltimaAcao(dados.ultima_acao || "-");
-    }
-
-    if (Array.isArray(dados.historico)) {
-        renderHistoricoBackend(dados.historico);
-    }
-
-    atualizarContadoresDisciplinares();
-    renderQuadra();
-
-    partidaFinalizada = !!dados.partida_finalizada;
-
-    if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
-        saqueInfo.textContent += " • Partida finalizada";
-    }
-}
 
 
 function aplicarPontoOtimista(equipe, scout) {
@@ -2471,9 +2641,13 @@ function aplicarPontoOtimista(equipe, scout) {
     pontosB.textContent = novoB;
 
     // Proteção mais forte para impedir placar voltando.
-    placarProtegidoAte = Date.now() + 3000;
-    bloquearSyncAte = Date.now() + 1800;
-    rotacaoProtegidaAte = Date.now() + 1200;
+    ultimoTokenSync++;
+    placarProtegidoAte = Date.now() + 2500;
+
+    // depois que o servidor respondeu, a rotação dele é a oficial
+    rotacaoProtegidaAte = 0;
+
+    bloquearSyncAte = 0;
 
     const detalhe = scout && scout.detalhe_lance
         ? tituloBonitoScout(scout.detalhe_lance)
@@ -2481,6 +2655,214 @@ function aplicarPontoOtimista(equipe, scout) {
 
     atualizarUltimaAcao(`Registrando ${detalhe} para equipe ${equipe}.`);
 }
+
+
+const FILA_OFFLINE_KEY = `fila_offline_jogo_{{ partida.id }}`;
+const URLS_ACAO = {
+    tempo: "{{ url_for('apontadores.registrar_tempo_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    substituicao: "{{ url_for('apontadores.registrar_substituicao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    substituicao_excepcional: "{{ url_for('apontadores.registrar_substituicao_excepcional_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    retardamento: "{{ url_for('apontadores.registrar_retardamento_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    sancao: "{{ url_for('apontadores.registrar_sancao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    cartao_verde: "{{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    sincronizar: "{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}"
+};
+
+function carregarFilaOffline() {
+    try { return JSON.parse(localStorage.getItem(FILA_OFFLINE_KEY) || "[]"); }
+    catch { return []; }
+}
+
+function salvarFilaOffline(fila) {
+    localStorage.setItem(FILA_OFFLINE_KEY, JSON.stringify(fila || []));
+}
+
+function adicionarFilaOffline(tipo, payload) {
+    const fila = carregarFilaOffline();
+    fila.push({
+        id_local: (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random(),
+        tipo,
+        payload,
+        criada_em: new Date().toISOString()
+    });
+    salvarFilaOffline(fila);
+}
+
+function descricaoLocal(tipo, payload) {
+    const equipe = payload.equipe || "";
+    if (tipo === "tempo") return `Tempo solicitado - Equipe ${equipe}`;
+    if (tipo === "substituicao") return `Equipe ${equipe} • substituição • ${payload.numero_sai}>${payload.numero_entra}`;
+    if (tipo === "substituicao_excepcional") return `Equipe ${equipe} • substituição excepcional • ${payload.numero_sai}>${payload.numero_entra}`;
+    if (tipo === "retardamento") return `Equipe ${equipe} • retardamento`;
+    if (tipo === "sancao") return `Equipe ${equipe} • sanção • ${payload.tipo_sancao || payload.sancao || ""} • ${payload.nome || payload.numero || payload.alvo || ""}`;
+    if (tipo === "cartao_verde") return `Equipe ${equipe} • cartão verde • ${payload.nome || payload.numero || payload.alvo || ""}`;
+    return "Ação registrada";
+}
+
+function acaoOperacionalPermitida(tipo, payload) {
+    const lado = payload?.equipe;
+
+    if (partidaFinalizada) {
+        mostrarErro("Partida finalizada.");
+        return false;
+    }
+
+    if (tipo === "tempo" && !podePedirTempo(lado)) {
+        mostrarErro("Limite de tempos atingido para esta equipe neste set.");
+        atualizarTravasOperacionais();
+        return false;
+    }
+
+    if (tipo === "substituicao" && !podePedirSubstituicao(lado)) {
+        mostrarErro("Limite de substituições atingido para esta equipe neste set.");
+        atualizarTravasOperacionais();
+        return false;
+    }
+
+    return true;
+}
+
+function aplicarAcaoLocal(tipo, payload) {
+    payload = payload || {};
+    const descricao = descricaoLocal(tipo, payload);
+    atualizarUltimaAcao(descricao);
+
+    const atual = carregarFilaOffline().slice(-4).reverse().map(a => ({ descricao: descricaoLocal(a.tipo, a.payload || {}) }));
+    renderHistoricoBackend([{ descricao }, ...atual].slice(0, 5));
+
+    if (tipo === "tempo") {
+        iniciarCronometro(30);
+        if (payload.equipe === "A") tempoRestanteA.textContent = Math.max(0, parseInt(tempoRestanteA.textContent || "0", 10) - 1);
+        if (payload.equipe === "B") tempoRestanteB.textContent = Math.max(0, parseInt(tempoRestanteB.textContent || "0", 10) - 1);
+    }
+
+    if (tipo === "substituicao" || tipo === "substituicao_excepcional") {
+        const lado = payload.equipe;
+        const sai = String(payload.numero_sai || "").trim();
+        const entra = String(payload.numero_entra || "").trim();
+        if (lado === "A" && rotA.length === 6) {
+            rotA = rotA.map(n => String(n) === sai ? entra : n);
+            subsAEl.textContent = parseInt(subsAEl.textContent || "0", 10) + 1;
+        }
+        if (lado === "B" && rotB.length === 6) {
+            rotB = rotB.map(n => String(n) === sai ? entra : n);
+            subsBEl.textContent = parseInt(subsBEl.textContent || "0", 10) + 1;
+        }
+        renderQuadra();
+    }
+
+    if (tipo === "sancao" || tipo === "retardamento") {
+        if (payload.equipe === "A") sancoesAEl.textContent = parseInt(sancoesAEl.textContent || "0", 10) + 1;
+        if (payload.equipe === "B") sancoesBEl.textContent = parseInt(sancoesBEl.textContent || "0", 10) + 1;
+    }
+
+    if (tipo === "cartao_verde") {
+        if (payload.equipe === "A") verdesAEl.textContent = parseInt(verdesAEl.textContent || "0", 10) + 1;
+        if (payload.equipe === "B") verdesBEl.textContent = parseInt(verdesBEl.textContent || "0", 10) + 1;
+    }
+
+
+    atualizarTravasOperacionais();
+}
+
+async function enviarAcaoRapida(tipo, payload, aoSucesso) {
+    // OFFLINE-FIRST: a tela responde na hora. O banco sincroniza em segundo plano.
+    payload = payload || {};
+    limparErro();
+
+    if (!acaoOperacionalPermitida(tipo, payload)) {
+        return false;
+    }
+
+    aplicarAcaoLocal(tipo, payload);
+
+    if (typeof aoSucesso === "function") {
+        try { aoSucesso({ ok: true, local: true }); } catch (e) {}
+    }
+
+    const enviarAgora = async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500);
+        try {
+            const resposta = await fetch(URLS_ACAO[tipo], {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                cache: "no-store",
+                signal: controller.signal,
+                body: JSON.stringify(payload || {})
+            });
+            clearTimeout(timeout);
+
+            const bruto = await resposta.json().catch(() => ({}));
+            const dados = normalizarRespostaJogo(bruto);
+
+            if (!resposta.ok || !dados.ok) {
+                const mensagemErro = String(dados.mensagem || dados.erro || "").toLowerCase();
+                const erroDeRegra = resposta.status === 400 || mensagemErro.includes("limite") || mensagemErro.includes("atingido");
+
+                if (erroDeRegra) {
+                    mostrarErro(dados.mensagem || dados.erro || "Ação bloqueada pela regra da competição.");
+                    agendarSincronizacao(120, true);
+                    return false;
+                }
+
+                adicionarFilaOffline(tipo, payload || {});
+                return false;
+            }
+
+            ultimoTokenSync++;
+            aplicarEstado(dados);
+            return true;
+        } catch (e) {
+            clearTimeout(timeout);
+            adicionarFilaOffline(tipo, payload || {});
+            return false;
+        }
+    };
+
+    if (navigator.onLine) {
+        enviarAgora().then(() => sincronizarFilaOffline()).catch(() => {});
+    } else {
+        adicionarFilaOffline(tipo, payload || {});
+    }
+
+    return true;
+}
+
+async function sincronizarFilaOffline() {
+    if (!navigator.onLine) return;
+    let fila = carregarFilaOffline();
+    if (!fila.length) return;
+
+    const restantes = [];
+    for (const item of fila) {
+        try {
+            const resposta = await fetch(URLS_ACAO.sincronizar, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                cache: "no-store",
+                body: JSON.stringify({ tipo: item.tipo, ...(item.payload || {}) })
+            });
+
+            const bruto = await resposta.json().catch(() => ({}));
+            const dados = normalizarRespostaJogo(bruto);
+
+            if (resposta.ok && dados.ok) {
+                ultimoTokenSync++;
+                aplicarEstado(dados);
+            } else {
+                restantes.push(item);
+            }
+        } catch (e) {
+            restantes.push(item);
+            break;
+        }
+    }
+    salvarFilaOffline(restantes);
+}
+
+window.addEventListener("online", sincronizarFilaOffline);
+setInterval(sincronizarFilaOffline, 4000);
 
 
 async function registrarPonto(equipe, scout) {
@@ -2547,7 +2929,7 @@ async function registrarPonto(equipe, scout) {
 
         ultimoTokenSync++;
         placarProtegidoAte = Date.now() + 2500;
-        rotacaoProtegidaAte = Date.now() + 1200;
+        rotacaoProtegidaAte = 0;
         bloquearSyncAte = 0;
 
         const temEstadoCompleto = (
@@ -2563,14 +2945,14 @@ async function registrarPonto(equipe, scout) {
             agendarSincronizacao(250, true);
         }
 
-        bloquearSyncAte = Date.now() + 1200;
+        bloquearSyncAte = Date.now() + 600;
 
         if (dados.set_finalizado) {
             atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
 
             if (dados.partida_finalizada) {
                 partidaFinalizada = true;
-                alert("Partida encerrada.");
+                abrirObservacoesAutomaticamente();
                 return;
             }
 
@@ -2591,7 +2973,7 @@ async function registrarPonto(equipe, scout) {
         rotB = rotAntesB;
         saqueAtual = saqueAntes;
         renderQuadra();
-        mostrarErro(e && e.name === "AbortError" ? "Tempo esgotado ao registrar ponto." : "Erro de conexão.");
+        mostrarErro(e && e.name === "AbortError" ? "O ponto foi enviado, aguardando confirmação do servidor." : "Erro de conexão.");
         atualizarUltimaAcao("Erro ao registrar ponto.");
     } finally {
         clearTimeout(timeout);
@@ -2601,49 +2983,21 @@ async function registrarPonto(equipe, scout) {
 }
 
     async function registrarSubstituicao() {
-        if (enviando || partidaFinalizada || !equipeSubAtual) return;
-        if (!numeroSaiSelecionado || !numeroEntraSelecionado) {
+        if (partidaFinalizada || !equipeSubAtual) return;
+
+        const numeroSai = String(numeroSaiSelecionado || "").trim();
+        const numeroEntra = String(numeroEntraSelecionado || "").trim();
+
+        if (!numeroSai || !numeroEntra) {
             mostrarErro("Selecione corretamente quem sai e quem entra.");
             return;
         }
 
-        enviando = true;
-        travarBotoes(true);
-        limparErro();
-
-        try {
-            const resposta = await fetch(
-                "{{ url_for('apontadores.registrar_substituicao_view', competicao=competicao_nome, partida_id=partida.id) }}",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Requested-With": "fetch"
-                    },
-                    body: JSON.stringify({
-                        equipe: equipeSubAtual,
-                        numero_sai: numeroSaiSelecionado,
-                        numero_entra: numeroEntraSelecionado
-                    })
-                }
-            );
-
-            const bruto = await resposta.json();
-            const dados = normalizarRespostaJogo(bruto);
-            if (!resposta.ok || !dados.ok) {
-                mostrarErro(dados.mensagem || "Erro ao registrar substituição.");
-                return;
-            }
-
-            ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
-            fecharModalSubstituicao();
-        } catch (e) {
-            mostrarErro("Falha ao registrar substituição.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
-        }
+        await enviarAcaoRapida(
+            "substituicao",
+            { equipe: equipeSubAtual, numero_sai: numeroSai, numero_entra: numeroEntra },
+            fecharModalSubstituicao
+        );
     }
 
     function confirmarPontoAvancado() {
@@ -2703,185 +3057,20 @@ async function registrarPonto(equipe, scout) {
     }
 
     async function registrarTempo(equipe) {
-        if (enviando || partidaFinalizada) return;
-
-        enviando = true;
-        travarBotoes(true);
-        limparErro();
-
-        try {
-            const resposta = await fetch(
-                "{{ url_for('apontadores.registrar_tempo_view', competicao=competicao_nome, partida_id=partida.id) }}",
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                    body: JSON.stringify({ equipe: equipe })
-                }
-            );
-
-            const dadosBrutos = await resposta.json();
-            const dados = normalizarRespostaJogo(dadosBrutos);
-
-            if (!resposta.ok || !dados.ok) {
-                mostrarErro(dados.mensagem || "Erro ao registrar tempo.");
-                return;
-            }
-
-            ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
-            iniciarCronometro(30);
-        } catch (e) {
-            mostrarErro("Erro ao registrar tempo.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
-        }
-    }
-
-    async function registrarSancao() {
-        if (enviando || partidaFinalizada) return;
-
-        if (!sancaoEquipeAtual || !sancaoTipoPessoaAtual || !sancaoAlvoAtual || !sancaoTipoAtual) {
-            mostrarErro("Selecione equipe, tipo de pessoa, alvo e sanção.");
-            return;
-        }
-
-        const tipoBackend = mapaTipoSancao[sancaoTipoAtual];
-        if (!tipoBackend) {
-            mostrarErro("Tipo de sanção inválido.");
-            return;
-        }
-
-        const payload = {
-            equipe: sancaoEquipeAtual,
-            tipo_pessoa: sancaoTipoPessoaAtual,
-            alvo: sancaoAlvoAtual,
-            tipo_sancao: tipoBackend,
-            numero: sancaoTipoPessoaAtual === "atleta" ? sancaoAlvoAtual : "",
-            nome: sancaoTipoPessoaAtual === "atleta" ? sancaoAlvoNomeAtual : (sancaoAlvoNomeAtual || sancaoAlvoAtual)
-        };
-
-        enviando = true;
-        travarBotoes(true);
-        limparErro();
-
-        try {
-            const resposta = await fetch(
-                "{{ url_for('apontadores.registrar_sancao_view', competicao=competicao_nome, partida_id=partida.id) }}",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Requested-With": "fetch"
-                    },
-                    body: JSON.stringify(payload)
-                }
-            );
-
-            const dadosBrutos = await resposta.json();
-            const dados = normalizarRespostaJogo(dadosBrutos);
-
-            if (!resposta.ok || !dados.ok) {
-                mostrarErro(dados.mensagem || "Erro ao registrar sanção.");
-                return;
-            }
-
-            ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
-            fecharModalSancao();
-        } catch (e) {
-            mostrarErro("Falha ao registrar sanção.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
-        }
-    }
-
-    async function registrarCartaoVerde() {
-        if (enviando || partidaFinalizada) return;
-
-        if (!verdeEquipeAtual || !verdeTipoPessoaAtual || !verdeAlvoAtual) {
-            mostrarErro("Selecione equipe, tipo de pessoa e alvo.");
-            return;
-        }
-
-        const payload = {
-            equipe: verdeEquipeAtual,
-            tipo_pessoa: verdeTipoPessoaAtual,
-            alvo: verdeAlvoAtual,
-            numero: verdeTipoPessoaAtual === "atleta" ? verdeAlvoAtual : "",
-            nome: verdeTipoPessoaAtual === "atleta" ? verdeAlvoNomeAtual : (verdeAlvoNomeAtual || verdeAlvoAtual)
-        };
-
-        enviando = true;
-        travarBotoes(true);
-        limparErro();
-
-        try {
-            const resposta = await fetch(
-                "{{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) }}",
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Requested-With": "fetch"
-                    },
-                    body: JSON.stringify(payload)
-                }
-            );
-
-            const dadosBrutos = await resposta.json();
-            const dados = normalizarRespostaJogo(dadosBrutos);
-
-            if (!resposta.ok || !dados.ok) {
-                mostrarErro(dados.mensagem || "Erro ao registrar cartão verde.");
-                return;
-            }
-
-            ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
-            fecharModalPonto();
-        } catch (e) {
-            mostrarErro("Falha ao registrar cartão verde.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
-        }
-    }
-
-async function registrarRetardamento() {
-    if (enviando || partidaFinalizada || !equipeRetardamentoAtual) return;
-    enviando = true;
-    travarBotoes(true);
+    if (partidaFinalizada) return;
     limparErro();
-    try {
-        const resposta = await fetch(
-            "{{ url_for('apontadores.registrar_retardamento_view', competicao=competicao_nome, partida_id=partida.id) }}",
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                body: JSON.stringify({ equipe: equipeRetardamentoAtual })
-            }
-        );
-        const dadosBrutos = await resposta.json();
-        const dados = normalizarRespostaJogo(dadosBrutos);
-        if (!resposta.ok || !dados.ok) {
-            mostrarErro(dados.mensagem || "Erro ao registrar retardamento.");
-            return;
-        }
-        ultimoTokenSync++;
-        aplicarEstado(dados);
-        fecharModalRetardamento();
-    } catch (e) {
-        mostrarErro("Falha ao registrar retardamento.");
-    } finally {
-        enviando = false;
-        travarBotoes(false);
+
+    if (!podePedirTempo(equipe)) {
+        mostrarErro("Limite de tempos atingido para esta equipe neste set.");
+        atualizarTravasOperacionais();
+        return;
     }
+
+    await enviarAcaoRapida("tempo", { equipe: equipe }, () => iniciarCronometro(30));
 }
 
 async function registrarSubstituicaoExcepcional() {
-    if (enviando || partidaFinalizada || !equipeSubExAtual) return;
+    if (partidaFinalizada || !equipeSubExAtual) return;
     const numeroSai = String(numeroSaiSubEx || "").trim();
     const numeroEntra = String(numeroEntraSubEx || "").trim();
     const motivo = String((subExMotivoInput && subExMotivoInput.value) || "").trim();
@@ -2889,33 +3078,59 @@ async function registrarSubstituicaoExcepcional() {
         mostrarErro("Selecione corretamente quem sai e quem entra.");
         return;
     }
-    enviando = true;
-    travarBotoes(true);
-    limparErro();
-    try {
-        const resposta = await fetch(
-            "{{ url_for('apontadores.registrar_substituicao_excepcional_view', competicao=competicao_nome, partida_id=partida.id) }}",
-            {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                body: JSON.stringify({ equipe: equipeSubExAtual, numero_sai: numeroSai, numero_entra: numeroEntra, motivo: motivo })
-            }
-        );
-        const dadosBrutos = await resposta.json();
-        const dados = normalizarRespostaJogo(dadosBrutos);
-        if (!resposta.ok || !dados.ok) {
-            mostrarErro(dados.mensagem || "Erro ao registrar substituição excepcional.");
-            return;
-        }
-        ultimoTokenSync++;
-        aplicarEstado(dados);
-        fecharModalSubExcepcional();
-    } catch (e) {
-        mostrarErro("Falha ao registrar substituição excepcional.");
-    } finally {
-        enviando = false;
-        travarBotoes(false);
+    await enviarAcaoRapida(
+        "substituicao_excepcional",
+        { equipe: equipeSubExAtual, numero_sai: numeroSai, numero_entra: numeroEntra, motivo: motivo },
+        fecharModalSubExcepcional
+    );
+}
+
+
+async function registrarSancao() {
+    if (partidaFinalizada) return;
+
+    if (!sancaoEquipeAtual || !sancaoTipoPessoaAtual || !sancaoAlvoAtual || !sancaoTipoAtual) {
+        mostrarErro("Selecione equipe, tipo de pessoa, alvo e sanção.");
+        return;
     }
+
+    const tipoBackend = mapaTipoSancao[sancaoTipoAtual] || sancaoTipoAtual;
+    const payload = {
+        equipe: sancaoEquipeAtual,
+        tipo_pessoa: sancaoTipoPessoaAtual,
+        alvo: sancaoAlvoAtual,
+        numero: sancaoTipoPessoaAtual === "jogador" ? sancaoAlvoAtual : "",
+        nome: sancaoTipoPessoaAtual === "jogador" ? sancaoAlvoNomeAtual : (sancaoAlvoNomeAtual || sancaoAlvoAtual),
+        tipo_sancao: tipoBackend,
+        sancao: tipoBackend
+    };
+
+    await enviarAcaoRapida("sancao", payload, fecharModalSancao);
+}
+
+async function registrarCartaoVerde() {
+    if (partidaFinalizada) return;
+
+    if (!verdeEquipeAtual || !verdeTipoPessoaAtual || !verdeAlvoAtual) {
+        mostrarErro("Selecione equipe, tipo de pessoa e alvo.");
+        return;
+    }
+
+    const payload = {
+        equipe: verdeEquipeAtual,
+        tipo_pessoa: verdeTipoPessoaAtual,
+        alvo: verdeAlvoAtual,
+        numero: verdeTipoPessoaAtual === "jogador" ? verdeAlvoAtual : "",
+        nome: verdeTipoPessoaAtual === "jogador" ? verdeAlvoNomeAtual : (verdeAlvoNomeAtual || verdeAlvoAtual)
+    };
+
+    await enviarAcaoRapida("cartao_verde", payload, fecharModalVerde);
+}
+
+async function registrarRetardamento() {
+    if (partidaFinalizada || !equipeRetardamentoAtual) return;
+    limparErro();
+    await enviarAcaoRapida("retardamento", { equipe: equipeRetardamentoAtual }, fecharModalRetardamento);
 }
 
     function tratarCliquePonto(equipe) {
@@ -2981,9 +3196,59 @@ async function registrarSubstituicaoExcepcional() {
         }
     }
 
+
+async function registrarWO(equipe) {
+    if (enviando || partidaFinalizada) return;
+
+    const nome = nomeEquipePorLado(equipe);
+    const confirmar = window.confirm(`Confirmar WO com vitória de ${nome}?`);
+    if (!confirmar) return;
+
+    enviando = true;
+    travarBotoes(true);
+    limparErro();
+
+    try {
+        const resposta = await fetch("{{ url_for('apontadores.wo_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "fetch"
+            },
+            cache: "no-store",
+            body: JSON.stringify({ equipe_vencedora: equipe })
+        });
+
+        let bruto = {};
+        try {
+            bruto = await resposta.json();
+        } catch (e) {
+            bruto = { ok: false, mensagem: "Resposta inválida do servidor." };
+        }
+
+        const dados = normalizarRespostaJogo(bruto);
+
+        if (!resposta.ok || !dados.ok) {
+            mostrarErro(dados.mensagem || "Erro ao registrar WO.");
+            return;
+        }
+
+        atualizarUltimaAcao(dados.ultima_acao || "Partida encerrada por WO");
+        aplicarEstado(dados);
+        abrirObservacoesAutomaticamente();
+    } catch (e) {
+        mostrarErro("Erro de conexão ao registrar WO.");
+    } finally {
+        enviando = false;
+        travarBotoes(false);
+    }
+}
+
     btnA.addEventListener("click", function () { tratarCliquePonto("A"); });
     btnB.addEventListener("click", function () { tratarCliquePonto("B"); });
     btnDesfazer.addEventListener("click", function () { desfazerAcao(); });
+    if (btnWoA) btnWoA.addEventListener("click", function () { registrarWO("A"); });
+    if (btnWoB) btnWoB.addEventListener("click", function () { registrarWO("B"); });
     btnTempoA.addEventListener("click", function () { registrarTempo("A"); });
     btnTempoB.addEventListener("click", function () { registrarTempo("B"); });
     btnSubA.addEventListener("click", function () { abrirModalSubstituicao("A"); });
@@ -3015,7 +3280,7 @@ btnSubExConfirmar.addEventListener("click", registrarSubstituicaoExcepcional);
     btnSancaoCancelar.addEventListener("click", fecharModalSancao);
     btnSancaoConfirmar.addEventListener("click", registrarSancao);
 
-    btnVerdeCancelar.addEventListener("click", fecharModalPonto);
+    btnVerdeCancelar.addEventListener("click", fecharModalVerde);
     btnVerdeConfirmar.addEventListener("click", registrarCartaoVerde);
 
     btnPontoCancelar.addEventListener("click", fecharModalPonto);
@@ -3038,7 +3303,7 @@ modalSubExFundo.addEventListener("click", function (event) {
     });
 
     modalVerdeFundo.addEventListener("click", function (event) {
-        if (event.target === modalVerdeFundo) fecharModalPonto();
+        if (event.target === modalVerdeFundo) fecharModalVerde();
     });
 
     modalPontoFundo.addEventListener("click", function (event) {
@@ -3052,7 +3317,15 @@ modalSubExFundo.addEventListener("click", function (event) {
     document.addEventListener("keydown", tratarAtalhosModalPonto);
 
     atualizarContadoresDisciplinares();
+    atualizarAvisoPoint({
+        pontos_a: parseInt(pontosA.textContent || "0", 10),
+        pontos_b: parseInt(pontosB.textContent || "0", 10),
+        sets_a: parseInt(setsA.textContent || "0", 10),
+        sets_b: parseInt(setsB.textContent || "0", 10),
+        set_atual: parseInt(String(setAtual.textContent || "1"), 10)
+    });
     renderQuadra();
+    atualizarTravasOperacionais();
     agendarSincronizacao(120, true);
 })();
 </script>

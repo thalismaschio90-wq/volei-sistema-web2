@@ -36,6 +36,7 @@
                 <th>Nome</th>
                 <th>CPF</th>
                 <th>Função</th>
+                <th>Ações</th>
             </tr>
         </thead>
         <tbody>
@@ -44,6 +45,18 @@
                 <td>{{ o.nome }}</td>
                 <td>{{ o.cpf }}</td>
                 <td>{{ o.funcao }}</td>
+                <td>
+                    {% if o.funcao|lower == 'apontador' %}
+                    <form method="post"
+                          action="{{ url_for('oficiais.remover_apontador_competicao_view', cpf=o.cpf) }}"
+                          onsubmit="return confirm('Remover este apontador apenas desta competição?');"
+                          style="display:inline;">
+                        <button type="submit" class="btn-perigo">Remover da competição</button>
+                    </form>
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>

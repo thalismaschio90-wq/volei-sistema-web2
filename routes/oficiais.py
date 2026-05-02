@@ -6,7 +6,8 @@ from banco import (
     vincular_oficial_competicao,
     listar_oficiais_competicao,
     criar_apontador,
-    buscar_competicao_por_organizador
+    buscar_competicao_por_organizador,
+    remover_apontador_da_competicao
 )
 from routes.utils import exigir_perfil
 
@@ -63,3 +64,17 @@ def oficiais():
         oficiais=oficiais_competicao,
         competicao=competicao
     )
+
+@oficiais_bp.route("/oficiais/remover-apontador/<cpf>", methods=["POST"])
+@exigir_perfil("organizador")
+def remover_apontador_competicao_view(cpf):
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    remover_apontador_da_competicao(cpf, competicao["nome"])
+
+    flash("Apontador removido apenas desta competição.", "sucesso")
+    return redirect(url_for("oficiais.oficiais"))

@@ -163,7 +163,7 @@
             </div>
             <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
                 <a class="btn-padrao" href="{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}">Conferir Equipe A</a>
-                <a class="btn-secundario" href="{{ url_for('apontadores.definir_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}">Definir capitão</a>
+                <a class="btn-secundario" href="{{ url_for('apontadores.definir_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}">{% if capitao_a_nome %}Alterar capitão{% else %}Definir capitão{% endif %}</a>
             </div>
         </div>
 
@@ -183,7 +183,7 @@
             </div>
             <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
                 <a class="btn-padrao" href="{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}">Conferir Equipe B</a>
-                <a class="btn-secundario" href="{{ url_for('apontadores.definir_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}">Definir capitão</a>
+                <a class="btn-secundario" href="{{ url_for('apontadores.definir_capitao_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}">{% if capitao_b_nome %}Alterar capitão{% else %}Definir capitão{% endif %}</a>
             </div>
         </div>
     </div>

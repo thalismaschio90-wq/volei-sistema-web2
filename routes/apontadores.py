@@ -1,9 +1,12 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
+import threading
+import time
 
 from banco import (
     criar_tabelas_oficiais,
     conectar,
     listar_competicoes_apontador,
+    excluir_apontador_global,
     buscar_oficial_por_cpf,
     listar_partidas,
     buscar_partida_operacional,
@@ -23,6 +26,7 @@ from banco import (
     inicializar_jogo_partida,
     buscar_estado_jogo_partida,
     registrar_ponto_partida,
+    registrar_wo_partida,
     desfazer_ultima_acao_partida,
     registrar_tempo_partida,
     buscar_tempos_restantes_partida,
@@ -39,16 +43,41 @@ from banco import (
     verificar_fim_partida, encerrar_partida,
     garantir_estado_partida,
     listar_eventos_partida,
+    aplicar_capitaes_padrao_partida,
 )
 from routes.utils import exigir_perfil
 from socket_events import (
     emitir_estado_partida,
     emitir_placar_apontador,
-    emitir_resposta_solicitacao,
-    obter_estado_cache
+    obter_estado_cache,
+    atualizar_estado_cache,
 )
 
 apontadores_bp = Blueprint("apontadores", __name__)
+
+_CACHE_ARBITROS_COMPETICAO = {}
+_CACHE_ATLETAS_EQUIPE = {}
+
+
+def _listar_arbitros_competicao_cache(competicao):
+    chave = (competicao or "").strip()
+    if chave not in _CACHE_ARBITROS_COMPETICAO:
+        _CACHE_ARBITROS_COMPETICAO[chave] = listar_arbitros_competicao(competicao) or []
+    return _CACHE_ARBITROS_COMPETICAO[chave]
+
+
+def _listar_atletas_aprovados_cache(equipe, competicao):
+    chave = ((competicao or "").strip(), (equipe or "").strip())
+    if chave not in _CACHE_ATLETAS_EQUIPE:
+        _CACHE_ATLETAS_EQUIPE[chave] = listar_atletas_aprovados_da_equipe(equipe, competicao) or []
+    return _CACHE_ATLETAS_EQUIPE[chave]
+
+
+def _limpar_cache_atletas(equipe=None, competicao=None):
+    if not equipe or not competicao:
+        _CACHE_ATLETAS_EQUIPE.clear()
+        return
+    _CACHE_ATLETAS_EQUIPE.pop(((competicao or "").strip(), (equipe or "").strip()), None)
 
 
 # =========================================================
@@ -61,6 +90,183 @@ def _json_no_cache(payload, status=200):
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
     return resposta
+
+
+
+def _int_seguro(valor, padrao=0):
+    try:
+        if valor is None or valor == "":
+            return padrao
+        return int(valor)
+    except Exception:
+        return padrao
+
+
+def _limites_operacionais(partida=None, estado=None):
+    """
+    Centraliza os limites usados pela tela do apontador.
+    Prioridade: estado/cache -> partida/regras salvas -> padrão do vôlei.
+    """
+    partida = partida or {}
+    estado = estado or {}
+
+    limite_tempos = _int_seguro(
+        estado.get("limite_tempos")
+        or estado.get("tempos_limite")
+        or partida.get("limite_tempos")
+        or partida.get("tempos_limite")
+        or partida.get("tempos_por_set")
+        or 2,
+        2,
+    )
+
+    limite_substituicoes = _int_seguro(
+        estado.get("limite_substituicoes")
+        or estado.get("substituicoes_limite")
+        or partida.get("limite_substituicoes")
+        or partida.get("substituicoes_limite")
+        or partida.get("substituicoes_por_set")
+        or 6,
+        6,
+    )
+
+    return {
+        "limite_tempos": max(0, limite_tempos),
+        "limite_substituicoes": max(0, limite_substituicoes),
+    }
+
+
+def _contar_eventos_lado(partida_id, competicao, equipe, tipos, set_atual=None):
+    """
+    Conta ações já salvas para impedir pedidos infinitos.
+    Conta por set quando o evento tiver set_numero; se eventos antigos não tiverem,
+    ainda assim contabiliza para não liberar infinito.
+    """
+    equipe = (equipe or "").strip().upper()
+    tipos = {str(t or "").strip().lower() for t in (tipos or []) if str(t or "").strip()}
+    if equipe not in {"A", "B"} or not tipos:
+        return 0
+
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=1500) or []
+    except TypeError:
+        try:
+            eventos = listar_eventos_partida(partida_id, competicao) or []
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+    total = 0
+    for ev in eventos:
+        ev_equipe = str(ev.get("equipe") or "").strip().upper()
+        if ev_equipe != equipe:
+            continue
+
+        ev_set = ev.get("set_numero") or ev.get("set") or ev.get("set_atual")
+        if set_atual and ev_set not in (None, ""):
+            try:
+                if int(ev_set) != int(set_atual):
+                    continue
+            except Exception:
+                pass
+
+        campos = {
+            str(ev.get("tipo") or "").strip().lower(),
+            str(ev.get("tipo_evento") or "").strip().lower(),
+            str(ev.get("fundamento") or "").strip().lower(),
+            str(ev.get("resultado") or "").strip().lower(),
+            str(ev.get("detalhe") or "").strip().lower(),
+            str(ev.get("detalhes") or "").strip().lower(),
+        }
+        campos = {c for c in campos if c}
+
+        if campos.intersection(tipos):
+            total += 1
+
+    return total
+
+
+def _contadores_operacionais(partida_id, competicao, partida=None, estado=None):
+    estado = estado or {}
+    partida = partida or {}
+    set_atual = _int_seguro(estado.get("set_atual") or partida.get("set_atual") or 1, 1)
+
+    tempos_a = _contar_eventos_lado(partida_id, competicao, "A", {"tempo", "pedido_tempo", "tempo_tecnico"}, set_atual)
+    tempos_b = _contar_eventos_lado(partida_id, competicao, "B", {"tempo", "pedido_tempo", "tempo_tecnico"}, set_atual)
+    subs_a = _contar_eventos_lado(partida_id, competicao, "A", {"substituicao", "substituição"}, set_atual)
+    subs_b = _contar_eventos_lado(partida_id, competicao, "B", {"substituicao", "substituição"}, set_atual)
+
+    return {
+        "tempos_a": tempos_a,
+        "tempos_b": tempos_b,
+        "subs_a": subs_a,
+        "subs_b": subs_b,
+    }
+
+
+def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, partida=None):
+    estado = dict(estado or {})
+    partida = partida or {}
+
+    limites = _limites_operacionais(partida, estado)
+    estado["limite_tempos"] = limites["limite_tempos"]
+    estado["limite_substituicoes"] = limites["limite_substituicoes"]
+
+    try:
+        contadores = _contadores_operacionais(partida_id, competicao, partida=partida, estado=estado)
+        # Estes campos representam USADOS no set atual.
+        estado["tempos_a"] = contadores["tempos_a"]
+        estado["tempos_b"] = contadores["tempos_b"]
+        estado["subs_a"] = contadores["subs_a"]
+        estado["subs_b"] = contadores["subs_b"]
+    except Exception:
+        estado.setdefault("tempos_a", 0)
+        estado.setdefault("tempos_b", 0)
+        estado.setdefault("subs_a", 0)
+        estado.setdefault("subs_b", 0)
+
+    # Regras de pontuação para set point/match point no frontend.
+    if "pontos_set" not in estado:
+        estado["pontos_set"] = (
+            partida.get("pontos_set")
+            or partida.get("ponto_alvo_set")
+            or partida.get("pontos_para_vencer_set")
+            or estado.get("ponto_alvo_set")
+            or estado.get("pontos_para_vencer_set")
+            or 25
+        )
+    if "pontos_tiebreak" not in estado:
+        estado["pontos_tiebreak"] = partida.get("pontos_tiebreak") or estado.get("pontos_tiebreak") or 15
+    if "diferenca_minima" not in estado:
+        estado["diferenca_minima"] = partida.get("diferenca_minima") or estado.get("diferenca_minima") or 2
+    if "sets_para_vencer" not in estado:
+        estado["sets_para_vencer"] = partida.get("sets_para_vencer") or estado.get("sets_para_vencer") or 2
+    if "sets_tipo" not in estado:
+        estado["sets_tipo"] = partida.get("sets_tipo") or estado.get("sets_tipo") or "melhor_de_3"
+
+    return estado
+
+
+def _validar_limite_operacional(partida_id, competicao, equipe, tipo, partida=None, estado=None):
+    equipe = (equipe or "").strip().upper()
+    partida = partida or {}
+    estado = estado or {}
+    estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
+
+    if tipo == "tempo":
+        usados = _int_seguro(estado.get("tempos_a") if equipe == "A" else estado.get("tempos_b"), 0)
+        limite = _int_seguro(estado.get("limite_tempos"), 2)
+        if usados >= limite:
+            return False, f"Limite de tempos atingido para a Equipe {equipe} neste set.", estado
+
+    if tipo == "substituicao":
+        usados = _int_seguro(estado.get("subs_a") if equipe == "A" else estado.get("subs_b"), 0)
+        limite = _int_seguro(estado.get("limite_substituicoes"), 6)
+        if usados >= limite:
+            return False, f"Limite de substituições atingido para a Equipe {equipe} neste set.", estado
+
+    return True, "", estado
 
 
 def _montar_descricao_evento(ev):
@@ -149,7 +355,7 @@ def _rotacao_fallback_por_papeleta(papeleta):
 
 def _montar_evolucao_pontos(partida_id, competicao):
     try:
-        eventos = listar_eventos_partida(partida_id, competicao, limite=300) or []
+        eventos = listar_eventos_partida(partida_id, competicao, limite=80) or []
     except TypeError:
         try:
             eventos = listar_eventos_partida(partida_id, competicao) or []
@@ -271,23 +477,43 @@ def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=No
     if "placar_b" not in estado:
         estado["placar_b"] = estado.get("pontos_b", 0)
 
-    estado["evolucao_pontos"] = _montar_evolucao_pontos(partida_id, competicao)
+    if "evolucao_pontos" not in estado:
+        estado["evolucao_pontos"] = _montar_evolucao_pontos(partida_id, competicao)
 
     return estado
 
 
 def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, origem=""):
-    """
-    Emite o estado para a sala da partida e também para o telão fixo.
-    """
-    estado = _preparar_estado_para_placar(partida_id, competicao, estado, partida)
+    estado = dict(estado or {})
+
+    if partida is None:
+        try:
+            partida = buscar_partida_operacional(partida_id, competicao) or {}
+        except Exception:
+            partida = {}
+
+    estado.setdefault("competicao", competicao)
+    estado.setdefault("partida_id", partida_id)
+
+    estado.setdefault("equipe_a", partida.get("equipe_a_operacional") or partida.get("equipe_a") or "")
+    estado.setdefault("equipe_b", partida.get("equipe_b_operacional") or partida.get("equipe_b") or "")
+
+    estado.setdefault("pontos_a", estado.get("placar_a", 0))
+    estado.setdefault("pontos_b", estado.get("placar_b", 0))
+    estado.setdefault("placar_a", estado.get("pontos_a", 0))
+    estado.setdefault("placar_b", estado.get("pontos_b", 0))
+
+    estado.setdefault("historico", estado.get("historico") or [])
+    estado.setdefault("scout", estado.get("scout") or {})
+
+    estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
 
     apontador_login = (
         session.get("usuario")
         or estado.get("apontador")
         or estado.get("apontador_login")
         or estado.get("operador_login")
-        or (partida or {}).get("operador_login")
+        or partida.get("operador_login")
         or ""
     )
 
@@ -295,10 +521,12 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
         estado["apontador"] = apontador_login
 
     try:
+        atualizar_estado_cache(partida_id, estado)
         emitir_estado_partida(partida_id, estado)
-        emitir_placar_apontador(apontador_login, partida_id, estado)
+        if apontador_login:
+            emitir_placar_apontador(apontador_login, partida_id, estado)
     except Exception as e:
-        print(f"ERRO emitir estado/placar {origem}:", e)
+        print(f"ERRO emitir estado/placar {origem}:", e, flush=True)
 
     return estado
 
@@ -333,6 +561,13 @@ def apontadores():
         apontadores=lista
     )
 
+
+@apontadores_bp.route("/apontadores/excluir/<cpf>", methods=["POST"])
+@exigir_perfil("superadmin")
+def excluir_apontador_global_view(cpf):
+    excluir_apontador_global(cpf)
+    flash("Apontador excluído permanentemente do sistema.", "sucesso")
+    return redirect(url_for("apontadores.apontadores"))
 
 @apontadores_bp.route("/apontador")
 @exigir_perfil("apontador")
@@ -396,13 +631,19 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
+    if partida.get("equipe_a_operacional") or partida.get("equipe_b_operacional"):
+        try:
+            partida = aplicar_capitaes_padrao_partida(partida_id, competicao) or partida
+        except Exception:
+            pass
+
     bloqueada_por_outro = (
         partida.get("operador_login")
         and partida.get("operador_login") != cpf
         and (partida.get("status_operacao") or "livre").lower() in {"reservado", "pre_jogo", "em_andamento"}
     )
 
-    arbitros = listar_arbitros_competicao(competicao)
+    arbitros = _listar_arbitros_competicao_cache(competicao)
 
     equipe_a_conferida = False
     equipe_b_conferida = False
@@ -420,7 +661,10 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
     if equipe_a_operacional and equipe_b_operacional:
         precisa_conferencia = (not equipe_a_conferida) or (not equipe_b_conferida)
 
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida)
+    fluxo = {
+        "fase_partida": partida.get("fase_partida") or "pre_jogo",
+        "tiebreak_pendente": bool(partida.get("tiebreak_pendente")),
+    }
 
     return render_template(
         "pre_jogo_apontador.html",
@@ -459,7 +703,7 @@ def assumir_partida_view(competicao, partida_id):
     )
 
     flash(msg, "sucesso" if ok else "erro")
-    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id, rapido="1"))
 
 
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/abandonar", methods=["POST"])
@@ -496,7 +740,7 @@ def salvar_pre_jogo_view(competicao, partida_id):
     )
 
     flash(msg, "sucesso" if ok else "erro")
-    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+    return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id, rapido="1"))
 
 
 @apontadores_bp.route("/apontador/tiebreak/<competicao>/<int:partida_id>")
@@ -576,7 +820,7 @@ def conferencia_equipe_view(competicao, partida_id, lado):
         flash("Salve primeiro o sorteio para definir as equipes operacionais.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
-    atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+    atletas = _listar_atletas_aprovados_cache(equipe, competicao)
 
     return render_template(
         "conferencia_equipe.html",
@@ -623,6 +867,7 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
             flash(msg, "erro")
 
     if not houve_erro:
+        _limpar_cache_atletas(equipe, competicao)
         marcar_equipe_conferida(competicao, equipe)
         flash("Conferência salva com sucesso.", "sucesso")
 
@@ -653,7 +898,7 @@ def definir_capitao_view(competicao, partida_id, lado):
         flash("Equipe operacional ainda não definida.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
-    atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+    atletas = _listar_atletas_aprovados_cache(equipe, competicao)
     atletas = [a for a in atletas if a.get("numero") not in (None, "")]
     atleta_atual_id = partida.get("capitao_a_id") if lado == "A" else partida.get("capitao_b_id")
 
@@ -691,34 +936,39 @@ def papeleta_view(competicao, partida_id):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    inicializar_sets_partida(partida_id, competicao)
-    partida = buscar_partida_operacional(partida_id, competicao)
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
+    fase = (partida.get("fase_partida") or "papeleta").strip().lower()
 
-    if fluxo.get("fase_partida") == "encerrado":
+    if fase == "encerrado":
         flash("A partida já está finalizada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    if fluxo.get("fase_partida") == "pre_jogo":
+    if fase == "pre_jogo":
         flash("Finalize primeiro o pré-jogo para acessar a papeleta.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
-    if fluxo.get("fase_partida") == "tiebreak_sorteio":
+    if fase == "tiebreak_sorteio":
         flash("Antes do tie-break, faça o sorteio específico do set decisivo.", "erro")
         return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
 
-    if fluxo.get("fase_partida") == "jogo":
+    if fase == "jogo":
         return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
 
     equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
         partida_id, competicao, partida
     )
 
-    atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
-    atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
+    atletas_a = _listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else []
+    atletas_b = _listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else []
 
     atletas_a = [a for a in atletas_a if a.get("numero")]
     atletas_b = [a for a in atletas_b if a.get("numero")]
+
+    fluxo = {
+        "fase_partida": fase,
+        "papeleta_a_completa": all(papeleta_a.get(i) for i in range(1, 7)),
+        "papeleta_b_completa": all(papeleta_b.get(i) for i in range(1, 7)),
+        "set_atual": set_atual,
+    }
 
     return render_template(
         "papeleta_apontador.html",
@@ -743,8 +993,8 @@ def salvar_papeleta_view(competicao, partida_id):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    equipe_a = partida.get("equipe_a_operacional")
-    equipe_b = partida.get("equipe_b_operacional")
+    equipe_a = partida.get("equipe_a_operacional") or partida.get("equipe_a")
+    equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b")
     set_atual = int(partida.get("set_atual") or 1)
 
     atletas_cache = {}
@@ -755,27 +1005,28 @@ def salvar_papeleta_view(competicao, partida_id):
 
         atletas = atletas_cache.get(equipe)
         if atletas is None:
-            atletas = listar_atletas_aprovados_da_equipe(equipe, competicao)
+            atletas = _listar_atletas_aprovados_cache(equipe, competicao)
             atletas_cache[equipe] = atletas
 
-        mapa_atletas_por_numero = {
-            int(a.get("numero") or 0): a
+        mapa = {
+            int(a.get("numero")): a
             for a in atletas
             if a.get("numero") not in (None, "")
         }
 
         dados = {}
+
         for pos in [1, 2, 3, 4, 5, 6]:
-            valor = request.form.get(f"{lado}_{pos}", "").strip()
+            valor = (request.form.get(f"{lado}_{pos}") or "").strip()
             if not valor:
                 continue
 
             try:
                 numero = int(valor)
-            except ValueError:
+            except Exception:
                 continue
 
-            atleta = mapa_atletas_por_numero.get(numero)
+            atleta = mapa.get(numero)
             if atleta:
                 dados[pos] = atleta
 
@@ -791,14 +1042,55 @@ def salvar_papeleta_view(competicao, partida_id):
     salvar_papeleta(partida_id, competicao, equipe_a, set_atual, dados_a)
     salvar_papeleta(partida_id, competicao, equipe_b, set_atual, dados_b)
 
-    partida_atual = buscar_partida_operacional(partida_id, competicao)
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida_atual) or {}
+    rotacao_a = [
+        str(dados_a[4].get("numero") or ""),
+        str(dados_a[3].get("numero") or ""),
+        str(dados_a[2].get("numero") or ""),
+        str(dados_a[5].get("numero") or ""),
+        str(dados_a[6].get("numero") or ""),
+        str(dados_a[1].get("numero") or ""),
+    ]
+
+    rotacao_b = [
+        str(dados_b[4].get("numero") or ""),
+        str(dados_b[3].get("numero") or ""),
+        str(dados_b[2].get("numero") or ""),
+        str(dados_b[5].get("numero") or ""),
+        str(dados_b[6].get("numero") or ""),
+        str(dados_b[1].get("numero") or ""),
+    ]
+
+    try:
+        inicializar_jogo_partida(partida_id, competicao)
+    except Exception as e:
+        print("ERRO inicializar_jogo_partida:", repr(e), flush=True)
+
+    estado = {
+        "ok": True,
+        "competicao": competicao,
+        "partida_id": partida_id,
+        "equipe_a": equipe_a or "",
+        "equipe_b": equipe_b or "",
+        "pontos_a": int(partida.get("pontos_a") or 0),
+        "pontos_b": int(partida.get("pontos_b") or 0),
+        "placar_a": int(partida.get("pontos_a") or 0),
+        "placar_b": int(partida.get("pontos_b") or 0),
+        "sets_a": int(partida.get("sets_a") or 0),
+        "sets_b": int(partida.get("sets_b") or 0),
+        "set_atual": set_atual,
+        "saque_atual": partida.get("saque_atual") or partida.get("saque_inicial") or "",
+        "rotacao_a": rotacao_a,
+        "rotacao_b": rotacao_b,
+        "historico": [{"descricao": "Jogo iniciado"}],
+        "ultima_acao": "Jogo iniciado",
+        "fase_partida": "jogo",
+        "status_jogo": "em_andamento",
+    }
+
+    _emitir_estado_e_placar(partida_id, competicao, estado, partida=partida, origem="PAPELETA")
+
     flash("Papeleta salva com sucesso.", "sucesso")
-
-    if fluxo.get("papeleta_a_completa") and fluxo.get("papeleta_b_completa"):
-        return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
-
-    return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+    return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
 
 
 # =========================================================
@@ -833,8 +1125,8 @@ def jogo_view(competicao, partida_id):
     )
 
     try:
-        atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
-        atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
+        atletas_a = _listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else []
+        atletas_b = _listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else []
     except Exception:
         atletas_a = []
         atletas_b = []
@@ -888,9 +1180,22 @@ def jogo_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def ponto_view(competicao, partida_id):
     print("🔥 ENTROU NO PONTO_VIEW POST")
+
     try:
+        import threading
+        from socket_events import (
+            obter_estado_cache,
+            atualizar_estado_cache,
+            emitir_estado_partida,
+            emitir_placar_apontador
+        )
+        from banco import girar_rotacao_oficial, registrar_ponto_partida
+
         corpo = request.get_json(silent=True) or {}
 
+        # =========================
+        # 🔥 VALIDAÇÕES (INALTERADAS)
+        # =========================
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
@@ -934,12 +1239,9 @@ def ponto_view(competicao, partida_id):
             atleta_nome = ""
             atleta_label = ""
 
-        fundamento_final = detalhe_final
-        resultado_final = tipo_lance
-
         detalhes_evento = {
-            "fundamento": fundamento_final,
-            "resultado": resultado_final,
+            "fundamento": detalhe_final,
+            "resultado": tipo_lance,
             "tipo_lance": tipo_lance,
             "detalhe_lance": detalhe_final,
             "tipo_erro": tipo_erro,
@@ -948,24 +1250,120 @@ def ponto_view(competicao, partida_id):
             "atleta_label": atleta_label,
         }
 
-        ok, retorno = registrar_ponto_partida(
-            partida_id=partida_id,
-            competicao=competicao,
-            equipe=equipe,
-            tipo="ponto",
-            detalhes=detalhes_evento
+        # =========================
+        # ⚡ CACHE (ULTRA RÁPIDO)
+        # =========================
+        estado = obter_estado_cache(partida_id)
+
+        if not estado:
+            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+        # =========================
+        # ⚡ ATUALIZA LOCAL (INSTANTÂNEO)
+        # =========================
+        estado["pontos_a"] = int(estado.get("pontos_a", 0))
+        estado["pontos_b"] = int(estado.get("pontos_b", 0))
+
+        if equipe == "A":
+            estado["pontos_a"] += 1
+        else:
+            estado["pontos_b"] += 1
+
+        saque = estado.get("saque_atual")
+
+        if saque != equipe:
+            estado["saque_atual"] = equipe
+
+            if equipe == "A":
+                estado["rotacao_a"] = girar_rotacao_oficial(estado.get("rotacao_a"))
+            else:
+                estado["rotacao_b"] = girar_rotacao_oficial(estado.get("rotacao_b"))
+
+        # =========================
+        # 🏁 FIM DE SET / PARTIDA NO CACHE (NÃO ESPERA BANCO)
+        # =========================
+        pontos_set = int(estado.get("pontos_set") or estado.get("ponto_alvo_set") or estado.get("pontos_para_vencer_set") or 21)
+        diferenca_minima = int(estado.get("diferenca_minima") or 2)
+        sets_para_vencer = int(estado.get("sets_para_vencer") or 2)
+        estado["sets_a"] = int(estado.get("sets_a") or 0)
+        estado["sets_b"] = int(estado.get("sets_b") or 0)
+        estado["set_atual"] = int(estado.get("set_atual") or 1)
+
+        fim_set = (
+            (estado["pontos_a"] >= pontos_set or estado["pontos_b"] >= pontos_set)
+            and abs(estado["pontos_a"] - estado["pontos_b"]) >= diferenca_minima
         )
 
-        if not ok:
-            mensagem = retorno if isinstance(retorno, str) else "Não foi possível registrar o ponto."
-            return _json_no_cache({"ok": False, "mensagem": mensagem}, 400)
+        if fim_set:
+            vencedor_set = "A" if estado["pontos_a"] > estado["pontos_b"] else "B"
+            if vencedor_set == "A":
+                estado["sets_a"] += 1
+            else:
+                estado["sets_b"] += 1
 
-        estado = retorno if isinstance(retorno, dict) else {}
+            fim_jogo = estado["sets_a"] >= sets_para_vencer or estado["sets_b"] >= sets_para_vencer
+            estado["fim_set"] = True
+            estado["set_finalizado"] = True
+            estado["vencedor_set"] = vencedor_set
 
-        if "ultima_acao" not in estado:
+            if fim_jogo:
+                estado["fim_jogo"] = True
+                estado["partida_finalizada"] = True
+                estado["fase_partida"] = "encerrado"
+                estado["status_jogo"] = "finalizada"
+                estado["vencedor_partida"] = "A" if estado["sets_a"] > estado["sets_b"] else "B"
+                estado["ultima_acao"] = "Partida finalizada"
+            else:
+                estado["fim_jogo"] = False
+                estado["partida_finalizada"] = False
+                estado["fase_partida"] = "entre_sets"
+                estado["status_jogo"] = "entre_sets"
+                estado["ultima_acao"] = "Set finalizado"
+        else:
+            estado["fim_set"] = False
+            estado["fim_jogo"] = False
+            estado["partida_finalizada"] = False
+            estado["fase_partida"] = "jogo"
+            estado["status_jogo"] = "em_andamento"
             estado["ultima_acao"] = "Ponto registrado"
 
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="PONTO")
+        historico = estado.get("historico") or []
+        if not isinstance(historico, list):
+            historico = []
+        descricao_ponto = f"{equipe} • {tipo_lance} • {detalhe_final}" + (f" • {atleta_label or atleta_nome or atleta_numero}" if (atleta_label or atleta_nome or atleta_numero) else "")
+        historico.insert(0, {"descricao": estado.get("ultima_acao") if fim_set else descricao_ponto})
+        estado["historico"] = historico[:5]
+
+        # =========================
+        # ⚡ ATUALIZA CACHE
+        # =========================
+        atualizar_estado_cache(partida_id, estado)
+
+        # =========================
+        # ⚡ SOCKET IMEDIATO
+        # =========================
+        apontador = session.get("usuario") or ""
+        estado["apontador"] = apontador
+
+        emitir_estado_partida(partida_id, estado)
+        emitir_placar_apontador(apontador, partida_id, estado)
+
+        # =========================
+        # 💾 BANCO EM BACKGROUND (SEM TRAVAR)
+        # =========================
+        def salvar():
+            try:
+                registrar_ponto_partida(
+                    partida_id=partida_id,
+                    competicao=competicao,
+                    equipe=equipe,
+                    tipo="ponto",
+                    detalhes=detalhes_evento
+                )
+            except Exception as e:
+                print("ERRO salvar ponto:", e)
+
+        threading.Thread(target=salvar).start()
 
         return _json_no_cache({
             "ok": True,
@@ -975,7 +1373,56 @@ def ponto_view(competicao, partida_id):
 
     except Exception as e:
         print("ERRO ponto_view:", e)
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar ponto: {e}"}, 500)
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao registrar ponto: {e}"
+        }, 500)
+    
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/wo", methods=["POST"])
+@exigir_perfil("apontador")
+def wo_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+
+        equipe_vencedora = (
+            request.form.get("equipe_vencedora")
+            or corpo.get("equipe_vencedora")
+            or ""
+        ).strip().upper()
+
+        if equipe_vencedora not in {"A", "B"}:
+            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
+
+        ok, retorno = registrar_wo_partida(
+            partida_id=partida_id,
+            competicao=competicao,
+            vencedor_lado=equipe_vencedora
+        )
+
+        if not ok:
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+
+        estado = retorno if isinstance(retorno, dict) else {}
+
+        estado = _emitir_estado_e_placar(
+            partida_id,
+            competicao,
+            estado,
+            origem="WO"
+        )
+
+        return _json_no_cache({
+            "ok": True,
+            "mensagem": "Partida encerrada por WO.",
+            **estado
+        })
+
+    except Exception as e:
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao registrar WO: {e}"
+        }, 500)
     
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/desfazer", methods=["POST"])
@@ -1005,6 +1452,126 @@ def desfazer_acao_view(competicao, partida_id):
         }, 500)
 
 
+def _descricao_acao(tipo, equipe='', payload=None):
+    payload = payload or {}
+    equipe_txt = f"Equipe {equipe}" if equipe else "Equipe"
+    if tipo == "tempo":
+        return f"Tempo solicitado - {equipe_txt}"
+    if tipo == "substituicao":
+        return f"{equipe_txt} • substituição • {payload.get('numero_sai', '')}>{payload.get('numero_entra', '')}"
+    if tipo == "substituicao_excepcional":
+        return f"{equipe_txt} • substituição excepcional • {payload.get('numero_sai', '')}>{payload.get('numero_entra', '')}"
+    if tipo == "retardamento":
+        return f"{equipe_txt} • retardamento"
+    if tipo == "sancao":
+        return f"{equipe_txt} • sanção • {payload.get('tipo_sancao') or payload.get('sancao') or ''}"
+    if tipo == "cartao_verde":
+        return f"{equipe_txt} • cartão verde"
+    return payload.get('descricao') or "Ação registrada"
+
+
+def _normalizar_estado_pos_acao(partida_id, competicao, retorno=None, origem="", acao=None):
+    estado = retorno if isinstance(retorno, dict) else {}
+    cache = obter_estado_cache(partida_id) or {}
+
+    # Primeiro preserva o estado que já está na tela/cache para não zerar placar/rotação.
+    base = dict(cache)
+    base.update(estado)
+    estado = base
+
+    historico = estado.get("historico") or cache.get("historico") or []
+    if not isinstance(historico, list):
+        historico = []
+
+    if acao:
+        desc = acao.get("descricao") if isinstance(acao, dict) else str(acao)
+        if desc and not (historico and isinstance(historico[0], dict) and historico[0].get("descricao") == desc):
+            historico.insert(0, {"descricao": desc})
+
+    if not historico and estado.get("ultima_acao"):
+        historico = [{"descricao": estado.get("ultima_acao")}]
+
+    estado["historico"] = historico[:5]
+    estado["ultima_acao"] = estado.get("ultima_acao") or (
+        estado["historico"][0].get("descricao") if estado["historico"] and isinstance(estado["historico"][0], dict) else "-"
+    )
+
+    try:
+        partida = buscar_partida_operacional(partida_id, competicao) or {}
+    except Exception:
+        partida = {}
+
+    return _emitir_estado_e_placar(partida_id, competicao, estado, partida=partida, origem=origem)
+
+
+def _salvar_async(nome, funcao, *args, **kwargs):
+    def executar():
+        try:
+            ok, retorno = funcao(*args, **kwargs)
+            if not ok:
+                print(f"ERRO async {nome}: {retorno}", flush=True)
+        except Exception as e:
+            print(f"ERRO async {nome}:", repr(e), flush=True)
+
+    threading.Thread(target=executar, daemon=True).start()
+
+
+def _acao_rapida(partida_id, competicao, tipo, equipe='', payload=None):
+    payload = payload or {}
+    equipe = (equipe or '').strip().upper()
+    estado = dict(obter_estado_cache(partida_id) or {})
+
+    if not estado:
+        try:
+            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        except Exception:
+            estado = {}
+
+    descricao = payload.get("descricao") or _descricao_acao(tipo, equipe, payload)
+    historico = estado.get("historico") or []
+    if not isinstance(historico, list):
+        historico = []
+    historico.insert(0, {"descricao": descricao})
+    estado["historico"] = historico[:5]
+    estado["ultima_acao"] = descricao
+
+    # Atualizações visuais imediatas sem depender do banco.
+    if tipo == "tempo":
+        campo = "tempos_a" if equipe == "A" else "tempos_b"
+        try:
+            estado[campo] = max(0, int(estado.get(campo, 0)) + 1)
+        except Exception:
+            estado[campo] = 1
+    elif tipo == "substituicao":
+        campo = "subs_a" if equipe == "A" else "subs_b"
+        try:
+            estado[campo] = int(estado.get(campo, 0)) + 1
+        except Exception:
+            estado[campo] = 1
+        numero_sai = str(payload.get("numero_sai") or '').strip()
+        numero_entra = str(payload.get("numero_entra") or '').strip()
+        rot_key = "rotacao_a" if equipe == "A" else "rotacao_b"
+        rot = list(estado.get(rot_key) or [])
+        if numero_sai and numero_entra and len(rot) == 6:
+            estado[rot_key] = [numero_entra if str(n) == numero_sai else n for n in rot]
+    elif tipo == "cartao_verde":
+        campo = "cartoes_verdes_a" if equipe == "A" else "cartoes_verdes_b"
+        lista = estado.get(campo) or []
+        if not isinstance(lista, list):
+            lista = []
+        lista.append({"tipo_pessoa": payload.get("tipo_pessoa"), "numero": payload.get("numero"), "nome": payload.get("nome")})
+        estado[campo] = lista
+    elif tipo == "sancao":
+        campo = "sancoes_a" if equipe == "A" else "sancoes_b"
+        lista = estado.get(campo) or []
+        if not isinstance(lista, list):
+            lista = []
+        lista.append({"tipo_pessoa": payload.get("tipo_pessoa"), "numero": payload.get("numero"), "nome": payload.get("nome"), "tipo_sancao": payload.get("tipo_sancao")})
+        estado[campo] = lista
+
+    return _normalizar_estado_pos_acao(partida_id, competicao, estado, origem=f"{tipo.upper()}_RAPIDO", acao={"descricao": descricao})
+
+
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/tempo", methods=["POST"])
 @exigir_perfil("apontador")
 def registrar_tempo_view(competicao, partida_id):
@@ -1015,24 +1582,20 @@ def registrar_tempo_view(competicao, partida_id):
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
+        partida = buscar_partida_operacional(partida_id, competicao) or {}
+        estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+        permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
+            partida_id, competicao, equipe, "tempo", partida=partida, estado=estado_atual
+        )
+        if not permitido:
+            estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="TEMPO_LIMITE")
+            return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+
         ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="TEMPO")
-
-        try:
-            emitir_resposta_solicitacao(partida_id, {
-                "tipo": "tempo",
-                "equipe": equipe,
-                "status": "atendida",
-                "mensagem": f"Tempo da equipe {equipe} autorizado pelo apontador."
-            })
-        except Exception as e:
-            print("ERRO emitir_resposta_solicitacao TEMPO:", e)
-
+        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="TEMPO")
         return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
@@ -1054,24 +1617,20 @@ def registrar_substituicao_view(competicao, partida_id):
         if not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
+        partida = buscar_partida_operacional(partida_id, competicao) or {}
+        estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+        permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
+            partida_id, competicao, equipe, "substituicao", partida=partida, estado=estado_atual
+        )
+        if not permitido:
+            estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="SUBSTITUICAO_LIMITE")
+            return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+
         ok, retorno = registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="SUBSTITUICAO")
-
-        try:
-            emitir_resposta_solicitacao(partida_id, {
-                "tipo": "substituicao",
-                "equipe": equipe,
-                "status": "atendida",
-                "mensagem": f"Substituição da equipe {equipe} autorizada pelo apontador."
-            })
-        except Exception as e:
-            print("ERRO emitir_resposta_solicitacao SUBSTITUICAO:", e)
-
+        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="SUBSTITUICAO")
         return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
@@ -1086,6 +1645,7 @@ def registrar_substituicao_excepcional_view(competicao, partida_id):
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
         numero_sai = str(request.form.get("numero_sai") or corpo.get("numero_sai") or "").strip()
         numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
+        motivo = str(request.form.get("motivo") or corpo.get("motivo") or "").strip()
 
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
@@ -1093,31 +1653,24 @@ def registrar_substituicao_excepcional_view(competicao, partida_id):
         if not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
-        ok, retorno = registrar_substituicao_excepcional_partida(
-            partida_id,
-            competicao,
-            equipe,
-            numero_sai,
-            numero_entra
-        )
+        try:
+            ok, retorno = registrar_substituicao_excepcional_partida(
+                partida_id, competicao, equipe, numero_sai, numero_entra, motivo
+            )
+        except TypeError:
+            ok, retorno = registrar_substituicao_excepcional_partida(
+                partida_id, competicao, equipe, numero_sai, numero_entra
+            )
 
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="SUBSTITUICAO_EXCEPCIONAL")
-
-        return _json_no_cache({
-            "ok": True,
-            **estado
-        })
+        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="SUBSTITUICAO_EXCEPCIONAL")
+        return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
-        return _json_no_cache({
-            "ok": False,
-            "mensagem": f"Erro ao registrar substituição excepcional: {e}"
-        }, 500)
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional: {e}"}, 500)
+
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/retardamento", methods=["POST"])
 @exigir_perfil("apontador")
@@ -1133,9 +1686,7 @@ def registrar_retardamento_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="RETARDAMENTO")
-
+        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="RETARDAMENTO")
         return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
@@ -1169,9 +1720,7 @@ def registrar_sancao_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="SANCAO")
-
+        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="SANCAO")
         return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
@@ -1201,14 +1750,114 @@ def registrar_cartao_verde_view(competicao, partida_id):
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="CARTAO_VERDE")
-
+        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="CARTAO_VERDE")
         return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar cartão verde: {e}"}, 500)
 
+
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/sincronizar", methods=["POST"])
+@exigir_perfil("apontador")
+def sincronizar_acao_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+        tipo = (corpo.get("tipo") or "").strip().lower()
+        equipe = (corpo.get("equipe") or "").strip().upper()
+
+        if tipo == "tempo":
+            partida = buscar_partida_operacional(partida_id, competicao) or {}
+            estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+            permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
+                partida_id, competicao, equipe, "tempo", partida=partida, estado=estado_atual
+            )
+            if not permitido:
+                estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="SINCRONIZAR_TEMPO_LIMITE")
+                return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+            ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
+
+        elif tipo == "substituicao":
+            partida = buscar_partida_operacional(partida_id, competicao) or {}
+            estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+            permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
+                partida_id, competicao, equipe, "substituicao", partida=partida, estado=estado_atual
+            )
+            if not permitido:
+                estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="SINCRONIZAR_SUBSTITUICAO_LIMITE")
+                return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+            ok, retorno = registrar_substituicao_partida(
+                partida_id,
+                competicao,
+                equipe,
+                str(corpo.get("numero_sai") or "").strip(),
+                str(corpo.get("numero_entra") or "").strip()
+            )
+
+        elif tipo == "substituicao_excepcional":
+            try:
+                ok, retorno = registrar_substituicao_excepcional_partida(
+                    partida_id,
+                    competicao,
+                    equipe,
+                    str(corpo.get("numero_sai") or "").strip(),
+                    str(corpo.get("numero_entra") or "").strip(),
+                    str(corpo.get("motivo") or "").strip()
+                )
+            except TypeError:
+                ok, retorno = registrar_substituicao_excepcional_partida(
+                    partida_id,
+                    competicao,
+                    equipe,
+                    str(corpo.get("numero_sai") or "").strip(),
+                    str(corpo.get("numero_entra") or "").strip()
+                )
+
+        elif tipo == "retardamento":
+            ok, retorno = registrar_retardamento_partida(partida_id, competicao, equipe)
+
+        elif tipo == "sancao":
+            ok, retorno = registrar_sancao_partida(
+                partida_id,
+                competicao,
+                equipe,
+                str(corpo.get("tipo_pessoa") or "").strip().lower(),
+                str(corpo.get("alvo") or corpo.get("numero") or corpo.get("nome") or "").strip(),
+                str(corpo.get("sancao") or corpo.get("tipo_sancao") or "").strip().lower()
+            )
+
+        elif tipo == "cartao_verde":
+            ok, retorno = registrar_cartao_verde_partida(
+                partida_id,
+                competicao,
+                equipe,
+                str(corpo.get("tipo_pessoa") or "").strip().lower(),
+                str(corpo.get("alvo") or corpo.get("numero") or corpo.get("nome") or "").strip()
+            )
+
+        else:
+            return _json_no_cache({
+                "ok": False,
+                "mensagem": f"Ação inválida para sincronizar: {tipo}"
+            }, 400)
+
+        if not ok:
+            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+
+        estado = _normalizar_estado_pos_acao(
+            partida_id,
+            competicao,
+            retorno,
+            origem=f"SINCRONIZAR_{tipo.upper()}"
+        )
+
+        return _json_no_cache({"ok": True, **estado})
+
+    except Exception as e:
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao sincronizar ação: {e}"
+        }, 500)
+    
 
 @apontadores_bp.route("/apontador/estado/<competicao>/<int:partida_id>")
 @exigir_perfil("apontador")
@@ -1243,9 +1892,17 @@ def estado_jogo_view(competicao, partida_id):
         tempos_a = estado.get("tempos_a")
         tempos_b = estado.get("tempos_b")
         if tempos_a is None or tempos_b is None:
-            tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-            tempos_a = tempos.get("tempos_a")
-            tempos_b = tempos.get("tempos_b")
+            try:
+                tempos = buscar_tempos_restantes_partida(partida_id, competicao)
+                tempos_a = tempos.get("tempos_a")
+                tempos_b = tempos.get("tempos_b")
+            except Exception:
+                tempos_a = estado.get("tempos_a")
+                tempos_b = estado.get("tempos_b")
+
+        estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
+        tempos_a = estado.get("tempos_a", tempos_a)
+        tempos_b = estado.get("tempos_b", tempos_b)
 
         return _json_no_cache({
             "ok": True,
@@ -1261,7 +1918,14 @@ def estado_jogo_view(competicao, partida_id):
             "tempos_b": tempos_b,
             "subs_a": int(estado.get("subs_a") or 0),
             "subs_b": int(estado.get("subs_b") or 0),
-            "limite_substituicoes": int(estado.get("limite_substituicoes") or 0),
+            "limite_tempos": int(estado.get("limite_tempos") or 2),
+            "limite_substituicoes": int(estado.get("limite_substituicoes") or 6),
+            "pontos_set": int(estado.get("pontos_set") or 25),
+            "pontos_tiebreak": int(estado.get("pontos_tiebreak") or 15),
+            "diferenca_minima": int(estado.get("diferenca_minima") or 2),
+            "sets_para_vencer": int(estado.get("sets_para_vencer") or 2),
+            "sets_tipo": estado.get("sets_tipo") or "melhor_de_3",
+            "limite_substituicoes": int(estado.get("limite_substituicoes") or 6),
             "rotacao_a": rotacao_a,
             "rotacao_b": rotacao_b,
             "rotacao": {

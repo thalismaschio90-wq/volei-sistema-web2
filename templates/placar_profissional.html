@@ -259,6 +259,10 @@ body {
     gap: 10px;
 }
 
+.rodape.oculto {
+    display: none;
+}
+
 .evolucao-topo {
     display: flex;
     align-items: center;
@@ -400,7 +404,7 @@ body {
         </section>
     </main>
 
-    <footer class="rodape">
+    <footer id="rodapeEvolucao" class="rodape">
         <div class="evolucao-topo">
             <div class="evolucao-titulo">Evolução ponto a ponto</div>
             <div id="evolucaoContador" class="evolucao-contador">0 pontos</div>
@@ -441,6 +445,7 @@ const saqueA = document.getElementById("saqueA");
 const saqueB = document.getElementById("saqueB");
 
 const btnInverter = document.getElementById("btnInverter");
+const rodapeEvolucao = document.getElementById("rodapeEvolucao");
 const linhaEvolucaoA = document.getElementById("linhaEvolucaoA");
 const linhaEvolucaoB = document.getElementById("linhaEvolucaoB");
 const evolucaoContador = document.getElementById("evolucaoContador");
@@ -448,6 +453,20 @@ const evolucaoContador = document.getElementById("evolucaoContador");
 let ultimoEstado = null;
 let ultimosPontosA = 0;
 let ultimosPontosB = 0;
+
+/*
+  EVOLUÇÃO NOVA:
+  - Não depende do banco.
+  - Não tenta montar histórico de partida antiga.
+  - Só começa quando esta tela recebe uma partida AO VIVO zerada ou recém-iniciada.
+  - Se abrir partida já começada, fica vazia/desativada para não mostrar evolução errada.
+  - Se finalizar sem F5, mantém o que foi montado nesta tela.
+*/
+let evolucaoAtiva = false;
+let evolucaoCongelada = false;
+let evolucaoPartidaId = "";
+let evolucaoSetAtual = 1;
+let evolucaoPontos = [];
 
 function chaveInversao(dados) {
     const partida = dados && dados.partida_id ? String(dados.partida_id) : "sem_partida";
@@ -490,101 +509,137 @@ function nomeEquipeB(dados) {
     return dados.equipe_b || dados.equipe_b_operacional || dados.equipe_b_nome || dados.nome_b || dados.time_b || "Equipe B";
 }
 
-function ladoQuePontuou(ev) {
-    if (typeof ev === "string") {
-        return normalizarLado(ev);
-    }
+function statusPartida(dados) {
+    return String(
+        dados.status ||
+        dados.status_partida ||
+        dados.fase_partida ||
+        dados.situacao ||
+        ""
+    ).trim().toLowerCase();
+}
 
-    if (ev && typeof ev === "object") {
-        let lado = normalizarLado(
-            ev.ponto_para ||
-            ev.equipe_ponto ||
-            ev.equipe_que_pontuou ||
-            ev.lado_ponto ||
-            ev.lado_marcou ||
-            ev.marcou ||
-            ev.vencedor_ponto ||
-            ev.lado
-        );
+function partidaEstaFinalizada(dados) {
+    const st = statusPartida(dados);
+    return (
+        st.includes("finalizada") ||
+        st.includes("finalizado") ||
+        st.includes("encerrada") ||
+        st.includes("encerrado") ||
+        dados.finalizada === true ||
+        dados.partida_finalizada === true
+    );
+}
 
-        if (lado) return lado;
+function partidaEstaAoVivo(dados) {
+    const st = statusPartida(dados);
+    return (
+        st.includes("em_andamento") ||
+        st.includes("andamento") ||
+        st.includes("ao_vivo") ||
+        st.includes("ao vivo") ||
+        st.includes("jogo") ||
+        st.includes("iniciada") ||
+        st.includes("iniciado") ||
+        dados.ao_vivo === true ||
+        dados.partida_iniciada === true
+    );
+}
 
-        const equipe = normalizarLado(ev.equipe);
-        const tipo = String(ev.tipo || ev.tipo_evento || "").toLowerCase();
-        const resultado = String(ev.resultado || ev.tipo_lance || ev.fundamento || "").toLowerCase();
+function descobrirQuemPontuou(pontosAntigosA, pontosAntigosB, pontosNovosA, pontosNovosB) {
+    const difA = pontosNovosA - pontosAntigosA;
+    const difB = pontosNovosB - pontosAntigosB;
 
-        const ehErroOuFalta =
-            tipo.includes("erro") ||
-            tipo.includes("falta") ||
-            resultado.includes("erro") ||
-            resultado.includes("falta");
-
-        if (equipe && ehErroOuFalta) {
-            return equipe === "A" ? "B" : "A";
-        }
-
-        return equipe;
-    }
+    if (difA === 1 && difB === 0) return "A";
+    if (difB === 1 && difA === 0) return "B";
 
     return "";
 }
 
-function ordenarEventosPorOrdemReal(lista) {
-    return [...lista].sort((a, b) => {
-        if (typeof a !== "object" || typeof b !== "object") return 0;
-
-        const ia = Number(a.ordem || a.sequencia || a.id || 0);
-        const ib = Number(b.ordem || b.sequencia || b.id || 0);
-
-        if (ia && ib && ia !== ib) return ia - ib;
-
-        const ta = new Date(a.criado_em || a.data_hora || a.timestamp || 0).getTime();
-        const tb = new Date(b.criado_em || b.data_hora || b.timestamp || 0).getTime();
-
-        if (ta && tb && ta !== tb) return ta - tb;
-
-        return 0;
-    });
+function resetarEvolucao(partidaId, setAtual) {
+    evolucaoAtiva = false;
+    evolucaoCongelada = false;
+    evolucaoPartidaId = String(partidaId || "");
+    evolucaoSetAtual = Number(setAtual || 1) || 1;
+    evolucaoPontos = [];
+    renderizarEvolucao(false);
 }
 
-function extrairSequenciaPontos(dados) {
-    const fontesOrdenadas = [
-        dados.evolucao_pontos,
-        dados.evolucao,
-        dados.progressao,
-        dados.progressao_pontos,
-        dados.pontos_evolucao,
-        dados.timeline
-    ];
+function prepararEvolucaoAoVivo(dados, pA, pB, setAtual) {
+    const partidaId = String(dados.partida_id || "");
 
-    for (const fonte of fontesOrdenadas) {
-        if (!Array.isArray(fonte) || !fonte.length) continue;
-        const lista = fonte.map(ladoQuePontuou).filter(Boolean);
-        if (lista.length) return lista.slice(-50);
+    if (!partidaId) {
+        evolucaoAtiva = false;
+        renderizarEvolucao(false);
+        return;
     }
 
-    const fontesEventos = [
-        dados.eventos,
-        dados.historico
-    ];
-
-    for (const fonte of fontesEventos) {
-        if (!Array.isArray(fonte) || !fonte.length) continue;
-
-        const lista = ordenarEventosPorOrdemReal(fonte)
-            .map(ladoQuePontuou)
-            .filter(Boolean);
-
-        if (lista.length) return lista.slice(-50);
+    if (evolucaoPartidaId && evolucaoPartidaId !== partidaId) {
+        resetarEvolucao(partidaId, setAtual);
     }
+
+    if (!evolucaoPartidaId) {
+        evolucaoPartidaId = partidaId;
+        evolucaoSetAtual = setAtual;
+    }
+
+    if (setAtual !== evolucaoSetAtual) {
+        evolucaoSetAtual = setAtual;
+        evolucaoPontos = [];
+        evolucaoAtiva = false;
+        evolucaoCongelada = false;
+    }
+
+    if (partidaEstaFinalizada(dados)) {
+        evolucaoCongelada = true;
+        renderizarEvolucao(true);
+        return;
+    }
+
+    if (!partidaEstaAoVivo(dados)) {
+        evolucaoAtiva = false;
+        renderizarEvolucao(false);
+        return;
+    }
+
+    const totalAtual = pA + pB;
 
     /*
-      Sem a ordem real dos pontos, o navegador não consegue adivinhar a sequência.
-      Nesse caso, deixamos a evolução vazia em vez de mostrar uma ordem errada.
-      Para aparecer perfeito, o backend/socket precisa mandar:
-      evolucao_pontos: ["A", "B", "A", "A", "B"]
+      Só ativa quando a tela acompanha o começo.
+      Se abrir em 8x6, por exemplo, não ativa para não inventar histórico.
     */
-    return [];
+    if (!evolucaoAtiva && evolucaoPontos.length === 0) {
+        if (totalAtual === 0) {
+            evolucaoAtiva = true;
+        } else {
+            evolucaoAtiva = false;
+        }
+    }
+
+    renderizarEvolucao(evolucaoAtiva || evolucaoPontos.length > 0);
+}
+
+function registrarEvolucaoSeForPonto(dados, pAOriginal, pBOriginal, setAtual) {
+    if (evolucaoCongelada) return;
+
+    prepararEvolucaoAoVivo(dados, pAOriginal, pBOriginal, setAtual);
+
+    if (!evolucaoAtiva) return;
+
+    const lado = descobrirQuemPontuou(ultimosPontosA, ultimosPontosB, pAOriginal, pBOriginal);
+
+    if (!lado) return;
+
+    evolucaoPontos.push({
+        lado: lado,
+        pontos_a: pAOriginal,
+        pontos_b: pBOriginal,
+        set_atual: setAtual
+    });
+
+    if (evolucaoPontos.length > 50) {
+        evolucaoPontos = evolucaoPontos.slice(-50);
+    }
 }
 
 function renderizarLinhaVazia() {
@@ -599,29 +654,30 @@ function renderizarLinhaVazia() {
         linhaEvolucaoA.appendChild(bolaA);
         linhaEvolucaoB.appendChild(bolaB);
     }
+
+    evolucaoContador.textContent = "0 pontos";
 }
 
-function renderEvolucao(dados, invertido) {
+function renderizarEvolucao(mostrar) {
+    if (!mostrar) {
+        rodapeEvolucao.classList.remove("oculto");
+        renderizarLinhaVazia();
+        return;
+    }
+
     linhaEvolucaoA.innerHTML = "";
     linhaEvolucaoB.innerHTML = "";
 
-    let sequencia = extrairSequenciaPontos(dados);
+    const invertido = getInvertidoVisual(ultimoEstado || {});
+    const lista = evolucaoPontos.slice(-50);
 
-    if (invertido) {
-        sequencia = sequencia.map((lado) => {
-            if (lado === "A") return "B";
-            if (lado === "B") return "A";
-            return lado;
-        });
-    }
+    let contadorA = 0;
+    let contadorB = 0;
 
-    let placarLinhaA = 0;
-    let placarLinhaB = 0;
-
-    evolucaoContador.textContent = `${sequencia.length} ponto${sequencia.length === 1 ? "" : "s"}`;
+    evolucaoContador.textContent = `${lista.length} ponto${lista.length === 1 ? "" : "s"}`;
 
     for (let i = 0; i < 50; i++) {
-        const lado = sequencia[i];
+        const ponto = lista[i];
 
         const bolaA = document.createElement("div");
         const bolaB = document.createElement("div");
@@ -629,22 +685,25 @@ function renderEvolucao(dados, invertido) {
         bolaA.className = "bolinha vazia";
         bolaB.className = "bolinha vazia";
 
-        /*
-          Cada i é UMA COLUNA da ordem real do jogo.
-          Se o ponto i foi da A: bolinha azul em cima e embaixo vazio.
-          Se o ponto i foi da B: em cima vazio e bolinha vermelha embaixo.
-          O número é o placar DAQUELA equipe naquele momento.
-        */
-        if (lado === "A") {
-            placarLinhaA++;
-            bolaA.className = "bolinha a";
-            bolaA.textContent = placarLinhaA;
-        }
+        if (ponto) {
+            let lado = ponto.lado;
 
-        if (lado === "B") {
-            placarLinhaB++;
-            bolaB.className = "bolinha b";
-            bolaB.textContent = placarLinhaB;
+            if (invertido) {
+                if (lado === "A") lado = "B";
+                else if (lado === "B") lado = "A";
+            }
+
+            if (lado === "A") {
+                contadorA++;
+                bolaA.className = "bolinha a";
+                bolaA.textContent = contadorA;
+            }
+
+            if (lado === "B") {
+                contadorB++;
+                bolaB.className = "bolinha b";
+                bolaB.textContent = contadorB;
+            }
         }
 
         linhaEvolucaoA.appendChild(bolaA);
@@ -691,13 +750,19 @@ function aplicarEstado(dados) {
     let equipeA = nomeEquipeA(dados);
     let equipeB = nomeEquipeB(dados);
 
-    let pA = Number(dados.pontos_a ?? dados.placar_a ?? 0) || 0;
-    let pB = Number(dados.pontos_b ?? dados.placar_b ?? 0) || 0;
+    const pAOriginal = Number(dados.pontos_a ?? dados.placar_a ?? 0) || 0;
+    const pBOriginal = Number(dados.pontos_b ?? dados.placar_b ?? 0) || 0;
+
+    let pA = pAOriginal;
+    let pB = pBOriginal;
 
     let sA = Number(dados.sets_a ?? 0) || 0;
     let sB = Number(dados.sets_b ?? 0) || 0;
 
     let saque = normalizarLado(dados.saque_atual || dados.saque);
+    const setAtual = Number(dados.set_atual || 1) || 1;
+
+    registrarEvolucaoSeForPonto(dados, pAOriginal, pBOriginal, setAtual);
 
     if (invertido) {
         [equipeA, equipeB] = [equipeB, equipeA];
@@ -711,8 +776,8 @@ function aplicarEstado(dados) {
     animarSeMudou(pontosA, pA, ultimosPontosA);
     animarSeMudou(pontosB, pB, ultimosPontosB);
 
-    ultimosPontosA = pA;
-    ultimosPontosB = pB;
+    ultimosPontosA = pAOriginal;
+    ultimosPontosB = pBOriginal;
 
     nomeA.textContent = equipeA;
     nomeB.textContent = equipeB;
@@ -723,7 +788,6 @@ function aplicarEstado(dados) {
     setsA.textContent = sA;
     setsB.textContent = sB;
 
-    const setAtual = dados.set_atual || 1;
     setAtualEl.textContent = `${setAtual}º SET`;
 
     aplicarSaque(saque);
@@ -737,7 +801,7 @@ function aplicarEstado(dados) {
         infoJogo.textContent = `${setAtual}º SET`;
     }
 
-    renderEvolucao(dados, invertido);
+    renderizarEvolucao(evolucaoAtiva || evolucaoPontos.length > 0 || evolucaoCongelada);
 }
 
 renderizarLinhaVazia();

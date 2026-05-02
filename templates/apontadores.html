@@ -3,48 +3,173 @@
 {% block titulo %}Apontadores{% endblock %}
 
 {% block conteudo %}
+
 <div class="topo-secao">
     <div class="titulo-secao">Apontadores</div>
 </div>
 
-{% if apontadores %}
 <div class="card-painel">
-    <table>
-        <thead>
-            <tr>
-                <th>Nome</th>
-                <th>CPF</th>
-                <th>Status</th>
-                <th>Primeiro acesso</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for a in apontadores %}
-            <tr>
-                <td>{{ a.nome }}</td>
-                <td>{{ a.cpf }}</td>
-                <td>
-                    {% if a.ativo %}
-                        <span class="tag tag-aprovado">Ativo</span>
-                    {% else %}
-                        <span class="tag tag-reprovado">Inativo</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if a.primeiro_acesso %}
-                        <span class="tag tag-pendente">Pendente</span>
-                    {% else %}
-                        <span class="tag tag-info">Concluído</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+
+    {% if apontadores %}
+    <div class="tabela-container">
+        <table class="tabela-apontadores">
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>CPF</th>
+                    <th>Status</th>
+                    <th>Primeiro acesso</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for a in apontadores %}
+                <tr id="linha-{{ a.cpf }}">
+                    <td>{{ a.nome }}</td>
+
+                    <td>{{ a.cpf }}</td>
+
+                    <td>
+                        {% if a.ativo %}
+                            <span class="tag tag-aprovado">Ativo</span>
+                        {% else %}
+                            <span class="tag tag-reprovado">Inativo</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if a.primeiro_acesso %}
+                            <span class="tag tag-pendente">Pendente</span>
+                        {% else %}
+                            <span class="tag tag-info">Concluído</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <button 
+                            class="btn-perigo"
+                            onclick="excluirApontador('{{ a.cpf }}')"
+                        >
+                            Excluir do sistema
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+        <div class="msg-vazio">
+            Nenhum apontador cadastrado ainda.
+        </div>
+    {% endif %}
+
 </div>
-{% else %}
-<div class="card-painel">
-    Nenhum apontador cadastrado ainda.
-</div>
-{% endif %}
+
+<!-- =========================
+     SCRIPT ULTRA LEVE
+========================= -->
+<script>
+function excluirApontador(cpf) {
+    if (!confirm("Tem certeza? Isso excluirá este apontador do sistema inteiro.\nO histórico de jogos será mantido.")) {
+        return;
+    }
+
+    fetch(`/apontadores/excluir/${cpf}`, {
+        method: "POST"
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.ok) {
+            // remove linha sem recarregar página
+            const linha = document.getElementById("linha-" + cpf);
+            if (linha) linha.remove();
+        } else {
+            alert(data.mensagem || "Erro ao excluir apontador.");
+        }
+    })
+    .catch(() => {
+        alert("Erro de conexão.");
+    });
+}
+</script>
+
+<!-- =========================
+     ESTILO MELHORADO
+========================= -->
+<style>
+
+.tabela-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.tabela-apontadores {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.tabela-apontadores th,
+.tabela-apontadores td {
+    padding: 10px;
+    text-align: center;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.tabela-apontadores thead {
+    background: #f9fafb;
+}
+
+.msg-vazio {
+    text-align: center;
+    padding: 20px;
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.btn-perigo {
+    background: #dc2626;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.btn-perigo:hover {
+    background: #b91c1c;
+}
+
+.tag {
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.tag-aprovado {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.tag-reprovado {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.tag-pendente {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.tag-info {
+    background: #dbeafe;
+    color: #1e3a8a;
+}
+
+</style>
+
 {% endblock %}

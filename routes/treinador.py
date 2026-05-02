@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, session, redirect, url_for, flash, request, jsonify
+from flask import Blueprint, render_template, session, redirect, url_for, flash, request, jsonify, make_response
+import time
 
 from banco import (
     buscar_equipe_por_login,
@@ -9,10 +10,86 @@ from banco import (
     listar_atletas_aprovados_da_equipe,
 )
 from routes.utils import exigir_perfil
-from socket_events import emitir_solicitacao_treinador, emitir_estado_partida
+
+try:
+    from socket_events import emitir_estado_partida, emitir_solicitacao_treinador
+except Exception:
+    def emitir_estado_partida(*args, **kwargs):
+        return None
+
+    def emitir_solicitacao_treinador(*args, **kwargs):
+        return None
 
 
 treinador_bp = Blueprint("treinador", __name__)
+
+# =========================================================
+# CACHE LEVE DO MODO TREINADOR
+# =========================================================
+# O modo treinador troca de abas várias vezes. Sem cache, cada aba acaba
+# chamando consultas pesadas de atletas/contexto e dá sensação de travamento.
+_CACHE_TTL_SEGUNDOS = 20
+_CACHE_EQUIPE_LOGIN = {}
+_CACHE_ATLETAS_EQUIPE = {}
+
+
+def _cache_get(cache, chave):
+    item = cache.get(chave)
+    if not item:
+        return None
+
+    criado_em, valor = item
+    if (time.time() - criado_em) > _CACHE_TTL_SEGUNDOS:
+        cache.pop(chave, None)
+        return None
+
+    return valor
+
+
+def _cache_set(cache, chave, valor):
+    cache[chave] = (time.time(), valor)
+    return valor
+
+
+def _buscar_equipe_sessao():
+    login = session.get("usuario")
+    if not login:
+        return None
+
+    chave = str(login).strip()
+    equipe = _cache_get(_CACHE_EQUIPE_LOGIN, chave)
+    if equipe is not None:
+        return equipe
+
+    return _cache_set(_CACHE_EQUIPE_LOGIN, chave, buscar_equipe_por_login(login))
+
+
+def _listar_atletas_cache(equipe_nome, competicao):
+    chave = ((competicao or "").strip(), (equipe_nome or "").strip())
+    atletas = _cache_get(_CACHE_ATLETAS_EQUIPE, chave)
+    if atletas is not None:
+        return atletas
+
+    atletas = listar_atletas_aprovados_da_equipe(equipe_nome, competicao) or []
+    atletas = [a for a in atletas if a.get("numero") not in (None, "")]
+    return _cache_set(_CACHE_ATLETAS_EQUIPE, chave, atletas)
+
+
+def _limpar_cache_atletas(equipe_nome=None, competicao=None):
+    if not equipe_nome or not competicao:
+        _CACHE_ATLETAS_EQUIPE.clear()
+        return
+    _CACHE_ATLETAS_EQUIPE.pop(((competicao or "").strip(), (equipe_nome or "").strip()), None)
+
+
+def _resposta_json_rapida(payload, status=200):
+    resp = jsonify(payload)
+    resp.status_code = status
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
 
 
 def _normalizar_rotacao_visual(rotacao):
@@ -55,25 +132,23 @@ def _mesmo_nome(a, b):
 
 def _definir_rotacao_propria(contexto, rotacao_a, rotacao_b):
     """
-    Define a rotação do treinador pelo NOME DA EQUIPE, não pelo lado A/B visual.
-    Isso evita puxar a rotação da equipe adversária quando lado_quadra/inversão vier diferente.
+    Define a rotação do treinador SEM confiar em contexto["rotacao"].
+    Sempre decide pelo nome da equipe.
     """
-    equipe_nome = contexto.get("equipe_nome") or ""
-    equipe_a = contexto.get("equipe_a") or ""
-    equipe_b = contexto.get("equipe_b") or ""
 
-    rotacao_contexto = _normalizar_rotacao_visual(contexto.get("rotacao"))
+    equipe_nome = str(contexto.get("equipe_nome") or "").strip().lower()
+    equipe_a = str(contexto.get("equipe_a") or "").strip().lower()
+    equipe_b = str(contexto.get("equipe_b") or "").strip().lower()
 
-    if _rotacao_tem_valor(rotacao_contexto):
-        return rotacao_contexto
-
-    if _mesmo_nome(equipe_nome, equipe_a):
+    # REGRA PRINCIPAL: pelo nome da equipe
+    if equipe_nome and equipe_nome == equipe_a:
         return rotacao_a
 
-    if _mesmo_nome(equipe_nome, equipe_b):
+    if equipe_nome and equipe_nome == equipe_b:
         return rotacao_b
 
-    lado = contexto.get("lado") or ""
+    # FALLBACK (se algo vier estranho)
+    lado = contexto.get("lado")
 
     if lado == "A":
         return rotacao_a
@@ -81,6 +156,7 @@ def _definir_rotacao_propria(contexto, rotacao_a, rotacao_b):
     if lado == "B":
         return rotacao_b
 
+    # segurança total
     return ["", "", "", "", "", ""]
 
 
@@ -164,7 +240,7 @@ def _montar_payload_estado(contexto):
 @treinador_bp.route("/treinador")
 @exigir_perfil("equipe")
 def abrir_modo_treinador():
-    equipe = buscar_equipe_por_login(session.get("usuario"))
+    equipe = _buscar_equipe_sessao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
@@ -191,13 +267,32 @@ def abrir_modo_treinador():
 @treinador_bp.route("/treinador/jogo/<competicao>/<int:partida_id>")
 @exigir_perfil("equipe")
 def tela_treinador(competicao, partida_id):
-    equipe = buscar_equipe_por_login(session.get("usuario"))
+    equipe = _buscar_equipe_sessao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    contexto = montar_contexto_treinador(partida_id, competicao, equipe.get("nome"))
+    # Evita abrir jogo antigo da mesma equipe quando o treinador acessa um link velho.
+    # Se existir uma partida ativa/correta para essa equipe, redireciona para ela.
+    partida_correta = buscar_partida_treinador_por_equipe(competicao, equipe.get("nome"))
+    if partida_correta and int(partida_correta.get("id") or 0) != int(partida_id):
+        return redirect(url_for(
+            "treinador.tela_treinador",
+            competicao=competicao,
+            partida_id=partida_correta.get("id"),
+            aba=request.args.get("aba", "papeleta"),
+        ))
+
+    contexto = montar_contexto_treinador(
+        partida_id,
+        competicao,
+        equipe.get("nome"),
+        modo_rapido=True,
+        incluir_scout=False,
+        incluir_solicitacoes=False,
+        incluir_banco=False,
+    )
 
     if not contexto:
         flash("Partida não encontrada para esta equipe.", "erro")
@@ -210,11 +305,8 @@ def tela_treinador(competicao, partida_id):
     contexto["rotacao_b"] = rotacao_b
     contexto["rotacao"] = _definir_rotacao_propria(contexto, rotacao_a, rotacao_b)
 
-    atletas_lista = listar_atletas_aprovados_da_equipe(equipe.get("nome"), competicao) or []
-    atletas_lista = [
-        a for a in atletas_lista
-        if a.get("numero") not in (None, "")
-    ]
+    # Carrega atletas uma vez e reutiliza nas trocas de aba.
+    atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
 
     contexto["atletas"] = atletas_lista
     contexto["jogadores"] = [
@@ -225,39 +317,90 @@ def tela_treinador(competicao, partida_id):
         for a in atletas_lista
     ]
 
-    return render_template(
+    resposta = make_response(render_template(
         "treinador_jogo.html",
         competicao_nome=competicao,
         **contexto
-    )
+    ))
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
+    return resposta
 
 
 @treinador_bp.route("/treinador/jogo/<competicao>/<int:partida_id>/estado")
 @exigir_perfil("equipe")
 def estado_treinador_view(competicao, partida_id):
-    equipe = buscar_equipe_por_login(session.get("usuario"))
+    equipe = _buscar_equipe_sessao()
 
     if not equipe:
         return _json_erro("Equipe não encontrada.", 404)
 
-    contexto = montar_contexto_treinador(partida_id, competicao, equipe.get("nome"))
+    aba = (request.args.get("aba") or "ao_vivo").strip().lower()
+
+    # Troca de aba tem que ser leve. Só carrega dados pesados quando a aba realmente precisa.
+    incluir_scout = aba in {"scout", "estatisticas", "estatísticas"}
+    incluir_solicitacoes = aba in {"solicitacoes", "solicitações", "pedidos"}
+    incluir_banco = aba in {"substituicao", "substituição", "banco", "papeleta"}
+
+    contexto = montar_contexto_treinador(
+        partida_id,
+        competicao,
+        equipe.get("nome"),
+        modo_rapido=not incluir_scout,
+        incluir_scout=incluir_scout,
+        incluir_solicitacoes=incluir_solicitacoes,
+        incluir_banco=incluir_banco,
+    )
 
     if not contexto:
         return _json_erro("Partida não encontrada para esta equipe.", 404)
 
-    return jsonify(_montar_payload_estado(contexto))
+    payload = _montar_payload_estado(contexto)
+
+    # Na maioria das abas, não mande listas grandes sem necessidade.
+    if not incluir_scout:
+        payload["scout"] = {}
+        payload["eventos"] = []
+
+    if not incluir_solicitacoes:
+        payload["solicitacoes"] = []
+
+    if not incluir_banco:
+        payload["banco"] = []
+
+    # Mantém jogadores disponíveis para renderizar papeleta sem consultar de novo.
+    if aba in {"papeleta", "substituicao", "substituição", "banco"}:
+        atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+        payload["atletas_lista"] = atletas_lista
+        payload["jogadores"] = [
+            {"numero": a.get("numero"), "nome": a.get("nome")}
+            for a in atletas_lista
+        ]
+    else:
+        payload["atletas_lista"] = []
+
+    return _resposta_json_rapida(payload)
 
 
 @treinador_bp.route("/treinador/jogo/<competicao>/<int:partida_id>/papeleta", methods=["POST"])
 @exigir_perfil("equipe")
 def salvar_papeleta_treinador(competicao, partida_id):
-    equipe = buscar_equipe_por_login(session.get("usuario"))
+    equipe = _buscar_equipe_sessao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    contexto = montar_contexto_treinador(partida_id, competicao, equipe.get("nome"))
+    contexto = montar_contexto_treinador(
+        partida_id,
+        competicao,
+        equipe.get("nome"),
+        modo_rapido=True,
+        incluir_scout=False,
+        incluir_solicitacoes=False,
+        incluir_banco=False,
+    )
 
     if not contexto:
         flash("Partida não encontrada para esta equipe.", "erro")
@@ -273,7 +416,7 @@ def salvar_papeleta_treinador(competicao, partida_id):
             )
         )
 
-    atletas = listar_atletas_aprovados_da_equipe(equipe.get("nome"), competicao) or []
+    atletas = _listar_atletas_cache(equipe.get("nome"), competicao)
 
     atletas_por_numero = {
         str(a.get("numero")): a
@@ -334,7 +477,11 @@ def salvar_papeleta_treinador(competicao, partida_id):
         contexto_atualizado = montar_contexto_treinador(
             partida_id,
             competicao,
-            equipe.get("nome")
+            equipe.get("nome"),
+            modo_rapido=True,
+            incluir_scout=False,
+            incluir_solicitacoes=False,
+            incluir_banco=False,
         ) or contexto
 
         emitir_estado_partida(
@@ -361,12 +508,20 @@ def salvar_papeleta_treinador(competicao, partida_id):
 @exigir_perfil("equipe")
 def solicitar_tempo_treinador(competicao, partida_id):
     try:
-        equipe = buscar_equipe_por_login(session.get("usuario"))
+        equipe = _buscar_equipe_sessao()
 
         if not equipe:
             return _json_erro("Equipe não encontrada.", 404)
 
-        contexto = montar_contexto_treinador(partida_id, competicao, equipe.get("nome"))
+        contexto = montar_contexto_treinador(
+            partida_id,
+            competicao,
+            equipe.get("nome"),
+            modo_rapido=True,
+            incluir_scout=False,
+            incluir_solicitacoes=False,
+            incluir_banco=False,
+        )
 
         if not contexto:
             return _json_erro("Partida não encontrada.", 404)
@@ -414,12 +569,20 @@ def solicitar_tempo_treinador(competicao, partida_id):
 @exigir_perfil("equipe")
 def solicitar_substituicao_treinador(competicao, partida_id):
     try:
-        equipe = buscar_equipe_por_login(session.get("usuario"))
+        equipe = _buscar_equipe_sessao()
 
         if not equipe:
             return _json_erro("Equipe não encontrada.", 404)
 
-        contexto = montar_contexto_treinador(partida_id, competicao, equipe.get("nome"))
+        contexto = montar_contexto_treinador(
+            partida_id,
+            competicao,
+            equipe.get("nome"),
+            modo_rapido=True,
+            incluir_scout=False,
+            incluir_solicitacoes=False,
+            incluir_banco=True,
+        )
 
         if not contexto:
             return _json_erro("Partida não encontrada.", 404)
