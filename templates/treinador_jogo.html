@@ -377,23 +377,20 @@
 </div>
 
 <div class="treinador-tabs">
-    <a class="treinador-tab {% if aba_ativa == 'papeleta' %}ativo{% endif %}"
-       href="{{ url_for('treinador.tela_treinador', competicao=competicao_nome, partida_id=partida.id, aba='papeleta') }}">
+    <button type="button" class="treinador-tab {% if aba_ativa == 'papeleta' %}ativo{% endif %}" data-tab-btn="papeleta" onclick="abrirAba('papeleta', this)">
         Papeleta
-    </a>
+    </button>
 
-    <a class="treinador-tab {% if aba_ativa == 'operacao' %}ativo{% endif %}"
-       href="{{ url_for('treinador.tela_treinador', competicao=competicao_nome, partida_id=partida.id, aba='operacao') }}">
+    <button type="button" class="treinador-tab {% if aba_ativa == 'operacao' %}ativo{% endif %}" data-tab-btn="operacao" onclick="abrirAba('operacao', this)">
         Operação
-    </a>
+    </button>
 
-    <a class="treinador-tab {% if aba_ativa == 'scout' %}ativo{% endif %}"
-       href="{{ url_for('treinador.tela_treinador', competicao=competicao_nome, partida_id=partida.id, aba='scout') }}">
+    <button type="button" class="treinador-tab {% if aba_ativa == 'scout' %}ativo{% endif %}" data-tab-btn="scout" onclick="abrirAba('scout', this)">
         Scout
-    </a>
+    </button>
 </div>
 
-{% if aba_ativa == 'papeleta' %}
+<div id="aba-papeleta" class="aba-conteudo" {% if aba_ativa != 'papeleta' %}style="display:none;"{% endif %}>
 
 <div class="card-painel">
     <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
@@ -470,8 +467,9 @@
     </div>
 </div>
 
-{% elif aba_ativa == 'operacao' %}
+</div>
 
+<div id="aba-operacao" class="aba-conteudo" {% if aba_ativa != 'operacao' %}style="display:none;"{% endif %}>
 <div class="treinador-grid">
     <div class="card-painel">
         <h3 style="margin-top:0;">Quadra da minha equipe</h3>
@@ -538,8 +536,8 @@
                         class="btn-acao-treinador"
                         data-btn-tempo
                         onclick="pedirTempo()"
-                        {% if not tempos_restantes or tempos_restantes|int <= 0 %}disabled{% endif %}>
-                    {% if tempos_restantes and tempos_restantes|int > 0 %}
+                        {% if tempos_restantes is not none and tempos_restantes|int <= 0 %}disabled{% endif %}>
+                    {% if tempos_restantes is none or tempos_restantes|int > 0 %}
                         Pedir tempo
                     {% else %}
                         Sem tempos
@@ -550,8 +548,8 @@
                         class="btn-acao-treinador"
                         data-btn-sub
                         onclick="pedirSubstituicao()"
-                        {% if not subs_restantes or subs_restantes|int <= 0 %}disabled{% endif %}>
-                    {% if subs_restantes and subs_restantes|int > 0 %}
+                        {% if subs_restantes is not none and subs_restantes|int <= 0 %}disabled{% endif %}>
+                    {% if subs_restantes is none or subs_restantes|int > 0 %}
                         Pedir substituição
                     {% else %}
                         Sem substituições
@@ -603,8 +601,9 @@
     </div>
 </div>
 
-{% else %}
+</div>
 
+<div id="aba-scout" class="aba-conteudo" {% if aba_ativa != 'scout' %}style="display:none;"{% endif %}>
 <div class="card-painel">
     <h3 style="margin-top:0;">Scout da partida</h3>
     <div class="muted" style="margin-bottom:16px;">
@@ -669,12 +668,15 @@
         Ainda não há dados de scout para esta partida.
     </div>
 </div>
-
-{% endif %}
+</div>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 let posicaoAtual = null;
+let ABA_ATIVA = {{ aba_ativa | tojson }};
+let ultimoEstadoTreinador = null;
+let scoutCarregado = (ABA_ATIVA === "scout");
+let carregandoScoutAgora = false;
 
 const atletas = {{ atletas | tojson }};
 const socket = (typeof io === "function") ? io({
@@ -692,6 +694,48 @@ const LADO_TREINADOR = "{{ lado }}";
 let equipeNomeTreinador = "{{ equipe_nome }}";
 let equipeANome = "{{ equipe_a }}";
 let equipeBNome = "{{ equipe_b }}";
+
+function abrirAba(nome, botao = null) {
+    nome = String(nome || "operacao").toLowerCase();
+    ABA_ATIVA = nome;
+
+    document.querySelectorAll(".aba-conteudo").forEach(el => {
+        el.style.display = "none";
+    });
+
+    const aba = document.getElementById("aba-" + nome);
+    if (aba) aba.style.display = "block";
+
+    document.querySelectorAll(".treinador-tab").forEach(btn => {
+        btn.classList.remove("ativo");
+    });
+
+    const btnAtivo = botao || document.querySelector(`[data-tab-btn="${nome}"]`);
+    if (btnAtivo) btnAtivo.classList.add("ativo");
+
+    // Atualiza a URL sem recarregar a página.
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("aba", nome);
+        window.history.replaceState({}, "", url.toString());
+    } catch (e) {}
+
+    // Operação aparece instantaneamente com o último estado recebido pelo socket/fetch.
+    if (nome === "operacao" && ultimoEstadoTreinador) {
+        aplicarEstadoTreinador(ultimoEstadoTreinador, true);
+        buscarEstadoTreinadorSeguro(true, "operacao");
+    }
+
+    // Scout aparece na hora; se ainda não carregou, busca uma vez.
+    if (nome === "scout") {
+        carregarScoutTreinador(false);
+    }
+
+    // Papeleta só precisa de complemento leve, sem reload.
+    if (nome === "papeleta") {
+        buscarEstadoTreinadorSeguro(false);
+    }
+}
 
 function textoSeguro(valor, padrao = "-") {
     if (valor === null || valor === undefined || valor === "") return padrao;
@@ -846,39 +890,60 @@ function atualizarScout(scout) {
     setTextoTodos("[data-scout-erros-saque]", equipe.erros_saque ?? 0);
     setTextoTodos("[data-scout-faltas]", equipe.faltas ?? 0);
 
-    const atletasScout = Array.isArray(scout.atletas_lista) ? scout.atletas_lista : [];
     const corpo = document.getElementById("corpo-scout-atletas");
     const boxTabela = document.getElementById("box-tabela-scout");
     const vazio = document.getElementById("scout-vazio");
     if (!corpo || !boxTabela || !vazio) return;
 
+    const mapaScout = new Map();
+
+    const atletasScout = Array.isArray(scout.atletas_lista)
+        ? scout.atletas_lista
+        : [];
+
+    atletasScout.forEach(a => {
+        const numero = String(a.numero ?? "").trim();
+        if (!numero) return;
+        mapaScout.set(numero, a);
+    });
+
+    const listaBase = Array.isArray(atletas) ? atletas : [];
+
     corpo.innerHTML = "";
 
-    if (!atletasScout.length) {
+    if (!listaBase.length) {
         boxTabela.style.display = "none";
         vazio.style.display = "block";
+        vazio.textContent = "Nenhuma atleta cadastrada para esta equipe.";
         return;
     }
 
     boxTabela.style.display = "block";
     vazio.style.display = "none";
 
-    atletasScout.forEach(atleta => {
+    listaBase.forEach(atletaBase => {
+        const numero = String(atletaBase.numero ?? "").trim();
+        const nome = atletaBase.nome || "-";
+
+        const dados = mapaScout.get(numero) || {};
+
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td><strong>${atleta.numero || "-"}</strong></td>
-            <td class="nome-atleta">${atleta.nome || "-"}</td>
-            <td>${atleta.pontos || atleta.pontos_total || 0}</td>
-            <td>${atleta.ataques || atleta.ataque || 0}</td>
-            <td>${atleta.aces || 0}</td>
-            <td>${atleta.bloqueios || atleta.bloqueio || 0}</td>
+            <td><strong>${numero || "-"}</strong></td>
+            <td class="nome-atleta">${nome}</td>
+            <td>${dados.pontos ?? 0}</td>
+            <td>${dados.ataques ?? dados.ataque ?? 0}</td>
+            <td>${dados.aces ?? 0}</td>
+            <td>${dados.bloqueios ?? dados.bloqueio ?? 0}</td>
         `;
         corpo.appendChild(tr);
     });
 }
 
-function aplicarEstadoTreinador(dados) {
+function aplicarEstadoTreinador(dados, forcarRender = false) {
     if (!dados || dados.ok === false) return;
+
+    ultimoEstadoTreinador = dados;
 
     equipeANome = dados.equipe_a || equipeANome;
     equipeBNome = dados.equipe_b || equipeBNome;
@@ -913,51 +978,69 @@ function aplicarEstadoTreinador(dados) {
     setTextoTodos("[data-saque-atual]", saqueNome || "-");
     setTextoTodos("[data-saque-inicial]", saqueInicialNome || "-");
 
-    const temposLimite = numeroSeguro(dados.tempos_limite);
-    const subsLimite = numeroSeguro(dados.subs_limite);
+    const temposLimite = Math.max(1, numeroSeguro(dados.tempos_limite ?? dados.limite_tempos, 2));
+    const subsLimite = Math.max(1, numeroSeguro(dados.subs_limite ?? dados.limite_substituicoes, 6));
 
-    // IMPORTANTE:
-    // No apontador, tempos_a/tempos_b representam tempos RESTANTES.
-    // Já subs_a/subs_b representam substituições USADAS.
-    // Então não pode fazer limite - tempos_a, senão 2 tempos restantes vira 0.
-    const temposRestantesSocket = LADO_TREINADOR === "A" ? numeroSeguro(dados.tempos_a, temposLimite) : numeroSeguro(dados.tempos_b, temposLimite);
+    // No estado vindo do apontador, tempos_a/tempos_b e subs_a/subs_b representam USADOS.
+    // Na rota do treinador pode vir tempos_restantes/subs_restantes já calculado.
+    const temposUsados = LADO_TREINADOR === "A" ? numeroSeguro(dados.tempos_a) : numeroSeguro(dados.tempos_b);
     const subsUsadas = LADO_TREINADOR === "A" ? numeroSeguro(dados.subs_a) : numeroSeguro(dados.subs_b);
 
+    const temposRestantesSocket = Math.max(0, temposLimite - temposUsados);
+    const subsRestantesSocket = Math.max(0, subsLimite - subsUsadas);
+
     const temposRestantes = dados.tempos_restantes ?? temposRestantesSocket;
-    const subsRestantes = dados.subs_restantes ?? Math.max(0, subsLimite - subsUsadas);
+    const subsRestantes = dados.subs_restantes ?? subsRestantesSocket;
 
     setTextoTodos("[data-tempos-restantes]", temposRestantes);
     setTextoTodos("[data-subs-restantes]", subsRestantes);
     atualizarBotoesOperacao(temposRestantes, subsRestantes);
 
-    atualizarBanco(dados.banco || []);
-    atualizarSolicitacoes(dados.solicitacoes || []);
-    atualizarScout(dados.scout || {});
+    const abaConsulta = dados.__aba_consulta || ABA_ATIVA || "operacao";
+
+    // Não deixa uma busca pesada do Scout limpar banco/solicitações da Operação.
+    if (abaConsulta !== "scout") {
+        atualizarBanco(dados.banco || []);
+        atualizarSolicitacoes(dados.solicitacoes || []);
+    }
+
+    // Scout é pesado: só renderiza quando vier scout completo.
+    // Pacotes leves do socket/fetch não podem zerar a tabela.
+    if (dados.scout && Object.keys(dados.scout).length > 0) {
+        atualizarScout(dados.scout);
+        scoutCarregado = true;
+    }
 }
 
 let buscandoEstadoTreinador = false;
 let ultimaBuscaEstadoTreinador = 0;
 
-function buscarEstadoTreinadorSeguro(forcar = false) {
-    if (buscandoEstadoTreinador) return;
-    if (!forcar && socket && socket.connected) return;
+function buscarEstadoTreinadorSeguro(forcar = false, abaOverride = null) {
+    if (buscandoEstadoTreinador) return Promise.resolve(null);
 
     const agora = Date.now();
-    if (!forcar && agora - ultimaBuscaEstadoTreinador < 12000) return;
+    const aba = abaOverride || ABA_ATIVA || "papeleta";
+
+    const intervaloMinimo = aba === "scout" ? 2500 : 12000;
+
+    if (!forcar && agora - ultimaBuscaEstadoTreinador < intervaloMinimo) return Promise.resolve(null);
 
     buscandoEstadoTreinador = true;
     ultimaBuscaEstadoTreinador = agora;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
-    fetch("{{ url_for('treinador.estado_treinador_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+    return fetch("{{ url_for('treinador.estado_treinador_view', competicao=competicao_nome, partida_id=partida.id) }}?aba=" + encodeURIComponent(aba), {
         headers: {"X-Requested-With": "XMLHttpRequest"},
         cache: "no-store",
         signal: controller.signal
     })
     .then(r => r.json())
-    .then(d => aplicarEstadoTreinador(d))
+    .then(d => {
+        if (d) d.__aba_consulta = aba;
+        return aplicarEstadoTreinador(d);
+    })
     .catch(() => {})
     .finally(() => {
         clearTimeout(timeout);
@@ -965,28 +1048,15 @@ function buscarEstadoTreinadorSeguro(forcar = false) {
     });
 }
 
-if (socket) {
-    socket.on("connect", () => {
-        socket.emit("entrar_partida", {
-            competicao: "{{ competicao_nome }}",
-            partida_id: {{ partida.id }},
-            equipe_nome: "{{ equipe_nome }}"
+function carregarScoutTreinador(forcar = false) {
+    if (carregandoScoutAgora) return;
+    if (scoutCarregado && !forcar) return;
+
+    carregandoScoutAgora = true;
+    buscarEstadoTreinadorSeguro(true, "scout")
+        .finally(() => {
+            carregandoScoutAgora = false;
         });
-        buscarEstadoTreinadorSeguro(true);
-    });
-
-    socket.on("connect_error", () => buscarEstadoTreinadorSeguro(true));
-    socket.on("disconnect", () => buscarEstadoTreinadorSeguro(true));
-
-    socket.on("estado_jogo_atualizado", (dados) => {
-        aplicarEstadoTreinador(dados);
-    });
-
-    socket.on("resposta_solicitacao", (dados) => {
-        if (!dados) return;
-        mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
-        buscarEstadoTreinadorSeguro(true);
-    });
 }
 
 function obterSelecionados() {
@@ -1053,40 +1123,172 @@ function mostrarRetorno(msg, ok = true) {
     box.textContent = msg;
 }
 
+let pedidoTempoEnviando = false;
+let pedidoSubEnviando = false;
+
+function gerarIdSolicitacao(tipo) {
+    try {
+        if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    } catch (e) {}
+    return `${tipo}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function payloadSolicitacaoTreinador(tipo) {
+    const texto = tipo === "tempo" ? "tempo" : "substituição";
+    return {
+        id_solicitacao: gerarIdSolicitacao(tipo),
+        partida_id: {{ partida.id }},
+        tipo: tipo,
+        equipe: LADO_TREINADOR,
+        equipe_nome: equipeNomeTreinador,
+        mensagem: `${equipeNomeTreinador} solicitou ${texto}`,
+        status: "pendente",
+        origem: "treinador_imediato",
+        tempo_real_emitido: true,
+        criado_em_ms: Date.now()
+    };
+}
+
 function pedirTempo() {
     const restantes = numeroSeguro(document.querySelector("[data-tempos-restantes]")?.textContent || "0");
+    const subsRestantes = numeroSeguro(document.querySelector("[data-subs-restantes]")?.textContent || "0");
+
     if (restantes <= 0) {
+        setTextoTodos("[data-tempos-restantes]", 0);
+        atualizarBotoesOperacao(0, subsRestantes);
         mostrarRetorno("Sua equipe não tem mais tempos disponíveis.", false);
         return;
     }
 
+    if (pedidoTempoEnviando) return;
+    pedidoTempoEnviando = true;
+
+    const btnTempo = document.querySelector("[data-btn-tempo]");
+    if (btnTempo) {
+        btnTempo.disabled = true;
+        btnTempo.textContent = "Pedido enviado...";
+    }
+
+    const payload = payloadSolicitacaoTreinador("tempo");
+
+    // 🔥 envio imediato para o apontador, sem esperar banco/HTTP
+    if (socket && socket.connected) {
+        socket.emit("pedido_tempo", payload);
+    }
+
+    mostrarRetorno("Pedido de tempo enviado ao apontador.", true);
+
     fetch("{{ url_for('treinador.solicitar_tempo_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
         method: "POST",
-        headers: {"X-Requested-With": "XMLHttpRequest"}
+        headers: {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        body: JSON.stringify(payload)
     })
     .then(r => r.json())
-    .then(d => mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok))
-    .catch(() => mostrarRetorno("Não foi possível enviar a solicitação de tempo.", false));
+    .then(d => {
+        if (!d || !d.ok) {
+            mostrarRetorno((d && d.mensagem) || "Pedido enviado, mas o servidor não confirmou o salvamento.", false);
+            buscarEstadoTreinadorSeguro(true);
+        }
+    })
+    .catch(() => {
+        mostrarRetorno("Pedido apareceu em tempo real, mas não foi salvo agora.", false);
+    })
+    .finally(() => {
+        pedidoTempoEnviando = false;
+    });
 }
 
 function pedirSubstituicao() {
     const restantes = numeroSeguro(document.querySelector("[data-subs-restantes]")?.textContent || "0");
+    const temposRestantes = numeroSeguro(document.querySelector("[data-tempos-restantes]")?.textContent || "0");
+
     if (restantes <= 0) {
+        setTextoTodos("[data-subs-restantes]", 0);
+        atualizarBotoesOperacao(temposRestantes, 0);
         mostrarRetorno("Sua equipe não tem mais substituições disponíveis.", false);
         return;
     }
 
+    if (pedidoSubEnviando) return;
+    pedidoSubEnviando = true;
+
+    const btnSub = document.querySelector("[data-btn-sub]");
+    if (btnSub) {
+        btnSub.disabled = true;
+        btnSub.textContent = "Pedido enviado...";
+    }
+
+    const payload = payloadSolicitacaoTreinador("substituicao");
+
+    // 🔥 envio imediato para o apontador, sem esperar banco/HTTP
+    if (socket && socket.connected) {
+        socket.emit("pedido_substituicao", payload);
+    }
+
+    mostrarRetorno("Pedido de substituição enviado ao apontador.", true);
+
     fetch("{{ url_for('treinador.solicitar_substituicao_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
         method: "POST",
-        headers: {"X-Requested-With": "XMLHttpRequest"}
+        headers: {"Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest"},
+        body: JSON.stringify(payload)
     })
     .then(r => r.json())
-    .then(d => mostrarRetorno(d.mensagem || "Solicitação enviada.", !!d.ok))
-    .catch(() => mostrarRetorno("Não foi possível enviar a solicitação de substituição.", false));
+    .then(d => {
+        if (!d || !d.ok) {
+            mostrarRetorno((d && d.mensagem) || "Pedido enviado, mas o servidor não confirmou o salvamento.", false);
+            buscarEstadoTreinadorSeguro(true);
+        }
+    })
+    .catch(() => {
+        mostrarRetorno("Pedido apareceu em tempo real, mas não foi salvo agora.", false);
+    })
+    .finally(() => {
+        pedidoSubEnviando = false;
+    });
+}
+
+
+if (socket) {
+    socket.on("connect", () => {
+        socket.emit("entrar_partida", {
+            competicao: {{ competicao_nome | tojson }},
+            partida_id: {{ partida.id }},
+            equipe_nome: equipeNomeTreinador
+        });
+        buscarEstadoTreinadorSeguro(true);
+    });
+
+    socket.on("connect_error", () => buscarEstadoTreinadorSeguro(true));
+    socket.on("disconnect", () => buscarEstadoTreinadorSeguro(true));
+
+    socket.on("estado_jogo_atualizado", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
+    socket.on("estado_partida", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
+    socket.on("resposta_solicitacao", (dados) => {
+        if (!dados) return;
+        mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
+        buscarEstadoTreinadorSeguro(true);
+    });
 }
 
 // Carrega o complemento pesado (scout/banco/solicitações) depois que a tela já abriu.
-setTimeout(() => buscarEstadoTreinadorSeguro(true), 350);
-setInterval(() => buscarEstadoTreinadorSeguro(false), 20000);
+// Primeira carga rápida
+setTimeout(() => buscarEstadoTreinadorSeguro(true), 300);
+
+// Atualização geral leve
+setInterval(() => buscarEstadoTreinadorSeguro(false), 8000);
+
+// Scout em tempo real apenas quando a aba Scout estiver aberta.
+setInterval(() => {
+    if ((ABA_ATIVA || "papeleta") === "scout") {
+        scoutCarregado = false;
+        carregarScoutTreinador(true);
+    }
+}, 5000);
 </script>
 {% endblock %}

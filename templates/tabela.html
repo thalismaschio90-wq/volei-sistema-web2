@@ -92,7 +92,13 @@
 
 {% if competicao_travada %}
 <div class="card-painel" style="border:1px solid #f3c26b; background:#fff9ef;">
-    <strong>Competição travada.</strong> Alterações em grupos, partidas e geração de tabela estão bloqueadas até destravamento manual na aba Competição.
+    <strong>Competição travada.</strong> Atletas e configurações estruturais seguem protegidos conforme a regra da competição.
+</div>
+{% endif %}
+
+{% if grupos_travados %}
+<div class="card-painel" style="border:1px solid #f3c26b; background:#fff9ef;">
+    <strong>Classificatórias travadas.</strong> Como a fase de grupos já iniciou, grupos e jogos classificatórios não podem mais ser alterados. Quartas, semifinais e final continuam liberadas enquanto a própria fase ainda não iniciar.
 </div>
 {% endif %}
 
@@ -101,7 +107,7 @@
     <h3 style="margin-top: 0;">Reset da tabela</h3>
     <p style="color: var(--muted); margin-top:0;">Apaga todas as partidas da competição. Grupos e equipes permanecem.</p>
     <form method="post" action="{{ url_for('tabela.limpar_tabela') }}" onsubmit="return confirm('Tem certeza que deseja apagar todas as partidas da competição?');">
-        <button class="tabela-danger-button" type="submit">Limpar toda a tabela</button>
+        <button class="tabela-danger-button" type="submit" {% if grupos_travados %}disabled{% endif %}>Limpar toda a tabela</button>
     </form>
 </div>
 
@@ -115,7 +121,7 @@
                 <input type="text" id="nome" name="nome" placeholder="Ex.: A, B, C..." required>
             </div>
             <div style="display:flex; align-items:end;">
-                <button class="btn-padrao" type="submit">Criar grupo</button>
+                <button class="btn-padrao" type="submit" {% if grupos_travados %}disabled{% endif %}>Criar grupo</button>
             </div>
         </div>
     </form>
@@ -147,7 +153,7 @@
             </div>
 
             <div style="display:flex; align-items:end;">
-                <button class="btn-secundario" type="submit">Adicionar equipe</button>
+                <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Adicionar equipe</button>
             </div>
         </div>
     </form>
@@ -164,7 +170,7 @@
                         Grupo {{ g.grupo.nome }}
                     </div>
                     <form method="post" action="{{ url_for('tabela.excluir_grupo_view', grupo_id=g.grupo.id) }}" onsubmit="return confirm('Excluir este grupo vai remover também as equipes vinculadas e os jogos deste grupo. Deseja continuar?');">
-                        <button class="tabela-danger-button" type="submit">Excluir grupo</button>
+                        <button class="tabela-danger-button" type="submit" {% if grupos_travados %}disabled{% endif %}>Excluir grupo</button>
                     </form>
                 </div>
 
@@ -175,7 +181,7 @@
                             <form method="post" action="{{ url_for('tabela.remover_equipe_grupo_view') }}" onsubmit="return confirm('Remover esta equipe do grupo? Os jogos desse grupo envolvendo ela também serão apagados.');">
                                 <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
                                 <input type="hidden" name="equipe" value="{{ e.equipe }}">
-                                <button class="tabela-danger-outline" type="submit">Remover</button>
+                                <button class="tabela-danger-outline" type="submit" {% if grupos_travados %}disabled{% endif %}>Remover</button>
                             </form>
                         </div>
                     {% endfor %}
@@ -215,17 +221,19 @@
     </div>
 
     <div style="display:flex; gap:12px; flex-wrap:wrap;">
-        {% if fase_ativa == 'classificatorias' %}
-        <form method="post" action="{{ url_for('tabela.gerar_automatico') }}">
-            <button class="btn-padrao" type="submit">Gerar jogos automaticamente</button>
+        <form method="post" action="{{ url_for('tabela.gerar_automatico') }}" onsubmit="return confirm('Gerar automaticamente vai substituir os jogos ainda não iniciados desta fase. Deseja continuar?');">
+            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+            <button class="btn-padrao" type="submit" {% if fase_atual_travada %}disabled{% endif %}>
+                {% if fase_ativa == 'classificatorias' %}Gerar jogos automaticamente{% else %}Gerar mata-mata automaticamente{% endif %}
+            </button>
         </form>
-        {% else %}
-        <div style="color: var(--muted); display:flex; align-items:center;">Nesta fase, a geração automática será ligada na próxima etapa.</div>
+        {% if fase_ativa != 'classificatorias' %}
+        <div style="color: var(--muted); display:flex; align-items:center;">No mata-mata, o grupo não é obrigatório e não precisa esperar a classificatória acabar. Você pode selecionar as equipes e salvar manualmente.</div>
         {% endif %}
 
         <form method="post" action="{{ url_for('tabela.limpar_fase_view') }}" onsubmit="return confirm('Deseja apagar todas as partidas desta fase?');">
             <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
-            <button class="tabela-danger-outline" type="submit">Limpar fase</button>
+            <button class="tabela-danger-outline" type="submit" {% if fase_atual_travada %}disabled{% endif %}>Limpar fase</button>
         </form>
     </div>
 </div>
@@ -233,9 +241,10 @@
 <div class="card-painel">
     <h3 style="margin-top: 0;">Criar jogo manual</h3>
 
-    <form method="post" action="{{ url_for('tabela.nova_partida') }}">
+    <form id="form-nova-partida" method="post" action="{{ url_for('tabela.nova_partida') }}" novalidate>
         <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            {% if fase_ativa == 'classificatorias' %}
             <div style="min-width:180px; flex:1;">
                 <label for="grupo">Grupo</label>
                 <select id="grupo" name="grupo" required>
@@ -245,11 +254,18 @@
                     {% endfor %}
                 </select>
             </div>
+            {% else %}
+                <input type="hidden" name="grupo" value="">
+                <div style="min-width:180px; flex:1;">
+                    <label>Identificação da fase</label>
+                    <input type="text" value="{% if fase_ativa == 'quartas' %}Quartas de final{% elif fase_ativa == 'semifinais' %}Semifinal{% else %}Final{% endif %}" disabled>
+                </div>
+            {% endif %}
 
             <div style="min-width:240px; flex:1;">
                 <label for="equipe_a">Equipe A</label>
-                <select id="equipe_a" name="equipe_a" required>
-                    <option value="">Selecione</option>
+                <select id="equipe_a" name="equipe_a" {% if fase_ativa == 'classificatorias' %}required{% endif %}>
+                    <option value="">{% if fase_ativa == 'classificatorias' %}Selecione{% else %}A definir{% endif %}</option>
                     {% for e in equipes %}
                         <option value="{{ e.nome }}">{{ e.nome }}</option>
                     {% endfor %}
@@ -258,8 +274,8 @@
 
             <div style="min-width:240px; flex:1;">
                 <label for="equipe_b">Equipe B</label>
-                <select id="equipe_b" name="equipe_b" required>
-                    <option value="">Selecione</option>
+                <select id="equipe_b" name="equipe_b" {% if fase_ativa == 'classificatorias' %}required{% endif %}>
+                    <option value="">{% if fase_ativa == 'classificatorias' %}Selecione{% else %}A definir{% endif %}</option>
                     {% for e in equipes %}
                         <option value="{{ e.nome }}">{{ e.nome }}</option>
                     {% endfor %}
@@ -267,8 +283,14 @@
             </div>
 
             <div style="display:flex; align-items:end;">
-                <button class="btn-secundario" type="submit">Criar partida</button>
+                <button class="btn-secundario" type="submit" form="form-nova-partida" {% if fase_atual_travada %}disabled{% endif %}>Criar partida</button>
             </div>
+
+            {% if fase_ativa != 'classificatorias' %}
+            <div style="width:100%; color:var(--muted); font-size:13px; margin-top:-4px;">
+                Nas quartas, semifinais e finais você pode criar antes da classificatória acabar. Selecione as equipes e salve; o grupo não é obrigatório.
+            </div>
+            {% endif %}
         </div>
     </form>
 </div>
@@ -292,6 +314,7 @@
                 <th>Status</th>
                 <th>Sets</th>
                 <th>Parciais / Ao vivo</th>
+                <th>Ações</th>
             </tr>
         </thead>
         <tbody>
@@ -302,7 +325,7 @@
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
             >
                 <td>{{ p.ordem }}</td>
-                <td>{{ p.grupo }}</td>
+                <td>{% if p.fase_normalizada == 'grupos' %}{{ p.grupo }}{% else %}-{% endif %}</td>
                 <td>{{ p.equipe_a }} x {{ p.equipe_b }}</td>
                 <td>{{ p.fase_normalizada or 'grupos' }}</td>
 
@@ -327,6 +350,34 @@
                         {{ p.parciais_formatadas }}
                     {% else %}
                         -
+                    {% endif %}
+                </td>
+                <td>
+                    {% if p.pode_excluir and not fase_atual_travada %}
+                        {% if fase_ativa != 'classificatorias' %}
+                        <form method="post" action="{{ url_for('tabela.atualizar_partida_view', partida_id=p.id) }}" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+                            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+                            <select name="equipe_a" style="min-width:150px;">
+                                <option value="">A definir</option>
+                                {% for e in equipes %}
+                                    <option value="{{ e.nome }}" {% if e.nome == p.equipe_a %}selected{% endif %}>{{ e.nome }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="equipe_b" style="min-width:150px;">
+                                <option value="">A definir</option>
+                                {% for e in equipes %}
+                                    <option value="{{ e.nome }}" {% if e.nome == p.equipe_b %}selected{% endif %}>{{ e.nome }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn-secundario" type="submit">Salvar</button>
+                        </form>
+                        {% endif %}
+                        <form method="post" action="{{ url_for('tabela.excluir_partida_view', partida_id=p.id) }}" onsubmit="return confirm('Excluir esta partida? Essa ação não poderá ser feita depois que o jogo iniciar.');">
+                            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+                            <button class="tabela-danger-outline" type="submit">Excluir</button>
+                        </form>
+                    {% else %}
+                        <span style="color:var(--muted); font-size:12px;">Bloqueada</span>
                     {% endif %}
                 </td>
             </tr>

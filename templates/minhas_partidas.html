@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block titulo %}Partidas{% endblock %}
+
+{% block conteudo %}
+<div style="margin-bottom:12px;"><a class="btn-padrao" href="/relatorios">Relatórios</a></div>
+<div class="topo-secao">
+    <div class="titulo-secao" style="margin-bottom: 0;">Partidas</div>
+</div>
+
+<style>
+.partidas-equipe-resumo {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.partidas-equipe-kpi {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    background: var(--surface, #fff);
+    box-shadow: 0 8px 20px rgba(17, 41, 65, 0.06);
+}
+.partidas-equipe-kpi strong {
+    display: block;
+    font-size: 22px;
+    line-height: 1;
+    margin-bottom: 6px;
+}
+.partidas-equipe-kpi span {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+.partidas-equipe-card {
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 16px;
+    background: var(--surface, #fff);
+    box-shadow: 0 10px 24px rgba(17, 41, 65, 0.06);
+    margin-bottom: 12px;
+}
+.partidas-equipe-topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.partidas-equipe-fase {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+}
+.partidas-equipe-status {
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid var(--border);
+    background: var(--surface-soft, #f8fbff);
+}
+.partidas-equipe-status.ao-vivo {
+    color: #15803d;
+    border-color: #86efac;
+    background: #f0fdf4;
+}
+.partidas-equipe-status.finalizada {
+    color: #475569;
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+.partidas-equipe-jogo {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 14px;
+    align-items: center;
+}
+.partidas-equipe-time {
+    min-height: 64px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    background: var(--surface-soft, #f8fbff);
+}
+.partidas-equipe-time strong {
+    font-size: 16px;
+}
+.partidas-equipe-time small {
+    margin-top: 4px;
+    color: var(--muted);
+    font-weight: 700;
+}
+.partidas-equipe-versus {
+    font-weight: 900;
+    color: var(--muted);
+}
+.partidas-equipe-info {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+.partidas-equipe-aviso {
+    color: var(--muted);
+    line-height: 1.45;
+}
+@media (max-width: 800px) {
+    .partidas-equipe-resumo { grid-template-columns: 1fr 1fr; }
+    .partidas-equipe-jogo { grid-template-columns: 1fr; }
+    .partidas-equipe-versus { text-align: center; }
+}
+</style>
+
+{% set total = partidas|length %}
+{% set ao_vivo = partidas|selectattr('ao_vivo')|list|length %}
+{% set finalizadas = partidas|selectattr('finalizada')|list|length %}
+{% set pendentes = total - ao_vivo - finalizadas %}
+
+<div class="card-painel">
+    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ equipe.nome }}</div>
+    <div><strong>Competição:</strong> {{ equipe.competicao or '-' }}</div>
+</div>
+
+<div class="partidas-equipe-resumo">
+    <div class="partidas-equipe-kpi">
+        <strong>{{ total }}</strong>
+        <span>Jogos no visualizador</span>
+    </div>
+    <div class="partidas-equipe-kpi">
+        <strong>{{ pendentes }}</strong>
+        <span>Agendados / pré-jogo</span>
+    </div>
+    <div class="partidas-equipe-kpi">
+        <strong>{{ ao_vivo }}</strong>
+        <span>Ao vivo</span>
+    </div>
+    <div class="partidas-equipe-kpi">
+        <strong>{{ finalizadas }}</strong>
+        <span>Finalizados</span>
+    </div>
+</div>
+
+<div class="card-painel">
+    <div style="font-weight:900; margin-bottom: 6px;">Visualizador geral de partidas</div>
+    <div class="partidas-equipe-aviso">
+        Esta tela é apenas para consulta. A equipe visualiza todas as partidas da competição, incluindo classificatórias, quartas, semifinais e final, sem poder alterar confrontos ou placares.
+    </div>
+</div>
+
+{% if partidas %}
+    {% for p in partidas %}
+    <div class="partidas-equipe-card" data-partida-id="{{ p.id }}" data-competicao="{{ equipe.competicao }}" data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}">
+        <div class="partidas-equipe-topo">
+            <div>
+                <div class="partidas-equipe-fase">{{ p.fase_label }}</div>
+                {% if p.minha_partida %}
+                    <div style="margin-top:6px; font-size:12px; font-weight:900; color:#0f766e;">JOGO DA SUA EQUIPE</div>
+                {% endif %}
+                <div style="font-size:13px; color:var(--muted); margin-top:4px;">Jogo #{{ p.ordem or p.id }}</div>
+            </div>
+            <div id="status-{{ p.id }}" class="partidas-equipe-status {% if p.ao_vivo %}ao-vivo{% endif %} {% if p.finalizada %}finalizada{% endif %}">
+                {{ p.status_visual }}
+            </div>
+        </div>
+
+        <div class="partidas-equipe-jogo">
+            <div class="partidas-equipe-time">
+                <strong>{{ p.equipe_a or 'A definir' }}</strong>
+                <small>Equipe A</small>
+            </div>
+            <div class="partidas-equipe-versus">x</div>
+            <div class="partidas-equipe-time">
+                <strong>{{ p.equipe_b or 'A definir' }}</strong>
+                <small>Equipe B</small>
+            </div>
+        </div>
+
+        <div class="partidas-equipe-info">
+            <div><strong>Grupo:</strong> {{ p.grupo or '-' }}</div>
+            <div><strong>Sets:</strong> <span id="sets-{{ p.id }}">{{ p.sets_a or 0 }} x {{ p.sets_b or 0 }}</span></div>
+            <div><strong>Parciais / ao vivo:</strong> <span id="parciais-{{ p.id }}">{% if p.ao_vivo %}{{ p.placar_ao_vivo_a or 0 }} x {{ p.placar_ao_vivo_b or 0 }}{% elif p.finalizada %}{{ p.parciais_formatadas }}{% else %}-{% endif %}</span></div>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="card-painel">
+        Nenhuma partida encontrada para sua equipe até o momento.
+    </div>
+{% endif %}
+
+<script>
+async function atualizarPartidasEquipeAoVivo() {
+    const cards = document.querySelectorAll('[data-partida-id][data-ao-vivo="1"]');
+
+    for (const card of cards) {
+        const partidaId = card.dataset.partidaId;
+        const competicao = card.dataset.competicao;
+
+        try {
+            const resp = await fetch(`/apontador/estado/${encodeURIComponent(competicao)}/${partidaId}`, {
+                cache: "no-store"
+            });
+
+            if (!resp.ok) continue;
+
+            const dados = await resp.json();
+            if (!dados.ok) continue;
+
+            const statusEl = document.getElementById(`status-${partidaId}`);
+            const setsEl = document.getElementById(`sets-${partidaId}`);
+            const parciaisEl = document.getElementById(`parciais-${partidaId}`);
+
+            if (setsEl) {
+                setsEl.textContent = `${dados.sets_a || 0} x ${dados.sets_b || 0}`;
+            }
+
+            if (parciaisEl && !dados.partida_finalizada) {
+                parciaisEl.textContent = `${dados.pontos_a || 0} x ${dados.pontos_b || 0}`;
+            }
+
+            if (statusEl) {
+                if (dados.partida_finalizada) {
+                    statusEl.textContent = "FINALIZADA";
+                    statusEl.classList.remove("ao-vivo");
+                    statusEl.classList.add("finalizada");
+                    card.dataset.aoVivo = "0";
+                } else {
+                    statusEl.textContent = "AO VIVO";
+                    statusEl.classList.add("ao-vivo");
+                }
+            }
+        } catch (e) {
+            console.error("Erro ao atualizar partida da equipe:", partidaId, e);
+        }
+    }
+}
+
+setInterval(atualizarPartidasEquipeAoVivo, 2500);
+document.addEventListener("DOMContentLoaded", atualizarPartidasEquipeAoVivo);
+</script>
+{% endblock %}

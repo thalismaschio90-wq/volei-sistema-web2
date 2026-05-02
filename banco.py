@@ -2230,8 +2230,7 @@ def listar_grupos(competicao):
 
 
 def criar_grupo(nome, competicao):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    if fase_grupos_esta_travada_por_jogo(competicao):
         return False
 
     with conectar() as conn:
@@ -2256,8 +2255,7 @@ def criar_grupo(nome, competicao):
 
 
 def adicionar_equipe_no_grupo(grupo_id, equipe, competicao):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    if fase_grupos_esta_travada_por_jogo(competicao):
         return False
 
     with conectar() as conn:
@@ -2343,8 +2341,7 @@ def atualizar_grupo(grupo_id, novo_nome, competicao):
 
 
 def remover_equipe_do_grupo(grupo_id, equipe, competicao):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    if fase_grupos_esta_travada_por_jogo(competicao):
         return False
 
     with conectar() as conn:
@@ -2369,6 +2366,9 @@ def remover_equipe_do_grupo(grupo_id, equipe, competicao):
 
 
 def excluir_grupo(grupo_id, competicao):
+    if fase_grupos_esta_travada_por_jogo(competicao):
+        return False
+
     grupo = buscar_grupo_por_id(grupo_id, competicao)
     if not grupo:
         return False
@@ -2481,9 +2481,102 @@ def buscar_partida_por_id(partida_id, competicao):
             return cur.fetchone()
 
 
+
+def _normalizar_fase_partida(fase):
+    fase = (fase or "grupos").strip().lower()
+    if fase in {"classificatorias", "classificatória", "classificatorias", "grupo"}:
+        return "grupos"
+    if fase in {"semifinais", "semi", "semis"}:
+        return "semifinal"
+    if fase in {"finais", "finalíssima", "finalissima"}:
+        return "final"
+    return fase or "grupos"
+
+
+def _status_partida_bloqueado(status, status_jogo=None):
+    status = (status or "").strip().lower()
+    status_jogo = (status_jogo or "").strip().lower()
+    bloqueados = {
+        "pre_jogo", "em_andamento", "em andamento", "andamento",
+        "entre_sets", "tiebreak_sorteio", "finalizada", "finalizado",
+        "encerrada", "encerrado", "iniciada", "iniciado",
+    }
+    return status in bloqueados or status_jogo in bloqueados
+
+
+def partida_ja_iniciou_ou_finalizou(partida):
+    if not partida:
+        return False
+    try:
+        pontos_a = int(partida.get("pontos_a") or 0)
+        pontos_b = int(partida.get("pontos_b") or 0)
+        sets_a = int(partida.get("sets_a") or 0)
+        sets_b = int(partida.get("sets_b") or 0)
+    except (TypeError, ValueError):
+        pontos_a = pontos_b = sets_a = sets_b = 0
+
+    return (
+        pontos_a > 0
+        or pontos_b > 0
+        or sets_a > 0
+        or sets_b > 0
+        or bool(partida.get("pre_jogo_iniciado_em"))
+        or bool(partida.get("pre_jogo_finalizado"))
+        or _status_partida_bloqueado(partida.get("status"), partida.get("status_jogo"))
+    )
+
+
+def competicao_tem_partida_iniciada_por_fase(nome_competicao, fase=None):
+    fase = _normalizar_fase_partida(fase) if fase else None
+    sql_fase = "AND COALESCE(fase, 'grupos') = %s" if fase else ""
+    params = [nome_competicao]
+    if fase:
+        params.append(fase)
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT id
+                    FROM partidas
+                    WHERE competicao = %s
+                      {sql_fase}
+                      AND (
+                            COALESCE(pontos_a, 0) > 0
+                         OR COALESCE(pontos_b, 0) > 0
+                         OR COALESCE(sets_a, 0) > 0
+                         OR COALESCE(sets_b, 0) > 0
+                         OR pre_jogo_iniciado_em IS NOT NULL
+                         OR COALESCE(pre_jogo_finalizado, FALSE) = TRUE
+                         OR LOWER(COALESCE(status_jogo, '')) IN ('pre_jogo', 'em_andamento', 'em andamento', 'andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'finalizado', 'encerrada', 'encerrado')
+                         OR LOWER(COALESCE(status, '')) IN ('pre_jogo', 'em_andamento', 'em andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada', 'finalizado', 'encerrada', 'encerrado')
+                      )
+                    LIMIT 1
+                """, tuple(params))
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def fase_grupos_esta_travada_por_jogo(nome_competicao):
+    return competicao_tem_partida_iniciada_por_fase(nome_competicao, "grupos")
+
+
+def fase_tem_partida_iniciada(nome_competicao, fase):
+    return competicao_tem_partida_iniciada_por_fase(nome_competicao, fase)
+
+
+def fase_partidas_pode_ser_alterada(nome_competicao, fase):
+    fase = _normalizar_fase_partida(fase)
+    if fase == "grupos":
+        return not fase_grupos_esta_travada_por_jogo(nome_competicao)
+    return not fase_tem_partida_iniciada(nome_competicao, fase)
+
 def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fase='grupos', data_hora=None, rodada=None, origem='manual'):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    fase = _normalizar_fase_partida(fase)
+    grupo = grupo if fase == "grupos" else None
+
+    if not fase_partidas_pode_ser_alterada(competicao, fase):
         return False
 
     with conectar() as conn:
@@ -2499,8 +2592,13 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
 
 
 def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='agendada', rodada=None):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    fase = _normalizar_fase_partida(fase)
+    grupo = grupo if fase == "grupos" else None
+
+    partida_atual = buscar_partida_por_id(partida_id, competicao)
+    if partida_ja_iniciou_ou_finalizou(partida_atual):
+        return False
+    if not fase_partidas_pode_ser_alterada(competicao, fase):
         return False
 
     with conectar() as conn:
@@ -2523,9 +2621,16 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
 
 
 def excluir_partida(partida_id, competicao):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
-        return False
+    partida = buscar_partida_por_id(partida_id, competicao)
+    if not partida:
+        return False, "Partida não encontrada."
+
+    if partida_ja_iniciou_ou_finalizou(partida):
+        return False, "Não é possível excluir uma partida que já iniciou, teve pré-jogo aberto ou foi finalizada."
+
+    fase = _normalizar_fase_partida(partida.get("fase"))
+    if not fase_partidas_pode_ser_alterada(competicao, fase):
+        return False, "Esta fase já iniciou. Não é possível excluir partidas dela."
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -2535,12 +2640,10 @@ def excluir_partida(partida_id, competicao):
                   AND competicao = %s
             """, (partida_id, competicao))
         conn.commit()
-    return True
-
+    return True, "Partida excluída com sucesso."
 
 def limpar_partidas(competicao):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    if competicao_tem_partida_iniciada_por_fase(competicao):
         return False
 
     with conectar() as conn:
@@ -2553,8 +2656,8 @@ def limpar_partidas(competicao):
 
 
 def limpar_partidas_por_fase(competicao, fase):
-    ok_edicao, _ = validar_competicao_editavel(competicao, "alteração estrutural")
-    if not ok_edicao:
+    fase = _normalizar_fase_partida(fase)
+    if not fase_partidas_pode_ser_alterada(competicao, fase):
         return False
 
     with conectar() as conn:
@@ -5647,6 +5750,35 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     if not isinstance(detalhes, dict):
         detalhes = {}
 
+    def _oposto(lado):
+        return "B" if lado == "A" else "A"
+
+    equipe_pontuadora = str(detalhes.get("equipe_pontuadora") or equipe or "").strip().upper()
+    resultado_tmp = str(detalhes.get("resultado") or detalhes.get("tipo_lance") or tipo or "").strip().lower()
+
+    equipe_scout_raw = str(
+        detalhes.get("equipe_scout")
+        or detalhes.get("responsavel_lado")
+        or ""
+    ).strip().upper()
+
+    if equipe_scout_raw in {"A", "B"}:
+        equipe_scout = equipe_scout_raw
+    elif resultado_tmp in {"erro", "falta"}:
+        equipe_scout = _oposto(equipe_pontuadora)
+    else:
+        equipe_scout = equipe_pontuadora
+
+    if equipe_pontuadora not in {"A", "B"}:
+        return False, "Equipe pontuadora inválida."
+
+    if equipe_scout not in {"A", "B"}:
+        equipe_scout = equipe_pontuadora
+
+    detalhes["equipe_pontuadora"] = equipe_pontuadora
+    detalhes["equipe_scout"] = equipe_scout
+    detalhes["responsavel_lado"] = equipe_scout
+
     regras = _regras_jogo_competicao(competicao)
 
     fim_set = False
@@ -5657,7 +5789,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     girou = False
     equipe_girou = ""
     saque_antes = ""
-    saque_depois = equipe
+    saque_depois = equipe_pontuadora
 
     partida = None
     pontos_a = 0
@@ -5706,23 +5838,23 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             )
 
             if not saque_antes:
-                saque_antes = equipe
+                saque_antes = equipe_pontuadora
 
             rotacao_a_antes = list(rotacao_a)
             rotacao_b_antes = list(rotacao_b)
 
-            if saque_antes != equipe:
+            if saque_antes != equipe_pontuadora:
                 girou = True
-                equipe_girou = equipe
+                equipe_girou = equipe_pontuadora
 
-                if equipe == "A":
+                if equipe_pontuadora == "A":
                     rotacao_a = girar_rotacao_oficial(rotacao_a)
                 else:
                     rotacao_b = girar_rotacao_oficial(rotacao_b)
 
-            saque_depois = equipe
+            saque_depois = equipe_pontuadora
 
-            if equipe == "A":
+            if equipe_pontuadora == "A":
                 pontos_a += 1
             else:
                 pontos_b += 1
@@ -5781,7 +5913,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 partida_id,
                 competicao,
                 set_atual,
-                equipe,
+                equipe_scout,
                 tipo or "ponto",
                 tipo or "ponto",
                 str(fundamento or "").strip(),
@@ -5967,7 +6099,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     set_atual,
                     pontos_a,
                     pontos_b,
-                    equipe,
+                    equipe_pontuadora,
                     saque_antes,
                     saque_depois,
                     girou,
@@ -7384,6 +7516,14 @@ def _normalizar_scout(valor):
 
 
 def resumir_scout_equipe_partida(partida_id, competicao, lado):
+    """
+    Monta o scout da equipe no modo treinador.
+
+    IMPORTANTE SOBRE A LÓGICA DO SISTEMA:
+    - Em lances positivos (ataque, bloqueio, ace), o campo eventos.equipe é o lado que pontuou.
+    - Em erro/falta, o campo eventos.equipe normalmente é o lado que GANHOU o ponto.
+      Portanto o erro/falta deve ser atribuído ao adversário desse lado.
+    """
     lado = (lado or "").strip().upper()
 
     resumo = {
@@ -7405,10 +7545,14 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
     if lado not in {"A", "B"}:
         return resumo
 
-    eventos = listar_eventos_partida(partida_id, competicao, limite=1000) or []
+    def _oposto(l):
+        return "B" if l == "A" else "A"
+
+    def _num_txt(valor):
+        return str(valor or "").strip()
 
     def atleta_bucket(numero, nome):
-        numero_txt = str(numero or "").strip()
+        numero_txt = _num_txt(numero)
         nome_txt = str(nome or "").strip()
         chave = numero_txt or nome_txt.lower().replace(" ", "_") or "sem_identificacao"
 
@@ -7424,12 +7568,16 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
 
         return resumo["atletas"][chave]
 
-    for ev in eventos:
-        lado_evento = (ev.get("equipe") or "").strip().upper()
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=2000) or []
+    except TypeError:
+        eventos = listar_eventos_partida(partida_id, competicao) or []
+    except Exception as e:
+        print("ERRO resumir_scout_equipe_partida/listar_eventos:", repr(e), flush=True)
+        return resumo
 
-        # Não deixa evento sem lado entrar.
-        # Mas não bloqueia mais apenas por lado_evento != lado,
-        # porque no teu banco apareceu caso de evento B com atleta da equipe A.
+    for ev in eventos:
+        lado_evento = str(ev.get("equipe") or "").strip().upper()
         if lado_evento not in {"A", "B"}:
             continue
 
@@ -7437,7 +7585,10 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
 
         fundamento = _normalizar_scout(
             detalhes_json.get("fundamento")
+            or detalhes_json.get("detalhe_lance")
+            or detalhes_json.get("tipo_erro")
             or ev.get("fundamento")
+            or ev.get("detalhe")
         )
 
         resultado = _normalizar_scout(
@@ -7453,11 +7604,11 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             or detalhes_json.get("tipo_erro")
             or detalhes_json.get("detalhe")
             or ev.get("detalhe")
+            or ev.get("detalhes")
         )
 
         tipo = _normalizar_scout(ev.get("tipo"))
         tipo_evento = _normalizar_scout(ev.get("tipo_evento"))
-
         texto = f"{tipo} {tipo_evento} {fundamento} {resultado} {detalhe}"
 
         numero = (
@@ -7466,27 +7617,19 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             or ev.get("numero")
             or ""
         )
-
         nome = (
             detalhes_json.get("atleta_nome")
+            or detalhes_json.get("atleta_label")
             or ev.get("atleta_nome")
             or ""
         )
 
-        resumo["eventos"].append(ev)
-
-        tem_atleta = (
-            str(numero or "").strip() not in {"", "0", "None"}
-            or bool(str(nome or "").strip())
-        )
-
-        bucket = atleta_bucket(numero, nome) if tem_atleta else None
-
         eh_erro_saque = (
             "erro_saque" in texto
             or "erro_de_saque" in texto
-            or (fundamento == "saque" and resultado == "erro")
             or detalhe == "erro_saque"
+            or fundamento == "erro_saque"
+            or (fundamento == "saque" and resultado == "erro")
         )
 
         eh_rotacao = (
@@ -7507,47 +7650,77 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
             resultado == "erro"
             or tipo == "erro"
             or tipo_evento == "erro"
-            or detalhe == "erro"
+            or detalhe in {"erro", "erro_geral"}
+            or fundamento == "erro_geral"
         ) and not eh_erro_saque and not eh_falta
 
         eh_ataque = (
             fundamento == "ataque"
-            and resultado in {"ponto", "winner"}
-        )
+            or detalhe == "ataque"
+            or " ataque" in f" {texto}"
+        ) and not (eh_erro_saque or eh_falta or eh_erro_geral)
 
         eh_ace = (
-            fundamento in {"saque", "ace"}
-            and resultado in {"ponto", "ace", "winner"}
-        )
+            fundamento == "ace"
+            or detalhe == "ace"
+            or " ace" in f" {texto}"
+        ) and not (eh_erro_saque or eh_falta or eh_erro_geral)
 
         eh_bloqueio = (
             fundamento == "bloqueio"
-            and resultado in {"ponto", "winner"}
-        )
+            or detalhe == "bloqueio"
+            or " bloqueio" in f" {texto}"
+        ) and not (eh_erro_saque or eh_falta or eh_erro_geral)
+
+        # Regra oficial do scout:
+        # - lances positivos contam para quem pontuou;
+        # - erro/falta contam para quem cometeu o erro/falta.
+        # Eventos novos salvam equipe_scout/responsavel_lado nos detalhes.
+        # Eventos antigos podem ter salvo eventos.equipe como quem ganhou o ponto; nesse caso,
+        # mantemos fallback para o oposto apenas em erro/falta.
+        equipe_scout_detalhe = str(
+            detalhes_json.get("equipe_scout")
+            or detalhes_json.get("responsavel_lado")
+            or ""
+        ).strip().upper()
+
+        equipe_pontuadora_detalhe = str(
+            detalhes_json.get("equipe_pontuadora")
+            or ""
+        ).strip().upper()
+
+        if equipe_scout_detalhe in {"A", "B"}:
+            lado_responsavel = equipe_scout_detalhe
+        elif eh_erro_saque or eh_falta or eh_erro_geral:
+            lado_responsavel = _oposto(lado_evento)
+        else:
+            lado_responsavel = equipe_pontuadora_detalhe if equipe_pontuadora_detalhe in {"A", "B"} else lado_evento
+
+        if lado_responsavel != lado:
+            continue
+
+        resumo["eventos"].append(ev)
+
+        tem_atleta = _num_txt(numero) not in {"", "0", "None", "none"} or bool(str(nome or "").strip())
+        bucket = atleta_bucket(numero, nome) if tem_atleta else None
 
         if eh_erro_saque:
-            if lado_evento == lado:
-                resumo["equipe"]["erros_saque"] += 1
-                resumo["equipe"]["erros_gerais"] += 1
+            resumo["equipe"]["erros_saque"] += 1
+            resumo["equipe"]["erros_gerais"] += 1
             continue
 
         if eh_falta:
-            if lado_evento == lado:
-                resumo["equipe"]["faltas"] += 1
-                resumo["equipe"]["erros_gerais"] += 1
-
-                if eh_rotacao:
-                    resumo["equipe"]["erros_rotacao"] += 1
+            resumo["equipe"]["faltas"] += 1
+            resumo["equipe"]["erros_gerais"] += 1
+            if eh_rotacao:
+                resumo["equipe"]["erros_rotacao"] += 1
             continue
 
         if eh_erro_geral:
-            if lado_evento == lado:
-                resumo["equipe"]["erros_gerais"] += 1
+            resumo["equipe"]["erros_gerais"] += 1
             continue
 
-        # Pontos positivos: conta para a equipe do evento.
-        # Como teu banco teve inconsistência entre equipe e atleta_nome,
-        # aqui a gente deixa aparecer no scout para não ficar zerado.
+        # Ponto positivo da própria equipe.
         if eh_ataque:
             resumo["equipe"]["ataques"] += 1
             resumo["equipe"]["pontos"] += 1
@@ -7572,19 +7745,24 @@ def resumir_scout_equipe_partida(partida_id, competicao, lado):
                 bucket["pontos"] += 1
             continue
 
-    resumo["eventos"] = resumo["eventos"][:30]
+        # Fallback: se o evento é ponto da equipe mas veio sem detalhe,
+        # pelo menos o total de pontos não fica zerado.
+        if resultado == "ponto" or tipo == "ponto" or tipo_evento == "ponto":
+            resumo["equipe"]["pontos"] += 1
+            if bucket:
+                bucket["pontos"] += 1
 
+    resumo["eventos"] = resumo["eventos"][:30]
     resumo["atletas_lista"] = sorted(
         resumo["atletas"].values(),
         key=lambda x: (
             -int(x.get("pontos") or 0),
             str(x.get("numero") or ""),
-            str(x.get("nome") or "")
-        )
+            str(x.get("nome") or ""),
+        ),
     )
 
     return resumo
-
 
 def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=None, modo_rapido=False, incluir_scout=True, incluir_solicitacoes=True, incluir_banco=True):
     def _int(v, padrao=0):

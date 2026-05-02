@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }}{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">{{ titulo }}</div>
+</div>
+
+<div class="card-painel">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+        <a class="btn-secundario" href="{{ url_for('relatorios.relatorios_home') }}">Voltar</a>
+        <a class="btn-padrao" href="{{ url_for('relatorios.relatorios_pdf', tipo=tipo, equipe=equipe_filtro, partida_id=partida_id) }}">Gerar PDF</a>
+    </div>
+
+    <pre style="white-space: pre-wrap; background:#f8fafc; border:1px solid #e5e7eb; border-radius:16px; padding:18px; line-height:1.55; font-size:14px; overflow:auto;">{% for linha in linhas %}{{ linha }}
+{% endfor %}</pre>
+</div>
+{% endblock %}

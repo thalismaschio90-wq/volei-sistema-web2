@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block titulo %}Relatórios{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Relatórios</div>
+</div>
+
+<div class="hero-box">
+    <div class="hero-titulo">{{ competicao.nome if competicao else "Relatórios" }}</div>
+    <p class="hero-texto">
+        {% if perfil == "organizador" %}
+            Relatórios gerais da competição, equipes, partidas e atletas. Você pode visualizar ou gerar PDF.
+        {% else %}
+            Relatórios da sua equipe, partidas e atletas. Você pode visualizar ou gerar PDF.
+        {% endif %}
+    </p>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for categoria, mensagem in messages %}
+            <div class="{{ 'flash-erro' if categoria == 'erro' else 'flash-sucesso' }}">{{ mensagem }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card-painel">
+    <div style="font-size: 20px; font-weight: 900; margin-bottom: 14px;">Filtros</div>
+
+    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items:end;">
+        {% if perfil == "organizador" %}
+        <div>
+            <label>Equipe</label>
+            <select id="filtroEquipe">
+                <option value="">Todas / selecionar quando precisar</option>
+                {% for nome in equipes %}
+                    <option value="{{ nome }}">{{ nome }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        <div>
+            <label>Partida</label>
+            <select id="filtroPartida">
+                <option value="">Selecionar quando precisar</option>
+                {% for p in partidas %}
+                    <option value="{{ p.id }}">
+                        {{ p.equipe_a or 'Equipe A' }} x {{ p.equipe_b or 'Equipe B' }} — {{ p.fase or 'fase' }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div style="margin-top: 10px; font-size: 13px; opacity: .78;">
+        Relatório por equipe usa o filtro de equipe. Relatórios de partida usam o filtro de partida.
+    </div>
+</div>
+
+<div class="cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+    {% for rel in relatorios %}
+    <div class="card-painel" style="margin:0; display:flex; flex-direction:column; justify-content:space-between; gap:14px;">
+        <div>
+            <div style="font-size:18px; font-weight:900; margin-bottom:8px;">{{ rel.titulo }}</div>
+            <div style="opacity:.78; line-height:1.35;">{{ rel.descricao }}</div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a class="btn-padrao rel-link" data-tipo="{{ rel.id }}" data-acao="visualizar" href="{{ url_for('relatorios.relatorios_visualizar', tipo=rel.id) }}">Visualizar</a>
+            <a class="btn-secundario rel-link" data-tipo="{{ rel.id }}" data-acao="pdf" href="{{ url_for('relatorios.relatorios_pdf', tipo=rel.id) }}">Gerar PDF</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+(function(){
+    const equipe = document.getElementById("filtroEquipe");
+    const partida = document.getElementById("filtroPartida");
+
+    function montarUrl(base, tipo){
+        const params = new URLSearchParams();
+        if (equipe && equipe.value) params.set("equipe", equipe.value);
+        if (partida && partida.value) params.set("partida_id", partida.value);
+        const qs = params.toString();
+        return base + (qs ? "?" + qs : "");
+    }
+
+    document.querySelectorAll(".rel-link").forEach(function(link){
+        link.addEventListener("click", function(e){
+            const tipo = link.dataset.tipo || "";
+            const precisaEquipe = tipo === "relatorio_equipe";
+            const precisaPartida = ["relatorio_partida", "historico_partida", "atletas_partida"].includes(tipo);
+
+            if (precisaEquipe && equipe && !equipe.value) {
+                e.preventDefault();
+                alert("Selecione uma equipe no filtro para esse relatório.");
+                return;
+            }
+            if (precisaPartida && partida && !partida.value) {
+                e.preventDefault();
+                alert("Selecione uma partida no filtro para esse relatório.");
+                return;
+            }
+            link.href = montarUrl(link.getAttribute("href").split("?")[0], tipo);
+        });
+    });
+})();
+</script>
+{% endblock %}

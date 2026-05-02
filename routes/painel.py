@@ -73,6 +73,6 @@ def inicio():
     # EQUIPE
     # =========================
     elif perfil == "equipe":
-        return redirect(url_for("equipes.meus_atletas_view"))
+        return redirect(url_for("equipes.minhas_partidas_view"))
 
     return redirect(url_for("auth.login"))

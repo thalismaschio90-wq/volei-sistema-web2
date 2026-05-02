@@ -188,22 +188,20 @@ def _contar_eventos_lado(partida_id, competicao, equipe, tipos, set_atual=None):
 
 
 def _contadores_operacionais(partida_id, competicao, partida=None, estado=None):
+    """
+    Contadores rápidos do set atual.
+    IMPORTANTE: aqui NÃO varremos mais a tabela eventos. Essa varredura era o
+    gargalo que fazia tempo/substituição/pedidos travarem por muitos segundos.
+    Os contadores vivos ficam no cache/estado e são incrementados de forma
+    otimista no clique; o banco salva em seguida.
+    """
     estado = estado or {}
-    partida = partida or {}
-    set_atual = _int_seguro(estado.get("set_atual") or partida.get("set_atual") or 1, 1)
-
-    tempos_a = _contar_eventos_lado(partida_id, competicao, "A", {"tempo", "pedido_tempo", "tempo_tecnico"}, set_atual)
-    tempos_b = _contar_eventos_lado(partida_id, competicao, "B", {"tempo", "pedido_tempo", "tempo_tecnico"}, set_atual)
-    subs_a = _contar_eventos_lado(partida_id, competicao, "A", {"substituicao", "substituição"}, set_atual)
-    subs_b = _contar_eventos_lado(partida_id, competicao, "B", {"substituicao", "substituição"}, set_atual)
-
     return {
-        "tempos_a": tempos_a,
-        "tempos_b": tempos_b,
-        "subs_a": subs_a,
-        "subs_b": subs_b,
+        "tempos_a": _int_seguro(estado.get("tempos_a"), 0),
+        "tempos_b": _int_seguro(estado.get("tempos_b"), 0),
+        "subs_a": _int_seguro(estado.get("subs_a"), 0),
+        "subs_b": _int_seguro(estado.get("subs_b"), 0),
     }
-
 
 def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, partida=None):
     estado = dict(estado or {})
@@ -1239,6 +1237,20 @@ def ponto_view(competicao, partida_id):
             atleta_nome = ""
             atleta_label = ""
 
+        def _lado_oposto(lado):
+            return "B" if lado == "A" else "A"
+
+        # equipe = lado que GANHA o ponto e atualiza o placar.
+        # Para erro/falta, o scout deve cair no lado que cometeu o erro/falta.
+        # O frontend envia responsavel_lado; se não vier, calculamos pelo oposto.
+        equipe_pontuadora = equipe
+        responsavel_lado = (request.form.get("responsavel_lado") or corpo.get("responsavel_lado") or "").strip().upper()
+
+        if tipo_lance in {"erro", "falta"}:
+            equipe_scout = responsavel_lado if responsavel_lado in {"A", "B"} else _lado_oposto(equipe_pontuadora)
+        else:
+            equipe_scout = equipe_pontuadora
+
         detalhes_evento = {
             "fundamento": detalhe_final,
             "resultado": tipo_lance,
@@ -1248,6 +1260,14 @@ def ponto_view(competicao, partida_id):
             "atleta_numero": atleta_numero,
             "atleta_nome": atleta_nome,
             "atleta_label": atleta_label,
+
+            # REGRA OFICIAL DO SCOUT:
+            # - equipe_pontuadora atualiza o placar/saque/rotação;
+            # - equipe_scout é quem recebe o fundamento no scout.
+            # Ex.: erro de saque da B = ponto para A, scout de erro para B.
+            "equipe_pontuadora": equipe_pontuadora,
+            "equipe_scout": equipe_scout,
+            "responsavel_lado": equipe_scout,
         }
 
         # =========================
@@ -1496,12 +1516,9 @@ def _normalizar_estado_pos_acao(partida_id, competicao, retorno=None, origem="",
         estado["historico"][0].get("descricao") if estado["historico"] and isinstance(estado["historico"][0], dict) else "-"
     )
 
-    try:
-        partida = buscar_partida_operacional(partida_id, competicao) or {}
-    except Exception:
-        partida = {}
-
-    return _emitir_estado_e_placar(partida_id, competicao, estado, partida=partida, origem=origem)
+    # Não buscar partida no banco a cada ação. Esse era outro gargalo do apontador.
+    # O estado/cache já carrega nomes, placar, rotação e regras necessários para socket.
+    return _emitir_estado_e_placar(partida_id, competicao, estado, partida={}, origem=origem)
 
 
 def _salvar_async(nome, funcao, *args, **kwargs):
@@ -1582,21 +1599,23 @@ def registrar_tempo_view(competicao, partida_id):
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
-        partida = buscar_partida_operacional(partida_id, competicao) or {}
-        estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
-        permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
-            partida_id, competicao, equipe, "tempo", partida=partida, estado=estado_atual
-        )
-        if not permitido:
-            estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="TEMPO_LIMITE")
-            return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+        # Fluxo rápido: valida pelo cache/estado, responde e emite socket primeiro.
+        estado_atual = dict(obter_estado_cache(partida_id) or {})
+        if not estado_atual:
+            estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-        ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
-        if not ok:
-            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+        estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, {})
+        usado = _int_seguro(estado_atual.get("tempos_a") if equipe == "A" else estado_atual.get("tempos_b"), 0)
+        limite = _int_seguro(estado_atual.get("limite_tempos"), 2)
 
-        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="TEMPO")
-        return _json_no_cache({"ok": True, **estado})
+        if usado >= limite:
+            return _json_no_cache({"ok": False, "mensagem": f"Limite de tempos atingido para a Equipe {equipe} neste set.", **estado_atual}, 400)
+
+        estado = _acao_rapida(partida_id, competicao, "tempo", equipe)
+
+        _salvar_async("tempo", registrar_tempo_partida, partida_id, competicao, equipe)
+
+        return _json_no_cache({"ok": True, "mensagem": "Tempo registrado.", **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"}, 500)
@@ -1617,21 +1636,28 @@ def registrar_substituicao_view(competicao, partida_id):
         if not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
-        partida = buscar_partida_operacional(partida_id, competicao) or {}
-        estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
-        permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
-            partida_id, competicao, equipe, "substituicao", partida=partida, estado=estado_atual
+        estado_atual = dict(obter_estado_cache(partida_id) or {})
+        if not estado_atual:
+            estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+        estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, {})
+        usado = _int_seguro(estado_atual.get("subs_a") if equipe == "A" else estado_atual.get("subs_b"), 0)
+        limite = _int_seguro(estado_atual.get("limite_substituicoes"), 6)
+
+        if usado >= limite:
+            return _json_no_cache({"ok": False, "mensagem": f"Limite de substituições atingido para a Equipe {equipe} neste set.", **estado_atual}, 400)
+
+        estado = _acao_rapida(
+            partida_id,
+            competicao,
+            "substituicao",
+            equipe,
+            {"numero_sai": numero_sai, "numero_entra": numero_entra}
         )
-        if not permitido:
-            estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="SUBSTITUICAO_LIMITE")
-            return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
 
-        ok, retorno = registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
-        if not ok:
-            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+        _salvar_async("substituicao", registrar_substituicao_partida, partida_id, competicao, equipe, numero_sai, numero_entra)
 
-        estado = _normalizar_estado_pos_acao(partida_id, competicao, retorno, origem="SUBSTITUICAO")
-        return _json_no_cache({"ok": True, **estado})
+        return _json_no_cache({"ok": True, "mensagem": "Substituição registrada.", **estado})
 
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição: {e}"}, 500)
@@ -1835,10 +1861,22 @@ def sincronizar_acao_view(competicao, partida_id):
             )
 
         else:
+            # Evita que uma fila offline antiga/malformada fique batendo 400 em loop
+            # e trave a tela do apontador. Retorna o estado atual e deixa o frontend
+            # descartar o item inválido.
+            estado_atual = obter_estado_cache(partida_id) or {}
+            if not estado_atual:
+                try:
+                    estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
+                except Exception:
+                    estado_atual = {}
+            estado_atual["ultima_acao"] = estado_atual.get("ultima_acao") or "Sincronização ignorada"
             return _json_no_cache({
-                "ok": False,
-                "mensagem": f"Ação inválida para sincronizar: {tipo}"
-            }, 400)
+                "ok": True,
+                "ignorado": True,
+                "mensagem": f"Ação inválida ignorada na sincronização: {tipo or '-'}",
+                **estado_atual
+            }, 200)
 
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
@@ -1868,14 +1906,18 @@ def estado_jogo_view(competicao, partida_id):
         if not partida:
             return _json_no_cache({"ok": False, "mensagem": "Partida não encontrada"}, 404)
 
-        garantir_estado_partida(partida_id, competicao)
-        estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        # Primeiro tenta o cache vivo. Evita consultar várias tabelas a cada sync/fallback.
+        estado = dict(obter_estado_cache(partida_id) or {})
+        if not estado:
+            garantir_estado_partida(partida_id, competicao)
+            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
         equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
             partida_id, competicao, partida, estado
         )
 
-        historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
+        historico = estado.get("historico") or []
+        ultima_acao = estado.get("ultima_acao") or (historico[0].get("descricao") if historico and isinstance(historico[0], dict) else "-")
 
         pontos_a = int(estado.get("pontos_a") or estado.get("placar_a") or 0)
         pontos_b = int(estado.get("pontos_b") or estado.get("placar_b") or 0)
@@ -1891,14 +1933,6 @@ def estado_jogo_view(competicao, partida_id):
 
         tempos_a = estado.get("tempos_a")
         tempos_b = estado.get("tempos_b")
-        if tempos_a is None or tempos_b is None:
-            try:
-                tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-                tempos_a = tempos.get("tempos_a")
-                tempos_b = tempos.get("tempos_b")
-            except Exception:
-                tempos_a = estado.get("tempos_a")
-                tempos_b = estado.get("tempos_b")
 
         estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
         tempos_a = estado.get("tempos_a", tempos_a)

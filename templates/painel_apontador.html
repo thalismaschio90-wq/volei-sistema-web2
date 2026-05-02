@@ -198,6 +198,18 @@
                             Entrar no jogo
                         </a>
 
+                        <a class="btn-padrao botao-arbitro"
+                           href="{{ url_for('oficiais.primeiro_arbitro_view', competicao=competicao_nome, partida_id=p.id) }}"
+                           target="_blank">
+                            📱 1º Árbitro
+                        </a>
+
+                        <a class="btn-padrao botao-arbitro segundo"
+                           href="{{ url_for('oficiais.segundo_arbitro_view', competicao=competicao_nome, partida_id=p.id) }}"
+                           target="_blank">
+                            📱 2º Árbitro
+                        </a>
+
                     {% else %}
                         <a class="btn-padrao"
                            href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) }}">
@@ -206,6 +218,18 @@
                             {% else %}
                                 Abrir
                             {% endif %}
+                        </a>
+
+                        <a class="btn-padrao botao-arbitro"
+                           href="{{ url_for('oficiais.primeiro_arbitro_view', competicao=competicao_nome, partida_id=p.id) }}"
+                           target="_blank">
+                            📱 1º Árbitro
+                        </a>
+
+                        <a class="btn-padrao botao-arbitro segundo"
+                           href="{{ url_for('oficiais.segundo_arbitro_view', competicao=competicao_nome, partida_id=p.id) }}"
+                           target="_blank">
+                            📱 2º Árbitro
                         </a>
                     {% endif %}
                 </div>

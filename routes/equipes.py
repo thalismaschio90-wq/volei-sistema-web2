@@ -35,6 +35,7 @@ from banco import (
     competicao_esta_travada,
     validar_edicao_atletas_equipe,
     equipe_tem_partida_iniciada,
+    listar_partidas,
 )
 from routes.utils import exigir_perfil
 
@@ -308,6 +309,158 @@ def minha_equipe():
         equipe=equipe,
         erro=erro,
         sucesso=sucesso
+    )
+
+
+
+
+# =========================
+# EQUIPE - VISUALIZADOR DE PARTIDAS
+# =========================
+def _fase_label_partida_equipe(fase):
+    fase = (fase or "grupos").strip().lower()
+    mapa = {
+        "grupos": "Classificatória",
+        "grupo": "Classificatória",
+        "classificatorias": "Classificatória",
+        "classificatória": "Classificatória",
+        "quartas": "Quartas de final",
+        "quartas de final": "Quartas de final",
+        "semifinal": "Semifinal",
+        "semifinais": "Semifinal",
+        "final": "Final",
+        "finais": "Final",
+    }
+    return mapa.get(fase, fase.replace("_", " ").title())
+
+
+def _ordem_fase_partida_equipe(fase):
+    fase = (fase or "grupos").strip().lower()
+    if fase in {"grupos", "grupo", "classificatorias", "classificatória"}:
+        return 1
+    if fase in {"quartas", "quartas de final"}:
+        return 2
+    if fase in {"semifinal", "semifinais"}:
+        return 3
+    if fase in {"final", "finais"}:
+        return 4
+    return 9
+
+
+def _status_visual_partida_equipe(partida):
+    status = (
+        partida.get("status")
+        or partida.get("fase_partida")
+        or partida.get("status_jogo")
+        or "agendada"
+    )
+    status = str(status or "agendada").strip().lower()
+
+    mapa = {
+        "": "AGENDADA",
+        "pendente": "AGENDADA",
+        "aguardando": "AGENDADA",
+        "agendada": "AGENDADA",
+        "pre_jogo": "PRÉ-JOGO",
+        "pre-jogo": "PRÉ-JOGO",
+        "em andamento": "AO VIVO",
+        "em_andamento": "AO VIVO",
+        "andamento": "AO VIVO",
+        "ao vivo": "AO VIVO",
+        "ao_vivo": "AO VIVO",
+        "finalizada": "FINALIZADA",
+        "finalizado": "FINALIZADA",
+        "encerrado": "FINALIZADA",
+        "encerrada": "FINALIZADA",
+    }
+    return mapa.get(status, status.replace("_", " ").upper())
+
+
+def _partida_ao_vivo_equipe(partida):
+    status = _status_visual_partida_equipe(partida)
+    return status == "AO VIVO"
+
+
+def _partida_finalizada_equipe(partida):
+    status = _status_visual_partida_equipe(partida)
+    return status == "FINALIZADA"
+
+
+def _parciais_partida_equipe(partida):
+    parciais = []
+    for i in range(1, 6):
+        a = partida.get(f"set{i}_a")
+        b = partida.get(f"set{i}_b")
+        if a is not None and b is not None:
+            try:
+                parciais.append(f"{int(a)}x{int(b)}")
+            except (TypeError, ValueError):
+                parciais.append(f"{a}x{b}")
+    return " / ".join(parciais) if parciais else "-"
+
+
+def _preparar_partidas_para_equipe(equipe):
+    nome_equipe = (equipe.get("nome") or "").strip()
+    competicao = (equipe.get("competicao") or "").strip()
+
+    if not nome_equipe or not competicao:
+        return []
+
+    partidas = listar_partidas(competicao)
+    resultado = []
+
+    for p in partidas:
+        partida = dict(p)
+        equipe_a = (partida.get("equipe_a") or "").strip()
+        equipe_b = (partida.get("equipe_b") or "").strip()
+        fase = (partida.get("fase") or "grupos").strip().lower()
+
+        minha_partida = (
+            equipe_a.lower() == nome_equipe.lower()
+            or equipe_b.lower() == nome_equipe.lower()
+        )
+
+        # Visualizador geral da equipe:
+        # mostra TODAS as partidas da competição, não só as partidas da equipe.
+        # O campo minha_partida continua marcado para destacar quando o jogo é dela.
+        partida["fase_label"] = _fase_label_partida_equipe(fase)
+        partida["fase_ordem"] = _ordem_fase_partida_equipe(fase)
+        partida["status_visual"] = _status_visual_partida_equipe(partida)
+        partida["ao_vivo"] = _partida_ao_vivo_equipe(partida)
+        partida["finalizada"] = _partida_finalizada_equipe(partida)
+        partida["parciais_formatadas"] = _parciais_partida_equipe(partida)
+        partida["minha_partida"] = minha_partida
+        partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
+        partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
+        resultado.append(partida)
+
+    return sorted(
+        resultado,
+        key=lambda p: (
+            p.get("fase_ordem") or 9,
+            p.get("rodada") or 999999,
+            p.get("ordem") or 999999,
+            p.get("id") or 999999,
+        )
+    )
+
+
+@equipes_bp.route("/minhas-partidas")
+@exigir_perfil("equipe")
+def minhas_partidas_view():
+    usuario = session.get("usuario")
+    equipe = buscar_equipe_por_login(usuario)
+
+    if not equipe:
+        flash("Equipe não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    partidas = _preparar_partidas_para_equipe(equipe)
+
+    return render_template(
+        "minhas_partidas.html",
+        equipe=equipe,
+        partidas=partidas,
     )
 
 

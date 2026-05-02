@@ -875,6 +875,36 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const alertaSolicitacaoEl = document.getElementById("alerta-solicitacao");
     const alertaSolicitacaoTextoEl = document.getElementById("alerta-solicitacao-texto");
 
+    const solicitacoesRecebidasTempoReal = new Set();
+
+    function chaveSolicitacaoTempoReal(dados) {
+        if (!dados || typeof dados !== "object") return "";
+        if (dados.id_solicitacao) return String(dados.id_solicitacao);
+        return [dados.tipo || "", dados.equipe || "", dados.equipe_nome || "", dados.mensagem || ""].join("|");
+    }
+
+    function receberSolicitacaoTempoReal(dados) {
+        if (!dados || typeof dados !== "object") return;
+        const chave = chaveSolicitacaoTempoReal(dados);
+        if (chave && solicitacoesRecebidasTempoReal.has(chave)) return;
+        if (chave) {
+            solicitacoesRecebidasTempoReal.add(chave);
+            setTimeout(() => solicitacoesRecebidasTempoReal.delete(chave), 30000);
+        }
+
+        const tipo = String(dados.tipo || "").toLowerCase();
+        const equipe = String(dados.equipe || "").toUpperCase();
+        const equipeNome = String(dados.equipe_nome || equipe || "").trim();
+        const base = tipo === "substituicao" ? "Pedido de substituição" : "Pedido de tempo";
+        const mensagem = String(dados.mensagem || `${base} - ${equipeNome}`).trim();
+
+        mostrarAlertaSolicitacao(mensagem);
+        atualizarUltimaAcao(mensagem);
+        if (typeof renderHistoricoBackend === "function") {
+            renderHistoricoBackend([{ descricao: mensagem }]);
+        }
+    }
+
     function mostrarAlertaSolicitacao(texto) {
         if (!alertaSolicitacaoEl || !alertaSolicitacaoTextoEl) return;
         alertaSolicitacaoTextoEl.textContent = texto || "Nova solicitação recebida.";
@@ -917,14 +947,11 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         });
 
         socket.on("solicitacao_treinador", function (dados) {
-            if (!dados || typeof dados !== "object") return;
-            const mensagem = String(dados.mensagem || "Solicitação do treinador recebida.").trim();
-            mostrarAlertaSolicitacao(mensagem);
+            receberSolicitacaoTempoReal(dados);
         });
 
         socket.on("resposta_solicitacao", function (dados) {
-            if (!dados || typeof dados !== "object") return;
-            if (dados.mensagem) mostrarAlertaSolicitacao(String(dados.mensagem));
+            receberSolicitacaoTempoReal(dados);
         });
     }
     let ultimoTokenSync = 0;

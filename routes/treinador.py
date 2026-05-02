@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, session, redirect, url_for, flash, request, jsonify, make_response
 import time
+import threading
 
 from banco import (
     buscar_equipe_por_login,
@@ -160,7 +161,83 @@ def _definir_rotacao_propria(contexto, rotacao_a, rotacao_b):
     return ["", "", "", "", "", ""]
 
 
+
+
+def _valor_contexto(contexto, *nomes):
+    for nome in nomes:
+        if nome in contexto and contexto.get(nome) not in (None, ""):
+            return contexto.get(nome)
+    return None
+
+
+def _calcular_tempos_restantes(contexto):
+    """
+    No apontador, tempos_a/tempos_b representam TEMPOS RESTANTES.
+    Em algumas montagens do contexto, tempos_restantes pode vir None/""/0 indevidamente.
+    Por isso calculamos com fallback usando lado + limite da regra.
+    """
+    lado = str(contexto.get("lado") or "").strip().upper()
+
+    direto = _valor_contexto(contexto, "tempos_restantes")
+    if direto is not None:
+        valor = _int(direto, -1)
+        if valor >= 0:
+            return valor
+
+    limite = _int(_valor_contexto(contexto, "tempos_limite", "limite_tempos"), 2)
+    if limite <= 0:
+        limite = 2
+
+    campo_lado = "tempos_a" if lado == "A" else "tempos_b" if lado == "B" else ""
+    valor_lado = _valor_contexto(contexto, campo_lado) if campo_lado else None
+
+    # Aqui o valor do lado já é restante, não usado.
+    if valor_lado is not None:
+        valor = _int(valor_lado, limite)
+        return max(0, valor)
+
+    return limite
+
+
+def _calcular_subs_restantes(contexto):
+    """
+    No apontador, subs_a/subs_b representam substituições USADAS.
+    Restante = limite da regra - usadas.
+    """
+    lado = str(contexto.get("lado") or "").strip().upper()
+
+    direto = _valor_contexto(contexto, "subs_restantes")
+    if direto is not None:
+        valor = _int(direto, -1)
+        if valor >= 0:
+            return valor
+
+    limite = _int(_valor_contexto(contexto, "subs_limite", "limite_substituicoes"), 6)
+    if limite <= 0:
+        limite = 6
+
+    campo_lado = "subs_a" if lado == "A" else "subs_b" if lado == "B" else ""
+    usadas = _int(_valor_contexto(contexto, campo_lado), 0) if campo_lado else 0
+
+    return max(0, limite - usadas)
+
+
+def _aplicar_restantes_contexto(contexto):
+    if not isinstance(contexto, dict):
+        return contexto
+
+    tempos_limite = _int(_valor_contexto(contexto, "tempos_limite", "limite_tempos"), 2)
+    subs_limite = _int(_valor_contexto(contexto, "subs_limite", "limite_substituicoes"), 6)
+
+    contexto["tempos_limite"] = tempos_limite if tempos_limite > 0 else 2
+    contexto["subs_limite"] = subs_limite if subs_limite > 0 else 6
+    contexto["tempos_restantes"] = _calcular_tempos_restantes(contexto)
+    contexto["subs_restantes"] = _calcular_subs_restantes(contexto)
+
+    return contexto
+
 def _montar_payload_estado(contexto):
+    contexto = _aplicar_restantes_contexto(contexto or {})
     estado = contexto.get("estado") or {}
 
     rotacao_a = _normalizar_rotacao_visual(
@@ -284,19 +361,26 @@ def tela_treinador(competicao, partida_id):
             aba=request.args.get("aba", "papeleta"),
         ))
 
+    aba_ativa = (request.args.get("aba") or "papeleta").strip().lower()
+    incluir_scout = aba_ativa in {"scout", "estatisticas", "estatísticas"}
+    incluir_solicitacoes = aba_ativa in {"operacao", "operação", "solicitacoes", "solicitações", "pedidos"}
+    incluir_banco = aba_ativa in {"papeleta", "operacao", "operação", "substituicao", "substituição", "banco"}
+
     contexto = montar_contexto_treinador(
         partida_id,
         competicao,
         equipe.get("nome"),
-        modo_rapido=True,
-        incluir_scout=False,
-        incluir_solicitacoes=False,
-        incluir_banco=False,
+        modo_rapido=not incluir_scout,
+        incluir_scout=incluir_scout,
+        incluir_solicitacoes=incluir_solicitacoes,
+        incluir_banco=incluir_banco,
     )
 
     if not contexto:
         flash("Partida não encontrada para esta equipe.", "erro")
         return redirect(url_for("equipes.minha_equipe"))
+
+    contexto = _aplicar_restantes_contexto(contexto)
 
     rotacao_a = _normalizar_rotacao_visual(contexto.get("rotacao_a"))
     rotacao_b = _normalizar_rotacao_visual(contexto.get("rotacao_b"))
@@ -338,10 +422,9 @@ def estado_treinador_view(competicao, partida_id):
 
     aba = (request.args.get("aba") or "ao_vivo").strip().lower()
 
-    # Troca de aba tem que ser leve. Só carrega dados pesados quando a aba realmente precisa.
     incluir_scout = aba in {"scout", "estatisticas", "estatísticas"}
-    incluir_solicitacoes = aba in {"solicitacoes", "solicitações", "pedidos"}
-    incluir_banco = aba in {"substituicao", "substituição", "banco", "papeleta"}
+    incluir_solicitacoes = aba in {"solicitacoes", "solicitações", "pedidos", "operacao", "operação"}
+    incluir_banco = aba in {"substituicao", "substituição", "banco", "papeleta", "operacao", "operação"}
 
     contexto = montar_contexto_treinador(
         partida_id,
@@ -356,9 +439,9 @@ def estado_treinador_view(competicao, partida_id):
     if not contexto:
         return _json_erro("Partida não encontrada para esta equipe.", 404)
 
+    contexto = _aplicar_restantes_contexto(contexto)
     payload = _montar_payload_estado(contexto)
 
-    # Na maioria das abas, não mande listas grandes sem necessidade.
     if not incluir_scout:
         payload["scout"] = {}
         payload["eventos"] = []
@@ -369,9 +452,9 @@ def estado_treinador_view(competicao, partida_id):
     if not incluir_banco:
         payload["banco"] = []
 
-    # Mantém jogadores disponíveis para renderizar papeleta sem consultar de novo.
-    if aba in {"papeleta", "substituicao", "substituição", "banco"}:
-        atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+    atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+
+    if aba in {"papeleta", "substituicao", "substituição", "banco", "scout", "operacao", "operação"}:
         payload["atletas_lista"] = atletas_lista
         payload["jogadores"] = [
             {"numero": a.get("numero"), "nome": a.get("nome")}
@@ -379,6 +462,84 @@ def estado_treinador_view(competicao, partida_id):
         ]
     else:
         payload["atletas_lista"] = []
+
+    # Scout completo e automático na aba Scout
+    if aba == "scout":
+        from banco import listar_eventos_partida
+
+        eventos = listar_eventos_partida(partida_id, competicao, limite=2000) or []
+
+        lado = str(contexto.get("lado") or "").strip().upper()
+
+        mapa = {}
+
+        for a in atletas_lista:
+            numero = str(a.get("numero") or "").strip()
+            if not numero:
+                continue
+
+            mapa[numero] = {
+                "numero": numero,
+                "nome": a.get("nome") or "",
+                "pontos": 0,
+                "ataques": 0,
+                "aces": 0,
+                "bloqueios": 0,
+            }
+
+        resumo = {
+            "pontos": 0,
+            "aces": 0,
+            "bloqueios": 0,
+            "erros_saque": 0,
+            "faltas": 0,
+        }
+
+        for ev in eventos:
+            equipe_evento = str(ev.get("equipe") or "").strip().upper()
+            fundamento = str(ev.get("fundamento") or "").strip().lower()
+            resultado = str(ev.get("resultado") or "").strip().lower()
+            tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+            detalhe = str(ev.get("detalhe") or ev.get("detalhes") or "").strip().lower()
+
+            numero = str(
+                ev.get("numero")
+                or ev.get("atleta_numero")
+                or ""
+            ).strip()
+
+            # Só conta scout da equipe do treinador
+            if equipe_evento != lado:
+                continue
+
+            # Ponto normal de atleta
+            if resultado == "ponto" and numero in mapa:
+                mapa[numero]["pontos"] += 1
+                resumo["pontos"] += 1
+
+                if fundamento == "ataque" or detalhe == "ataque":
+                    mapa[numero]["ataques"] += 1
+
+                if fundamento == "ace" or detalhe == "ace":
+                    mapa[numero]["aces"] += 1
+                    resumo["aces"] += 1
+
+                if fundamento == "bloqueio" or detalhe == "bloqueio":
+                    mapa[numero]["bloqueios"] += 1
+                    resumo["bloqueios"] += 1
+
+            # Erro/falta conta para a equipe que cometeu, mas não soma ponto de atleta
+            if resultado == "erro" or tipo == "erro" or detalhe in {"erro_saque", "erro_geral"}:
+                if detalhe == "erro_saque" or fundamento == "erro_saque":
+                    resumo["erros_saque"] += 1
+
+            if resultado == "falta" or tipo == "falta" or detalhe in {"rede", "invasao", "rotacao", "conducao", "dois_toques"}:
+                resumo["faltas"] += 1
+
+        payload["scout"] = {
+            "equipe": resumo,
+            "atletas_lista": list(mapa.values()),
+        }
 
     return _resposta_json_rapida(payload)
 
@@ -508,6 +669,7 @@ def salvar_papeleta_treinador(competicao, partida_id):
 @exigir_perfil("equipe")
 def solicitar_tempo_treinador(competicao, partida_id):
     try:
+        corpo = request.get_json(silent=True) or {}
         equipe = _buscar_equipe_sessao()
 
         if not equipe:
@@ -531,33 +693,50 @@ def solicitar_tempo_treinador(competicao, partida_id):
         if not lado:
             return _json_erro("Lado da equipe não definido.", 400)
 
-        if _int(contexto.get("tempos_restantes")) <= 0:
+        contexto = _aplicar_restantes_contexto(contexto)
+        tempos_restantes = _calcular_tempos_restantes(contexto)
+
+        if tempos_restantes <= 0:
             return _json_erro("Sua equipe não tem mais tempos disponíveis.", 400)
 
-        registrar_solicitacao_treinador(
-            partida_id,
-            competicao,
-            lado,
-            "tempo",
-            {
-                "equipe_nome": equipe.get("nome"),
-                "set_atual": contexto.get("set_atual"),
-            }
-        )
+        payload_solicitacao = {
+            "id_solicitacao": corpo.get("id_solicitacao"),
+            "partida_id": partida_id,
+            "tipo": "tempo",
+            "equipe": lado,
+            "equipe_nome": equipe.get("nome"),
+            "mensagem": f"{equipe.get('nome')} solicitou tempo",
+            "status": "pendente",
+            "set_atual": contexto.get("set_atual"),
+            "origem": corpo.get("origem") or "treinador_http",
+        }
 
-        emitir_solicitacao_treinador(
-            partida_id,
-            {
-                "tipo": "tempo",
-                "equipe": lado,
-                "equipe_nome": equipe.get("nome"),
-                "mensagem": f"{equipe.get('nome')} solicitou tempo",
-            }
-        )
+        # Se o navegador já avisou por Socket.IO, esta rota só persiste.
+        # Se o Socket não estava conectado, a rota vira fallback e emite agora.
+        if not corpo.get("tempo_real_emitido"):
+            emitir_solicitacao_treinador(partida_id, payload_solicitacao)
 
-        return jsonify({
+        def _salvar_solicitacao_tempo():
+            try:
+                registrar_solicitacao_treinador(
+                    partida_id,
+                    competicao,
+                    lado,
+                    "tempo",
+                    {
+                        "equipe_nome": equipe.get("nome"),
+                        "set_atual": contexto.get("set_atual"),
+                    }
+                )
+            except Exception as e:
+                print("ERRO async registrar solicitação tempo:", repr(e), flush=True)
+
+        threading.Thread(target=_salvar_solicitacao_tempo, daemon=True).start()
+
+        return _resposta_json_rapida({
             "ok": True,
-            "mensagem": "Solicitação de tempo enviada ao apontador."
+            "mensagem": "Solicitação de tempo enviada ao apontador.",
+            "solicitacao": payload_solicitacao,
         })
 
     except Exception as e:
@@ -569,6 +748,7 @@ def solicitar_tempo_treinador(competicao, partida_id):
 @exigir_perfil("equipe")
 def solicitar_substituicao_treinador(competicao, partida_id):
     try:
+        corpo = request.get_json(silent=True) or {}
         equipe = _buscar_equipe_sessao()
 
         if not equipe:
@@ -581,7 +761,7 @@ def solicitar_substituicao_treinador(competicao, partida_id):
             modo_rapido=True,
             incluir_scout=False,
             incluir_solicitacoes=False,
-            incluir_banco=True,
+            incluir_banco=False,
         )
 
         if not contexto:
@@ -592,38 +772,50 @@ def solicitar_substituicao_treinador(competicao, partida_id):
         if not lado:
             return _json_erro("Lado da equipe não definido.", 400)
 
-        if _int(contexto.get("subs_restantes")) <= 0:
+        contexto = _aplicar_restantes_contexto(contexto)
+        subs_restantes = _calcular_subs_restantes(contexto)
+
+        if subs_restantes <= 0:
             return _json_erro("Sua equipe não tem mais substituições disponíveis.", 400)
 
-        banco = contexto.get("banco") or []
+        payload_solicitacao = {
+            "id_solicitacao": corpo.get("id_solicitacao"),
+            "partida_id": partida_id,
+            "tipo": "substituicao",
+            "equipe": lado,
+            "equipe_nome": equipe.get("nome"),
+            "mensagem": f"{equipe.get('nome')} solicitou substituição",
+            "status": "pendente",
+            "set_atual": contexto.get("set_atual"),
+            "origem": corpo.get("origem") or "treinador_http",
+        }
 
-        if not banco:
-            return _json_erro("Sua equipe não possui atletas disponíveis no banco.", 400)
+        # Se o navegador já avisou por Socket.IO, esta rota só persiste.
+        # Se o Socket não estava conectado, a rota vira fallback e emite agora.
+        if not corpo.get("tempo_real_emitido"):
+            emitir_solicitacao_treinador(partida_id, payload_solicitacao)
 
-        registrar_solicitacao_treinador(
-            partida_id,
-            competicao,
-            lado,
-            "substituicao",
-            {
-                "equipe_nome": equipe.get("nome"),
-                "set_atual": contexto.get("set_atual"),
-            }
-        )
+        def _salvar_solicitacao_substituicao():
+            try:
+                registrar_solicitacao_treinador(
+                    partida_id,
+                    competicao,
+                    lado,
+                    "substituicao",
+                    {
+                        "equipe_nome": equipe.get("nome"),
+                        "set_atual": contexto.get("set_atual"),
+                    }
+                )
+            except Exception as e:
+                print("ERRO async registrar solicitação substituição:", repr(e), flush=True)
 
-        emitir_solicitacao_treinador(
-            partida_id,
-            {
-                "tipo": "substituicao",
-                "equipe": lado,
-                "equipe_nome": equipe.get("nome"),
-                "mensagem": f"{equipe.get('nome')} solicitou substituição",
-            }
-        )
+        threading.Thread(target=_salvar_solicitacao_substituicao, daemon=True).start()
 
-        return jsonify({
+        return _resposta_json_rapida({
             "ok": True,
-            "mensagem": "Solicitação de substituição enviada ao apontador."
+            "mensagem": "Solicitação de substituição enviada ao apontador.",
+            "solicitacao": payload_solicitacao,
         })
 
     except Exception as e:
