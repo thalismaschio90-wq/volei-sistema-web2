@@ -406,6 +406,7 @@
         let socket = null;
         let pollingRapido = null;
         let ultimaBuscaMs = 0;
+        let ultimoCronometroChave = "";
 
         function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
 
@@ -590,10 +591,28 @@
 
         function tratarSolicitacaoArbitros(dados) {
             if (!payloadDaPartida(dados)) return;
+
             const tipoRaw = String(dados.tipo || dados.evento || "").toLowerCase();
+            const origem = String(dados.origem || "").toLowerCase();
+            const status = String(dados.status || "").toLowerCase();
             const ehTempo = tipoRaw.includes("tempo");
-            const tipo = ehTempo ? "Pedido de tempo" : "Pedido de substituição";
-            mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 3600);
+            const ehSub = tipoRaw.includes("substituicao") || tipoRaw.includes("substituição") || tipoRaw.includes("sub");
+            const tipo = ehTempo ? "Pedido de tempo" : (ehSub ? "Pedido de substituição" : "Solicitação");
+
+            mostrarPopup(
+                tipo,
+                dados.equipe_nome || `Equipe ${dados.equipe || ''}`,
+                dados.mensagem || "Solicitação do treinador",
+                4200
+            );
+
+            // Se o apontador já autorizou o tempo e o backend enviou como
+            // notificacao_geral, também abrimos o cronômetro imediatamente.
+            // Pedido do treinador puro NÃO abre cronômetro.
+            if (ehTempo && origem === "apontador" && ["iniciado", "inicio", "autorizado", "executado"].includes(status || "iniciado")) {
+                receberCronometroOficial(dados);
+            }
+
             carregarEstado(true, true);
         }
 
@@ -650,6 +669,9 @@
                 return;
             }
 
+            const chave = `${dados.partida_id || PARTIDA_ID}|${dados.timestamp || dados.id_solicitacao || ''}|${dados.equipe || ''}|${dados.duracao || dados.segundos || dados.tempo || 30}`;
+            if (chave && chave === ultimoCronometroChave) return;
+            ultimoCronometroChave = chave;
             iniciarCronometro(dados);
         }
 
@@ -723,14 +745,22 @@
                 }
             });
 
+            // Solicitações vindas do treinador/apontador. Mantém compatibilidade
+            // com nomes antigos e novos de eventos para funcionar também no celular.
+            socket.on("solicitacao_treinador", tratarSolicitacaoArbitros);
+            socket.on("resposta_solicitacao", tratarSolicitacaoArbitros);
             socket.on("solicitacao_arbitros", tratarSolicitacaoArbitros);
             socket.on("notificacao_geral", tratarSolicitacaoArbitros);
             socket.on("tempo_solicitado", tratarSolicitacaoArbitros);
             socket.on("substituicao_solicitada", tratarSolicitacaoArbitros);
+            socket.on("pedido_tempo", tratarSolicitacaoArbitros);
+            socket.on("pedido_substituicao", tratarSolicitacaoArbitros);
 
             socket.on("cronometro_arbitros", receberCronometroOficial);
             socket.on("cronometro_tempo", receberCronometroOficial);
             socket.on("tempo_executado", receberCronometroOficial);
+            socket.on("tempo_autorizado", receberCronometroOficial);
+            socket.on("tempo_iniciado", receberCronometroOficial);
 
         }
 

@@ -437,6 +437,39 @@ def _rotacao_fallback_por_papeleta(papeleta):
     ]
 
 
+def _rotacao_segura_estado(estado, lado):
+    """
+    Garante que a rotação usada no clique do ponto nunca venha vazia.
+    Isso evita o bug em que o placar atualiza, mas a rotação não gira porque
+    o cache/estado não trouxe rotacao_a ou rotacao_b no formato esperado.
+    """
+    estado = estado or {}
+    lado = (lado or "").strip().upper()
+
+    chave = "rotacao_a" if lado == "A" else "rotacao_b"
+    rotacao = estado.get(chave)
+
+    # Compatibilidade com payloads antigos que guardam as rotações dentro de "rotacao".
+    if not rotacao and isinstance(estado.get("rotacao"), dict):
+        rotacao = estado["rotacao"].get("equipe_a" if lado == "A" else "equipe_b")
+
+    if not isinstance(rotacao, list):
+        rotacao = []
+
+    normalizada = []
+    for item in rotacao:
+        if isinstance(item, dict):
+            numero = item.get("numero") or item.get("camisa") or item.get("n") or ""
+        else:
+            numero = item
+        normalizada.append(str(numero or "").strip())
+
+    while len(normalizada) < 6:
+        normalizada.append("")
+
+    return normalizada[:6]
+
+
 def _montar_evolucao_pontos(partida_id, competicao):
     try:
         eventos = listar_eventos_partida(partida_id, competicao, limite=80) or []
@@ -1263,23 +1296,9 @@ def jogo_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/ponto", methods=["POST"])
 @exigir_perfil("apontador")
 def ponto_view(competicao, partida_id):
-    print("🔥 ENTROU NO PONTO_VIEW POST")
-
     try:
-        import threading
-        from socket_events import (
-            obter_estado_cache,
-            atualizar_estado_cache,
-            emitir_estado_partida,
-            emitir_placar_apontador
-        )
-        from banco import girar_rotacao_oficial, registrar_ponto_partida
-
         corpo = request.get_json(silent=True) or {}
 
-        # =========================
-        # 🔥 VALIDAÇÕES (INALTERADAS)
-        # =========================
         equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
@@ -1298,9 +1317,6 @@ def ponto_view(competicao, partida_id):
 
         if tipo_lance not in {"ponto", "erro", "falta"}:
             return _json_no_cache({"ok": False, "mensagem": "Tipo de lance inválido."}, 400)
-
-        if not detalhe_lance and not resultado and not fundamento:
-            return _json_no_cache({"ok": False, "mensagem": "Selecione o detalhe da jogada."}, 400)
 
         detalhe_final = (detalhe_lance or tipo_erro or resultado or fundamento).strip().lower()
 
@@ -1326,11 +1342,12 @@ def ponto_view(competicao, partida_id):
         def _lado_oposto(lado):
             return "B" if lado == "A" else "A"
 
-        # equipe = lado que GANHA o ponto e atualiza o placar.
-        # Para erro/falta, o scout deve cair no lado que cometeu o erro/falta.
-        # O frontend envia responsavel_lado; se não vier, calculamos pelo oposto.
         equipe_pontuadora = equipe
-        responsavel_lado = (request.form.get("responsavel_lado") or corpo.get("responsavel_lado") or "").strip().upper()
+        responsavel_lado = (
+            request.form.get("responsavel_lado")
+            or corpo.get("responsavel_lado")
+            or ""
+        ).strip().upper()
 
         if tipo_lance in {"erro", "falta"}:
             equipe_scout = responsavel_lado if responsavel_lado in {"A", "B"} else _lado_oposto(equipe_pontuadora)
@@ -1346,153 +1363,38 @@ def ponto_view(competicao, partida_id):
             "atleta_numero": atleta_numero,
             "atleta_nome": atleta_nome,
             "atleta_label": atleta_label,
-
-            # REGRA OFICIAL DO SCOUT:
-            # - equipe_pontuadora atualiza o placar/saque/rotação;
-            # - equipe_scout é quem recebe o fundamento no scout.
-            # Ex.: erro de saque da B = ponto para A, scout de erro para B.
             "equipe_pontuadora": equipe_pontuadora,
             "equipe_scout": equipe_scout,
             "responsavel_lado": equipe_scout,
         }
 
-        # =========================
-        # ⚡ CACHE (ULTRA RÁPIDO)
-        # =========================
-        estado = obter_estado_cache(partida_id)
-
-        if not estado:
-            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
-
-        # =========================
-        # ⚡ ATUALIZA LOCAL (INSTANTÂNEO)
-        # =========================
-        estado["pontos_a"] = int(estado.get("pontos_a", 0))
-        estado["pontos_b"] = int(estado.get("pontos_b", 0))
-
-        if equipe == "A":
-            estado["pontos_a"] += 1
-        else:
-            estado["pontos_b"] += 1
-
-        saque = estado.get("saque_atual")
-
-        if saque != equipe:
-            estado["saque_atual"] = equipe
-
-            if equipe == "A":
-                estado["rotacao_a"] = girar_rotacao_oficial(estado.get("rotacao_a"))
-            else:
-                estado["rotacao_b"] = girar_rotacao_oficial(estado.get("rotacao_b"))
-
-        # =========================
-        # 🏁 FIM DE SET / PARTIDA NO CACHE (NÃO ESPERA BANCO)
-        # =========================
-        estado["sets_a"] = int(estado.get("sets_a") or 0)
-        estado["sets_b"] = int(estado.get("sets_b") or 0)
-        estado["set_atual"] = int(estado.get("set_atual") or 1)
-
-        formato_regra = (estado.get("regra_sets_tipo") or estado.get("sets_tipo") or "set_unico").strip().lower()
-        if formato_regra not in {"set_unico", "melhor_de_3", "melhor_de_5"}:
-            formato_regra = "set_unico"
-
-        sets_para_vencer = int(estado.get("sets_para_vencer") or (1 if formato_regra == "set_unico" else (3 if formato_regra == "melhor_de_5" else 2)))
-        pontos_set = int(estado.get("pontos_set") or estado.get("ponto_alvo_set") or estado.get("pontos_para_vencer_set") or 21)
-        pontos_tiebreak = int(estado.get("pontos_tiebreak") or 15)
-        diferenca_minima = int(estado.get("diferenca_minima") or 2)
-
-        tem_tiebreak_raw = estado.get("tem_tiebreak")
-        if tem_tiebreak_raw is None:
-            tem_tiebreak = formato_regra in {"melhor_de_3", "melhor_de_5"}
-        else:
-            tem_tiebreak = str(tem_tiebreak_raw).strip().lower() in {"1", "true", "t", "sim", "s", "yes"}
-
-        alvo_set = pontos_set
-        if tem_tiebreak and ((formato_regra == "melhor_de_3" and estado["set_atual"] == 3) or (formato_regra == "melhor_de_5" and estado["set_atual"] == 5)):
-            alvo_set = pontos_tiebreak
-
-        fim_set = (
-            (estado["pontos_a"] >= alvo_set or estado["pontos_b"] >= alvo_set)
-            and abs(estado["pontos_a"] - estado["pontos_b"]) >= diferenca_minima
+        ok, retorno = registrar_ponto_partida(
+            partida_id=partida_id,
+            competicao=competicao,
+            equipe=equipe,
+            tipo="ponto",
+            detalhes=detalhes_evento
         )
 
-        estado["regra_sets_tipo"] = formato_regra
-        estado["sets_para_vencer"] = sets_para_vencer
-        estado["pontos_set"] = pontos_set
-        estado["pontos_tiebreak"] = pontos_tiebreak
-        estado["diferenca_minima"] = diferenca_minima
-        estado["alvo_set"] = alvo_set
+        if not ok:
+            mensagem = retorno if isinstance(retorno, str) else "Não foi possível registrar o ponto."
+            return _json_no_cache({"ok": False, "mensagem": mensagem}, 400)
 
-        if fim_set:
-            vencedor_set = "A" if estado["pontos_a"] > estado["pontos_b"] else "B"
-            if vencedor_set == "A":
-                estado["sets_a"] += 1
-            else:
-                estado["sets_b"] += 1
+        estado = retorno if isinstance(retorno, dict) else {}
+        estado["competicao"] = competicao
+        estado["partida_id"] = partida_id
 
-            fim_jogo = estado["sets_a"] >= sets_para_vencer or estado["sets_b"] >= sets_para_vencer
-            estado["fim_set"] = True
-            estado["set_finalizado"] = True
-            estado["vencedor_set"] = vencedor_set
+        if not estado.get("historico") or not estado.get("ultima_acao"):
+            historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
+            estado["historico"] = historico
+            estado["ultima_acao"] = ultima_acao or "Ponto registrado"
 
-            if fim_jogo:
-                estado["fim_jogo"] = True
-                estado["partida_finalizada"] = True
-                estado["fase_partida"] = "encerrado"
-                estado["status_jogo"] = "finalizada"
-                estado["vencedor_partida"] = "A" if estado["sets_a"] > estado["sets_b"] else "B"
-                estado["ultima_acao"] = "Partida finalizada"
-            else:
-                estado["fim_jogo"] = False
-                estado["partida_finalizada"] = False
-                estado["fase_partida"] = "entre_sets"
-                estado["status_jogo"] = "entre_sets"
-                estado["ultima_acao"] = "Set finalizado"
-        else:
-            estado["fim_set"] = False
-            estado["fim_jogo"] = False
-            estado["partida_finalizada"] = False
-            estado["fase_partida"] = "jogo"
-            estado["status_jogo"] = "em_andamento"
-            estado["ultima_acao"] = "Ponto registrado"
-
-        historico = estado.get("historico") or []
-        if not isinstance(historico, list):
-            historico = []
-        descricao_ponto = f"{equipe} • {tipo_lance} • {detalhe_final}" + (f" • {atleta_label or atleta_nome or atleta_numero}" if (atleta_label or atleta_nome or atleta_numero) else "")
-        historico.insert(0, {"descricao": estado.get("ultima_acao") if fim_set else descricao_ponto})
-        estado["historico"] = historico[:5]
-
-        # =========================
-        # ⚡ ATUALIZA CACHE
-        # =========================
-        atualizar_estado_cache(partida_id, estado)
-
-        # =========================
-        # ⚡ SOCKET IMEDIATO
-        # =========================
-        apontador = session.get("usuario") or ""
-        estado["apontador"] = apontador
-
-        emitir_estado_partida(partida_id, estado)
-        emitir_placar_apontador(apontador, partida_id, estado)
-
-        # =========================
-        # 💾 BANCO EM BACKGROUND (SEM TRAVAR)
-        # =========================
-        def salvar():
-            try:
-                registrar_ponto_partida(
-                    partida_id=partida_id,
-                    competicao=competicao,
-                    equipe=equipe,
-                    tipo="ponto",
-                    detalhes=detalhes_evento
-                )
-            except Exception as e:
-                print("ERRO salvar ponto:", e)
-
-        threading.Thread(target=salvar).start()
+        estado = _emitir_estado_e_placar(
+            partida_id,
+            competicao,
+            estado=estado,
+            origem="PONTO_OFICIAL"
+        )
 
         return _json_no_cache({
             "ok": True,
@@ -1501,7 +1403,7 @@ def ponto_view(competicao, partida_id):
         })
 
     except Exception as e:
-        print("ERRO ponto_view:", e)
+        print("ERRO ponto_view:", e, flush=True)
         return _json_no_cache({
             "ok": False,
             "mensagem": f"Erro ao registrar ponto: {e}"
@@ -1718,35 +1620,95 @@ def registrar_tempo_view(competicao, partida_id):
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
-        # Fluxo rápido: valida pelo cache/estado, responde e emite socket primeiro.
+        # =========================
+        # ⚡ ESTADO ATUAL (SEM BANCO PESADO)
+        # =========================
         estado_atual = dict(obter_estado_cache(partida_id) or {})
         if not estado_atual:
             estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
         estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, {})
-        usado = _int_seguro(estado_atual.get("tempos_a") if equipe == "A" else estado_atual.get("tempos_b"), 0)
+
+        usado = _int_seguro(
+            estado_atual.get("tempos_a") if equipe == "A" else estado_atual.get("tempos_b"), 0
+        )
         limite = _int_seguro(estado_atual.get("limite_tempos"), 2)
 
         if usado >= limite:
-            return _json_no_cache({"ok": False, "mensagem": f"Limite de tempos atingido para a Equipe {equipe} neste set.", **estado_atual}, 400)
+            return _json_no_cache({
+                "ok": False,
+                "mensagem": f"Limite de tempos atingido para a Equipe {equipe} neste set.",
+                **estado_atual
+            }, 400)
 
-        estado = _acao_rapida(partida_id, competicao, "tempo", equipe)
+        # =========================
+        # ⚡ ATUALIZA NA HORA (SEM ESPERAR)
+        # =========================
+        estado = _acao_rapida(
+            partida_id,
+            competicao,
+            "tempo",
+            equipe,
+            {
+                "descricao": f"Tempo solicitado - Equipe {equipe}"
+            }
+        )
 
-        # Cronômetro oficial: só dispara aqui, após o apontador/mesário clicar em Tempo.
-        emitir_tempo_executado(partida_id, {
-            "equipe": equipe,
-            "equipe_nome": estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b"),
+        equipe_nome = estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b")
+
+        payload = {
+            "partida_id": partida_id,
+            "competicao": competicao,
+            "tipo": "tempo",
+            "status": "iniciado",
             "duracao": 30,
-            "mensagem": f"Tempo autorizado - Equipe {equipe}",
+            "equipe": equipe,
+            "equipe_nome": equipe_nome,
+            "mensagem": f"Tempo - {equipe_nome}",
             "origem": "apontador",
+            "timestamp": time.time()
+        }
+
+        # =========================
+        # 🚀 SOCKET IMEDIATO (SEM DELAY)
+        # =========================
+        try:
+            # cronômetro
+            emitir_tempo_executado(partida_id, payload)
+
+            # 🔥 FORÇA ATUALIZAÇÃO EM TODAS TELAS (inclui celular)
+            emitir_estado_partida(partida_id, estado)
+
+            # 🔥 Garante que celular receba como notificação também
+            socketio.emit("cronometro_arbitros", payload, room=str(partida_id))
+            socketio.emit("notificacao_geral", payload, room=str(partida_id))
+
+        except Exception as e:
+            print("ERRO socket tempo:", e, flush=True)
+
+        # =========================
+        # 💾 BANCO EM BACKGROUND (SEM TRAVAR)
+        # =========================
+        _salvar_async(
+            "tempo",
+            registrar_tempo_partida,
+            partida_id,
+            competicao,
+            equipe
+        )
+
+        return _json_no_cache({
+            "ok": True,
+            "mensagem": "Tempo registrado.",
+            **estado
         })
 
-        _salvar_async("tempo", registrar_tempo_partida, partida_id, competicao, equipe)
-
-        return _json_no_cache({"ok": True, "mensagem": "Tempo registrado.", **estado})
-
     except Exception as e:
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"}, 500)
+        print("ERRO registrar_tempo_view:", e, flush=True)
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao registrar tempo: {e}"
+        }, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao", methods=["POST"])

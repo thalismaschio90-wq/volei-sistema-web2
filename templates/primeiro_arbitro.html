@@ -560,10 +560,19 @@
 
         function tratarSolicitacaoArbitros(dados) {
             if (!payloadDaPartida(dados)) return;
+
             const tipoRaw = String(dados.tipo || dados.evento || "").toLowerCase();
             const ehTempo = tipoRaw.includes("tempo");
-            const tipo = ehTempo ? "Pedido de tempo" : "Pedido de substituição";
-            mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 3600);
+            const ehSub = tipoRaw.includes("substituicao") || tipoRaw.includes("substituição") || tipoRaw.includes("sub");
+            const tipo = ehTempo ? "Pedido de tempo" : (ehSub ? "Pedido de substituição" : "Solicitação");
+
+            mostrarPopup(
+                tipo,
+                dados.equipe_nome || `Equipe ${dados.equipe || ''}`,
+                dados.mensagem || "Solicitação do treinador",
+                4200
+            );
+
             carregarEstado(true, true);
         }
 
@@ -637,10 +646,16 @@
                 }
             });
 
+            // Solicitações vindas do treinador/apontador. Mantém compatibilidade
+            // com nomes antigos e novos de eventos para funcionar também no celular.
+            socket.on("solicitacao_treinador", tratarSolicitacaoArbitros);
+            socket.on("resposta_solicitacao", tratarSolicitacaoArbitros);
             socket.on("solicitacao_arbitros", tratarSolicitacaoArbitros);
             socket.on("notificacao_geral", tratarSolicitacaoArbitros);
             socket.on("tempo_solicitado", tratarSolicitacaoArbitros);
             socket.on("substituicao_solicitada", tratarSolicitacaoArbitros);
+            socket.on("pedido_tempo", tratarSolicitacaoArbitros);
+            socket.on("pedido_substituicao", tratarSolicitacaoArbitros);
 
         }
 

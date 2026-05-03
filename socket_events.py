@@ -318,39 +318,72 @@ def emitir_solicitacao_treinador(partida_id, dados):
         return
 
     dados = dict(dados or {})
+
     tipo = str(dados.get("tipo") or "").strip().lower()
     equipe = str(dados.get("equipe") or dados.get("lado") or "").strip().upper()
     equipe_nome = str(dados.get("equipe_nome") or "").strip()
-    texto_tipo = "tempo" if tipo == "tempo" else "substituição" if tipo in {"substituicao", "substituição"} else "solicitação"
+
+    texto_tipo = (
+        "tempo"
+        if tipo == "tempo"
+        else "substituição"
+        if tipo in {"substituicao", "substituição"}
+        else "solicitação"
+    )
 
     payload = {
         "id_solicitacao": dados.get("id_solicitacao"),
         "partida_id": str(partida_id),
+        "competicao": str(dados.get("competicao") or ""),
         "tipo": "substituicao" if tipo == "substituição" else tipo,
         "equipe": equipe,
         "equipe_nome": equipe_nome,
-        "mensagem": str(dados.get("mensagem") or (f"{equipe_nome} solicitou {texto_tipo}" if equipe_nome else f"Equipe {equipe or '-'} solicitou {texto_tipo}")).strip(),
+        "mensagem": str(
+            dados.get("mensagem")
+            or (
+                f"{equipe_nome} solicitou {texto_tipo}"
+                if equipe_nome
+                else f"Equipe {equipe or '-'} solicitou {texto_tipo}"
+            )
+        ).strip(),
         "status": str(dados.get("status") or "pendente").strip().lower(),
         "origem": str(dados.get("origem") or "treinador_http").strip(),
         "duracao": _to_int(dados.get("duracao") or dados.get("segundos") or 30, 30),
+        "timestamp": time.time(),  # 🔥 importante pro mobile não ignorar evento antigo
         **dados,
     }
 
     payload = _json_safe(payload)
 
-    # Um único pedido precisa chegar em TODAS as telas vivas da partida.
+    # =========================
+    # 🚀 ENVIO GARANTIDO (TODAS TELAS)
+    # =========================
     eventos = (
         "solicitacao_treinador",   # apontador
         "resposta_solicitacao",    # treinador
-        "solicitacao_arbitros",    # árbitro 1 e 2
-        "notificacao_geral",       # fallback universal para telas novas/antigas
+        "solicitacao_arbitros",    # árbitros
+        "notificacao_geral",       # fallback universal
     )
-    for evento in eventos:
-        _emitir_salas(evento, payload, partida_id)
 
-    # IMPORTANTE: pedido do treinador NÃO inicia cronômetro.
-    # Ele apenas notifica apontador, 1º árbitro e 2º árbitro.
-    # O cronômetro oficial só é emitido quando o apontador registra Tempo A/B.
+    for evento in eventos:
+        try:
+            _emitir_salas(evento, payload, partida_id)
+        except Exception as e:
+            print(f"ERRO emitir {evento}:", e, flush=True)
+
+    # =========================
+    # 🔥 REFORÇO EXTRA (CELULAR)
+    # =========================
+    try:
+        # força broadcast direto também
+        socketio.emit("solicitacao_arbitros", payload, room=str(partida_id))
+        socketio.emit("notificacao_geral", payload, room=str(partida_id))
+    except Exception as e:
+        print("ERRO fallback socket:", e, flush=True)
+
+    # IMPORTANTE:
+    # 👉 NÃO iniciar cronômetro aqui
+    # 👉 só notificar
 
 
 # =========================
