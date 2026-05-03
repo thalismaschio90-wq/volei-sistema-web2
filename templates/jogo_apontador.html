@@ -384,6 +384,142 @@
     font-weight:900;
 }
 
+
+/* =========================================================
+   TECLAS DE ATALHO DO APONTADOR
+   ========================================================= */
+.btn-atalhos-apontador {
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-weight: 900;
+    cursor: pointer;
+    background: #111827;
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(0,0,0,.14);
+}
+
+.modal-atalhos-apontador {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(15,23,42,.72);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+}
+
+.modal-atalhos-apontador.aberto {
+    display: flex;
+}
+
+.modal-atalhos-card {
+    width: min(560px, 96vw);
+    max-height: 92vh;
+    overflow: auto;
+    background: #ffffff;
+    color: #183247;
+    border-radius: 20px;
+    padding: 18px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.35);
+}
+
+.modal-atalhos-topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.modal-atalhos-topo h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 900;
+}
+
+.modal-atalhos-fechar {
+    border: 0;
+    background: #f1f5f9;
+    color: #0f172a;
+    border-radius: 10px;
+    width: 38px;
+    height: 38px;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.atalhos-ajuda {
+    margin: 10px 0 14px;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.35;
+}
+
+.atalhos-lista-apontador {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.atalho-item-apontador {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid #dbe3ef;
+    background: #f8fafc;
+    color: #183247;
+    padding: 11px 12px;
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    text-align: left;
+}
+
+.atalho-item-apontador.aguardando {
+    border-color: #16a34a;
+    background: #dcfce7;
+}
+
+.atalho-tecla-apontador {
+    min-width: 78px;
+    text-align: center;
+    background: #111827;
+    color: #fff;
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.atalhos-acoes-apontador {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.atalhos-acoes-apontador button {
+    border: 0;
+    border-radius: 12px;
+    padding: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.atalhos-salvar {
+    background: #16a34a;
+    color: white;
+}
+
+.atalhos-limpar {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -397,6 +533,9 @@
 
     <div class="linha-principal">
         <span id="nome-a">{{ partida.equipe_a }}</span> x <span id="nome-b">{{ partida.equipe_b }}</span>
+    </div>
+    <div style="margin-top:12px; display:flex; justify-content:center;">
+        <button id="btn-abrir-atalhos-apontador" class="btn-atalhos-apontador" type="button">⚙️ Teclas de atalho</button>
     </div>
 </div>
 
@@ -3426,3 +3565,255 @@ modalSubExFundo.addEventListener("click", function (event) {
 })();
 </script>
 {% endblock %}
+
+<script>
+(function () {
+    const modal = document.getElementById("modal-atalhos-apontador");
+    const btnAbrir = document.getElementById("btn-abrir-atalhos-apontador");
+    const btnFechar = document.getElementById("btn-fechar-atalhos-apontador");
+    const btnSalvar = document.getElementById("btn-salvar-atalhos-apontador");
+    const btnLimpar = document.getElementById("btn-limpar-atalhos-apontador");
+
+    const atalhosPadrao = {
+        ponto_a: "",
+        ponto_b: "",
+        desfazer: "",
+        tempo_a: "",
+        tempo_b: "",
+        substituicao_a: "",
+        substituicao_b: "",
+        sancao: "",
+        cartao_verde: "",
+        retardamento: "",
+        sub_excepcional: "",
+        wo_a: "",
+        wo_b: "",
+        fullscreen: "",
+        placar_ao_vivo: "",
+        inverter_lados: ""
+    };
+
+    const mapaBotoes = {
+        ponto_a: "#btn-ponto-a",
+        ponto_b: "#btn-ponto-b",
+        desfazer: "#btn-desfazer",
+        tempo_a: "#btn-tempo-a",
+        tempo_b: "#btn-tempo-b",
+        substituicao_a: "#btn-sub-a",
+        substituicao_b: "#btn-sub-b",
+        sancao: "#btn-sancao",
+        cartao_verde: "#btn-verde",
+        retardamento: "#btn-retardamento",
+        sub_excepcional: "#btn-sub-excepcional",
+        wo_a: "#btn-wo-a",
+        wo_b: "#btn-wo-b",
+        fullscreen: "#btn-fullscreen",
+        placar_ao_vivo: "#btn-abrir-placar",
+        inverter_lados: "#btn-inverter-lados"
+    };
+
+    let atalhos = Object.assign({}, atalhosPadrao);
+    let acaoCapturando = null;
+
+    function modalAberto() {
+        return modal && modal.classList.contains("aberto");
+    }
+
+    function abrirModal() {
+        if (!modal) return;
+        acaoCapturando = null;
+        modal.classList.add("aberto");
+        modal.setAttribute("aria-hidden", "false");
+        atualizarTela();
+    }
+
+    function fecharModal() {
+        if (!modal) return;
+        acaoCapturando = null;
+        modal.classList.remove("aberto");
+        modal.setAttribute("aria-hidden", "true");
+        document.querySelectorAll(".atalho-item-apontador").forEach((btn) => btn.classList.remove("aguardando"));
+        atualizarTela();
+    }
+
+    function teclaDoEvento(event) {
+        let principal = event.key || "";
+
+        if (principal === " ") principal = "ESPAÇO";
+        else if (principal === "ArrowUp") principal = "↑";
+        else if (principal === "ArrowDown") principal = "↓";
+        else if (principal === "ArrowLeft") principal = "←";
+        else if (principal === "ArrowRight") principal = "→";
+        else if (principal.length === 1) principal = principal.toUpperCase();
+        else principal = principal.toUpperCase();
+
+        const ignorarSozinha = ["SHIFT", "CONTROL", "CTRL", "ALT", "META", "TAB", "CAPSLOCK"];
+        if (ignorarSozinha.includes(principal)) return "";
+
+        const partes = [];
+        if (event.ctrlKey && principal !== "CONTROL" && principal !== "CTRL") partes.push("CTRL");
+        if (event.altKey && principal !== "ALT") partes.push("ALT");
+        if (event.shiftKey && principal !== "SHIFT" && principal.length > 1) partes.push("SHIFT");
+
+        partes.push(principal);
+        return partes.join("+");
+    }
+
+    function alvoDigitavel() {
+        const el = document.activeElement;
+        if (!el) return false;
+
+        const tag = String(el.tagName || "").toLowerCase();
+        if (["input", "textarea", "select"].includes(tag)) return true;
+        if (el.isContentEditable) return true;
+
+        return false;
+    }
+
+    function atualizarTela() {
+        document.querySelectorAll(".atalho-item-apontador").forEach((btn) => {
+            const acao = btn.dataset.atalhoAcao;
+            const span = btn.querySelector(".atalho-tecla-apontador");
+            if (!span) return;
+
+            if (acaoCapturando === acao) {
+                span.textContent = "pressione...";
+            } else {
+                span.textContent = atalhos[acao] || "-";
+            }
+        });
+    }
+
+    function escolherAcao(btn) {
+        acaoCapturando = btn.dataset.atalhoAcao;
+
+        document.querySelectorAll(".atalho-item-apontador").forEach((item) => {
+            item.classList.toggle("aguardando", item === btn);
+        });
+
+        atualizarTela();
+    }
+
+    function definirTecla(tecla) {
+        if (!acaoCapturando || !tecla) return;
+
+        Object.keys(atalhos).forEach((acao) => {
+            if (atalhos[acao] === tecla) atalhos[acao] = "";
+        });
+
+        atalhos[acaoCapturando] = tecla;
+        acaoCapturando = null;
+
+        document.querySelectorAll(".atalho-item-apontador").forEach((btn) => btn.classList.remove("aguardando"));
+        atualizarTela();
+    }
+
+    function buscarAcao(tecla) {
+        return Object.keys(atalhos).find((acao) => atalhos[acao] === tecla) || "";
+    }
+
+    function executarAcao(acao) {
+        const seletor = mapaBotoes[acao];
+        if (!seletor) return;
+
+        const botao = document.querySelector(seletor);
+        if (!botao || botao.disabled) return;
+
+        botao.click();
+    }
+
+    async function carregarAtalhos() {
+        try {
+            const resp = await fetch("/apontador/atalhos", {
+                method: "GET",
+                headers: {"Accept": "application/json"},
+                cache: "no-store"
+            });
+            const json = await resp.json();
+
+            if (json && json.ok) {
+                atalhos = Object.assign({}, atalhosPadrao, json.atalhos || {});
+                atualizarTela();
+            }
+        } catch (e) {
+            console.warn("Erro ao carregar atalhos:", e);
+        }
+    }
+
+    async function salvarAtalhos() {
+        try {
+            const resp = await fetch("/apontador/atalhos/salvar", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                body: JSON.stringify({atalhos})
+            });
+            const json = await resp.json();
+
+            if (!json || !json.ok) {
+                alert((json && json.erro) || "Erro ao salvar atalhos.");
+                return;
+            }
+
+            fecharModal();
+        } catch (e) {
+            alert("Erro ao salvar atalhos.");
+        }
+    }
+
+    function limparAtalhos() {
+        atalhos = Object.assign({}, atalhosPadrao);
+        acaoCapturando = null;
+        document.querySelectorAll(".atalho-item-apontador").forEach((btn) => btn.classList.remove("aguardando"));
+        atualizarTela();
+    }
+
+    if (btnAbrir) btnAbrir.addEventListener("click", abrirModal);
+    if (btnFechar) btnFechar.addEventListener("click", fecharModal);
+    if (btnSalvar) btnSalvar.addEventListener("click", salvarAtalhos);
+    if (btnLimpar) btnLimpar.addEventListener("click", limparAtalhos);
+
+    if (modal) {
+        modal.addEventListener("click", function (event) {
+            if (event.target === modal) fecharModal();
+        });
+    }
+
+    document.querySelectorAll(".atalho-item-apontador").forEach((btn) => {
+        btn.addEventListener("click", function () {
+            escolherAcao(btn);
+        });
+    });
+
+    document.addEventListener("keydown", function (event) {
+        const tecla = teclaDoEvento(event);
+        if (!tecla) return;
+
+        if (modalAberto() && acaoCapturando) {
+            event.preventDefault();
+            event.stopPropagation();
+            definirTecla(tecla);
+            return;
+        }
+
+        if (modalAberto()) {
+            if (tecla === "ESCAPE") fecharModal();
+            return;
+        }
+
+        if (alvoDigitavel()) return;
+
+        const acao = buscarAcao(tecla);
+        if (!acao) return;
+
+        event.preventDefault();
+        executarAcao(acao);
+    }, true);
+
+    document.addEventListener("DOMContentLoaded", carregarAtalhos);
+    carregarAtalhos();
+})();
+</script>
+

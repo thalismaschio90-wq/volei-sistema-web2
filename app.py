@@ -4,7 +4,7 @@ import os
 from extensions import socketio
 
 # 🔥 IMPORTANTE (ROTAÇÃO PROFISSIONAL)
-from banco import criar_estrutura_rotacao_profissional
+from banco import criar_estrutura_rotacao_profissional, criar_tabela_atalhos_apontador
 
 from routes.auth import auth_bp
 from routes.painel import painel_bp
@@ -25,6 +25,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "voleitablepro")
 
 # 🔥 ESSENCIAL — GARANTE BANCO PRONTO
 criar_estrutura_rotacao_profissional()
+criar_tabela_atalhos_apontador()
 
 socketio.init_app(
     app,

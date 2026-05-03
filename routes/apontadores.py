@@ -44,6 +44,8 @@ from banco import (
     garantir_estado_partida,
     listar_eventos_partida,
     aplicar_capitaes_padrao_partida,
+    listar_atalhos_apontador as banco_listar_atalhos_apontador,
+    salvar_atalhos_apontador as banco_salvar_atalhos_apontador,
 )
 from routes.utils import exigir_perfil
 from socket_events import (
@@ -81,6 +83,88 @@ def _limpar_cache_atletas(equipe=None, competicao=None):
         return
     _CACHE_ATLETAS_EQUIPE.pop(((competicao or "").strip(), (equipe or "").strip()), None)
 
+
+
+# =========================================================
+# TECLAS DE ATALHO DO APONTADOR
+# =========================================================
+ATALHOS_APONTADOR_PADRAO = {
+    "ponto_a": "",
+    "ponto_b": "",
+    "desfazer": "",
+    "tempo_a": "",
+    "tempo_b": "",
+    "substituicao_a": "",
+    "substituicao_b": "",
+    "sancao": "",
+    "cartao_verde": "",
+    "retardamento": "",
+    "sub_excepcional": "",
+    "wo_a": "",
+    "wo_b": "",
+    "fullscreen": "",
+    "placar_ao_vivo": "",
+    "inverter_lados": "",
+}
+
+
+def _login_apontador_sessao():
+    return (
+        session.get("usuario_login")
+        or session.get("login")
+        or session.get("apontador_login")
+        or session.get("usuario")
+        or ""
+    )
+
+
+@apontadores_bp.route("/apontador/atalhos", methods=["GET"])
+@exigir_perfil("apontador")
+def listar_atalhos_apontador_view():
+    login = _login_apontador_sessao()
+
+    try:
+        atalhos = dict(ATALHOS_APONTADOR_PADRAO)
+        atalhos.update(banco_listar_atalhos_apontador(login) or {})
+
+        return _json_no_cache({
+            "ok": True,
+            "atalhos": atalhos,
+        })
+
+    except Exception as e:
+        print("ERRO listar_atalhos_apontador_view:", e)
+        return _json_no_cache({
+            "ok": False,
+            "erro": "Erro ao carregar atalhos do apontador.",
+        }, 500)
+
+
+@apontadores_bp.route("/apontador/atalhos/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_atalhos_apontador_view():
+    login = _login_apontador_sessao()
+    dados = request.get_json(silent=True) or {}
+    atalhos_recebidos = dados.get("atalhos") or {}
+
+    try:
+        atalhos = {}
+        for acao in ATALHOS_APONTADOR_PADRAO.keys():
+            atalhos[acao] = str(atalhos_recebidos.get(acao) or "").strip().upper()
+
+        banco_salvar_atalhos_apontador(login, atalhos)
+
+        return _json_no_cache({
+            "ok": True,
+            "mensagem": "Atalhos salvos com sucesso.",
+        })
+
+    except Exception as e:
+        print("ERRO salvar_atalhos_apontador_view:", e)
+        return _json_no_cache({
+            "ok": False,
+            "erro": "Erro ao salvar atalhos do apontador.",
+        }, 500)
 
 # =========================================================
 # HELPERS
@@ -1304,17 +1388,40 @@ def ponto_view(competicao, partida_id):
         # =========================
         # 🏁 FIM DE SET / PARTIDA NO CACHE (NÃO ESPERA BANCO)
         # =========================
-        pontos_set = int(estado.get("pontos_set") or estado.get("ponto_alvo_set") or estado.get("pontos_para_vencer_set") or 21)
-        diferenca_minima = int(estado.get("diferenca_minima") or 2)
-        sets_para_vencer = int(estado.get("sets_para_vencer") or 2)
         estado["sets_a"] = int(estado.get("sets_a") or 0)
         estado["sets_b"] = int(estado.get("sets_b") or 0)
         estado["set_atual"] = int(estado.get("set_atual") or 1)
 
+        formato_regra = (estado.get("regra_sets_tipo") or estado.get("sets_tipo") or "set_unico").strip().lower()
+        if formato_regra not in {"set_unico", "melhor_de_3", "melhor_de_5"}:
+            formato_regra = "set_unico"
+
+        sets_para_vencer = int(estado.get("sets_para_vencer") or (1 if formato_regra == "set_unico" else (3 if formato_regra == "melhor_de_5" else 2)))
+        pontos_set = int(estado.get("pontos_set") or estado.get("ponto_alvo_set") or estado.get("pontos_para_vencer_set") or 21)
+        pontos_tiebreak = int(estado.get("pontos_tiebreak") or 15)
+        diferenca_minima = int(estado.get("diferenca_minima") or 2)
+
+        tem_tiebreak_raw = estado.get("tem_tiebreak")
+        if tem_tiebreak_raw is None:
+            tem_tiebreak = formato_regra in {"melhor_de_3", "melhor_de_5"}
+        else:
+            tem_tiebreak = str(tem_tiebreak_raw).strip().lower() in {"1", "true", "t", "sim", "s", "yes"}
+
+        alvo_set = pontos_set
+        if tem_tiebreak and ((formato_regra == "melhor_de_3" and estado["set_atual"] == 3) or (formato_regra == "melhor_de_5" and estado["set_atual"] == 5)):
+            alvo_set = pontos_tiebreak
+
         fim_set = (
-            (estado["pontos_a"] >= pontos_set or estado["pontos_b"] >= pontos_set)
+            (estado["pontos_a"] >= alvo_set or estado["pontos_b"] >= alvo_set)
             and abs(estado["pontos_a"] - estado["pontos_b"]) >= diferenca_minima
         )
+
+        estado["regra_sets_tipo"] = formato_regra
+        estado["sets_para_vencer"] = sets_para_vencer
+        estado["pontos_set"] = pontos_set
+        estado["pontos_tiebreak"] = pontos_tiebreak
+        estado["diferenca_minima"] = diferenca_minima
+        estado["alvo_set"] = alvo_set
 
         if fim_set:
             vencedor_set = "A" if estado["pontos_a"] > estado["pontos_b"] else "B"

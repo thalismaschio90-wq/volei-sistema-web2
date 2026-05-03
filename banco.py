@@ -7314,6 +7314,129 @@ def garantir_estado_partida(partida_id, competicao):
 # MODO TREINADOR
 # =========================================================
 
+
+def criar_tabela_atalhos_apontador(force=False):
+    chave = "atalhos_apontador"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS atalhos_apontador (
+                    id SERIAL PRIMARY KEY,
+                    apontador_login TEXT NOT NULL,
+                    acao TEXT NOT NULL,
+                    tecla TEXT NOT NULL,
+                    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (apontador_login, acao)
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_atalhos_apontador_login
+                ON atalhos_apontador (apontador_login)
+            """)
+        conn.commit()
+
+
+def listar_atalhos_apontador(apontador_login):
+    criar_tabela_atalhos_apontador()
+
+    login = str(apontador_login or "").strip()
+    if not login:
+        return {}
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT acao, tecla
+                FROM atalhos_apontador
+                WHERE apontador_login = %s
+            """, (login,))
+            rows = cur.fetchall()
+
+    atalhos = {}
+    for row in rows or []:
+        acao = row.get("acao") if isinstance(row, dict) else row[0]
+        tecla = row.get("tecla") if isinstance(row, dict) else row[1]
+        atalhos[str(acao or "").strip()] = str(tecla or "").strip().upper()
+
+    return atalhos
+
+
+def salvar_atalhos_apontador(apontador_login, atalhos):
+    criar_tabela_atalhos_apontador()
+
+    login = str(apontador_login or "").strip()
+    if not login:
+        return False
+
+    if not isinstance(atalhos, dict):
+        atalhos = {}
+
+    acoes_permitidas = {
+        "ponto_a",
+        "ponto_b",
+        "desfazer",
+        "tempo_a",
+        "tempo_b",
+        "substituicao_a",
+        "substituicao_b",
+        "sancao",
+        "cartao_verde",
+        "retardamento",
+        "sub_excepcional",
+        "wo_a",
+        "wo_b",
+        "fullscreen",
+        "placar_ao_vivo",
+        "inverter_lados",
+    }
+
+    teclas_usadas = set()
+    atalhos_limpos = {}
+
+    for acao, tecla in atalhos.items():
+        acao = str(acao or "").strip()
+        if acao not in acoes_permitidas:
+            continue
+
+        tecla = str(tecla or "").strip().upper()
+        if tecla:
+            if tecla in teclas_usadas:
+                continue
+            teclas_usadas.add(tecla)
+
+        atalhos_limpos[acao] = tecla
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            for acao in acoes_permitidas:
+                tecla = atalhos_limpos.get(acao, "")
+
+                if not tecla:
+                    cur.execute("""
+                        DELETE FROM atalhos_apontador
+                        WHERE apontador_login = %s AND acao = %s
+                    """, (login, acao))
+                    continue
+
+                cur.execute("""
+                    INSERT INTO atalhos_apontador
+                        (apontador_login, acao, tecla, atualizado_em)
+                    VALUES
+                        (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (apontador_login, acao)
+                    DO UPDATE SET
+                        tecla = EXCLUDED.tecla,
+                        atualizado_em = CURRENT_TIMESTAMP
+                """, (login, acao, tecla))
+
+        conn.commit()
+
+    return True
+
 def criar_tabela_solicitacoes_treinador():
     with conectar() as conn:
         with conn.cursor() as cur:

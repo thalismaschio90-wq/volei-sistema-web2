@@ -5,6 +5,9 @@
 {% block conteudo %}
 <div class="topo-secao">
     <div class="titulo-secao">Painel do Apontador</div>
+    <button type="button" class="btn-padrao botao-atalhos-apontador" onclick="abrirModalAtalhosApontador()">
+        ⚙️ Teclas de atalho
+    </button>
 </div>
 
 <style>
@@ -95,6 +98,143 @@
     filter: brightness(0.95);
 }
 
+
+.botao-atalhos-apontador {
+    background: #111827 !important;
+    color: #ffffff !important;
+    text-decoration: none;
+    border: 0;
+    cursor: pointer;
+}
+
+.botao-atalhos-apontador:hover {
+    filter: brightness(1.08);
+}
+
+.acoes-topo-apontador {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.modal-atalhos-apontador {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, .72);
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.modal-atalhos-card {
+    width: min(560px, 96vw);
+    max-height: 92vh;
+    overflow: auto;
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 18px;
+    border: 1px solid var(--border);
+    box-shadow: 0 24px 70px rgba(0,0,0,.28);
+    padding: 18px;
+}
+
+.modal-atalhos-topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.modal-atalhos-topo h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 900;
+}
+
+.modal-atalhos-fechar {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 12px;
+    background: #e5e7eb;
+    color: #111827;
+    font-size: 24px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.atalhos-ajuda {
+    color: #64748b;
+    font-size: 14px;
+    margin: 0 0 14px 0;
+}
+
+.atalhos-lista-apontador {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.atalhos-lista-apontador button {
+    width: 100%;
+    border: 1px solid #dbe3ef;
+    background: #f8fafc;
+    color: #0f172a;
+    padding: 12px;
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    cursor: pointer;
+    text-align: left;
+}
+
+.atalhos-lista-apontador button.aguardando {
+    border-color: #0f766e;
+    background: #ccfbf1;
+}
+
+.atalhos-lista-apontador span {
+    min-width: 70px;
+    text-align: center;
+    color: #ffffff;
+    background: #111827;
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-weight: 900;
+}
+
+.atalhos-acoes {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.atalhos-acoes button {
+    flex: 1;
+    border: 0;
+    border-radius: 12px;
+    padding: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.atalhos-salvar {
+    background: #0f766e;
+    color: white;
+}
+
+.atalhos-limpar {
+    background: #e5e7eb;
+    color: #111827;
+}
+
 @media (max-width: 700px) {
     .card-jogo {
         align-items: flex-start;
@@ -121,11 +261,17 @@
             {{ competicao_nome }}
         </div>
 
-        <a class="btn-padrao botao-telao"
-           href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}"
-           target="_blank">
-            🖥️ Abrir Telão / Placar ao vivo
-        </a>
+        <div class="acoes-topo-apontador">
+            <button type="button" class="btn-padrao botao-atalhos-apontador" onclick="abrirModalAtalhosApontador()">
+                ⚙️ Teclas de atalho
+            </button>
+
+            <a class="btn-padrao botao-telao"
+               href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}"
+               target="_blank">
+                🖥️ Abrir Telão / Placar ao vivo
+            </a>
+        </div>
     </div>
 
     {% if partidas %}
@@ -291,4 +437,205 @@
     Nenhuma competição disponível no momento.
 </div>
 {% endif %}
+
+<div id="modalAtalhosApontador" class="modal-atalhos-apontador">
+    <div class="modal-atalhos-card">
+        <div class="modal-atalhos-topo">
+            <h3>⚙️ Teclas de atalho do apontador</h3>
+            <button type="button" class="modal-atalhos-fechar" onclick="fecharModalAtalhosApontador()">×</button>
+        </div>
+
+        <p class="atalhos-ajuda">
+            Configure aqui uma vez. Depois, dentro do jogo, o apontador usa as teclas para executar as funções rapidamente.
+            Clique na função e pressione a tecla desejada. Também aceita CTRL+Z, SHIFT+A, ALT+1, espaço e setas.
+        </p>
+
+        <div class="atalhos-lista-apontador">
+            <button type="button" data-acao="ponto_a">Ponto equipe A <span>-</span></button>
+            <button type="button" data-acao="ponto_b">Ponto equipe B <span>-</span></button>
+            <button type="button" data-acao="desfazer">Desfazer último ponto/ação <span>-</span></button>
+            <button type="button" data-acao="tempo_a">Tempo equipe A <span>-</span></button>
+            <button type="button" data-acao="tempo_b">Tempo equipe B <span>-</span></button>
+            <button type="button" data-acao="substituicao_a">Substituição equipe A <span>-</span></button>
+            <button type="button" data-acao="substituicao_b">Substituição equipe B <span>-</span></button>
+            <button type="button" data-acao="sancao">Sanção/cartão <span>-</span></button>
+            <button type="button" data-acao="inverter_quadra">Inverter visual da quadra <span>-</span></button>
+            <button type="button" data-acao="finalizar_set">Finalizar set <span>-</span></button>
+            <button type="button" data-acao="finalizar_jogo">Finalizar jogo <span>-</span></button>
+        </div>
+
+        <div class="atalhos-acoes">
+            <button type="button" class="atalhos-limpar" onclick="limparAtalhosApontador()">Limpar atalhos</button>
+            <button type="button" class="atalhos-salvar" onclick="salvarAtalhosApontador()">Salvar atalhos</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let atalhosApontadorPainel = {};
+let acaoSelecionadaAtalhoPainel = null;
+let modalAtalhosPainelAberto = false;
+
+const atalhosPadraoPainel = {
+    ponto_a: "",
+    ponto_b: "",
+    desfazer: "",
+    tempo_a: "",
+    tempo_b: "",
+    substituicao_a: "",
+    substituicao_b: "",
+    sancao: "",
+    inverter_quadra: "",
+    finalizar_set: "",
+    finalizar_jogo: ""
+};
+
+function normalizarTeclaAtalhoPainel(e) {
+    const partes = [];
+
+    if (e.ctrlKey || e.metaKey) partes.push("CTRL");
+    if (e.shiftKey) partes.push("SHIFT");
+    if (e.altKey) partes.push("ALT");
+
+    let tecla = e.key || "";
+
+    if (!tecla) return "";
+    if (["Control", "Shift", "Alt", "Meta"].includes(tecla)) return "";
+
+    if (tecla === " ") tecla = "ESPAÇO";
+    else if (tecla === "ArrowUp") tecla = "↑";
+    else if (tecla === "ArrowDown") tecla = "↓";
+    else if (tecla === "ArrowLeft") tecla = "←";
+    else if (tecla === "ArrowRight") tecla = "→";
+    else if (tecla.length === 1) tecla = tecla.toUpperCase();
+    else tecla = tecla.toUpperCase();
+
+    partes.push(tecla);
+    return partes.join("+");
+}
+
+async function carregarAtalhosApontadorPainel() {
+    atalhosApontadorPainel = {...atalhosPadraoPainel};
+
+    try {
+        const resp = await fetch("/apontador/atalhos", {
+            method: "GET",
+            headers: {"Accept": "application/json"},
+            cache: "no-store"
+        });
+
+        const json = await resp.json();
+
+        if (json.ok && json.atalhos) {
+            atalhosApontadorPainel = {...atalhosPadraoPainel, ...json.atalhos};
+        }
+    } catch (e) {
+        console.warn("Erro ao carregar atalhos do apontador:", e);
+    }
+
+    atualizarVisualAtalhosPainel();
+}
+
+function abrirModalAtalhosApontador() {
+    modalAtalhosPainelAberto = true;
+    acaoSelecionadaAtalhoPainel = null;
+
+    const modal = document.getElementById("modalAtalhosApontador");
+    if (modal) modal.style.display = "flex";
+
+    carregarAtalhosApontadorPainel();
+}
+
+function fecharModalAtalhosApontador() {
+    modalAtalhosPainelAberto = false;
+    acaoSelecionadaAtalhoPainel = null;
+
+    const modal = document.getElementById("modalAtalhosApontador");
+    if (modal) modal.style.display = "none";
+
+    document.querySelectorAll(".atalhos-lista-apontador button").forEach(btn => {
+        btn.classList.remove("aguardando");
+    });
+}
+
+function atualizarVisualAtalhosPainel() {
+    document.querySelectorAll(".atalhos-lista-apontador button").forEach(btn => {
+        const acao = btn.dataset.acao;
+        const span = btn.querySelector("span");
+        if (span) span.textContent = atalhosApontadorPainel[acao] || "-";
+    });
+}
+
+function limparAtalhosApontador() {
+    atalhosApontadorPainel = {...atalhosPadraoPainel};
+    atualizarVisualAtalhosPainel();
+}
+
+async function salvarAtalhosApontador() {
+    try {
+        const resp = await fetch("/apontador/atalhos/salvar", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({atalhos: atalhosApontadorPainel})
+        });
+
+        const json = await resp.json();
+
+        if (!json.ok) {
+            alert(json.erro || "Erro ao salvar atalhos.");
+            return;
+        }
+
+        fecharModalAtalhosApontador();
+    } catch (e) {
+        alert("Erro ao salvar atalhos.");
+    }
+}
+
+document.addEventListener("click", function(e) {
+    const btn = e.target.closest(".atalhos-lista-apontador button[data-acao]");
+    if (!btn) return;
+
+    acaoSelecionadaAtalhoPainel = btn.dataset.acao;
+
+    document.querySelectorAll(".atalhos-lista-apontador button").forEach(b => {
+        b.classList.remove("aguardando");
+    });
+
+    btn.classList.add("aguardando");
+
+    const span = btn.querySelector("span");
+    if (span) span.textContent = "pressione...";
+});
+
+document.addEventListener("keydown", function(e) {
+    if (!modalAtalhosPainelAberto || !acaoSelecionadaAtalhoPainel) return;
+
+    const tecla = normalizarTeclaAtalhoPainel(e);
+    if (!tecla) return;
+
+    e.preventDefault();
+
+    Object.keys(atalhosApontadorPainel).forEach(acao => {
+        if (atalhosApontadorPainel[acao] === tecla) {
+            atalhosApontadorPainel[acao] = "";
+        }
+    });
+
+    atalhosApontadorPainel[acaoSelecionadaAtalhoPainel] = tecla;
+    acaoSelecionadaAtalhoPainel = null;
+
+    document.querySelectorAll(".atalhos-lista-apontador button").forEach(btn => {
+        btn.classList.remove("aguardando");
+    });
+
+    atualizarVisualAtalhosPainel();
+});
+
+document.addEventListener("DOMContentLoaded", carregarAtalhosApontadorPainel);
+</script>
+
 {% endblock %}
