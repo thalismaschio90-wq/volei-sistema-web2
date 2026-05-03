@@ -533,10 +533,29 @@
 
         function entrarNaSala() {
             if (!socket || !socket.connected) return;
-            const payload = { partida_id: PARTIDA_ID, competicao: COMPETICAO, tela: "arbitro", mobile: true };
+
+            const pid = String(PARTIDA_ID);
+            const comp = String(COMPETICAO || "");
+            const payload = { partida_id: pid, competicao: comp, tela: "arbitro", mobile: true };
+
+            // Entra em todos os eventos/salas usados pelo sistema. Isso corrige
+            // celular que reconecta e fica escutando uma sala diferente do PC.
             socket.emit("entrar_arbitro", payload);
             socket.emit("entrar_partida", payload);
             socket.emit("join_partida", payload);
+
+            socket.emit("join", { ...payload, room: pid });
+            socket.emit("join", { ...payload, room: `partida:${pid}` });
+            socket.emit("join", { ...payload, room: `partida_${pid}` });
+            socket.emit("join", { ...payload, room: `arbitros:${pid}` });
+            socket.emit("join", { ...payload, room: `arbitros_${pid}` });
+
+            if (comp) {
+                socket.emit("join", { ...payload, room: `partida:${comp}:${pid}` });
+                socket.emit("join", { ...payload, room: `partida_${comp}_${pid}` });
+                socket.emit("join", { ...payload, room: `arbitros:${comp}:${pid}` });
+                socket.emit("join", { ...payload, room: `arbitros_${comp}_${pid}` });
+            }
         }
 
         function tratarSolicitacaoArbitros(dados) {

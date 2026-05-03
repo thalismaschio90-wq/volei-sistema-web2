@@ -26,28 +26,41 @@ def _room_arbitros(partida_id):
     return _room(partida_id)
 
 
-def _rooms_partida(partida_id):
+def _rooms_partida(partida_id, competicao=None):
     """
     Salas compatíveis para a mesma partida.
-    No celular alguns navegadores reconectam e reentram por eventos diferentes
-    (entrar_partida, entrar_arbitro ou join_partida). Emitir em todas as salas
-    evita que notificação/cronômetro fique preso em uma sala diferente.
+    IMPORTANTE PARA CELULAR:
+    o navegador mobile pode reconectar e o front pode entrar em salas com ou sem
+    nome da competição. Por isso emitimos em todas as variações usadas pelo app.
     """
     base = _room(partida_id)
+    comp = str(competicao or "").strip()
     if not base:
         return []
-    return list(dict.fromkeys([
+
+    salas = [
         base,
         f"partida:{base}",
         f"partida_{base}",
         f"arbitros:{base}",
         f"arbitros_{base}",
-    ]))
+    ]
+
+    if comp:
+        salas.extend([
+            f"partida:{comp}:{base}",
+            f"partida_{comp}_{base}",
+            f"arbitros:{comp}:{base}",
+            f"arbitros_{comp}_{base}",
+        ])
+
+    return list(dict.fromkeys([s for s in salas if s]))
 
 
 def _emitir_salas(evento, payload, partida_id, **kwargs):
     payload = _json_safe(payload)
-    for sala in _rooms_partida(partida_id):
+    competicao = payload.get("competicao") if isinstance(payload, dict) else None
+    for sala in _rooms_partida(partida_id, competicao):
         socketio.emit(evento, payload, room=sala, **kwargs)
 
 
@@ -507,15 +520,17 @@ def on_disconnect():
 
 @socketio.on("entrar_partida")
 def entrar_partida(data):
-    partida_id = str((data or {}).get("partida_id") or "").strip()
+    data = data or {}
+    partida_id = str(data.get("partida_id") or "").strip()
+    competicao = str(data.get("competicao") or "").strip()
 
     if not partida_id:
         return
 
     sala = _room(partida_id)
-    for r in _rooms_partida(partida_id):
+    for r in _rooms_partida(partida_id, competicao):
         join_room(r)
-    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "room": sala}, room=request.sid)
+    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "competicao": competicao, "room": sala}, room=request.sid)
 
     estado = _ESTADO_PARTIDAS.get(sala)
 
@@ -531,17 +546,37 @@ def join_partida(data):
     return entrar_partida(data)
 
 
+@socketio.on("join")
+def join_generico(data):
+    """Compatibilidade com telas mobile que entram diretamente em uma sala."""
+    data = data or {}
+    room = str(data.get("room") or data.get("sala") or "").strip()
+    partida_id = str(data.get("partida_id") or "").strip()
+    competicao = str(data.get("competicao") or "").strip()
+
+    if room:
+        join_room(room)
+
+    if partida_id:
+        for r in _rooms_partida(partida_id, competicao):
+            join_room(r)
+
+    socketio.emit("entrou_partida", {"ok": True, "room": room, "partida_id": partida_id, "competicao": competicao}, room=request.sid)
+
+
 @socketio.on("entrar_arbitro")
 def entrar_arbitro(data):
-    partida_id = str((data or {}).get("partida_id") or "").strip()
+    data = data or {}
+    partida_id = str(data.get("partida_id") or "").strip()
+    competicao = str(data.get("competicao") or "").strip()
 
     if not partida_id:
         return
 
     sala = _room_arbitros(partida_id)
-    for r in _rooms_partida(partida_id):
+    for r in _rooms_partida(partida_id, competicao):
         join_room(r)
-    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "room": sala, "arbitro": True}, room=request.sid)
+    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "competicao": competicao, "room": sala, "arbitro": True}, room=request.sid)
 
     estado = _ESTADO_PARTIDAS.get(sala)
     if estado:
