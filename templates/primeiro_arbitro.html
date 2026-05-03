@@ -366,7 +366,7 @@
         const PARTIDA_ID = {{ partida_id }};
         const COMPETICAO = {{ competicao|tojson }};
         const ESTADO_INICIAL = {{ estado|tojson }};
-        const URL_ESTADO_BASE = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
+        const URL_ESTADO = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
 
         let estadoAtual = ESTADO_INICIAL || {};
         let invertido = false;
@@ -377,18 +377,25 @@
         let pollingRapido = null;
         let ultimaBuscaMs = 0;
 
-        function agoraMs() {
-            return Date.now ? Date.now() : new Date().getTime();
-        }
+        function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
 
         function montarUrlEstado() {
-            const sep = URL_ESTADO_BASE.includes("?") ? "&" : "?";
-            return `${URL_ESTADO_BASE}${sep}mobile=1&t=${agoraMs()}`;
+            const sep = URL_ESTADO.includes("?") ? "&" : "?";
+            return `${URL_ESTADO}${sep}mobile=1&_=${agoraMs()}`;
+        }
+
+        function payloadDaPartida(dados) {
+            if (!dados || typeof dados !== "object") return false;
+            if (dados.partida_id == null) return true;
+            return String(dados.partida_id) === String(PARTIDA_ID);
         }
 
         function normalizarJogador(j) {
             if (j && typeof j === "object") {
-                return { numero: String(j.numero || j.camisa || "").trim(), nome: String(j.nome || "").trim() };
+                return {
+                    numero: String(j.numero || j.camisa || j.numero_camisa || "").trim(),
+                    nome: String(j.nome || j.atleta_nome || "").trim()
+                };
             }
             return { numero: String(j || "").trim(), nome: "" };
         }
@@ -405,7 +412,7 @@
         }
 
         function sacadorAtual() {
-            const lado = String(estadoAtual.saque_atual || "").toUpperCase();
+            const lado = String(estadoAtual.saque_atual || estadoAtual.saque || "").toUpperCase();
             if (!["A", "B"].includes(lado)) return { lado: "", equipe: "", numero: "-", nome: "Aguardando" };
             const r = rotacao(lado);
             const jogador = r[5] || r.find(x => x.numero) || { numero: "-", nome: "" };
@@ -448,7 +455,7 @@
             renderQuadra("quadraB", ladoDir);
         }
 
-        function mostrarPopup(titulo, texto, sub, ms = 3300) {
+        function mostrarPopup(titulo, texto, sub, ms = 3000) {
             const popup = document.getElementById("popup");
             document.getElementById("popupTitulo").textContent = titulo || "";
             document.getElementById("popupTexto").textContent = texto || "";
@@ -463,28 +470,20 @@
             render();
         }
 
-        function payloadDaPartida(dados) {
-            if (!dados || typeof dados !== "object") return false;
-            if (dados.partida_id == null && dados.id_partida == null) return true;
-            const id = dados.partida_id != null ? dados.partida_id : dados.id_partida;
-            return String(id) === String(PARTIDA_ID);
-        }
+        function aplicarEstado(dados, silencioso = false) {
+            if (!dados || typeof dados !== "object") return;
+            if (!payloadDaPartida(dados)) return;
 
-        function limparPayloadParcial(dados) {
             const seguro = { ...dados };
+            if (seguro.estado && typeof seguro.estado === "object") Object.assign(seguro, seguro.estado);
 
-            // Eventos parciais de socket não podem apagar rotação/saque que já está na tela.
+            // Evento parcial nunca pode apagar rotação, saque ou nomes que já estão na tela.
             if (Array.isArray(seguro.rotacao_a) && seguro.rotacao_a.length === 0 && Array.isArray(estadoAtual.rotacao_a) && estadoAtual.rotacao_a.length) delete seguro.rotacao_a;
             if (Array.isArray(seguro.rotacao_b) && seguro.rotacao_b.length === 0 && Array.isArray(estadoAtual.rotacao_b) && estadoAtual.rotacao_b.length) delete seguro.rotacao_b;
             if ((seguro.saque_atual === "" || seguro.saque_atual == null) && estadoAtual.saque_atual) delete seguro.saque_atual;
+            if ((seguro.equipe_a === "" || seguro.equipe_a == null) && estadoAtual.equipe_a) delete seguro.equipe_a;
+            if ((seguro.equipe_b === "" || seguro.equipe_b == null) && estadoAtual.equipe_b) delete seguro.equipe_b;
 
-            return seguro;
-        }
-
-        function aplicarEstado(dados, silencioso = false) {
-            if (!payloadDaPartida(dados)) return;
-
-            const seguro = limparPayloadParcial(dados);
             estadoAtual = { ...estadoAtual, ...seguro };
             render();
 
@@ -519,9 +518,7 @@
                         "X-Mobile-Arbitro": "1"
                     }
                 });
-
                 if (!resp.ok) return;
-
                 const dados = await resp.json();
                 if (dados && dados.ok) aplicarEstado(dados, silencioso);
                 else if (dados && typeof dados === "object") aplicarEstado(dados, silencioso);
@@ -536,14 +533,7 @@
 
         function entrarNaSala() {
             if (!socket || !socket.connected) return;
-
-            const payload = {
-                partida_id: PARTIDA_ID,
-                competicao: COMPETICAO,
-                tela: "arbitro",
-                mobile: true
-            };
-
+            const payload = { partida_id: PARTIDA_ID, competicao: COMPETICAO, tela: "arbitro", mobile: true };
             socket.emit("entrar_arbitro", payload);
             socket.emit("entrar_partida", payload);
             socket.emit("join_partida", payload);
@@ -551,7 +541,8 @@
 
         function tratarSolicitacaoArbitros(dados) {
             if (!payloadDaPartida(dados)) return;
-            const ehTempo = String(dados.tipo || "").toLowerCase() === "tempo";
+            const tipoRaw = String(dados.tipo || dados.evento || "").toLowerCase();
+            const ehTempo = tipoRaw.includes("tempo");
             const tipo = ehTempo ? "Pedido de tempo" : "Pedido de substituição";
             mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 3600);
             carregarEstado(true, true);
@@ -582,9 +573,7 @@
                 carregarEstado(true, true);
             });
 
-            socket.on("disconnect", () => {
-                setSocketStatus(false);
-            });
+            socket.on("disconnect", () => setSocketStatus(false));
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
@@ -608,7 +597,6 @@
             ].forEach(evt => {
                 socket.on(evt, dados => {
                     aplicarEstado(dados);
-                    // No celular, confirma com uma busca leve para evitar pacote perdido/atrasado.
                     setTimeout(() => carregarEstado(true, true), 250);
                 });
             });
@@ -634,51 +622,34 @@
             socket.on("notificacao_geral", tratarSolicitacaoArbitros);
             socket.on("tempo_solicitado", tratarSolicitacaoArbitros);
             socket.on("substituicao_solicitada", tratarSolicitacaoArbitros);
-        }
 
-            iniciarPollingRapido();
         }
 
         function iniciarPollingRapido() {
             if (pollingRapido) clearInterval(pollingRapido);
-
             pollingRapido = setInterval(() => {
-                // O celular às vezes atrasa socket mesmo conectado; esse fallback é leve e sem cache.
-                if (document.visibilityState === "visible") {
-                    carregarEstado(true, false);
-                }
+                if (document.visibilityState === "visible") carregarEstado(true, false);
             }, 2000);
         }
 
+        function acordarTelaMobile() {
+            if (socket) socket.connect();
+            setTimeout(entrarNaSala, 80);
+            carregarEstado(true, true);
+        }
+
         document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") {
-                if (socket) socket.connect();
-                entrarNaSala();
-                carregarEstado(true, true);
-            }
+            if (document.visibilityState === "visible") acordarTelaMobile();
         });
 
-        window.addEventListener("focus", () => {
-            if (socket) socket.connect();
-            entrarNaSala();
-            carregarEstado(true, true);
-        });
-
-        window.addEventListener("online", () => {
-            if (socket) socket.connect();
-            entrarNaSala();
-            carregarEstado(true, true);
-        });
-
-        window.addEventListener("pageshow", () => {
-            if (socket) socket.connect();
-            entrarNaSala();
-            carregarEstado(true, true);
-        });
+        window.addEventListener("focus", acordarTelaMobile);
+        window.addEventListener("online", acordarTelaMobile);
+        window.addEventListener("pageshow", acordarTelaMobile);
 
         aplicarEstado(ESTADO_INICIAL, true);
         carregarEstado(true, true);
         iniciarSocket();
+        iniciarPollingRapido();
     </script>
 </body>
 </html>
