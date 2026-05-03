@@ -5693,19 +5693,26 @@ def _emitir_estado_tempo_real(partida_id, competicao):
 
 
 def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalhes=None):
-    print("🔥 registrar_ponto_partida INICIO", flush=True)
+    import json
 
-    criar_estrutura_rotacao_profissional()
-    criar_tabela_eventos()
-    criar_campos_jogo_partida()
-    criar_campos_sets_partida()
+    global _ESTRUTURA_PONTO_GARANTIDA
+    try:
+        _ESTRUTURA_PONTO_GARANTIDA
+    except NameError:
+        _ESTRUTURA_PONTO_GARANTIDA = False
+
+    if not _ESTRUTURA_PONTO_GARANTIDA:
+        criar_estrutura_rotacao_profissional()
+        criar_tabela_eventos()
+        criar_campos_jogo_partida()
+        criar_campos_sets_partida()
+        _ESTRUTURA_PONTO_GARANTIDA = True
 
     def _carregar_rotacao_real(partida, lado):
         campo_array = f"rotacao_{lado}"
         campo_json = f"rotacao_{lado}_json"
 
         rotacao = partida.get(campo_array)
-
         if isinstance(rotacao, list) and _rotacao_tem_6_validos(rotacao):
             return _normalizar_rotacao_oficial(rotacao)
 
@@ -5733,26 +5740,21 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
 
         if valor.lower() == equipe_a_nome:
             return "A"
-
         if valor.lower() == equipe_b_nome:
             return "B"
 
         return ""
 
-    equipe = (equipe or "").strip().upper()
-    print("➡️ equipe:", equipe, flush=True)
-
-    if equipe not in {"A", "B"}:
-        return False, "Equipe inválida."
-
-    detalhes = detalhes or {}
-    if not isinstance(detalhes, dict):
-        detalhes = {}
-
     def _oposto(lado):
         return "B" if lado == "A" else "A"
 
-    equipe_pontuadora = str(detalhes.get("equipe_pontuadora") or equipe or "").strip().upper()
+    equipe = (equipe or "").strip().upper()
+    if equipe not in {"A", "B"}:
+        return False, "Equipe inválida."
+
+    detalhes = detalhes if isinstance(detalhes, dict) else {}
+
+    equipe_pontuadora = str(detalhes.get("equipe_pontuadora") or equipe).strip().upper()
     resultado_tmp = str(detalhes.get("resultado") or detalhes.get("tipo_lance") or tipo or "").strip().lower()
 
     equipe_scout_raw = str(
@@ -5778,7 +5780,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     detalhes["equipe_scout"] = equipe_scout
     detalhes["responsavel_lado"] = equipe_scout
 
-    regras = _regras_jogo_competicao(competicao)
+    regras = _regras_jogo_competicao(competicao) or {}
 
     fim_set = False
     fim_jogo = False
@@ -5790,21 +5792,8 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     saque_antes = ""
     saque_depois = equipe_pontuadora
 
-    partida = None
-    pontos_a = 0
-    pontos_b = 0
-    sets_a = 0
-    sets_b = 0
-    set_atual = 1
-    rotacao_a = ["", "", "", "", "", ""]
-    rotacao_b = ["", "", "", "", "", ""]
-
-    print("➡️ antes conectar", flush=True)
     with conectar() as conn:
-        print("✅ conectou", flush=True)
-
         with conn.cursor() as cur:
-            print("➡️ antes SELECT partida", flush=True)
             cur.execute("""
                 SELECT *
                 FROM partidas
@@ -5814,7 +5803,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             """, (partida_id, competicao))
 
             partida = cur.fetchone()
-            print("✅ depois SELECT partida:", bool(partida), flush=True)
 
             if not partida:
                 return False, "Partida não encontrada."
@@ -5860,7 +5848,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
 
             pontos_set = int(regras.get("pontos_set") or 21)
             diferenca_minima = int(regras.get("diferenca_minima") or 2)
-            sets_para_vencer = int(regras.get("sets_para_vencer") or 2)
+            sets_para_vencer = int(regras.get("sets_para_vencer") or 1)
 
             fundamento = (
                 detalhes.get("fundamento")
@@ -5900,7 +5888,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             except Exception:
                 detalhes_json = "{}"
 
-            print("➡️ antes INSERT evento", flush=True)
             cur.execute("""
                 INSERT INTO eventos (
                     partida_id, competicao, set_numero, equipe,
@@ -5923,9 +5910,11 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 numero_final,
                 detalhes_json,
             ))
-            print("✅ depois INSERT evento", flush=True)
 
-            if (pontos_a >= pontos_set or pontos_b >= pontos_set) and abs(pontos_a - pontos_b) >= diferenca_minima:
+            if (
+                (pontos_a >= pontos_set or pontos_b >= pontos_set)
+                and abs(pontos_a - pontos_b) >= diferenca_minima
+            ):
                 fim_set = True
                 vencedor_set = "A" if pontos_a > pontos_b else "B"
 
@@ -5939,16 +5928,11 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 if fim_jogo:
                     vencedor_partida = "A" if sets_a > sets_b else "B"
 
-                if set_atual < 1:
-                    set_atual = 1
-                if set_atual > 3:
-                    set_atual = 3
-
-                coluna_a = f"set{set_atual}_a"
-                coluna_b = f"set{set_atual}_b"
+                set_coluna = max(1, min(int(set_atual or 1), 5))
+                coluna_a = f"set{set_coluna}_a"
+                coluna_b = f"set{set_coluna}_b"
 
                 if fim_jogo:
-                    print("➡️ antes UPDATE finaliza jogo", flush=True)
                     cur.execute(f"""
                         UPDATE partidas
                         SET pontos_a = %s,
@@ -5987,9 +5971,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                         partida_id,
                         competicao,
                     ))
-                    print("✅ depois UPDATE finaliza jogo", flush=True)
                 else:
-                    print("➡️ antes UPDATE finaliza set", flush=True)
                     cur.execute(f"""
                         UPDATE partidas
                         SET pontos_a = 0,
@@ -6022,13 +6004,11 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                         partida_id,
                         competicao,
                     ))
-                    print("✅ depois UPDATE finaliza set", flush=True)
 
                     pontos_a = 0
                     pontos_b = 0
                     set_atual += 1
             else:
-                print("➡️ antes UPDATE ponto normal", flush=True)
                 cur.execute("""
                     UPDATE partidas
                     SET pontos_a = %s,
@@ -6053,7 +6033,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     partida_id,
                     competicao,
                 ))
-                print("✅ depois UPDATE ponto normal", flush=True)
 
             try:
                 validacao_a = validar_rotacao_oficial(rotacao_a)
@@ -6070,7 +6049,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
 
                 mensagem_rotacao = " | ".join(mensagens)
 
-                print("➡️ antes INSERT historico_rotacao", flush=True)
                 cur.execute("""
                     INSERT INTO historico_rotacao (
                         partida_id, competicao, set_numero,
@@ -6111,19 +6089,15 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     "rotacao_invalida" if irregularidade else "",
                     mensagem_rotacao or ("Giro realizado." if girou else "Equipe manteve o saque."),
                 ))
-                print("✅ depois INSERT historico_rotacao", flush=True)
             except Exception as e:
                 print("⚠️ erro historico_rotacao:", repr(e), flush=True)
 
-        print("➡️ antes COMMIT", flush=True)
         conn.commit()
-        print("✅ depois COMMIT", flush=True)
 
-    historico = []
     try:
         historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
-    except Exception as e:
-        print("⚠️ erro montar historico:", repr(e), flush=True)
+    except Exception:
+        historico = []
 
     return True, {
         "mensagem": "Jogo finalizado." if fim_jogo else ("Set finalizado." if fim_set else "Ponto registrado."),
