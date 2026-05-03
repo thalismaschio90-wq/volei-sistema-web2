@@ -361,12 +361,12 @@
         </div>
     </div>
 
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const PARTIDA_ID = {{ partida_id }};
         const COMPETICAO = {{ competicao|tojson }};
         const ESTADO_INICIAL = {{ estado|tojson }};
-        const URL_ESTADO = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
+        const URL_ESTADO_BASE = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
 
         let estadoAtual = ESTADO_INICIAL || {};
         let invertido = false;
@@ -374,6 +374,17 @@
         let ultimaAcaoTexto = "";
         let popupTimer = null;
         let socket = null;
+        let pollingRapido = null;
+        let ultimaBuscaMs = 0;
+
+        function agoraMs() {
+            return Date.now ? Date.now() : new Date().getTime();
+        }
+
+        function montarUrlEstado() {
+            const sep = URL_ESTADO_BASE.includes("?") ? "&" : "?";
+            return `${URL_ESTADO_BASE}${sep}mobile=1&t=${agoraMs()}`;
+        }
 
         function normalizarJogador(j) {
             if (j && typeof j === "object") {
@@ -388,7 +399,7 @@
 
         function rotacao(lado) {
             const lista = lado === "A" ? (estadoAtual.rotacao_a || []) : (estadoAtual.rotacao_b || []);
-            const normalizada = lista.map(normalizarJogador).slice(0, 6);
+            const normalizada = Array.isArray(lista) ? lista.map(normalizarJogador).slice(0, 6) : [];
             while (normalizada.length < 6) normalizada.push({ numero: "", nome: "" });
             return normalizada;
         }
@@ -452,13 +463,28 @@
             render();
         }
 
-        function aplicarEstado(dados, silencioso = false) {
-            if (!dados || typeof dados !== "object") return;
+        function payloadDaPartida(dados) {
+            if (!dados || typeof dados !== "object") return false;
+            if (dados.partida_id == null && dados.id_partida == null) return true;
+            const id = dados.partida_id != null ? dados.partida_id : dados.id_partida;
+            return String(id) === String(PARTIDA_ID);
+        }
+
+        function limparPayloadParcial(dados) {
             const seguro = { ...dados };
-            // Segurança: evento parcial nunca pode apagar a numeração/rotação dos árbitros.
+
+            // Eventos parciais de socket não podem apagar rotação/saque que já está na tela.
             if (Array.isArray(seguro.rotacao_a) && seguro.rotacao_a.length === 0 && Array.isArray(estadoAtual.rotacao_a) && estadoAtual.rotacao_a.length) delete seguro.rotacao_a;
             if (Array.isArray(seguro.rotacao_b) && seguro.rotacao_b.length === 0 && Array.isArray(estadoAtual.rotacao_b) && estadoAtual.rotacao_b.length) delete seguro.rotacao_b;
             if ((seguro.saque_atual === "" || seguro.saque_atual == null) && estadoAtual.saque_atual) delete seguro.saque_atual;
+
+            return seguro;
+        }
+
+        function aplicarEstado(dados, silencioso = false) {
+            if (!payloadDaPartida(dados)) return;
+
+            const seguro = limparPayloadParcial(dados);
             estadoAtual = { ...estadoAtual, ...seguro };
             render();
 
@@ -466,78 +492,193 @@
             const chaveSaque = `${s.lado}|${s.numero}|${s.nome}|${estadoAtual.pontos_a}|${estadoAtual.pontos_b}`;
             if (!silencioso && s.lado && chaveSaque !== ultimoSaqueChave) {
                 ultimoSaqueChave = chaveSaque;
-                mostrarPopup("Saque", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 3000);
+                mostrarPopup("Saque", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 2600);
             }
 
             const acao = String(estadoAtual.ultima_acao || "").trim();
             if (!silencioso && acao && acao !== "-" && acao !== ultimaAcaoTexto) {
                 ultimaAcaoTexto = acao;
-                mostrarPopup("Última ação", acao, "", 2800);
+                mostrarPopup("Última ação", acao, "", 2400);
             }
         }
 
-        async function carregarEstado(silencioso = false) {
+        async function carregarEstado(silencioso = false, forcar = false) {
+            const agora = agoraMs();
+            if (!forcar && agora - ultimaBuscaMs < 700) return;
+            ultimaBuscaMs = agora;
+
             try {
-                const resp = await fetch(URL_ESTADO, { cache: "no-store" });
+                const resp = await fetch(montarUrlEstado(), {
+                    method: "GET",
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    headers: {
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                        "X-Mobile-Arbitro": "1"
+                    }
+                });
+
+                if (!resp.ok) return;
+
                 const dados = await resp.json();
                 if (dados && dados.ok) aplicarEstado(dados, silencioso);
+                else if (dados && typeof dados === "object") aplicarEstado(dados, silencioso);
             } catch (e) {}
         }
 
         function setSocketStatus(ok) {
             const el = document.getElementById("statusSocket");
             el.classList.toggle("off", !ok);
-            el.textContent = ok ? "● Ao vivo" : "● Sem conexão";
+            el.textContent = ok ? "● Ao vivo" : "● Reconectando";
+        }
+
+        function entrarNaSala() {
+            if (!socket || !socket.connected) return;
+
+            const payload = {
+                partida_id: PARTIDA_ID,
+                competicao: COMPETICAO,
+                tela: "arbitro",
+                mobile: true
+            };
+
+            socket.emit("entrar_arbitro", payload);
+            socket.emit("entrar_partida", payload);
+            socket.emit("join_partida", payload);
+        }
+
+        function tratarSolicitacaoArbitros(dados) {
+            if (!payloadDaPartida(dados)) return;
+            const ehTempo = String(dados.tipo || "").toLowerCase() === "tempo";
+            const tipo = ehTempo ? "Pedido de tempo" : "Pedido de substituição";
+            mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 3600);
+            carregarEstado(true, true);
         }
 
         function iniciarSocket() {
             if (typeof io !== "function") {
                 setSocketStatus(false);
+                iniciarPollingRapido();
                 return;
             }
-            socket = io({ transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 500, reconnectionDelayMax: 2000 });
+
+            socket = io({
+                transports: ["websocket", "polling"],
+                upgrade: true,
+                reconnection: true,
+                reconnectionAttempts: Infinity,
+                reconnectionDelay: 250,
+                reconnectionDelayMax: 1500,
+                timeout: 4500,
+                forceNew: true,
+                autoConnect: true
+            });
 
             socket.on("connect", () => {
                 setSocketStatus(true);
-                socket.emit("entrar_arbitro", { partida_id: PARTIDA_ID, competicao: COMPETICAO });
-                socket.emit("entrar_partida", { partida_id: PARTIDA_ID, competicao: COMPETICAO });
+                entrarNaSala();
+                carregarEstado(true, true);
             });
-            socket.on("disconnect", () => setSocketStatus(false));
-            socket.on("connect_error", () => setSocketStatus(false));
 
-            ["estado_arbitros", "estado_partida", "estado_jogo_atualizado"].forEach(evt => {
-                socket.on(evt, dados => aplicarEstado(dados));
+            socket.on("disconnect", () => {
+                setSocketStatus(false);
+            });
+
+            socket.on("connect_error", () => {
+                setSocketStatus(false);
+                carregarEstado(true, true);
+            });
+
+            socket.on("reconnect", () => {
+                setSocketStatus(true);
+                entrarNaSala();
+                carregarEstado(true, true);
+            });
+
+            [
+                "estado_arbitros",
+                "estado_partida",
+                "estado_jogo_atualizado",
+                "placar_atualizado",
+                "placar_apontador",
+                "atualizar_placar",
+                "ponto_registrado"
+            ].forEach(evt => {
+                socket.on(evt, dados => {
+                    aplicarEstado(dados);
+                    // No celular, confirma com uma busca leve para evitar pacote perdido/atrasado.
+                    setTimeout(() => carregarEstado(true, true), 250);
+                });
             });
 
             socket.on("saque_arbitros", dados => {
-                if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
+                if (!payloadDaPartida(dados)) return;
+                aplicarEstado(dados, true);
                 const s = sacadorAtual();
-                if (s.lado) mostrarPopup("Saque", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 3000);
+                if (s.lado) mostrarPopup("Saque", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 2600);
             });
 
             socket.on("ultima_acao_arbitros", dados => {
-                if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
-                const texto = String(dados.texto || dados.descricao || "").trim();
-                if (texto) mostrarPopup("Última ação", texto, "", 2800);
+                if (!payloadDaPartida(dados)) return;
+                const texto = String(dados.texto || dados.descricao || dados.ultima_acao || "").trim();
+                if (texto) {
+                    estadoAtual = { ...estadoAtual, ultima_acao: texto };
+                    render();
+                    mostrarPopup("Última ação", texto, "", 2400);
+                }
             });
 
-            socket.on("solicitacao_arbitros", dados => {
-                if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
-                const tipo = String(dados.tipo || "").toLowerCase() === "tempo" ? "Pedido de tempo" : "Pedido de substituição";
-                mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 4200);
-            });
-
-            socket.on("notificacao_geral", dados => {
-                if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
-                const tipo = String(dados.tipo || "").toLowerCase() === "tempo" ? "Pedido de tempo" : "Pedido de substituição";
-                mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 4200);
-            });
+            socket.on("solicitacao_arbitros", tratarSolicitacaoArbitros);
+            socket.on("notificacao_geral", tratarSolicitacaoArbitros);
+            socket.on("tempo_solicitado", tratarSolicitacaoArbitros);
+            socket.on("substituicao_solicitada", tratarSolicitacaoArbitros);
         }
 
+            iniciarPollingRapido();
+        }
+
+        function iniciarPollingRapido() {
+            if (pollingRapido) clearInterval(pollingRapido);
+
+            pollingRapido = setInterval(() => {
+                // O celular às vezes atrasa socket mesmo conectado; esse fallback é leve e sem cache.
+                if (document.visibilityState === "visible") {
+                    carregarEstado(true, false);
+                }
+            }, 2000);
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+                if (socket) socket.connect();
+                entrarNaSala();
+                carregarEstado(true, true);
+            }
+        });
+
+        window.addEventListener("focus", () => {
+            if (socket) socket.connect();
+            entrarNaSala();
+            carregarEstado(true, true);
+        });
+
+        window.addEventListener("online", () => {
+            if (socket) socket.connect();
+            entrarNaSala();
+            carregarEstado(true, true);
+        });
+
+        window.addEventListener("pageshow", () => {
+            if (socket) socket.connect();
+            entrarNaSala();
+            carregarEstado(true, true);
+        });
+
         aplicarEstado(ESTADO_INICIAL, true);
-        carregarEstado(true);
+        carregarEstado(true, true);
         iniciarSocket();
-        setInterval(() => carregarEstado(true), 12000);
     </script>
 </body>
 </html>
