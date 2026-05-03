@@ -522,13 +522,11 @@ def meus_atletas_view():
 
         if acao == "salvar_numero":
             ok, msg = atualizar_numero_atleta(
-                int(request.form.get("id_atleta")),
+                request.form.get("id_atleta"),
                 request.form.get("numero", "").strip()
             )
-            if ok:
-                sucesso = msg
-            else:
-                erro = msg
+            flash(msg, "sucesso" if ok else "erro")
+            return redirect(url_for("equipes.meus_atletas_view"))
 
     contexto = _montar_contexto_atletas_equipe(equipe, erro=erro, sucesso=sucesso, modo_tela="lista")
     return render_template("meus_atletas.html", **contexto)

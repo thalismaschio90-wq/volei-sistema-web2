@@ -3553,10 +3553,9 @@ def atualizar_numero_atleta(id_atleta, numero):
             if not atleta or atleta.get("status") != "aprovado":
                 return False, "Somente atletas aprovados podem receber numeração."
 
-            ok_edicao, mensagem = validar_edicao_atletas_equipe(atleta["competicao"], atleta["equipe"])
-            if not ok_edicao:
-                return False, mensagem
-
+            # A numeração da equipe NÃO pode ser bloqueada pelo prazo de inscrição.
+            # O prazo continua bloqueando cadastro/edição/exclusão de atletas,
+            # mas a camisa/número precisa poder ser ajustada a qualquer momento do torneio.
             if numero not in (None, ""):
                 try:
                     numero = int(numero)

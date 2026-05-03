@@ -80,8 +80,8 @@
                         <form method="post" action="{{ url_for('equipes.meus_atletas_view') }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                             <input type="hidden" name="acao" value="salvar_numero">
                             <input type="hidden" name="id_atleta" value="{{ atleta.id }}">
-                            <input type="number" name="numero" value="{{ atleta.numero or '' }}" style="max-width:120px;" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
-                            <button type="submit" class="btn-secundario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Salvar número</button>
+                            <input type="number" name="numero" value="{{ atleta.numero or '' }}" min="1" max="99" inputmode="numeric" autocomplete="off" style="max-width:120px;" required>
+                            <button type="submit" class="btn-secundario">Salvar número</button>
                         </form>
                     </td>
                     <td>{% if atleta.numero %}Número definido{% else %}Sem número{% endif %}</td>
