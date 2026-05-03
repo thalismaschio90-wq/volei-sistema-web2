@@ -21,10 +21,34 @@ def _room(partida_id):
 
 
 def _room_arbitros(partida_id):
-    # Usa a mesma sala da partida para manter tudo leve e compatível.
-    # As telas dos árbitros também escutam eventos próprios (estado_arbitros,
-    # solicitacao_arbitros), mas ficam na mesma sala viva do jogo.
+    # Sala principal dos árbitros. Mantemos igual à sala da partida para
+    # compatibilidade com telas antigas e com o apontador.
     return _room(partida_id)
+
+
+def _rooms_partida(partida_id):
+    """
+    Salas compatíveis para a mesma partida.
+    No celular alguns navegadores reconectam e reentram por eventos diferentes
+    (entrar_partida, entrar_arbitro ou join_partida). Emitir em todas as salas
+    evita que notificação/cronômetro fique preso em uma sala diferente.
+    """
+    base = _room(partida_id)
+    if not base:
+        return []
+    return list(dict.fromkeys([
+        base,
+        f"partida:{base}",
+        f"partida_{base}",
+        f"arbitros:{base}",
+        f"arbitros_{base}",
+    ]))
+
+
+def _emitir_salas(evento, payload, partida_id, **kwargs):
+    payload = _json_safe(payload)
+    for sala in _rooms_partida(partida_id):
+        socketio.emit(evento, payload, room=sala, **kwargs)
 
 
 def _normalizar_apontador(apontador):
@@ -250,26 +274,26 @@ def emitir_estado_partida(partida_id, dados=None):
     _ESTADO_PARTIDAS[sala] = payload
 
     # Compatibilidade com telas antigas, treinador, placar e telas dos árbitros.
-    socketio.emit("estado_partida", payload, room=sala)
-    socketio.emit("estado_jogo_atualizado", payload, room=sala)
-    socketio.emit("estado_arbitros", payload, room=sala)
+    _emitir_salas("estado_partida", payload, partida_id)
+    _emitir_salas("estado_jogo_atualizado", payload, partida_id)
+    _emitir_salas("estado_arbitros", payload, partida_id)
 
     ultima_acao = str(payload.get("ultima_acao") or "").strip()
     if ultima_acao and ultima_acao != "-":
-        socketio.emit("ultima_acao_arbitros", {
+        _emitir_salas("ultima_acao_arbitros", {
             "partida_id": str(partida_id),
             "texto": ultima_acao,
             "descricao": ultima_acao,
-        }, room=sala)
+        }, partida_id)
 
     saque_atual = str(payload.get("saque_atual") or "").strip().upper()
     if saque_atual in {"A", "B"}:
-        socketio.emit("saque_arbitros", {
+        _emitir_salas("saque_arbitros", {
             "partida_id": str(partida_id),
             "equipe": saque_atual,
             "equipe_nome": payload.get("equipe_a") if saque_atual == "A" else payload.get("equipe_b"),
             "saque_atual": saque_atual,
-        }, room=sala)
+        }, partida_id)
 
 
 # =========================
@@ -309,7 +333,7 @@ def emitir_solicitacao_treinador(partida_id, dados):
         "notificacao_geral",       # fallback universal para telas novas/antigas
     )
     for evento in eventos:
-        socketio.emit(evento, payload, room=sala)
+        _emitir_salas(evento, payload, partida_id)
 
     # IMPORTANTE: pedido do treinador NÃO inicia cronômetro.
     # Ele apenas notifica apontador, 1º árbitro e 2º árbitro.
@@ -350,13 +374,14 @@ def emitir_tempo_executado(partida_id, dados=None):
     payload = _json_safe(payload)
 
     # Envia para a sala inteira: apontador, treinador, 1º árbitro e 2º árbitro.
-    socketio.emit("cronometro_tempo", payload, room=sala)
-    socketio.emit("cronometro_arbitros", payload, room=sala)
-    socketio.emit("notificacao_geral", {
+    _emitir_salas("cronometro_tempo", payload, partida_id)
+    _emitir_salas("cronometro_arbitros", payload, partida_id)
+    _emitir_salas("tempo_executado", payload, partida_id)
+    _emitir_salas("notificacao_geral", {
         **payload,
         "tipo": "tempo_executado",
         "mensagem": payload.get("mensagem") or "Tempo autorizado.",
-    }, room=sala)
+    }, partida_id)
 
 
 def emitir_substituicao_executada(partida_id, dados=None):
@@ -387,13 +412,13 @@ def emitir_substituicao_executada(partida_id, dados=None):
     }
     payload = _json_safe(payload)
 
-    socketio.emit("substituicao_executada", payload, room=sala)
-    socketio.emit("substituicao_arbitros", payload, room=sala)
-    socketio.emit("notificacao_geral", {
+    _emitir_salas("substituicao_executada", payload, partida_id)
+    _emitir_salas("substituicao_arbitros", payload, partida_id)
+    _emitir_salas("notificacao_geral", {
         **payload,
         "tipo": "substituicao_executada",
         "mensagem": payload.get("mensagem") or "Substituição executada.",
-    }, room=sala)
+    }, partida_id)
 
 
 # =========================
@@ -404,7 +429,7 @@ def emitir_resposta_solicitacao(partida_id, dados):
         "partida_id": str(partida_id),
         **(dados or {}),
     }
-    socketio.emit("resposta_solicitacao", _json_safe(payload), room=_room(partida_id))
+    _emitir_salas("resposta_solicitacao", payload, partida_id)
 
 
 def _emitir_pedido_treinador_socket(partida_id, tipo, dados=None):
@@ -488,7 +513,8 @@ def entrar_partida(data):
         return
 
     sala = _room(partida_id)
-    join_room(sala)
+    for r in _rooms_partida(partida_id):
+        join_room(r)
     socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "room": sala}, room=request.sid)
 
     estado = _ESTADO_PARTIDAS.get(sala)
@@ -499,6 +525,12 @@ def entrar_partida(data):
         socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
 
 
+@socketio.on("join_partida")
+def join_partida(data):
+    # Compatibilidade com templates que usam join_partida.
+    return entrar_partida(data)
+
+
 @socketio.on("entrar_arbitro")
 def entrar_arbitro(data):
     partida_id = str((data or {}).get("partida_id") or "").strip()
@@ -507,7 +539,8 @@ def entrar_arbitro(data):
         return
 
     sala = _room_arbitros(partida_id)
-    join_room(sala)
+    for r in _rooms_partida(partida_id):
+        join_room(r)
     socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "room": sala, "arbitro": True}, room=request.sid)
 
     estado = _ESTADO_PARTIDAS.get(sala)
@@ -519,16 +552,17 @@ def entrar_arbitro(data):
 
 
 def emitir_ultima_acao_arbitros(partida_id, texto):
-    socketio.emit("ultima_acao_arbitros", {
+    _emitir_salas("ultima_acao_arbitros", {
         "partida_id": str(partida_id),
         "texto": str(texto or ""),
         "descricao": str(texto or ""),
-    }, room=_room_arbitros(partida_id))
+    }, partida_id)
 
 
 def emitir_cronometro_arbitros(partida_id, dados=None):
     payload = {"partida_id": str(partida_id), **(dados or {})}
-    socketio.emit("cronometro_arbitros", _json_safe(payload), room=_room_arbitros(partida_id))
+    _emitir_salas("cronometro_arbitros", payload, partida_id)
+    _emitir_salas("cronometro_tempo", payload, partida_id)
 
 
 @socketio.on("cronometro_tempo")
@@ -554,9 +588,9 @@ def cronometro_tempo_socket(data):
         "origem": "apontador",
     }
 
-    sala = _room(partida_id)
-    socketio.emit("cronometro_tempo", _json_safe(payload), room=sala, include_self=False)
-    socketio.emit("cronometro_arbitros", _json_safe(payload), room=sala, include_self=False)
+    _emitir_salas("cronometro_tempo", payload, partida_id, include_self=False)
+    _emitir_salas("cronometro_arbitros", payload, partida_id, include_self=False)
+    _emitir_salas("tempo_executado", payload, partida_id, include_self=False)
 
 
 @socketio.on("entrar_placar_geral")
