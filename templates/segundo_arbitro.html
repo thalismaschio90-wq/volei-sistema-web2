@@ -282,13 +282,13 @@
 
         .cronometro-overlay {
             position: fixed;
-            inset: 8px;
-            z-index: 80;
+            inset: 0;
+            z-index: 99999;
             display: none;
             align-items: center;
             justify-content: center;
             text-align: center;
-            border-radius: 26px;
+            border-radius: 0;
             background: rgba(2, 6, 23, .96);
             border: 3px solid rgba(251, 191, 36, .75);
             box-shadow: 0 30px 90px rgba(0,0,0,.65);
@@ -297,7 +297,7 @@
 
         .cronometro-overlay.mostrar { display: flex; }
         .cron-titulo { color: #fde68a; font-size: clamp(18px, 4vw, 32px); font-weight: 1000; text-transform: uppercase; letter-spacing: .08em; }
-        .cron-tempo { margin-top: 8px; font-size: clamp(78px, 25vw, 190px); line-height: .88; font-weight: 1000; }
+        .cron-tempo { margin-top: 8px; font-size: clamp(120px, 34vw, 280px); line-height: .82; font-weight: 1000; }
         .cron-sub { margin-top: 12px; color: #cbd5e1; font-size: clamp(16px, 3vw, 30px); font-weight: 900; }
         .cron-fechar { margin-top: 14px; background: #f8fafc; }
 
@@ -582,13 +582,43 @@
                 const ehTempo = String(dados.tipo || "").toLowerCase() === "tempo";
                 const tipo = ehTempo ? "Pedido de tempo" : "Pedido de substituição";
                 mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 4200);
-                if (ehTempo) iniciarCronometro(dados);
+                // Pedido do treinador é só aviso. Cronômetro só abre quando o apontador clicar em Tempo A/B.
             });
 
-            socket.on("cronometro_arbitros", dados => {
+            socket.on("notificacao_geral", dados => {
                 if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
-                iniciarCronometro(dados);
+                const ehTempo = String(dados.tipo || "").toLowerCase() === "tempo";
+                const tipo = ehTempo ? "Pedido de tempo" : "Pedido de substituição";
+                mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 4200);
+                // Pedido do treinador é só aviso. Cronômetro só abre quando o apontador clicar em Tempo A/B.
             });
+
+            function receberCronometroOficial(dados) {
+                if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
+                const status = String(dados.status || "iniciado").toLowerCase();
+                const overlay = document.getElementById("cronometroOverlay");
+                const tempoEl = document.getElementById("cronTempo");
+
+                if (status === "finalizado") {
+                    if (tempoEl) tempoEl.textContent = "FIM";
+                    if (cronInterval) clearInterval(cronInterval);
+                    cronInterval = null;
+                    setTimeout(() => overlay && overlay.classList.remove("mostrar"), 900);
+                    return;
+                }
+
+                if (status === "tick") {
+                    const restante = parseInt(dados.restante ?? dados.segundos ?? 0, 10);
+                    if (overlay) overlay.classList.add("mostrar");
+                    if (tempoEl && Number.isFinite(restante)) tempoEl.textContent = restante;
+                    return;
+                }
+
+                iniciarCronometro(dados);
+            }
+
+            socket.on("cronometro_arbitros", receberCronometroOficial);
+            socket.on("cronometro_tempo", receberCronometroOficial);
         }
 
         aplicarEstado(ESTADO_INICIAL, true);

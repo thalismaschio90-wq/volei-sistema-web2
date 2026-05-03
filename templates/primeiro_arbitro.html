@@ -454,7 +454,12 @@
 
         function aplicarEstado(dados, silencioso = false) {
             if (!dados || typeof dados !== "object") return;
-            estadoAtual = { ...estadoAtual, ...dados };
+            const seguro = { ...dados };
+            // Segurança: evento parcial nunca pode apagar a numeração/rotação dos árbitros.
+            if (Array.isArray(seguro.rotacao_a) && seguro.rotacao_a.length === 0 && Array.isArray(estadoAtual.rotacao_a) && estadoAtual.rotacao_a.length) delete seguro.rotacao_a;
+            if (Array.isArray(seguro.rotacao_b) && seguro.rotacao_b.length === 0 && Array.isArray(estadoAtual.rotacao_b) && estadoAtual.rotacao_b.length) delete seguro.rotacao_b;
+            if ((seguro.saque_atual === "" || seguro.saque_atual == null) && estadoAtual.saque_atual) delete seguro.saque_atual;
+            estadoAtual = { ...estadoAtual, ...seguro };
             render();
 
             const s = sacadorAtual();
@@ -517,6 +522,12 @@
             });
 
             socket.on("solicitacao_arbitros", dados => {
+                if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
+                const tipo = String(dados.tipo || "").toLowerCase() === "tempo" ? "Pedido de tempo" : "Pedido de substituição";
+                mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 4200);
+            });
+
+            socket.on("notificacao_geral", dados => {
                 if (!dados || String(dados.partida_id) !== String(PARTIDA_ID)) return;
                 const tipo = String(dados.tipo || "").toLowerCase() === "tempo" ? "Pedido de tempo" : "Pedido de substituição";
                 mostrarPopup(tipo, dados.equipe_nome || `Equipe ${dados.equipe || ''}`, dados.mensagem || "Solicitação do treinador", 4200);

@@ -51,6 +51,8 @@ from socket_events import (
     emitir_placar_apontador,
     obter_estado_cache,
     atualizar_estado_cache,
+    emitir_tempo_executado,
+    emitir_substituicao_executada,
 )
 
 apontadores_bp = Blueprint("apontadores", __name__)
@@ -1571,6 +1573,16 @@ def _acao_rapida(partida_id, competicao, tipo, equipe='', payload=None):
         rot = list(estado.get(rot_key) or [])
         if numero_sai and numero_entra and len(rot) == 6:
             estado[rot_key] = [numero_entra if str(n) == numero_sai else n for n in rot]
+
+        # Marca visual para árbitros/mesa: quem saiu fica vermelho no histórico/status,
+        # e quem entrou fica identificado como substituto.
+        status_key = "status_jogadores_a" if equipe == "A" else "status_jogadores_b"
+        status = estado.get(status_key) if isinstance(estado.get(status_key), dict) else {}
+        if numero_sai:
+            status[numero_sai] = {"tipo": "substituido", "numero_entra": numero_entra}
+        if numero_entra:
+            status[numero_entra] = {"tipo": "substituto", "numero_sai": numero_sai}
+        estado[status_key] = status
     elif tipo == "cartao_verde":
         campo = "cartoes_verdes_a" if equipe == "A" else "cartoes_verdes_b"
         lista = estado.get(campo) or []
@@ -1613,6 +1625,15 @@ def registrar_tempo_view(competicao, partida_id):
 
         estado = _acao_rapida(partida_id, competicao, "tempo", equipe)
 
+        # Cronômetro oficial: só dispara aqui, após o apontador/mesário clicar em Tempo.
+        emitir_tempo_executado(partida_id, {
+            "equipe": equipe,
+            "equipe_nome": estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b"),
+            "duracao": 30,
+            "mensagem": f"Tempo autorizado - Equipe {equipe}",
+            "origem": "apontador",
+        })
+
         _salvar_async("tempo", registrar_tempo_partida, partida_id, competicao, equipe)
 
         return _json_no_cache({"ok": True, "mensagem": "Tempo registrado.", **estado})
@@ -1654,6 +1675,15 @@ def registrar_substituicao_view(competicao, partida_id):
             equipe,
             {"numero_sai": numero_sai, "numero_entra": numero_entra}
         )
+
+        emitir_substituicao_executada(partida_id, {
+            "equipe": equipe,
+            "equipe_nome": estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b"),
+            "numero_sai": numero_sai,
+            "numero_entra": numero_entra,
+            "mensagem": f"Substituição executada - Equipe {equipe}: #{numero_sai} → #{numero_entra}",
+            "origem": "apontador",
+        })
 
         _salvar_async("substituicao", registrar_substituicao_partida, partida_id, competicao, equipe, numero_sai, numero_entra)
 

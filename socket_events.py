@@ -281,34 +281,119 @@ def emitir_solicitacao_treinador(partida_id, dados):
         return
 
     dados = dict(dados or {})
+    tipo = str(dados.get("tipo") or "").strip().lower()
+    equipe = str(dados.get("equipe") or dados.get("lado") or "").strip().upper()
+    equipe_nome = str(dados.get("equipe_nome") or "").strip()
+    texto_tipo = "tempo" if tipo == "tempo" else "substituição" if tipo in {"substituicao", "substituição"} else "solicitação"
+
     payload = {
         "id_solicitacao": dados.get("id_solicitacao"),
         "partida_id": str(partida_id),
-        "tipo": str(dados.get("tipo") or "").strip().lower(),
-        "equipe": str(dados.get("equipe") or dados.get("lado") or "").strip().upper(),
-        "equipe_nome": str(dados.get("equipe_nome") or "").strip(),
-        "mensagem": str(dados.get("mensagem") or "Solicitação do treinador recebida.").strip(),
+        "tipo": "substituicao" if tipo == "substituição" else tipo,
+        "equipe": equipe,
+        "equipe_nome": equipe_nome,
+        "mensagem": str(dados.get("mensagem") or (f"{equipe_nome} solicitou {texto_tipo}" if equipe_nome else f"Equipe {equipe or '-'} solicitou {texto_tipo}")).strip(),
         "status": str(dados.get("status") or "pendente").strip().lower(),
         "origem": str(dados.get("origem") or "treinador_http").strip(),
+        "duracao": _to_int(dados.get("duracao") or dados.get("segundos") or 30, 30),
         **dados,
     }
 
     payload = _json_safe(payload)
 
-    # Envia para apontador, treinador e árbitros.
-    socketio.emit("solicitacao_treinador", payload, room=sala)
-    socketio.emit("resposta_solicitacao", payload, room=sala)
-    socketio.emit("solicitacao_arbitros", payload, room=sala)
+    # Um único pedido precisa chegar em TODAS as telas vivas da partida.
+    eventos = (
+        "solicitacao_treinador",   # apontador
+        "resposta_solicitacao",    # treinador
+        "solicitacao_arbitros",    # árbitro 1 e 2
+        "notificacao_geral",       # fallback universal para telas novas/antigas
+    )
+    for evento in eventos:
+        socketio.emit(evento, payload, room=sala)
 
-    if payload.get("tipo") == "tempo":
-        socketio.emit("cronometro_arbitros", {
-            "partida_id": str(partida_id),
-            "ativo": True,
-            "duracao": int(payload.get("duracao") or payload.get("segundos") or 30),
-            "equipe": payload.get("equipe"),
-            "equipe_nome": payload.get("equipe_nome"),
-            "mensagem": payload.get("mensagem") or "Tempo solicitado",
-        }, room=sala)
+    # IMPORTANTE: pedido do treinador NÃO inicia cronômetro.
+    # Ele apenas notifica apontador, 1º árbitro e 2º árbitro.
+    # O cronômetro oficial só é emitido quando o apontador registra Tempo A/B.
+
+
+# =========================
+# APONTADOR → ÁRBITROS / TELAS AO VIVO
+# =========================
+def emitir_tempo_executado(partida_id, dados=None):
+    """
+    Cronômetro oficial do tempo.
+    REGRA: só deve ser chamado quando o apontador/mesário clicar em Tempo A/B.
+    Pedido do treinador NÃO pode chamar esta função.
+    """
+    sala = _room(partida_id)
+    if not sala:
+        return
+
+    dados = dict(dados or {})
+    duracao = _to_int(dados.get("duracao") or dados.get("segundos") or dados.get("restante") or 30, 30)
+    equipe = str(dados.get("equipe") or "").strip().upper()
+
+    payload = {
+        "partida_id": str(partida_id),
+        "tipo": "tempo",
+        "ativo": True,
+        "status": str(dados.get("status") or "iniciado").strip().lower(),
+        "equipe": equipe,
+        "equipe_nome": str(dados.get("equipe_nome") or "").strip(),
+        "duracao": duracao,
+        "segundos": duracao,
+        "restante": duracao,
+        "mensagem": str(dados.get("mensagem") or f"Tempo autorizado - Equipe {equipe or '-'}").strip(),
+        "origem": str(dados.get("origem") or "apontador").strip(),
+        **dados,
+    }
+    payload = _json_safe(payload)
+
+    # Envia para a sala inteira: apontador, treinador, 1º árbitro e 2º árbitro.
+    socketio.emit("cronometro_tempo", payload, room=sala)
+    socketio.emit("cronometro_arbitros", payload, room=sala)
+    socketio.emit("notificacao_geral", {
+        **payload,
+        "tipo": "tempo_executado",
+        "mensagem": payload.get("mensagem") or "Tempo autorizado.",
+    }, room=sala)
+
+
+def emitir_substituicao_executada(partida_id, dados=None):
+    """
+    Substituição oficial executada pelo apontador/mesário.
+    Pedido do treinador apenas notifica; a execução nasce aqui.
+    """
+    sala = _room(partida_id)
+    if not sala:
+        return
+
+    dados = dict(dados or {})
+    equipe = str(dados.get("equipe") or "").strip().upper()
+    numero_sai = str(dados.get("numero_sai") or dados.get("sai") or "").strip()
+    numero_entra = str(dados.get("numero_entra") or dados.get("entra") or "").strip()
+
+    payload = {
+        "partida_id": str(partida_id),
+        "tipo": "substituicao",
+        "equipe": equipe,
+        "equipe_nome": str(dados.get("equipe_nome") or "").strip(),
+        "numero_sai": numero_sai,
+        "numero_entra": numero_entra,
+        "status": str(dados.get("status") or "executada").strip().lower(),
+        "origem": str(dados.get("origem") or "apontador").strip(),
+        "mensagem": str(dados.get("mensagem") or f"Substituição executada - Equipe {equipe or '-'}: #{numero_sai} → #{numero_entra}").strip(),
+        **dados,
+    }
+    payload = _json_safe(payload)
+
+    socketio.emit("substituicao_executada", payload, room=sala)
+    socketio.emit("substituicao_arbitros", payload, room=sala)
+    socketio.emit("notificacao_geral", {
+        **payload,
+        "tipo": "substituicao_executada",
+        "mensagem": payload.get("mensagem") or "Substituição executada.",
+    }, room=sala)
 
 
 # =========================
@@ -323,50 +408,15 @@ def emitir_resposta_solicitacao(partida_id, dados):
 
 
 def _emitir_pedido_treinador_socket(partida_id, tipo, dados=None):
-    """
-    Pedido rápido via SocketIO.
-    Não substitui as rotas HTTP que salvam no banco; serve para deixar o
-    apontador e o treinador dinâmicos mesmo quando a tela já está aberta.
-    """
+    """Pedido rápido via SocketIO: avisa todas as telas sem esperar banco/HTTP."""
     dados = dict(dados or {})
-    equipe = str(dados.get("equipe") or dados.get("lado") or "").strip().upper()
-    equipe_nome = str(dados.get("equipe_nome") or "").strip()
+    dados["tipo"] = tipo
+    dados["origem"] = dados.get("origem") or "treinador_socket"
+    emitir_solicitacao_treinador(partida_id, dados)
 
-    texto_tipo = "tempo" if tipo == "tempo" else "substituição"
-    mensagem = dados.get("mensagem") or (
-        f"{equipe_nome} solicitou {texto_tipo}"
-        if equipe_nome
-        else f"Equipe {equipe or '-'} solicitou {texto_tipo}"
-    )
-
-    payload = {
-        "id_solicitacao": dados.get("id_solicitacao"),
-        "partida_id": str(partida_id),
-        "tipo": tipo,
-        "equipe": equipe,
-        "equipe_nome": equipe_nome,
-        "mensagem": mensagem,
-        "status": str(dados.get("status") or "pendente").strip().lower(),
-        "origem": str(dados.get("origem") or "treinador_socket").strip(),
-    }
-
-    payload_safe = _json_safe(payload)
-    socketio.emit("solicitacao_treinador", payload_safe, room=_room(partida_id))
-    socketio.emit("resposta_solicitacao", payload_safe, room=_room(partida_id))
-    socketio.emit("solicitacao_arbitros", payload_safe, room=_room(partida_id))
-
-    if tipo == "tempo":
-        socketio.emit("cronometro_arbitros", {
-            "partida_id": str(partida_id),
-            "ativo": True,
-            "duracao": int(dados.get("duracao") or dados.get("segundos") or 30),
-            "equipe": equipe,
-            "equipe_nome": equipe_nome,
-            "mensagem": mensagem,
-        }, room=_room(partida_id))
-
-    # Confirma para quem pediu, sem derrubar se não houver request.sid.
+    # Confirma também diretamente ao navegador que pediu, quando possível.
     try:
+        payload = {"partida_id": str(partida_id), **dados, "status": dados.get("status") or "pendente"}
         socketio.emit("resposta_solicitacao", _json_safe(payload), room=request.sid)
     except Exception:
         pass
@@ -439,6 +489,7 @@ def entrar_partida(data):
 
     sala = _room(partida_id)
     join_room(sala)
+    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "room": sala}, room=request.sid)
 
     estado = _ESTADO_PARTIDAS.get(sala)
 
@@ -457,6 +508,7 @@ def entrar_arbitro(data):
 
     sala = _room_arbitros(partida_id)
     join_room(sala)
+    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "room": sala, "arbitro": True}, room=request.sid)
 
     estado = _ESTADO_PARTIDAS.get(sala)
     if estado:
@@ -477,6 +529,34 @@ def emitir_ultima_acao_arbitros(partida_id, texto):
 def emitir_cronometro_arbitros(partida_id, dados=None):
     payload = {"partida_id": str(partida_id), **(dados or {})}
     socketio.emit("cronometro_arbitros", _json_safe(payload), room=_room_arbitros(partida_id))
+
+
+@socketio.on("cronometro_tempo")
+def cronometro_tempo_socket(data):
+    """
+    Relé oficial do cronômetro: somente o apontador deve disparar esse evento.
+    Pedido do treinador NÃO passa por aqui.
+    """
+    data = dict(data or {})
+    partida_id = str(data.get("partida_id") or "").strip()
+    if not partida_id:
+        return
+
+    payload = {
+        "partida_id": partida_id,
+        "ativo": True,
+        "status": str(data.get("status") or "iniciado").strip().lower(),
+        "duracao": _to_int(data.get("duracao") or data.get("segundos") or 30, 30),
+        "segundos": _to_int(data.get("segundos") or data.get("restante") or data.get("duracao") or 30, 30),
+        "restante": _to_int(data.get("restante") or data.get("segundos") or data.get("duracao") or 30, 30),
+        "equipe": str(data.get("equipe") or "").strip().upper(),
+        "equipe_nome": str(data.get("equipe_nome") or "").strip(),
+        "origem": "apontador",
+    }
+
+    sala = _room(partida_id)
+    socketio.emit("cronometro_tempo", _json_safe(payload), room=sala, include_self=False)
+    socketio.emit("cronometro_arbitros", _json_safe(payload), room=sala, include_self=False)
 
 
 @socketio.on("entrar_placar_geral")

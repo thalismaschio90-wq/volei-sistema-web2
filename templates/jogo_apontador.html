@@ -429,9 +429,9 @@
     </div>
 
     <div id="info-tempos" style="margin-top:10px; font-size:14px; text-align:center;">
-        Tempos:
-        <strong id="tempo-restante-a">{{ estado.tempos_a if estado.tempos_a is defined else 2 }}</strong> x
-        <strong id="tempo-restante-b">{{ estado.tempos_b if estado.tempos_b is defined else 2 }}</strong>
+        Tempos restantes:
+        <strong id="tempo-restante-a">{{ estado.tempos_restantes_a if estado.tempos_restantes_a is defined else 2 }}</strong> x
+        <strong id="tempo-restante-b">{{ estado.tempos_restantes_b if estado.tempos_restantes_b is defined else 2 }}</strong>
     </div>
 
     <div id="cronometro-tempo" style="margin-top:10px; font-size:22px; font-weight:900; text-align:center; display:none;">
@@ -860,7 +860,7 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let socketConectado = false;
     const socket = (typeof io === "function")
         ? io({
-            transports: ["websocket"],
+            transports: ["websocket", "polling"],
             upgrade: false,
             reconnection: true,
             reconnectionAttempts: Infinity,
@@ -951,6 +951,14 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         });
 
         socket.on("resposta_solicitacao", function (dados) {
+            receberSolicitacaoTempoReal(dados);
+        });
+
+        socket.on("solicitacao_arbitros", function (dados) {
+            receberSolicitacaoTempoReal(dados);
+        });
+
+        socket.on("notificacao_geral", function (dados) {
             receberSolicitacaoTempoReal(dados);
         });
     }
@@ -1157,9 +1165,30 @@ async function inverterLadosVisual() {
         return Number.isFinite(n) ? n : padrao;
     }
 
+    function limiteTemposAtual(dados) {
+        return numeroInteiro(dados?.limite_tempos ?? 2, 2);
+    }
+
+    function temposUsadosDoLado(lado, dados) {
+        if (dados && (dados.tempos_a !== undefined || dados.tempos_b !== undefined)) {
+            return numeroInteiro(lado === "A" ? dados.tempos_a : dados.tempos_b, 0);
+        }
+
+        // Na tela nós mostramos RESTANTES. No backend, tempos_a/tempos_b representam USADOS.
+        // Por isso, quando não vem estado novo, a regra local usa o número visível como restantes.
+        const visivel = lado === "A" ? tempoRestanteA?.textContent : tempoRestanteB?.textContent;
+        return Math.max(0, limiteTemposAtual(dados) - numeroInteiro(visivel, 0));
+    }
+
     function tempoRestanteDoLado(lado, dados) {
-        if (lado === "A") return numeroInteiro(dados?.tempos_a ?? tempoRestanteA?.textContent, 0);
-        return numeroInteiro(dados?.tempos_b ?? tempoRestanteB?.textContent, 0);
+        if (dados && (dados.tempos_restantes_a !== undefined || dados.tempos_restantes_b !== undefined)) {
+            return numeroInteiro(lado === "A" ? dados.tempos_restantes_a : dados.tempos_restantes_b, 0);
+        }
+        if (dados && (dados.tempos_a !== undefined || dados.tempos_b !== undefined)) {
+            return Math.max(0, limiteTemposAtual(dados) - temposUsadosDoLado(lado, dados));
+        }
+        if (lado === "A") return numeroInteiro(tempoRestanteA?.textContent, 0);
+        return numeroInteiro(tempoRestanteB?.textContent, 0);
     }
 
     function substituicoesUsadasDoLado(lado, dados) {
@@ -1240,10 +1269,25 @@ async function inverterLadosVisual() {
         erroBox.style.display = "none";
     }
 
-    function iniciarCronometro(segundos = 30) {
+    function iniciarCronometro(segundos = 30, equipe = "") {
         tempoAtual = segundos;
         cronometroEl.style.display = "block";
         cronometroEl.textContent = "⏱️ " + tempoAtual;
+
+        // Vincula o cronômetro do apontador ao 2º árbitro.
+        // Este evento só acontece quando o apontador clicou em Tempo A/B, nunca no pedido do treinador.
+        try {
+            if (socket && socket.connected) {
+                socket.emit("cronometro_tempo", {
+                    partida_id: PARTIDA_ID,
+                    competicao: COMPETICAO,
+                    equipe: equipe || "",
+                    status: "iniciado",
+                    duracao: segundos,
+                    segundos: segundos
+                });
+            }
+        } catch (e) {}
 
         if (intervaloTempo) clearInterval(intervaloTempo);
 
@@ -1251,9 +1295,34 @@ async function inverterLadosVisual() {
             tempoAtual--;
             cronometroEl.textContent = "⏱️ " + tempoAtual;
 
+            try {
+                if (socket && socket.connected) {
+                    socket.emit("cronometro_tempo", {
+                        partida_id: PARTIDA_ID,
+                        competicao: COMPETICAO,
+                        equipe: equipe || "",
+                        status: "tick",
+                        restante: tempoAtual,
+                        segundos: tempoAtual
+                    });
+                }
+            } catch (e) {}
+
             if (tempoAtual <= 0) {
                 clearInterval(intervaloTempo);
                 cronometroEl.textContent = "⏱️ FIM DO TEMPO";
+                try {
+                    if (socket && socket.connected) {
+                        socket.emit("cronometro_tempo", {
+                            partida_id: PARTIDA_ID,
+                            competicao: COMPETICAO,
+                            equipe: equipe || "",
+                            status: "finalizado",
+                            restante: 0,
+                            segundos: 0
+                        });
+                    }
+                } catch (e) {}
             }
         }, 1000);
     }
@@ -1472,11 +1541,11 @@ async function inverterLadosVisual() {
             : "Saque atual ainda não definido";
 
         if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
-            tempoRestanteA.textContent = dados.tempos_a;
+            tempoRestanteA.textContent = tempoRestanteDoLado("A", dados);
         }
 
         if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
-            tempoRestanteB.textContent = dados.tempos_b;
+            tempoRestanteB.textContent = tempoRestanteDoLado("B", dados);
         }
 
         if (dados.subs_a !== undefined && dados.subs_a !== null) {
@@ -2582,11 +2651,11 @@ function aplicarEstado(dados) {
             : "Saque atual ainda não definido";
 
         if (dados.tempos_a !== undefined && dados.tempos_a !== null) {
-            tempoRestanteA.textContent = dados.tempos_a;
+            tempoRestanteA.textContent = tempoRestanteDoLado("A", dados);
         }
 
         if (dados.tempos_b !== undefined && dados.tempos_b !== null) {
-            tempoRestanteB.textContent = dados.tempos_b;
+            tempoRestanteB.textContent = tempoRestanteDoLado("B", dados);
         }
 
         if (dados.subs_a !== undefined && dados.subs_a !== null) {
@@ -2758,7 +2827,7 @@ function aplicarAcaoLocal(tipo, payload) {
     renderHistoricoBackend([{ descricao }, ...atual].slice(0, 5));
 
     if (tipo === "tempo") {
-        iniciarCronometro(30);
+        iniciarCronometro(30, payload.equipe);
         if (payload.equipe === "A") tempoRestanteA.textContent = Math.max(0, parseInt(tempoRestanteA.textContent || "0", 10) - 1);
         if (payload.equipe === "B") tempoRestanteB.textContent = Math.max(0, parseInt(tempoRestanteB.textContent || "0", 10) - 1);
     }
@@ -3093,7 +3162,7 @@ async function registrarPonto(equipe, scout) {
         return;
     }
 
-    await enviarAcaoRapida("tempo", { equipe: equipe }, () => iniciarCronometro(30));
+    await enviarAcaoRapida("tempo", { equipe: equipe });
 }
 
 async function registrarSubstituicaoExcepcional() {

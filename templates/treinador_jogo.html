@@ -535,7 +535,7 @@
                 <button type="button"
                         class="btn-acao-treinador"
                         data-btn-tempo
-                        onclick="pedirTempo()"
+                        data-acao-treinador="tempo"
                         {% if tempos_restantes is not none and tempos_restantes|int <= 0 %}disabled{% endif %}>
                     {% if tempos_restantes is none or tempos_restantes|int > 0 %}
                         Pedir tempo
@@ -547,7 +547,7 @@
                 <button type="button"
                         class="btn-acao-treinador"
                         data-btn-sub
-                        onclick="pedirSubstituicao()"
+                        data-acao-treinador="substituicao"
                         {% if subs_restantes is not none and subs_restantes|int <= 0 %}disabled{% endif %}>
                     {% if subs_restantes is none or subs_restantes|int > 0 %}
                         Pedir substituição
@@ -680,7 +680,7 @@ let carregandoScoutAgora = false;
 
 const atletas = {{ atletas | tojson }};
 const socket = (typeof io === "function") ? io({
-    transports: ["websocket"],
+    transports: ["websocket", "polling"],
     upgrade: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
@@ -745,6 +745,12 @@ function textoSeguro(valor, padrao = "-") {
 function numeroSeguro(valor, padrao = 0) {
     const n = parseInt(valor ?? padrao, 10);
     return Number.isNaN(n) ? padrao : n;
+}
+
+function numeroInformado(valor) {
+    if (valor === null || valor === undefined || valor === "" || valor === "-") return false;
+    const n = parseInt(valor, 10);
+    return !Number.isNaN(n);
 }
 
 function setTextoTodos(seletor, valor) {
@@ -1195,6 +1201,9 @@ function pedirTempo() {
     })
     .finally(() => {
         pedidoTempoEnviando = false;
+        const temposRestantes = numeroSeguro(document.querySelector("[data-tempos-restantes]")?.textContent || "1", 1);
+        const subsRestantes = numeroSeguro(document.querySelector("[data-subs-restantes]")?.textContent || "1", 1);
+        atualizarBotoesOperacao(temposRestantes, subsRestantes);
     });
 }
 
@@ -1244,9 +1253,25 @@ function pedirSubstituicao() {
     })
     .finally(() => {
         pedidoSubEnviando = false;
+        const temposRestantes = numeroSeguro(document.querySelector("[data-tempos-restantes]")?.textContent || "1", 1);
+        const subsRestantes = numeroSeguro(document.querySelector("[data-subs-restantes]")?.textContent || "1", 1);
+        atualizarBotoesOperacao(temposRestantes, subsRestantes);
     });
 }
 
+
+// Delegação de eventos: continua funcionando mesmo se a aba/operação for rerenderizada.
+document.addEventListener("click", function (ev) {
+    const btn = ev.target.closest("[data-acao-treinador]");
+    if (!btn) return;
+    ev.preventDefault();
+
+    if (btn.disabled || btn.dataset.bloqueado === "1") return;
+
+    const acao = btn.dataset.acaoTreinador;
+    if (acao === "tempo") pedirTempo();
+    if (acao === "substituicao") pedirSubstituicao();
+});
 
 if (socket) {
     socket.on("connect", () => {
@@ -1270,9 +1295,13 @@ if (socket) {
     });
 
     socket.on("resposta_solicitacao", (dados) => {
-        if (!dados) return;
+        if (!dados || String(dados.partida_id) !== String({{ partida.id }})) return;
         mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
-        buscarEstadoTreinadorSeguro(true);
+    });
+
+    socket.on("notificacao_geral", (dados) => {
+        if (!dados || String(dados.partida_id) !== String({{ partida.id }})) return;
+        mostrarRetorno(dados.mensagem || "Nova notificação recebida.", dados.status !== "recusada");
     });
 }
 
