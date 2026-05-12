@@ -474,15 +474,48 @@ function chaveInversao(dados) {
     return `placar_invertido_${ap}_${partida}`;
 }
 
+function chaveInversaoPartidaId(partidaId) {
+    return `placar_inversao_apontador_${String(partidaId || "sem_partida")}`;
+}
+
+function boolInversao(valor) {
+    return valor === true || valor === 1 || valor === "1" || String(valor || "").toLowerCase() === "true";
+}
+
 function getInvertidoVisual(dados) {
+    // Prioridade máxima: o jogo do apontador manda esta flag.
+    // Assim o telão fica igual ao que o apontador está vendo.
+    if (dados && Object.prototype.hasOwnProperty.call(dados, "lados_invertidos_apontador")) {
+        return boolInversao(dados.lados_invertidos_apontador);
+    }
+    if (dados && Object.prototype.hasOwnProperty.call(dados, "lados_invertidos")) {
+        return boolInversao(dados.lados_invertidos);
+    }
+
+    const partidaId = dados && dados.partida_id ? String(dados.partida_id) : "";
+    if (partidaId) {
+        try {
+            const salvo = JSON.parse(localStorage.getItem(chaveInversaoPartidaId(partidaId)) || "null");
+            if (salvo && Object.prototype.hasOwnProperty.call(salvo, "invertido")) {
+                return boolInversao(salvo.invertido);
+            }
+        } catch (e) {}
+    }
+
     return localStorage.getItem(chaveInversao(dados)) === "1";
 }
 
 function setInvertidoVisual(dados, valor) {
     localStorage.setItem(chaveInversao(dados), valor ? "1" : "0");
+    if (dados) {
+        dados.lados_invertidos_apontador = !!valor;
+        dados.lados_invertidos = !!valor;
+    }
 }
 
 btnInverter.addEventListener("click", function () {
+    // Botão local do telão fica só para emergência.
+    // Quando o apontador inverter, o evento dele sobrescreve este valor.
     const atual = getInvertidoVisual(ultimoEstado || {});
     setInvertidoVisual(ultimoEstado || {}, !atual);
     if (ultimoEstado) aplicarEstado(ultimoEstado);
@@ -494,6 +527,36 @@ socket.on("connect", () => {
     }
 });
 
+socket.on("inversao_lados_apontador", (dados) => {
+    if (!dados || typeof dados !== "object") return;
+    const partidaId = String(dados.partida_id || "");
+
+    if (ultimoEstado && partidaId && String(ultimoEstado.partida_id || "") !== partidaId) {
+        return;
+    }
+
+    const invertido = boolInversao(dados.lados_invertidos_apontador ?? dados.invertido);
+    if (ultimoEstado) {
+        ultimoEstado.lados_invertidos_apontador = invertido;
+        ultimoEstado.lados_invertidos = invertido;
+        aplicarEstado(ultimoEstado);
+    }
+});
+
+window.addEventListener("storage", (ev) => {
+    if (!ev.key || !ev.key.startsWith("placar_inversao_apontador_")) return;
+    if (!ultimoEstado) return;
+    try {
+        const dados = JSON.parse(ev.newValue || "{}");
+        const partidaId = String(dados.partida_id || "");
+        if (partidaId && String(ultimoEstado.partida_id || "") !== partidaId) return;
+        const invertido = boolInversao(dados.lados_invertidos_apontador ?? dados.invertido);
+        ultimoEstado.lados_invertidos_apontador = invertido;
+        ultimoEstado.lados_invertidos = invertido;
+        aplicarEstado(ultimoEstado);
+    } catch (e) {}
+});
+
 function normalizarLado(valor) {
     const v = String(valor || "").trim().toUpperCase();
     if (v === "A" || v === "EQUIPE_A" || v === "AZUL") return "A";
@@ -502,11 +565,14 @@ function normalizarLado(valor) {
 }
 
 function nomeEquipeA(dados) {
-    return dados.equipe_a || dados.equipe_a_operacional || dados.equipe_a_nome || dados.nome_a || dados.time_a || "Equipe A";
+    // A tela do apontador trabalha com equipe_a_operacional/equipe_b_operacional.
+    // Se usar equipe_a/equipe_b primeiro, o placar fica preso no lado inicial da tabela
+    // e mostra nome de uma equipe com pontuação/saque da outra.
+    return dados.equipe_a_operacional || dados.equipe_a_nome || dados.nome_a || dados.time_a || dados.equipe_a || "Equipe A";
 }
 
 function nomeEquipeB(dados) {
-    return dados.equipe_b || dados.equipe_b_operacional || dados.equipe_b_nome || dados.nome_b || dados.time_b || "Equipe B";
+    return dados.equipe_b_operacional || dados.equipe_b_nome || dados.nome_b || dados.time_b || dados.equipe_b || "Equipe B";
 }
 
 function statusPartida(dados) {
@@ -739,6 +805,45 @@ function aplicarSaque(saque) {
     }
 }
 
+function normalizarListaEvolucaoBackend(lista) {
+    if (!Array.isArray(lista)) return [];
+    return lista
+        .map((item) => {
+            if (typeof item === "string") return { lado: normalizarLado(item) };
+            if (item && typeof item === "object") {
+                return { lado: normalizarLado(item.lado || item.equipe || item.ponto || item.time) };
+            }
+            return { lado: "" };
+        })
+        .filter((item) => item.lado === "A" || item.lado === "B");
+}
+
+function placarPorEvolucaoBackend(dados) {
+    const lista = normalizarListaEvolucaoBackend(dados && dados.evolucao_pontos);
+    if (!lista.length) return null;
+    let a = 0;
+    let b = 0;
+    lista.forEach((p) => {
+        if (p.lado === "A") a++;
+        if (p.lado === "B") b++;
+    });
+    return { a, b, total: a + b, lista };
+}
+
+function aplicarEvolucaoBackendSeVier(dados, setAtual) {
+    const calc = placarPorEvolucaoBackend(dados);
+    if (!calc || !calc.lista.length) return;
+
+    evolucaoPartidaId = String(dados.partida_id || evolucaoPartidaId || "");
+    evolucaoSetAtual = setAtual;
+    evolucaoPontos = calc.lista.slice(-50).map((p) => ({
+        lado: p.lado,
+        set_atual: setAtual
+    }));
+    evolucaoAtiva = true;
+    evolucaoCongelada = partidaEstaFinalizada(dados);
+}
+
 function aplicarEstado(dados) {
     if (!dados || typeof dados !== "object") return;
 
@@ -750,8 +855,14 @@ function aplicarEstado(dados) {
     let equipeA = nomeEquipeA(dados);
     let equipeB = nomeEquipeB(dados);
 
-    const pAOriginal = Number(dados.pontos_a ?? dados.placar_a ?? 0) || 0;
-    const pBOriginal = Number(dados.pontos_b ?? dados.placar_b ?? 0) || 0;
+    let pAOriginal = Number(dados.pontos_a ?? dados.placar_a ?? 0) || 0;
+    let pBOriginal = Number(dados.pontos_b ?? dados.placar_b ?? 0) || 0;
+
+    const placarEventos = placarPorEvolucaoBackend(dados);
+    if (placarEventos && placarEventos.total > (pAOriginal + pBOriginal)) {
+        pAOriginal = placarEventos.a;
+        pBOriginal = placarEventos.b;
+    }
 
     let pA = pAOriginal;
     let pB = pBOriginal;
@@ -762,7 +873,10 @@ function aplicarEstado(dados) {
     let saque = normalizarLado(dados.saque_atual || dados.saque);
     const setAtual = Number(dados.set_atual || 1) || 1;
 
-    registrarEvolucaoSeForPonto(dados, pAOriginal, pBOriginal, setAtual);
+    aplicarEvolucaoBackendSeVier(dados, setAtual);
+    if (!Array.isArray(dados.evolucao_pontos) || !dados.evolucao_pontos.length) {
+        registrarEvolucaoSeForPonto(dados, pAOriginal, pBOriginal, setAtual);
+    }
 
     if (invertido) {
         [equipeA, equipeB] = [equipeB, equipeA];

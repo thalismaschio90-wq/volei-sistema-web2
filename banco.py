@@ -1043,13 +1043,38 @@ def atualizar_pontuacao_desempate(nome_competicao, dados):
 
 
 def excluir_competicao(nome):
+    if not nome:
+        return False
+
+    tabelas_por_competicao = [
+        "competicao_oficiais",
+        "equipe_conferencia",
+        "eventos",
+        "eventos_partida",
+        "grupo_equipes",
+        "grupos_equipes",
+        "historico_rotacao",
+        "papeletas",
+        "sancoes_partida",
+        "solicitacoes_treinador",
+        "atletas",
+        "equipes",
+        "grupos",
+        "partidas",
+    ]
+
     try:
         with conectar() as conn:
             with conn.cursor() as cur:
+                print(">>> EXCLUINDO COMPETIÇÃO COMPLETA:", nome)
 
-                print(">>> EXCLUINDO COMPETIÇÃO:", nome)
+                cur.execute("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                """)
+                tabelas_existentes = {linha[0] for linha in cur.fetchall()}
 
-                # 1. DESVINCULAR APONTADORES
                 cur.execute("""
                     UPDATE usuarios
                     SET competicao_vinculada = NULL
@@ -1057,45 +1082,29 @@ def excluir_competicao(nome):
                       AND perfil = 'apontador'
                 """, (nome,))
 
-                # 2. PARTIDAS
-                cur.execute("DELETE FROM partidas WHERE competicao = %s", (nome,))
-
-                # 3. GRUPOS
-                try:
-                    cur.execute("DELETE FROM grupo_equipes WHERE competicao = %s", (nome,))
-                except:
-                    pass
-
-                try:
-                    cur.execute("DELETE FROM grupos WHERE competicao = %s", (nome,))
-                except:
-                    pass
-
-                # 4. ATLETAS
-                cur.execute("DELETE FROM atletas WHERE competicao = %s", (nome,))
-
-                # 5. EQUIPES
-                cur.execute("DELETE FROM equipes WHERE competicao = %s", (nome,))
-
-                # 6. USUÁRIOS (menos apontador e superadmin)
                 cur.execute("""
                     DELETE FROM usuarios
                     WHERE competicao_vinculada = %s
                       AND perfil NOT IN ('superadmin', 'apontador')
                 """, (nome,))
 
-                # 7. COMPETIÇÃO
+                for tabela in tabelas_por_competicao:
+                    if tabela in tabelas_existentes:
+                        cur.execute(
+                            f"DELETE FROM {tabela} WHERE competicao = %s",
+                            (nome,)
+                        )
+
                 cur.execute("DELETE FROM competicoes WHERE nome = %s", (nome,))
 
             conn.commit()
 
-        print(">>> FINALIZADO COM SUCESSO")
+        print(">>> COMPETIÇÃO EXCLUÍDA COMPLETAMENTE")
         return True
 
     except Exception as e:
-        print("ERRO REAL:", e)
-        return False
-        
+        print("ERRO REAL AO EXCLUIR COMPETIÇÃO:", e)
+        return False        
 
 def redefinir_senha_organizador(login_organizador):
     nova_senha = _gerar_senha_aleatoria(8)

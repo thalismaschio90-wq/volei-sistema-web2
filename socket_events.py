@@ -11,6 +11,7 @@ _ESTADO_PARTIDAS = {}
 PLACAR_GERAL_ROOM = "placar_geral_ao_vivo"
 _ULTIMO_PLACAR_GERAL = None
 _ULTIMO_PLACAR_APONTADOR = {}
+_INVERSAO_PLACAR_APONTADOR = {}
 
 
 # =========================
@@ -265,9 +266,15 @@ def _normalizar_payload(partida_id, dados=None):
         "ultima_acao": dados.get("ultima_acao") or "-",
 
         # =========================
-        # IDENTIFICAÇÃO
+        # IDENTIFICAÇÃO / VISUAL
         # =========================
         "apontador": dados.get("apontador") or dados.get("apontador_login") or dados.get("operador_login") or "",
+        # Inversão visual controlada pelo apontador. Isso NÃO muda equipe A/B no banco;
+        # serve só para o placar ao vivo desenhar igual ao jogo do apontador.
+        "lados_invertidos_apontador": _to_bool(
+            dados.get("lados_invertidos_apontador", dados.get("lados_invertidos", dados.get("quadra_invertida"))),
+            False,
+        ),
     }
 
     return _json_safe(payload)
@@ -532,6 +539,10 @@ def emitir_placar_apontador(apontador, partida_id, dados=None):
 
     payload = _normalizar_payload(partida_id, dados)
 
+    inv_key = (apontador, str(partida_id or ""))
+    if inv_key in _INVERSAO_PLACAR_APONTADOR:
+        payload["lados_invertidos_apontador"] = bool(_INVERSAO_PLACAR_APONTADOR[inv_key])
+
     # Salva para reconexão.
     _ULTIMO_PLACAR_APONTADOR[apontador] = payload
 
@@ -659,6 +670,40 @@ def cronometro_tempo_socket(data):
     _emitir_salas("cronometro_tempo", payload, partida_id, include_self=False)
     _emitir_salas("cronometro_arbitros", payload, partida_id, include_self=False)
     _emitir_salas("tempo_executado", payload, partida_id, include_self=False)
+
+
+@socketio.on("inversao_lados_apontador")
+def inversao_lados_apontador(data=None):
+    """Sincroniza a inversão visual do jogo do apontador com o placar ao vivo.
+
+    Importante: isso é apenas VISUAL. Não troca equipe A/B no banco.
+    """
+    data = dict(data or {})
+    apontador = _normalizar_apontador(data.get("apontador"))
+    partida_id = str(data.get("partida_id") or "").strip()
+
+    if not apontador or not partida_id:
+        return
+
+    invertido = _to_bool(data.get("invertido", data.get("lados_invertidos")), False)
+    sala = _room_placar_apontador(apontador)
+    _INVERSAO_PLACAR_APONTADOR[(apontador, partida_id)] = invertido
+
+    payload = {
+        "partida_id": partida_id,
+        "competicao": str(data.get("competicao") or ""),
+        "apontador": apontador,
+        "lados_invertidos_apontador": invertido,
+    }
+
+    ultimo = _ULTIMO_PLACAR_APONTADOR.get(apontador)
+    if isinstance(ultimo, dict):
+        ultimo = dict(ultimo)
+        ultimo["lados_invertidos_apontador"] = invertido
+        _ULTIMO_PLACAR_APONTADOR[apontador] = ultimo
+
+    if sala:
+        socketio.emit("inversao_lados_apontador", payload, room=sala)
 
 
 @socketio.on("entrar_placar_geral")

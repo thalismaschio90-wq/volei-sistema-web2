@@ -30,6 +30,7 @@ from banco import (
     desfazer_ultima_acao_partida,
     registrar_tempo_partida,
     buscar_tempos_restantes_partida,
+    buscar_competicao_por_nome,
     registrar_substituicao_partida,
     registrar_substituicao_excepcional_partida,
     registrar_retardamento_partida,
@@ -196,22 +197,25 @@ def _limites_operacionais(partida=None, estado=None):
     partida = partida or {}
     estado = estado or {}
 
+    # A configuração da competição deve ganhar do cache vivo.
+    # O cache pode ter nascido com o padrão antigo 2/6 e não pode sobrescrever
+    # o que foi programado na competição.
     limite_tempos = _int_seguro(
-        estado.get("limite_tempos")
-        or estado.get("tempos_limite")
-        or partida.get("limite_tempos")
+        partida.get("limite_tempos")
         or partida.get("tempos_limite")
         or partida.get("tempos_por_set")
+        or estado.get("limite_tempos")
+        or estado.get("tempos_limite")
         or 2,
         2,
     )
 
     limite_substituicoes = _int_seguro(
-        estado.get("limite_substituicoes")
-        or estado.get("substituicoes_limite")
-        or partida.get("limite_substituicoes")
+        partida.get("limite_substituicoes")
         or partida.get("substituicoes_limite")
         or partida.get("substituicoes_por_set")
+        or estado.get("limite_substituicoes")
+        or estado.get("substituicoes_limite")
         or 6,
         6,
     )
@@ -291,7 +295,18 @@ def _contadores_operacionais(partida_id, competicao, partida=None, estado=None):
 
 def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, partida=None):
     estado = dict(estado or {})
-    partida = partida or {}
+    partida = dict(partida or {})
+
+    # Regras de tempo/substituição ficam na competição, não na partida.
+    # Quando esta função é chamada por ações rápidas, muitas vezes vinha partida={}
+    # e a tela caía sempre no padrão 2 tempos / 6 substituições.
+    try:
+        comp = buscar_competicao_por_nome(competicao) or {}
+        for campo in ("tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes", "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo"):
+            if partida.get(campo) in (None, "") and comp.get(campo) not in (None, ""):
+                partida[campo] = comp.get(campo)
+    except Exception:
+        pass
 
     limites = _limites_operacionais(partida, estado)
     estado["limite_tempos"] = limites["limite_tempos"]
@@ -538,6 +553,122 @@ def _montar_evolucao_pontos(partida_id, competicao):
     return evolucao[-50:]
 
 
+def _calcular_placar_atual_por_eventos(partida_id, competicao, set_atual=None):
+    """
+    Calcula o placar real do set atual usando os eventos de ponto.
+
+    Esse é o placar mais confiável quando o cache/coluna da partida fica atrasado
+    depois de ações extras como tempo, sanção, substituição ou cartão verde.
+    A evolução ponto a ponto já vinha certa porque nasce dos eventos; aqui usamos
+    a mesma fonte para não deixar o placar principal voltar para 0/1 indevidamente.
+    """
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=200) or []
+    except TypeError:
+        try:
+            eventos = listar_eventos_partida(partida_id, competicao) or []
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+    def chave_ordem(ev):
+        return (ev.get("id") or 0, str(ev.get("criado_em") or ""))
+
+    pontos_a = 0
+    pontos_b = 0
+    set_atual_int = None
+    try:
+        set_atual_int = int(set_atual) if set_atual is not None else None
+    except Exception:
+        set_atual_int = None
+
+    for ev in sorted(eventos, key=chave_ordem):
+        if set_atual_int is not None:
+            ev_set = ev.get("set_numero") or ev.get("set_atual") or ev.get("set")
+            if ev_set not in (None, ""):
+                try:
+                    if int(ev_set) != set_atual_int:
+                        continue
+                except Exception:
+                    pass
+
+        tipo_evento = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+        equipe = str(ev.get("equipe") or "").strip().upper()
+
+        if equipe not in {"A", "B"}:
+            continue
+        if tipo_evento not in {"ponto", "pontuacao", "pontuação"}:
+            continue
+
+        fundamento = str(ev.get("fundamento") or "").strip().lower()
+        resultado = str(ev.get("resultado") or "").strip().lower()
+        tipo_lance = str(
+            ev.get("tipo_lance")
+            or ev.get("detalhe")
+            or ev.get("detalhes")
+            or ""
+        ).strip().lower()
+
+        eh_ponto_proprio = (
+            resultado == "ponto"
+            or tipo_lance == "ponto"
+            or fundamento in {"ataque", "bloqueio", "ace"}
+        )
+
+        eh_erro_ou_falta = (
+            resultado in {"erro", "falta"}
+            or tipo_lance in {"erro", "falta"}
+            or fundamento in {
+                "erro_saque",
+                "erro_geral",
+                "rede",
+                "invasao",
+                "rotacao",
+                "conducao",
+                "dois_toques",
+            }
+        )
+
+        if eh_erro_ou_falta:
+            equipe_ponto = "B" if equipe == "A" else "A"
+        elif eh_ponto_proprio:
+            equipe_ponto = equipe
+        else:
+            continue
+
+        if equipe_ponto == "A":
+            pontos_a += 1
+        else:
+            pontos_b += 1
+
+    return {"pontos_a": pontos_a, "pontos_b": pontos_b, "total": pontos_a + pontos_b}
+
+
+def _reconciliar_placar_com_eventos(partida_id, competicao, estado):
+    """Nunca deixa resposta/cache atrasado sobrescrever placar real já salvo nos eventos."""
+    estado = dict(estado or {})
+    set_atual = estado.get("set_atual") or 1
+    calculado = _calcular_placar_atual_por_eventos(partida_id, competicao, set_atual)
+    if not calculado:
+        return estado
+
+    atual_a = int(estado.get("pontos_a") or estado.get("placar_a") or 0)
+    atual_b = int(estado.get("pontos_b") or estado.get("placar_b") or 0)
+    total_atual = atual_a + atual_b
+    total_calc = int(calculado.get("total") or 0)
+
+    # Se os eventos têm mais pontos que o estado atual, o estado está atrasado/zerado.
+    # Em ações como tempo/sanção/substituição/cartão, isso era o que fazia o placar cair.
+    if total_calc > total_atual:
+        estado["pontos_a"] = int(calculado.get("pontos_a") or 0)
+        estado["pontos_b"] = int(calculado.get("pontos_b") or 0)
+        estado["placar_a"] = estado["pontos_a"]
+        estado["placar_b"] = estado["pontos_b"]
+
+    return estado
+
+
 def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=None):
     """
     Garante que o payload enviado ao telão sempre tenha:
@@ -597,6 +728,8 @@ def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=No
     if "evolucao_pontos" not in estado:
         estado["evolucao_pontos"] = _montar_evolucao_pontos(partida_id, competicao)
 
+    estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+
     return estado
 
 
@@ -612,8 +745,19 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
     estado.setdefault("competicao", competicao)
     estado.setdefault("partida_id", partida_id)
 
-    estado.setdefault("equipe_a", partida.get("equipe_a_operacional") or partida.get("equipe_a") or "")
-    estado.setdefault("equipe_b", partida.get("equipe_b_operacional") or partida.get("equipe_b") or "")
+    # O jogo do apontador usa a ordem operacional da partida.
+    # Não deixe um estado antigo vindo do banco com equipe_a/equipe_b originais
+    # sobrescrever a ordem operacional, senão o placar ao vivo atrela nome/saque
+    # ao lado inicial da quadra e troca as informações quando inverte.
+    equipe_a_op = partida.get("equipe_a_operacional") or estado.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
+    equipe_b_op = partida.get("equipe_b_operacional") or estado.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
+
+    estado["equipe_a_operacional"] = equipe_a_op
+    estado["equipe_b_operacional"] = equipe_b_op
+    estado["equipe_a"] = equipe_a_op
+    estado["equipe_b"] = equipe_b_op
+
+    estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
 
     estado.setdefault("pontos_a", estado.get("placar_a", 0))
     estado.setdefault("pontos_b", estado.get("placar_b", 0))
@@ -973,15 +1117,70 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
         flash("Equipe não definida para conferência.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
-    ids = request.form.getlist("atleta_id")
-    houve_erro = False
+    ids = [str(i).strip() for i in request.form.getlist("atleta_id") if str(i).strip()]
+    atletas_atuais = listar_atletas_aprovados_da_equipe(equipe, competicao) or []
+    atletas_por_id = {str(a.get("id")): a for a in atletas_atuais}
 
+    novos_numeros = {}
+    numeros_usados = {}
+    erros = []
+
+    # Valida tudo antes de salvar. Assim não aparece a mesma mensagem várias vezes
+    # e também evita salvar metade da conferência quando existe número repetido.
     for atleta_id in ids:
-        numero = request.form.get(f"numero_{atleta_id}", "").strip()
-        ok, msg = atualizar_numero_atleta(atleta_id, numero)
+        atleta = atletas_por_id.get(str(atleta_id))
+        if not atleta:
+            continue
+
+        bruto = (request.form.get(f"numero_{atleta_id}", "") or "").strip()
+        if bruto == "":
+            novos_numeros[atleta_id] = None
+            continue
+
+        try:
+            numero_int = int(bruto)
+        except (TypeError, ValueError):
+            erros.append(f"Número inválido para {atleta.get('nome') or 'atleta'}.")
+            continue
+
+        if numero_int < 1 or numero_int > 99:
+            erros.append(f"O número de {atleta.get('nome') or 'atleta'} precisa ser entre 1 e 99.")
+            continue
+
+        novos_numeros[atleta_id] = numero_int
+        numeros_usados.setdefault(numero_int, []).append(atleta.get("nome") or f"Atleta {atleta_id}")
+
+    repetidos = {n: nomes for n, nomes in numeros_usados.items() if len(nomes) > 1}
+    for numero, nomes in repetidos.items():
+        erros.append(f"O número {numero} foi informado para mais de uma atleta: {', '.join(nomes)}.")
+
+    if erros:
+        for msg in erros:
+            flash(msg, "erro")
+        return redirect(url_for("apontadores.conferencia_equipe_view", competicao=competicao, partida_id=partida_id, lado=lado))
+
+    houve_erro = False
+    mensagens_exibidas = set()
+
+    for atleta_id, numero in novos_numeros.items():
+        atleta = atletas_por_id.get(str(atleta_id)) or {}
+        numero_atual = atleta.get("numero")
+        try:
+            numero_atual = int(numero_atual) if numero_atual not in (None, "") else None
+        except (TypeError, ValueError):
+            numero_atual = None
+
+        # Se não mudou, não chama o banco. Isso evita falso erro quando a tela
+        # envia vários campos de uma vez e deixa o salvamento bem mais leve.
+        if numero_atual == numero:
+            continue
+
+        ok, msg = atualizar_numero_atleta(atleta_id, "" if numero is None else str(numero))
         if not ok:
             houve_erro = True
-            flash(msg, "erro")
+            if msg not in mensagens_exibidas:
+                mensagens_exibidas.add(msg)
+                flash(msg, "erro")
 
     if not houve_erro:
         _limpar_cache_atletas(equipe, competicao)
@@ -2034,6 +2233,9 @@ def estado_jogo_view(competicao, partida_id):
         tempos_b = estado.get("tempos_b")
 
         estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
+        estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+        pontos_a = int(estado.get("pontos_a") or estado.get("placar_a") or pontos_a or 0)
+        pontos_b = int(estado.get("pontos_b") or estado.get("placar_b") or pontos_b or 0)
         tempos_a = estado.get("tempos_a", tempos_a)
         tempos_b = estado.get("tempos_b", tempos_b)
 
