@@ -1,294 +1,700 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <title>Login - VolleyTable Pro</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<title>Login - VolleyTable Pro</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <style>
-        :root {
-            --bg: #eef3f8;
-            --card: #ffffff;
-            --painel: #123852;
-            --painel-2: #0d2a3e;
-            --texto: #183247;
-            --muted: #6b7c8c;
-            --borda: #d9e3ec;
-            --primary: #123852;
-            --primary-hover: #0f3147;
-            --shadow: 0 18px 40px rgba(17, 41, 65, 0.10);
-            --radius: 22px;
-        }
+<style>
 
-        * {
-            box-sizing: border-box;
-        }
+:root{
+    --azul:#062b4f;
+    --azul2:#0a477a;
+    --dourado:#f5a313;
+    --texto:#082b4f;
+    --muted:#6f86a8;
+    --borda:#dbe7f5;
+}
 
-        body {
-            margin: 0;
-            min-height: 100vh;
-            font-family: Arial, Helvetica, sans-serif;
-            background: linear-gradient(180deg, #f5f8fc 0%, var(--bg) 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            color: var(--texto);
-        }
+*{
+    box-sizing:border-box;
+}
 
-        .login-shell {
-            width: 100%;
-            max-width: 980px;
-            background: var(--card);
-            border-radius: var(--radius);
-            overflow: hidden;
-            box-shadow: var(--shadow);
-            display: grid;
-            grid-template-columns: 1.05fr 0.95fr;
-            min-height: 520px;
-            border: 1px solid rgba(18, 56, 82, 0.08);
-        }
+body{
+    margin:0;
+    min-height:100vh;
+    font-family:Arial, Helvetica, sans-serif;
+    background:
+        radial-gradient(circle at 16% 0%, rgba(156,193,229,.28), transparent 18%),
+        linear-gradient(135deg,#f8fbff 0%,#edf5fd 100%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:14px;
+    overflow:hidden;
+    color:var(--texto);
+}
 
-        .login-left {
-            background: linear-gradient(180deg, var(--painel) 0%, #184d6f 100%);
-            color: white;
-            padding: 34px 32px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
+body::before{
+    content:"";
+    position:fixed;
+    top:24px;
+    right:28px;
+    width:140px;
+    height:140px;
+    background-image:radial-gradient(rgba(8,43,79,.16) 2px,transparent 2px);
+    background-size:14px 14px;
+    opacity:.5;
+}
 
-        .mini-badge {
-            display: inline-flex;
-            align-items: center;
-            width: fit-content;
-            padding: 8px 12px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.10);
-            border: 1px solid rgba(255,255,255,0.14);
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            margin-bottom: 18px;
-        }
+.login-shell{
+    width:min(960px,100%);
+    height:min(540px,calc(100vh - 28px));
+    display:grid;
+    grid-template-columns:1.02fr .88fr;
+    border-radius:22px;
+    overflow:hidden;
+    position:relative;
+    z-index:2;
+    box-shadow:0 20px 50px rgba(8,43,79,.14);
+}
 
-        .login-left h1 {
-            margin: 0 0 14px;
-            font-size: 34px;
-            line-height: 1.05;
-            font-weight: 900;
-        }
+.login-left{
+    position:relative;
+    padding:28px 40px;
+    color:white;
+    background:
+        linear-gradient(
+            rgba(2,18,38,0.58),
+            rgba(2,18,38,0.78)
+        ),
+        url("/static/img/fundo_login.png");
+    background-size:cover;
+    background-position:center;
+    background-repeat:no-repeat;
+    overflow:hidden;
+}
 
-        .login-left p {
-            margin: 0 0 22px;
-            font-size: 15px;
-            line-height: 1.7;
-            color: rgba(255,255,255,0.84);
-            max-width: 420px;
-        }
+.login-left::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:
+        radial-gradient(circle at 78% 52%,rgba(255,255,255,.05),transparent 25%);
+}
 
-        .destaques {
-            display: grid;
-            gap: 10px;
-            margin-top: 8px;
-        }
+.dots-left{
+    position:absolute;
+    top:28px;
+    left:24px;
+    width:36px;
+    height:96px;
+    background-image:radial-gradient(#2b84dd 2px,transparent 2px);
+    background-size:13px 13px;
+    opacity:.85;
+}
 
-        .destaque-item {
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.10);
-            padding: 14px 16px;
-            border-radius: 14px;
-            font-size: 14px;
-            font-weight: 600;
-        }
+.brand{
+    position:relative;
+    z-index:1;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:20px;
+    margin-left:22px;
+}
 
-        .login-right {
-            padding: 42px 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+.brand img{
+    width:66px;
+    height:auto;
+    filter:drop-shadow(0 6px 10px rgba(0,0,0,.24));
+}
 
-        .form-box {
-            width: 100%;
-            max-width: 360px;
-        }
+.brand-text strong{
+    display:block;
+    font-size:22px;
+    line-height:1;
+    font-weight:950;
+    letter-spacing:.3px;
+}
 
-        .form-box h2 {
-            margin: 0;
-            font-size: 26px;
-            font-weight: 900;
-            color: var(--texto);
-        }
+.brand-text strong span{
+    color:var(--dourado);
+}
 
-        .subtexto {
-            margin: 10px 0 24px;
-            color: var(--muted);
-            font-size: 14px;
-        }
+.brand-text small{
+    display:block;
+    margin-top:5px;
+    font-size:9px;
+    letter-spacing:.6px;
+    font-weight:800;
+    color:rgba(255,255,255,.76);
+}
 
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--texto);
-        }
+.badge{
+    position:relative;
+    z-index:1;
+    width:fit-content;
+    padding:7px 15px;
+    border-radius:999px;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.10);
+    font-size:11px;
+    font-weight:900;
+    margin-bottom:18px;
+    margin-left:22px;
+}
 
-        input {
-            width: 100%;
-            height: 48px;
-            border: 1px solid #ccd8e3;
-            border-radius: 14px;
-            padding: 0 14px;
-            font-size: 15px;
-            outline: none;
-            background: #fcfdff;
-            transition: 0.18s ease;
-            margin-bottom: 16px;
-        }
+.badge span{
+    color:var(--dourado);
+    padding:0 5px;
+}
 
-        input:focus {
-            border-color: #8aa9bf;
-            box-shadow: 0 0 0 4px rgba(18, 56, 82, 0.08);
-            background: white;
-        }
+.hero-title{
+    position:relative;
+    z-index:1;
+    margin:0;
+    margin-left:22px;
+    padding-left:14px;
+    border-left:4px solid var(--dourado);
+    font-size:28px;
+    line-height:1.04;
+    letter-spacing:-.7px;
+    font-weight:950;
+}
 
-        .btn-entrar {
-            width: 100%;
-            height: 48px;
-            border: none;
-            border-radius: 14px;
-            background: var(--primary);
-            color: white;
-            font-size: 15px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: 0.18s ease;
-            margin-top: 2px;
-        }
+.hero-title span{
+    color:var(--dourado);
+}
 
-        .btn-entrar:hover {
-            background: var(--primary-hover);
-        }
+.hero-text{
+    position:relative;
+    z-index:1;
+    max-width:360px;
+    margin:16px 0 20px 38px;
+    font-size:12px;
+    line-height:1.55;
+    color:rgba(255,255,255,.86);
+}
 
-        .flash-erro {
-            background: #fff0f0;
-            color: #a13d3d;
-            padding: 12px 14px;
-            border-radius: 12px;
-            border: 1px solid #f0c9c9;
-            margin-bottom: 14px;
-            font-size: 14px;
-            font-weight: 700;
-        }
+.features{
+    position:relative;
+    z-index:1;
+    display:grid;
+    gap:10px;
+    max-width:380px;
+    margin-left:16px;
+}
 
-        .flash-sucesso {
-            background: #eefaf0;
-            color: #256c35;
-            padding: 12px 14px;
-            border-radius: 12px;
-            border: 1px solid #c7e6cd;
-            margin-bottom: 14px;
-            font-size: 14px;
-            font-weight: 700;
-        }
+.feature{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    border-radius:15px;
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.08);
+    backdrop-filter: blur(3px);
+}
 
-        .rodape-login {
-            margin-top: 14px;
-            text-align: center;
-            color: var(--muted);
-            font-size: 12px;
-        }
+.feature-icon{
+    width:42px;
+    height:42px;
+    min-width:42px;
+    border-radius:13px;
+    display:grid;
+    place-items:center;
+    background:rgba(48,138,230,.22);
+    color:#76c4ff;
+}
 
-        .dica-apontador {
-            margin-top: 8px;
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.5;
-        }
+.feature-icon svg{
+    width:20px;
+    height:20px;
+}
 
-        @media (max-width: 900px) {
-            .login-shell {
-                grid-template-columns: 1fr;
-            }
+.feature strong{
+    display:block;
+    font-size:12px;
+    margin-bottom:3px;
+}
 
-            .login-left {
-                padding: 28px 24px;
-            }
+.feature small{
+    display:block;
+    color:rgba(255,255,255,.72);
+    font-size:10px;
+}
 
-            .login-right {
-                padding: 30px 22px;
-            }
+.login-right{
+    position:relative;
+    background:rgba(255,255,255,.98);
+    padding:30px 36px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-top-left-radius:22px;
+    border-bottom-left-radius:22px;
+    box-shadow:-18px 0 45px rgba(8,43,79,.06);
+}
 
-            .login-left h1 {
-                font-size: 28px;
-            }
-        }
-    </style>
+.form-box{
+    width:100%;
+    max-width:350px;
+}
+
+.form-title{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:14px;
+}
+
+.form-icon{
+    width:48px;
+    height:48px;
+    border-radius:50%;
+    display:grid;
+    place-items:center;
+    background:#edf5ff;
+    color:#0b3d68;
+}
+
+.form-title h2{
+    margin:0;
+    font-size:28px;
+    line-height:1;
+    font-weight:950;
+}
+
+.subtexto{
+    margin:0 0 22px;
+    color:var(--muted);
+    font-size:12px;
+    line-height:1.45;
+    font-weight:600;
+}
+
+label{
+    display:block;
+    margin-bottom:7px;
+    font-size:12px;
+    font-weight:900;
+}
+
+.input-wrap{
+    position:relative;
+    margin-bottom:15px;
+}
+
+.input-icon{
+    position:absolute;
+    left:15px;
+    top:50%;
+    transform:translateY(-50%);
+    color:#5475a5;
+    display:flex;
+    pointer-events:none;
+}
+
+input{
+    width:100%;
+    height:46px;
+    border-radius:14px;
+    border:1px solid var(--borda);
+    background:#f7fbff;
+    padding:0 16px 0 46px;
+    font-size:13px;
+    outline:none;
+    box-shadow:0 6px 16px rgba(8,43,79,.04);
+    transition:.18s ease;
+}
+
+input:focus{
+    background:white;
+    border-color:#b9cce5;
+    box-shadow:0 0 0 4px rgba(11,61,104,.08);
+}
+
+.lembrar-box{
+    margin-top:-3px;
+    margin-bottom:16px;
+}
+
+.lembrar-label{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    cursor:pointer;
+    font-size:12px;
+    font-weight:700;
+    color:#5f7699;
+}
+
+.lembrar-label input{
+    width:15px;
+    height:15px;
+    accent-color:#0a477a;
+}
+
+.btn-entrar,
+.btn-download{
+    width:100%;
+    height:46px;
+    border-radius:14px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:14px;
+    font-weight:900;
+    transition:.18s ease;
+}
+
+.btn-entrar{
+    border:none;
+    background:linear-gradient(135deg,#07335f,#0a477a);
+    color:white;
+    cursor:pointer;
+    box-shadow:0 10px 18px rgba(8,43,79,.12);
+}
+
+.btn-download{
+    margin-top:12px;
+    border:1px solid rgba(245,163,19,.30);
+    background:#fff8e9;
+    color:#d88a00;
+    text-decoration:none;
+}
+
+.btn-icon{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    margin-right:8px;
+}
+
+.btn-entrar:hover,
+.btn-download:hover{
+    transform:translateY(-1px);
+}
+
+.dica-apontador{
+    margin-top:16px;
+    color:#55749f;
+    font-size:11px;
+    line-height:1.45;
+    font-weight:600;
+}
+
+.rodape-login{
+    margin-top:20px;
+    text-align:center;
+    font-size:12px;
+    color:#9aacc8;
+    font-weight:800;
+}
+
+.flash-erro,
+.flash-sucesso{
+    padding:10px 12px;
+    border-radius:12px;
+    margin-bottom:12px;
+    font-size:12px;
+    font-weight:800;
+}
+
+.flash-erro{
+    background:#fff0f0;
+    color:#a13d3d;
+    border:1px solid #f0c9c9;
+}
+
+.flash-sucesso{
+    background:#eefaf0;
+    color:#256c35;
+    border:1px solid #c7e6cd;
+}
+
+@media(max-width:900px){
+
+    body{
+        overflow:auto;
+        padding:12px;
+    }
+
+    .login-shell{
+        height:auto;
+        grid-template-columns:1fr;
+    }
+
+    .login-left{
+        padding:26px 20px;
+    }
+
+    .login-right{
+        padding:26px 20px;
+        border-radius:0;
+    }
+
+    .brand,
+    .badge,
+    .hero-title,
+    .hero-text,
+    .features{
+        margin-left:0;
+    }
+
+}
+
+</style>
 </head>
+
 <body>
-    <div class="login-shell">
-        <div class="login-left">
-            <div class="mini-badge">VOLLEYTABLE PRO</div>
-            <h1>GESTÃO<br>DE VOLEIBOL</h1>
-            <p>
-                Plataforma web para competições, organização, operação de mesa,
-                equipes, tabelas, pré-jogo, jogo e evolução completa do sistema.
-            </p>
 
-            <div class="destaques">
-                <div class="destaque-item">🏆 Gestão de competições</div>
-                <div class="destaque-item">👥 Controle de equipes e usuários</div>
-                <div class="destaque-item">📋 Estrutura pronta para evoluir</div>
-            </div>
-        </div>
+<div class="login-shell">
 
-        <div class="login-right">
-            <div class="form-box">
-                <h2>Entrar</h2>
-                <div class="subtexto">Acesse o sistema com seu login e senha.</div>
+<section class="login-left">
 
-                {% with mensagens = get_flashed_messages(with_categories=true) %}
-                    {% if mensagens %}
-                        {% for categoria, mensagem in mensagens %}
-                            {% if categoria == 'erro' %}
-                                <div class="flash-erro">{{ mensagem }}</div>
-                            {% elif categoria == 'sucesso' %}
-                                <div class="flash-sucesso">{{ mensagem }}</div>
-                            {% endif %}
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
+    <div class="dots-left"></div>
 
-                <form method="post">
-                    <label for="login">Login</label>
-                    <input
-                        type="text"
-                        id="login"
-                        name="login"
-                        placeholder="Digite seu login ou CPF"
-                        required
-                    >
+    <div class="brand">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="VolleyTable Pro">
 
-                    <label for="senha">Senha</label>
-                    <input
-                        type="password"
-                        id="senha"
-                        name="senha"
-                        placeholder="Digite sua senha"
-                    >
-
-                    <button class="btn-entrar" type="submit">Entrar</button>
-
-                    <div class="dica-apontador">
-                        Apontador em primeiro acesso: informe seu CPF e clique em entrar para criar sua senha.
-                    </div>
-
-                    <div class="rodape-login">VolleyTable Pro Web</div>
-                </form>
-            </div>
+        <div class="brand-text">
+            <strong>VOLLEY<span>TABLE</span></strong>
+            <small>SISTEMA DE GESTÃO DE VOLEIBOL</small>
         </div>
     </div>
+
+    <div class="badge">
+        🖥 WEB <span>•</span> APP DESKTOP
+    </div>
+
+    <h1 class="hero-title">
+        GESTÃO<br>
+        DE <span>VOLEIBOL</span>
+    </h1>
+
+    <p class="hero-text">
+        Plataforma profissional para operação de mesas,
+        gestão de competição, tabela, árbitros,
+        equipes e partidas em tempo real.
+    </p>
+
+    <div class="features">
+
+        <div class="feature">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="M12 7v5l3 2"/>
+                </svg>
+            </div>
+
+            <div>
+                <strong>Painel do apontador em tempo real</strong>
+                <small>Acompanhe cada lance com precisão</small>
+            </div>
+        </div>
+
+        <div class="feature">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <rect x="3" y="5" width="18" height="12" rx="2"/>
+                    <path d="M8 21h8M12 17v4"/>
+                </svg>
+            </div>
+
+            <div>
+                <strong>Telão profissional sincronizado</strong>
+                <small>Sincronização automática e segura</small>
+            </div>
+        </div>
+
+        <div class="feature">
+            <div class="feature-icon" style="color:#f5c84c;">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M13 2 3 14h8l-1 8 11-14h-8l1-6Z"/>
+                </svg>
+            </div>
+
+            <div>
+                <strong>Sistema rápido e responsivo</strong>
+                <small>Performance otimizada para alta demanda</small>
+            </div>
+        </div>
+
+    </div>
+
+</section>
+
+<section class="login-right">
+
+    <div class="form-box">
+
+        <div class="form-title">
+
+            <div class="form-icon">
+                <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21a8 8 0 0 0-16 0"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+            </div>
+
+            <h2>Entrar</h2>
+
+        </div>
+
+        <p class="subtexto">
+            Acesse o VolleyTable Pro com seu login e senha.
+        </p>
+
+        {% with mensagens = get_flashed_messages(with_categories=true) %}
+            {% if mensagens %}
+                {% for categoria, mensagem in mensagens %}
+
+                    {% if categoria == 'erro' %}
+                        <div class="flash-erro">{{ mensagem }}</div>
+                    {% elif categoria == 'sucesso' %}
+                        <div class="flash-sucesso">{{ mensagem }}</div>
+                    {% endif %}
+
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="post">
+
+            <label for="login">Login</label>
+
+            <div class="input-wrap">
+
+                <span class="input-icon">
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21a8 8 0 0 0-16 0"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                </span>
+
+                <input
+                    type="text"
+                    id="login"
+                    name="login"
+                    placeholder="Digite seu login ou CPF"
+                    required
+                >
+
+            </div>
+
+            <label for="senha">Senha</label>
+
+            <div class="input-wrap">
+
+                <span class="input-icon">
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="5" y="11" width="14" height="10" rx="2"/>
+                        <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                    </svg>
+                </span>
+
+                <input
+                    type="password"
+                    id="senha"
+                    name="senha"
+                    placeholder="Digite sua senha"
+                >
+
+            </div>
+
+            <div class="lembrar-box">
+                <label class="lembrar-label">
+                    <input type="checkbox" id="lembrar-dados">
+                    <span>Lembrar login e senha</span>
+                </label>
+            </div>
+
+            <button class="btn-entrar" type="submit">
+
+                <span class="btn-icon">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                        <path d="M10 17l5-5-5-5"/>
+                        <path d="M15 12H3"/>
+                    </svg>
+                </span>
+
+                Entrar
+
+            </button>
+
+            <a
+                class="btn-download"
+                href="/static/downloads/VolleyTablePro-Setup.exe"
+                download
+            >
+
+                <span class="btn-icon">
+                    <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+                        <path d="M3 5.3 10.5 4v7.4H3V5.3Zm8.5-1.45L21 2.2v9.2h-9.5V3.85ZM3 12.6h7.5V20L3 18.7v-6.1Zm8.5 0H21v9.2l-9.5-1.65V12.6Z"/>
+                    </svg>
+                </span>
+
+                Baixar aplicativo Windows
+
+            </a>
+
+            <div class="dica-apontador">
+                Primeiro acesso do apontador:
+                informe seu CPF e clique em entrar para criar sua senha.
+            </div>
+
+            <div class="rodape-login">
+                VolleyTable Pro Web
+            </div>
+
+        </form>
+
+    </div>
+
+</section>
+
+</div>
+
+<script>
+
+document.addEventListener("DOMContentLoaded", () => {
+
+    const loginInput = document.getElementById("login");
+    const senhaInput = document.getElementById("senha");
+    const lembrar = document.getElementById("lembrar-dados");
+
+    const loginSalvo = localStorage.getItem("vt_login");
+    const senhaSalva = localStorage.getItem("vt_senha");
+
+    if (loginSalvo && senhaSalva) {
+        loginInput.value = loginSalvo;
+        senhaInput.value = senhaSalva;
+        lembrar.checked = true;
+    }
+
+    document.querySelector("form").addEventListener("submit", () => {
+
+        if (lembrar.checked) {
+
+            localStorage.setItem("vt_login", loginInput.value);
+            localStorage.setItem("vt_senha", senhaInput.value);
+
+        } else {
+
+            localStorage.removeItem("vt_login");
+            localStorage.removeItem("vt_senha");
+
+        }
+
+    });
+
+});
+
+</script>
+
 </body>
 </html>

@@ -214,14 +214,14 @@
         }
 
         .topbar {
-            background: rgba(255,255,255,0.84);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border);
-            padding: 20px 28px;
+            background: linear-gradient(90deg, #062743 0%, #0b3557 100%);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding: 16px 28px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 16px;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.10);
         }
 
         .topbar-left {
@@ -237,19 +237,19 @@
             justify-content: center;
             width: 46px;
             height: 46px;
-            border: 1px solid var(--border);
-            background: white;
-            color: var(--text);
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.08);
+            color: white;
             border-radius: 14px;
             cursor: pointer;
             transition: 0.18s ease;
-            box-shadow: var(--shadow);
+            box-shadow: none;
             font-size: 22px;
             line-height: 1;
         }
 
         .menu-toggle:hover {
-            background: var(--surface-soft);
+            background: rgba(255,255,255,0.16);
         }
 
         .menu-toggle svg {
@@ -258,17 +258,36 @@
             display: block;
         }
 
+        .topbar-logo {
+            width: 44px;
+            height: 44px;
+            object-fit: contain;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.08);
+            padding: 4px;
+            flex-shrink: 0;
+        }
+
+        .topbar-brand {
+            min-width: 0;
+        }
+
         .topbar-title {
-            font-size: 26px;
+            font-size: 28px;
             font-weight: 900;
-            color: var(--text);
+            color: white;
             margin: 0;
+            line-height: 1;
+        }
+
+        .topbar-title span {
+            color: var(--accent);
         }
 
         .topbar-subtitle {
             margin-top: 4px;
-            font-size: 14px;
-            color: var(--muted);
+            font-size: 13px;
+            color: rgba(255,255,255,0.70);
         }
 
         .topbar-user {
@@ -279,13 +298,14 @@
         .topbar-user strong {
             display: block;
             font-size: 14px;
-            color: var(--text);
+            color: white;
         }
 
         .topbar-user span {
-            font-size: 12px;
-            color: var(--muted);
+            font-size: 11px;
+            color: rgba(255,255,255,0.66);
             text-transform: uppercase;
+            letter-spacing: 0.4px;
         }
 
         .content {
@@ -776,9 +796,15 @@
                     </svg>
                 </button>
 
-                <div>
-                    <div class="topbar-title">VolleyTable Pro Web</div>
-                    <div class="topbar-subtitle">Painel inteligente da competição</div>
+                <img
+                    src="{{ url_for('static', filename='img/logo.png') }}"
+                    class="topbar-logo"
+                    alt="VolleyTable Pro"
+                >
+
+                <div class="topbar-brand">
+                    <div class="topbar-title">Volley<span>Table</span> Pro</div>
+                    <div class="topbar-subtitle">Sistema profissional de gestão de voleibol</div>
                 </div>
             </div>
 
