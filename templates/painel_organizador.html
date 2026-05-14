@@ -3,64 +3,73 @@
 {% block titulo %}Painel do Organizador{% endblock %}
 
 {% block conteudo %}
-<div class="topo-secao">
-    <div class="titulo-secao">Painel do Organizador</div>
-</div>
+<style>
+    .org-hero { background:linear-gradient(135deg,#123852,#0b2740 62%,#071827); color:#fff; border-radius:26px; padding:26px; box-shadow:0 18px 45px rgba(18,56,82,.18); margin-bottom:18px; display:flex; justify-content:space-between; gap:18px; align-items:center; flex-wrap:wrap; position:relative; overflow:hidden; }
+    .org-hero:after { content:""; position:absolute; right:-90px; top:-100px; width:260px; height:260px; border-radius:999px; background:rgba(212,166,42,.18); }
+    .org-hero > * { position:relative; z-index:1; }
+    .org-kicker { font-size:13px; font-weight:900; text-transform:uppercase; letter-spacing:.4px; color:rgba(255,255,255,.72); margin-bottom:6px; }
+    .org-title { font-size:clamp(28px,4vw,46px); font-weight:1000; line-height:1; }
+    .org-sub { color:rgba(255,255,255,.78); font-weight:700; margin-top:8px; max-width:760px; line-height:1.45; }
+    .org-status { background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.18); border-radius:20px; padding:16px; min-width:220px; }
+    .org-status strong { display:block; color:rgba(255,255,255,.7); text-transform:uppercase; font-size:12px; letter-spacing:.35px; margin-bottom:6px; }
+    .org-status span { font-size:22px; font-weight:1000; }
+    .org-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-bottom:18px; }
+    .org-module-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .org-module { background:#fff; border:1px solid var(--border); border-radius:22px; padding:18px; box-shadow:var(--shadow); text-decoration:none; color:var(--text); display:flex; flex-direction:column; gap:9px; min-height:145px; transition:.16s ease; }
+    .org-module:hover { transform:translateY(-2px); }
+    .org-icon { width:48px; height:48px; border-radius:16px; background:#eef4fb; display:flex; align-items:center; justify-content:center; font-size:24px; }
+    .org-module-title { font-size:19px; font-weight:1000; }
+    .org-module-desc { color:var(--muted); font-weight:700; font-size:13px; line-height:1.45; flex:1; }
+    .org-cta { font-weight:900; color:#123852; }
+    .org-section-head { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+    .org-section-title { font-size:20px; font-weight:1000; color:var(--text); }
+    .org-alert { background:#fff7ed; border:1px solid #fdba74; color:#9a3412; border-radius:18px; padding:16px; font-weight:800; line-height:1.45; }
+    @media (max-width:950px) { .org-grid,.org-module-grid { grid-template-columns:1fr; } }
+</style>
 
-<div class="hero-box">
-    <div class="hero-titulo">
-        {% if competicao %}
-            {{ competicao.nome }}
-        {% else %}
-            Organizador
-        {% endif %}
-    </div>
-    <p class="hero-texto">
-        {% if competicao %}
-            Gerencie competição, equipes, árbitros, atletas e tabela da competição.
-        {% else %}
-            Nenhuma competição vinculada no momento.
-        {% endif %}
-    </p>
-</div>
-
-<div class="cards-grid">
-    <div class="numero-card">
-        <div class="numero-titulo">Competição</div>
-        <div class="numero-valor">
-            {% if competicao %}1{% else %}0{% endif %}
-        </div>
-    </div>
-
-    <div class="numero-card">
-        <div class="numero-titulo">Módulos liberados</div>
-        <div class="numero-valor">5</div>
-    </div>
-
-    <div class="numero-card">
-        <div class="numero-titulo">Status</div>
-        <div class="numero-valor" style="font-size: 24px;">
+<div class="org-hero">
+    <div>
+        <div class="org-kicker">Central da competição</div>
+        <div class="org-title">{% if competicao %}{{ competicao.nome }}{% else %}Organizador{% endif %}</div>
+        <div class="org-sub">
             {% if competicao %}
-                Ativo
+                Controle equipes, atletas, árbitros, tabela e relatórios a partir de uma visão mais limpa e direta.
             {% else %}
-                Sem competição
+                Nenhuma competição vinculada no momento. Quando uma competição for vinculada, os módulos aparecem aqui.
             {% endif %}
         </div>
     </div>
+    <div class="org-status">
+        <strong>Status</strong>
+        <span>{% if competicao %}Ativo{% else %}Sem competição{% endif %}</span>
+    </div>
 </div>
 
+<div class="org-grid">
+    <div class="numero-card"><div class="numero-titulo">Competição</div><div class="numero-valor">{% if competicao %}1{% else %}0{% endif %}</div></div>
+    <div class="numero-card"><div class="numero-titulo">Módulos</div><div class="numero-valor">6</div></div>
+    <div class="numero-card"><div class="numero-titulo">Operação</div><div class="numero-valor" style="font-size:24px;">{% if competicao %}Liberada{% else %}Bloqueada{% endif %}</div></div>
+</div>
+
+{% if not competicao %}
+<div class="org-alert">Este usuário ainda não tem uma competição vinculada. Vincule uma competição para liberar a operação.</div>
+{% endif %}
+
 <div class="card-painel">
-    <div class="topo-secao">
-        <div style="font-size: 20px; font-weight: 900;">Acessos rápidos</div>
+    <div class="org-section-head">
+        <div>
+            <div class="org-section-title">Acessos rápidos</div>
+            <div style="color:var(--muted);font-weight:700;">Organizado por lógica de uso: cadastro, tabela, operação e análise.</div>
+        </div>
     </div>
 
-    <div style="display:flex; gap:12px; flex-wrap:wrap;">
-        <a class="btn-padrao" href="/competicoes">Minha competição</a>
-        <a class="btn-secundario" href="/equipes">Equipes</a>
-        <a class="btn-secundario" href="/arbitros">Árbitros</a>
-        <a class="btn-secundario" href="/atletas">Atletas</a>
-        <a class="btn-secundario" href="/tabela">Tabela</a>
-        <a class="btn-padrao" href="/relatorios">Relatórios</a>
+    <div class="org-module-grid">
+        <a class="org-module" href="/competicoes"><div class="org-icon">🏆</div><div class="org-module-title">Minha competição</div><div class="org-module-desc">Regras, dados gerais e configurações principais.</div><div class="org-cta">Abrir →</div></a>
+        <a class="org-module" href="/equipes"><div class="org-icon">👥</div><div class="org-module-title">Equipes</div><div class="org-module-desc">Cadastro, vínculos, aprovação e gerenciamento das equipes.</div><div class="org-cta">Gerenciar →</div></a>
+        <a class="org-module" href="/atletas"><div class="org-icon">🏐</div><div class="org-module-title">Atletas</div><div class="org-module-desc">Conferência de atletas inscritos, status e documentos.</div><div class="org-cta">Conferir →</div></a>
+        <a class="org-module" href="/tabela"><div class="org-icon">📅</div><div class="org-module-title">Tabela</div><div class="org-module-desc">Partidas, grupos, mata-mata, quadras e ordem dos jogos.</div><div class="org-cta">Abrir tabela →</div></a>
+        <a class="org-module" href="/arbitros"><div class="org-icon">🧑‍⚖️</div><div class="org-module-title">Árbitros</div><div class="org-module-desc">Logins, acessos e telas da arbitragem.</div><div class="org-cta">Configurar →</div></a>
+        <a class="org-module" href="/relatorios"><div class="org-icon">📊</div><div class="org-module-title">Relatórios</div><div class="org-module-desc">Súmulas, scouts, estatísticas e fechamento da competição.</div><div class="org-cta">Ver relatórios →</div></a>
     </div>
 </div>
 {% endblock %}

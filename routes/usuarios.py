@@ -16,13 +16,13 @@ def gerar_login_mesario(nome, usuarios_existentes):
     base = "_".join(base.split())
 
     if not base:
-        base = "mesario"
+        base = "arbitro"
 
-    login = f"mesa_{base}"
+    login = f"arb_{base}"
     contador = 1
 
     while login in usuarios_existentes:
-        login = f"mesa_{base}_{contador}"
+        login = f"arb_{base}_{contador}"
         contador += 1
 
     return login
@@ -44,7 +44,7 @@ def listar():
     usuarios_filtrados = {
         login: u
         for login, u in usuarios.items()
-        if u.get("competicao_vinculada", "") == comp and u.get("perfil") == "mesario"
+        if u.get("competicao_vinculada", "") == comp and u.get("perfil") in ["mesario", "arbitro"]
     }
 
     return render_template("usuarios.html", usuarios=usuarios_filtrados)
@@ -74,7 +74,7 @@ def novo():
     dados["usuarios"][login] = {
         "nome": nome,
         "senha": senha,
-        "perfil": "mesario",
+        "perfil": "arbitro",
         "ativo": True,
         "equipe": None,
         "competicao_vinculada": competicao_vinculada
@@ -109,7 +109,7 @@ def excluir(login):
     comp_logado = usuarios.get(login_logado, {}).get("competicao_vinculada", "")
     comp_alvo = usuario_alvo.get("competicao_vinculada", "")
 
-    if usuario_alvo.get("perfil") != "mesario":
+    if usuario_alvo.get("perfil") not in ["mesario", "arbitro"]:
         return redirect(url_for("usuarios.listar"))
 
     if comp_logado != comp_alvo:

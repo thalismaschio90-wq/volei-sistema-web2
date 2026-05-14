@@ -1,37 +1,58 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
-<div class="hero-box">
-    <div class="hero-titulo">Bem-vindo ao VolleyTable Pro Web</div>
-    <p class="hero-texto">
-        Esta é a base inicial do sistema com layout moderno, menu lateral e navegação mais limpa.
-    </p>
+<style>
+    .home-hero { background: linear-gradient(135deg,#123852 0%,#0b2740 60%,#071827 100%); color:#fff; border-radius:26px; padding:28px; box-shadow:0 18px 45px rgba(18,56,82,.18); margin-bottom:18px; position:relative; overflow:hidden; }
+    .home-hero:after { content:""; position:absolute; right:-90px; top:-90px; width:260px; height:260px; border-radius:999px; background:rgba(212,166,42,.18); }
+    .home-hero > * { position:relative; z-index:1; }
+    .home-kicker { font-size:13px; font-weight:900; text-transform:uppercase; letter-spacing:.45px; color:rgba(255,255,255,.72); margin-bottom:8px; }
+    .home-title { font-size:clamp(30px,4vw,50px); font-weight:1000; line-height:1; margin-bottom:10px; }
+    .home-text { color:rgba(255,255,255,.78); font-weight:700; line-height:1.5; max-width:780px; }
+    .home-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-bottom:18px; }
+    .home-metric { background:#fff; border:1px solid var(--border); border-radius:22px; padding:20px; box-shadow:var(--shadow); }
+    .home-metric-label { font-size:12px; font-weight:1000; color:var(--muted); text-transform:uppercase; letter-spacing:.35px; }
+    .home-metric-value { font-size:38px; font-weight:1000; color:var(--text); line-height:1; margin-top:6px; }
+    .home-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .home-action-card { background:#fff; border:1px solid var(--border); border-radius:22px; padding:20px; box-shadow:var(--shadow); text-decoration:none; color:var(--text); display:block; transition:.18s ease; }
+    .home-action-card:hover { transform:translateY(-2px); }
+    .home-action-icon { width:48px; height:48px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:#eef4fb; font-size:24px; margin-bottom:12px; }
+    .home-action-title { font-size:18px; font-weight:1000; margin-bottom:6px; }
+    .home-action-text { color:var(--muted); font-weight:700; line-height:1.45; }
+    @media (max-width:900px) { .home-grid, .home-actions { grid-template-columns:1fr; } }
+</style>
+
+<div class="home-hero">
+    <div class="home-kicker">VolleyTable Pro Web</div>
+    <div class="home-title">Central do sistema</div>
+    <div class="home-text">
+        Acompanhe os números principais e acesse rapidamente os módulos mais importantes para operar a competição.
+    </div>
 </div>
 
-<div class="cards-grid">
-    <div class="numero-card">
-        <div class="numero-titulo">Competições</div>
-        <div class="numero-valor">{{ total_competicoes }}</div>
-    </div>
-
-    <div class="numero-card">
-        <div class="numero-titulo">Equipes</div>
-        <div class="numero-valor">{{ total_equipes }}</div>
-    </div>
-
-    <div class="numero-card">
-        <div class="numero-titulo">Partidas</div>
-        <div class="numero-valor">{{ total_partidas }}</div>
-    </div>
+<div class="home-grid">
+    <div class="home-metric"><div class="home-metric-label">Competições</div><div class="home-metric-value">{{ total_competicoes or 0 }}</div></div>
+    <div class="home-metric"><div class="home-metric-label">Equipes</div><div class="home-metric-value">{{ total_equipes or 0 }}</div></div>
+    <div class="home-metric"><div class="home-metric-label">Partidas</div><div class="home-metric-value">{{ total_partidas or 0 }}</div></div>
 </div>
 
 <div class="card-painel">
-    <div class="titulo-secao">Próximos passos</div>
-    <ul class="lista-passos">
-        <li>Trazer cadastro de equipes</li>
-        <li>Adaptar tabela para web</li>
-        <li>Migrar pré-jogo e jogo</li>
-        <li>Voltar na súmula depois</li>
-    </ul>
+    <div class="titulo-secao">Acessos principais</div>
+    <div class="home-actions">
+        <a class="home-action-card" href="/competicoes">
+            <div class="home-action-icon">🏆</div>
+            <div class="home-action-title">Competições</div>
+            <div class="home-action-text">Criar, editar e acompanhar competições.</div>
+        </a>
+        <a class="home-action-card" href="/equipes">
+            <div class="home-action-icon">👥</div>
+            <div class="home-action-title">Equipes</div>
+            <div class="home-action-text">Gerenciar equipes inscritas e acessos.</div>
+        </a>
+        <a class="home-action-card" href="/relatorios">
+            <div class="home-action-icon">📊</div>
+            <div class="home-action-title">Relatórios</div>
+            <div class="home-action-text">Consultar dados, atletas, partidas e estatísticas.</div>
+        </a>
+    </div>
 </div>
 {% endblock %}

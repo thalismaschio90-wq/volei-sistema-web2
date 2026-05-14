@@ -1,120 +1,197 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
-<div class="topo-secao">
-    <div class="titulo-secao" style="margin-bottom: 0;">Minha equipe</div>
-</div>
+<style>
+    .painel-equipe-wrap { display: grid; gap: 18px; }
+    .equipe-hero {
+        background: linear-gradient(135deg, #123852 0%, #0b2740 62%, #071827 100%);
+        color: #fff; border-radius: 24px; padding: 24px; box-shadow: 0 18px 45px rgba(18,56,82,.18);
+        display: grid; grid-template-columns: 1.4fr .8fr; gap: 18px; align-items: center; overflow: hidden; position: relative;
+    }
+    .equipe-hero:after { content:""; position:absolute; right:-90px; top:-100px; width:260px; height:260px; border-radius:999px; background:rgba(212,166,42,.18); }
+    .equipe-hero > * { position: relative; z-index: 1; }
+    .equipe-kicker { font-size: 13px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: rgba(255,255,255,.72); margin-bottom: 6px; }
+    .equipe-titulo { font-size: clamp(28px,4vw,44px); font-weight: 1000; line-height: .98; margin-bottom: 10px; }
+    .equipe-sub { color: rgba(255,255,255,.78); font-weight: 700; line-height: 1.45; }
+    .equipe-hero-status { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); border-radius: 20px; padding: 16px; }
+    .equipe-hero-status strong { display:block; font-size: 13px; text-transform: uppercase; letter-spacing:.35px; color: rgba(255,255,255,.68); margin-bottom: 6px; }
+    .equipe-hero-status span { font-size: 18px; font-weight: 900; }
+    .metricas-equipe { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+    .metrica-card { background:#fff; border:1px solid var(--border); border-radius: 20px; padding: 18px; box-shadow: var(--shadow); }
+    .metrica-label { color: var(--muted); font-weight: 900; font-size: 12px; text-transform: uppercase; letter-spacing:.35px; }
+    .metrica-valor { font-size: 34px; font-weight: 1000; color: var(--text); margin-top: 4px; line-height: 1; }
+    .layout-equipe { display:grid; grid-template-columns: minmax(0,.85fr) minmax(0,1.15fr); gap: 18px; align-items:start; }
+    .card-title-line { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 14px; }
+    .card-title-line h3 { margin:0; font-size:20px; font-weight:1000; color:var(--text); }
+    .card-desc { color:var(--muted); font-weight:700; line-height:1.45; margin:-6px 0 14px; }
+    .form-grid-equipe { display:grid; gap: 10px; }
+    .form-duplo { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .status-pill { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:1000; text-transform:uppercase; white-space:nowrap; }
+    .pill-ok { background:#dcfce7; color:#166534; }
+    .pill-warn { background:#fef3c7; color:#92400e; }
+    .pill-bad { background:#fee2e2; color:#991b1b; }
+    .pill-info { background:#dbeafe; color:#1e40af; }
+    .tabela-scroll { overflow-x:auto; }
+    .atleta-nome { font-weight:900; }
+    .acoes-equipe { display:flex; gap:10px; flex-wrap:wrap; margin-top: 14px; }
+    @media (max-width: 900px) { .equipe-hero, .layout-equipe { grid-template-columns:1fr; } .metricas-equipe { grid-template-columns:1fr; } .form-duplo { grid-template-columns:1fr; } }
+</style>
 
-{% if erro %}
-    <div class="flash-erro">{{ erro }}</div>
+{% set total_atletas = atletas|length if atletas else 0 %}
+{% set ns = namespace(aprovados=0, pendentes=0, outros=0) %}
+{% if atletas %}
+    {% for atleta in atletas %}
+        {% set st = (atleta.status or '')|lower %}
+        {% if st in ['aprovado', 'aprovada'] %}
+            {% set ns.aprovados = ns.aprovados + 1 %}
+        {% elif st in ['pendente', 'aguardando', 'em análise', 'em analise'] %}
+            {% set ns.pendentes = ns.pendentes + 1 %}
+        {% else %}
+            {% set ns.outros = ns.outros + 1 %}
+        {% endif %}
+    {% endfor %}
 {% endif %}
 
-{% if sucesso %}
-    <div class="flash-sucesso">{{ sucesso }}</div>
-{% endif %}
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        <div class="flash-box">
-            {% for categoria, mensagem in messages %}
-                {% if categoria == "erro" %}
-                    <div class="flash-erro">{{ mensagem }}</div>
-                {% else %}
-                    <div class="flash-sucesso">{{ mensagem }}</div>
-                {% endif %}
-            {% endfor %}
+<div class="painel-equipe-wrap">
+    <div class="equipe-hero">
+        <div>
+            <div class="equipe-kicker">Central da equipe</div>
+            <div class="equipe-titulo">{{ equipe.nome }}</div>
+            <div class="equipe-sub">
+                Organize comissão técnica, cadastro de atletas e situação da inscrição em um só lugar.
+                {% if equipe.competicao %}<br><strong>Competição:</strong> {{ equipe.competicao }}{% endif %}
+            </div>
         </div>
-    {% endif %}
-{% endwith %}
-
-<div class="card-painel">
-    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ equipe.nome }}</div>
-    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ equipe.login }}</div>
-    <div><strong>Competição:</strong> {{ equipe.competicao or "-" }}</div>
-</div>
-
-<div class="card-painel">
-    <div style="font-weight: 900; margin-bottom: 14px;">Comissão técnica</div>
-
-    <form method="post">
-        <input type="hidden" name="acao" value="salvar_tecnico">
-
-        <label>Treinador</label>
-        <input type="text" name="treinador" value="{{ equipe.treinador or '' }}">
-
-        <label>Auxiliar técnico</label>
-        <input type="text" name="auxiliar_tecnico" value="{{ equipe.auxiliar_tecnico or '' }}">
-
-        <label>Preparador físico</label>
-        <input type="text" name="preparador_fisico" value="{{ equipe.preparador_fisico or '' }}">
-
-        <label>Médico</label>
-        <input type="text" name="medico" value="{{ equipe.medico or '' }}">
-
-        <div style="margin-top: 14px;">
-            <button type="submit" class="btn-padrao">Salvar comissão técnica</button>
+        <div class="equipe-hero-status">
+            <strong>Login da equipe</strong>
+            <span>{{ equipe.login }}</span>
         </div>
-    </form>
-</div>
+    </div>
 
-<div class="card-painel">
-    <div style="font-weight: 900; margin-bottom: 14px;">Cadastrar atleta</div>
-
-    <form method="post" class="form-grid">
-        <input type="hidden" name="acao" value="cadastrar_atleta">
-
-        <label>Nome</label>
-        <input type="text" name="nome" required>
-
-        <label>CPF</label>
-        <input type="text" name="cpf" required>
-
-        <label>Data de nascimento</label>
-        <input type="date" name="data_nascimento">
-
-        <label>Número</label>
-        <input type="number" name="numero">
-
-        <div style="margin-top: 14px;">
-            <button type="submit" class="btn-padrao">Cadastrar atleta</button>
-        </div>
-    </form>
-</div>
-
-<div class="card-painel">
-    <div style="font-weight: 900; margin-bottom: 14px;">Atletas cadastrados</div>
-
-    {% if atletas %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Nome</th>
-                    <th>CPF</th>
-                    <th>Data de nascimento</th>
-                    <th>Número</th>
-                    <th>Status</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for atleta in atletas %}
-                <tr>
-                    <td>{{ atleta.nome }}</td>
-                    <td>{{ atleta.cpf }}</td>
-                    <td>{{ atleta.data_nascimento or "-" }}</td>
-                    <td>{{ atleta.numero or "-" }}</td>
-                    <td>{{ atleta.status or "-" }}</td>
-                    <td>
-                        <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('Deseja excluir este atleta?');">
-                            <button type="submit" class="btn-secundario">Excluir</button>
-                        </form>
-                    </td>
-                </tr>
+    {% if erro %}<div class="flash-erro">{{ erro }}</div>{% endif %}
+    {% if sucesso %}<div class="flash-sucesso">{{ sucesso }}</div>{% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-box">
+                {% for categoria, mensagem in messages %}
+                    {% if categoria == "erro" %}<div class="flash-erro">{{ mensagem }}</div>{% else %}<div class="flash-sucesso">{{ mensagem }}</div>{% endif %}
                 {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <div>Nenhum atleta cadastrado ainda.</div>
-    {% endif %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <div class="metricas-equipe">
+        <div class="metrica-card"><div class="metrica-label">Atletas cadastrados</div><div class="metrica-valor">{{ total_atletas }}</div></div>
+        <div class="metrica-card"><div class="metrica-label">Aprovados</div><div class="metrica-valor">{{ ns.aprovados }}</div></div>
+        <div class="metrica-card"><div class="metrica-label">Pendentes</div><div class="metrica-valor">{{ ns.pendentes }}</div></div>
+    </div>
+
+    <div class="layout-equipe">
+        <div class="card-painel">
+            <div class="card-title-line"><h3>Comissão técnica</h3><span class="status-pill pill-info">Dados da equipe</span></div>
+            <div class="card-desc">Preencha as pessoas responsáveis pela equipe. Essas informações ajudam a organização.</div>
+            <form method="post" class="form-grid-equipe">
+                <input type="hidden" name="acao" value="salvar_tecnico">
+                <label>Treinador</label>
+                <input type="text" name="treinador" value="{{ equipe.treinador or '' }}">
+                <label>Auxiliar técnico</label>
+                <input type="text" name="auxiliar_tecnico" value="{{ equipe.auxiliar_tecnico or '' }}">
+                <label>Preparador físico</label>
+                <input type="text" name="preparador_fisico" value="{{ equipe.preparador_fisico or '' }}">
+                <label>Médico</label>
+                <input type="text" name="medico" value="{{ equipe.medico or '' }}">
+                <div class="acoes-equipe"><button type="submit" class="btn-padrao">Salvar comissão técnica</button></div>
+            </form>
+        </div>
+
+        <div class="card-painel">
+            <div class="card-title-line"><h3>Cadastrar atleta</h3><span class="status-pill pill-warn">Novo cadastro</span></div>
+            <form method="post" class="form-grid-equipe" onsubmit="return validarFormularioAtleta(this);">
+                <input type="hidden" name="acao" value="cadastrar_atleta">
+                <label>Nome</label>
+                <input type="text" name="nome" required autocomplete="name">
+                <div class="form-duplo">
+                    <div>
+                        <label>CPF</label>
+                        <input type="text" name="cpf" required maxlength="14" minlength="14" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" pattern="\d{3}\.\d{3}\.\d{3}-\d{2}" oninput="mascaraCPF(this)" onblur="validarCPFNaTela(this)">
+                    </div>
+                    <div>
+                        <label>Data de nascimento</label>
+                        <input type="date" name="data_nascimento" required>
+                    </div>
+                </div>
+                <label>Número</label>
+                <input type="number" name="numero" min="1" max="99" inputmode="numeric">
+                <div class="acoes-equipe"><button type="submit" class="btn-padrao">Cadastrar atleta</button></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card-painel">
+        <div class="card-title-line"><h3>Elenco cadastrado</h3><span class="status-pill pill-info">{{ total_atletas }} atleta(s)</span></div>
+        {% if atletas %}
+            <div class="tabela-scroll">
+                <table>
+                    <thead><tr><th>Atleta</th><th>CPF</th><th>Nascimento</th><th>Número</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                    {% for atleta in atletas %}
+                        {% set st = (atleta.status or '-')|lower %}
+                        <tr>
+                            <td class="atleta-nome">{{ atleta.nome }}</td>
+                            <td>{{ atleta.cpf }}</td>
+                            <td>{{ atleta.data_nascimento or '-' }}</td>
+                            <td>{{ atleta.numero or '-' }}</td>
+                            <td>
+                                {% if st in ['aprovado', 'aprovada'] %}<span class="status-pill pill-ok">Aprovado</span>
+                                {% elif st in ['pendente', 'aguardando', 'em análise', 'em analise'] %}<span class="status-pill pill-warn">{{ atleta.status or 'Pendente' }}</span>
+                                {% elif st in ['reprovado', 'reprovada'] %}<span class="status-pill pill-bad">Reprovado</span>
+                                {% else %}<span class="status-pill pill-info">{{ atleta.status or '-' }}</span>{% endif %}
+                            </td>
+                            <td>
+                                <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('Deseja excluir este atleta?');">
+                                    <button type="submit" class="btn-secundario">Excluir</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div>Nenhum atleta cadastrado ainda.</div>
+        {% endif %}
+    </div>
 </div>
+
+<script>
+function apenasDigitosCPF(valor) { return (valor || '').replace(/\D/g, '').slice(0, 11); }
+function mascaraCPF(input) {
+    let v = apenasDigitosCPF(input.value);
+    if (v.length > 9) v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, '$1.$2.$3-$4');
+    else if (v.length > 6) v = v.replace(/(\d{3})(\d{3})(\d{0,3})/, '$1.$2.$3');
+    else if (v.length > 3) v = v.replace(/(\d{3})(\d{0,3})/, '$1.$2');
+    input.value = v;
+}
+function cpfValido(valor) {
+    const cpf = apenasDigitosCPF(valor);
+    if (cpf.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(cpf)) return false;
+    let soma = 0;
+    for (let i = 0; i < 9; i++) soma += parseInt(cpf.charAt(i), 10) * (10 - i);
+    let d1 = 11 - (soma % 11); d1 = d1 >= 10 ? 0 : d1;
+    soma = 0;
+    for (let i = 0; i < 10; i++) soma += parseInt(cpf.charAt(i), 10) * (11 - i);
+    let d2 = 11 - (soma % 11); d2 = d2 >= 10 ? 0 : d2;
+    return cpf.endsWith(String(d1) + String(d2));
+}
+function validarCPFNaTela(input) {
+    mascaraCPF(input);
+    input.setCustomValidity(input.value && !cpfValido(input.value) ? 'CPF inválido. Informe um CPF real no formato 000.000.000-00.' : '');
+}
+function validarFormularioAtleta(form) {
+    const cpf = form.querySelector('input[name="cpf"]');
+    if (cpf) { validarCPFNaTela(cpf); if (!cpf.checkValidity()) { cpf.reportValidity(); return false; } }
+    return true;
+}
+</script>
 {% endblock %}

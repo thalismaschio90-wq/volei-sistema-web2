@@ -353,7 +353,7 @@ def minha_conta():
         "minha_conta.html",
         usuario=usuario_db.get("login"),
         nome=usuario_db.get("nome"),
-        perfil="árbitro" if perfil == "mesario" else usuario_db.get("perfil")
+        perfil="árbitro" if perfil in ["mesario", "arbitro"] else usuario_db.get("perfil")
     )
 
 

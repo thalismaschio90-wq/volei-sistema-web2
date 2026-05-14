@@ -3,44 +3,42 @@
 {% block titulo %}Painel do Superadmin{% endblock %}
 
 {% block conteudo %}
-<div class="topo-secao">
-    <div class="titulo-secao">Painel do Superadmin</div>
-</div>
+<style>
+    .sa-hero { background:linear-gradient(135deg,#111827,#123852 62%,#071827); color:#fff; border-radius:26px; padding:26px; box-shadow:0 18px 45px rgba(18,56,82,.18); margin-bottom:18px; position:relative; overflow:hidden; }
+    .sa-hero:after { content:""; position:absolute; right:-90px; top:-100px; width:260px; height:260px; border-radius:999px; background:rgba(212,166,42,.18); }
+    .sa-hero > * { position:relative; z-index:1; }
+    .sa-kicker { font-size:13px; font-weight:900; text-transform:uppercase; letter-spacing:.4px; color:rgba(255,255,255,.72); margin-bottom:6px; }
+    .sa-title { font-size:clamp(28px,4vw,46px); font-weight:1000; line-height:1; }
+    .sa-sub { color:rgba(255,255,255,.78); font-weight:700; margin-top:8px; max-width:760px; line-height:1.45; }
+    .sa-module-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .sa-module { background:#fff; border:1px solid var(--border); border-radius:22px; padding:18px; box-shadow:var(--shadow); text-decoration:none; color:var(--text); display:flex; flex-direction:column; gap:9px; min-height:135px; transition:.16s ease; }
+    .sa-module:hover { transform:translateY(-2px); }
+    .sa-icon { width:48px; height:48px; border-radius:16px; background:#eef4fb; display:flex; align-items:center; justify-content:center; font-size:24px; }
+    .sa-module-title { font-size:19px; font-weight:1000; }
+    .sa-module-desc { color:var(--muted); font-weight:700; font-size:13px; line-height:1.45; flex:1; }
+    .sa-cta { font-weight:900; color:#123852; }
+    @media (max-width:900px) { .sa-module-grid { grid-template-columns:1fr; } }
+</style>
 
-<div class="hero-box">
-    <div class="hero-titulo">Controle geral do sistema</div>
-    <p class="hero-texto">
-        Gerencie competições, acompanhe os números gerais do sistema e acesse rapidamente
-        os principais módulos administrativos.
-    </p>
+<div class="sa-hero">
+    <div class="sa-kicker">Administração geral</div>
+    <div class="sa-title">Controle geral do sistema</div>
+    <div class="sa-sub">Acompanhe os números principais e acesse rapidamente as áreas administrativas do VolleyTable Pro.</div>
 </div>
 
 <div class="cards-grid">
-    <div class="numero-card">
-        <div class="numero-titulo">Competições</div>
-        <div class="numero-valor">{{ total_competicoes or 0 }}</div>
-    </div>
-
-    <div class="numero-card">
-        <div class="numero-titulo">Equipes</div>
-        <div class="numero-valor">{{ total_equipes or 0 }}</div>
-    </div>
-
-    <div class="numero-card">
-        <div class="numero-titulo">Partidas</div>
-        <div class="numero-valor">{{ total_partidas or 0 }}</div>
-    </div>
+    <div class="numero-card"><div class="numero-titulo">Competições</div><div class="numero-valor">{{ total_competicoes or 0 }}</div></div>
+    <div class="numero-card"><div class="numero-titulo">Equipes</div><div class="numero-valor">{{ total_equipes or 0 }}</div></div>
+    <div class="numero-card"><div class="numero-titulo">Partidas</div><div class="numero-valor">{{ total_partidas or 0 }}</div></div>
 </div>
 
 <div class="card-painel">
-    <div class="topo-secao" style="margin-bottom: 12px;">
-        <div style="font-size: 20px; font-weight: 900;">Acessos rápidos</div>
-    </div>
-
-    <div style="display:flex; gap:12px; flex-wrap:wrap;">
-        <a class="btn-padrao" href="/competicoes">Abrir competições</a>
-        <a class="btn-secundario" href="/competicoes/nova">Nova competição</a>
-        <a class="btn-secundario" href="/minha-conta">Minha conta</a>
+    <div style="font-size:20px;font-weight:1000;margin-bottom:6px;">Acessos rápidos</div>
+    <div style="color:var(--muted);font-weight:700;margin-bottom:14px;">Separado por ações mais usadas para reduzir cliques e confusão.</div>
+    <div class="sa-module-grid">
+        <a class="sa-module" href="/competicoes"><div class="sa-icon">🏆</div><div class="sa-module-title">Competições</div><div class="sa-module-desc">Listar, abrir e gerenciar competições existentes.</div><div class="sa-cta">Abrir →</div></a>
+        <a class="sa-module" href="/competicoes/nova"><div class="sa-icon">➕</div><div class="sa-module-title">Nova competição</div><div class="sa-module-desc">Criar uma competição e iniciar a configuração.</div><div class="sa-cta">Criar →</div></a>
+        <a class="sa-module" href="/minha-conta"><div class="sa-icon">👤</div><div class="sa-module-title">Minha conta</div><div class="sa-module-desc">Dados do usuário, senha e configurações pessoais.</div><div class="sa-cta">Abrir conta →</div></a>
     </div>
 </div>
 {% endblock %}

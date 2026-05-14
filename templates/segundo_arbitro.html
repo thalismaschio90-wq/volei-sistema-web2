@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>2º Árbitro - {{ competicao }}</title>
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#07111f">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -286,25 +286,63 @@
         }
 
         .cronometro-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 99999;
+            position: fixed !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            height: 100dvh !important;
+            z-index: 2147483647 !important;
             display: none;
-            align-items: center;
-            justify-content: center;
+            align-items: center !important;
+            justify-content: center !important;
             text-align: center;
             border-radius: 0;
-            background: rgba(2, 6, 23, .96);
-            border: 3px solid rgba(251, 191, 36, .75);
-            box-shadow: 0 30px 90px rgba(0,0,0,.65);
-            padding: 16px;
+            background: rgba(2, 6, 23, .97) !important;
+            border: 4px solid rgba(251, 191, 36, .85);
+            box-shadow: 0 30px 90px rgba(0,0,0,.75);
+            padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+            transform: translateZ(0);
+            -webkit-transform: translateZ(0);
         }
 
-        .cronometro-overlay.mostrar { display: flex; }
-        .cron-titulo { color: #fde68a; font-size: clamp(18px, 4vw, 32px); font-weight: 1000; text-transform: uppercase; letter-spacing: .08em; }
-        .cron-tempo { margin-top: 8px; font-size: clamp(120px, 34vw, 280px); line-height: .82; font-weight: 1000; }
-        .cron-sub { margin-top: 12px; color: #cbd5e1; font-size: clamp(16px, 3vw, 30px); font-weight: 900; }
-        .cron-fechar { margin-top: 14px; background: #f8fafc; }
+        .cronometro-overlay.mostrar,
+        .cronometro-overlay[style*="display: flex"] {
+            display: flex !important;
+        }
+
+        .cron-titulo {
+            color: #fde68a;
+            font-size: clamp(22px, 5vw, 44px);
+            font-weight: 1000;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+        }
+
+        .cron-tempo {
+            margin-top: 10px;
+            font-size: clamp(140px, 42vw, 390px) !important;
+            line-height: .82;
+            font-weight: 1000;
+            color: #ffffff;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 12px 38px rgba(0,0,0,.55);
+        }
+
+        .cron-sub {
+            margin-top: 14px;
+            color: #cbd5e1;
+            font-size: clamp(18px, 4vw, 34px);
+            font-weight: 900;
+        }
+
+        .cron-fechar {
+            margin-top: 18px;
+            background: #f8fafc;
+            color: #0f172a;
+        }
 
         @keyframes entrar {
             from { transform: scale(.98); opacity: .45; }
@@ -414,6 +452,51 @@
         let ultimoCronometroChave = "";
 
         function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
+
+        function elementoCronometro() {
+            return {
+                overlay: document.getElementById("cronometroOverlay"),
+                tempoEl: document.getElementById("cronTempo"),
+                subEl: document.getElementById("cronSub")
+            };
+        }
+
+        function abrirOverlayCronometro() {
+            const { overlay } = elementoCronometro();
+            if (!overlay) return;
+            overlay.classList.add("mostrar");
+            overlay.style.display = "flex";
+            overlay.style.visibility = "visible";
+            overlay.style.opacity = "1";
+        }
+
+        function esconderOverlayCronometro() {
+            const { overlay } = elementoCronometro();
+            if (!overlay) return;
+            overlay.classList.remove("mostrar");
+            overlay.style.display = "none";
+        }
+
+        function isEventoTempoOficial(dados) {
+            if (!dados || typeof dados !== "object") return false;
+            const tipo = String(dados.tipo || dados.evento || dados.nome_evento || "").toLowerCase();
+            const origem = String(dados.origem || "").toLowerCase();
+            const status = String(dados.status || "").toLowerCase();
+
+            const pareceTempo =
+                tipo.includes("tempo") ||
+                tipo.includes("cronometro") ||
+                tipo.includes("cronômetro") ||
+                dados.duracao != null ||
+                dados.segundos != null ||
+                dados.restante != null;
+
+            const veioDoTreinadorComoPedido =
+                origem.includes("treinador") &&
+                !["iniciado", "inicio", "autorizado", "executado", "tick", "finalizado", "fim"].includes(status);
+
+            return pareceTempo && !veioDoTreinadorComoPedido;
+        }
 
         function montarUrlEstado() {
             const sep = URL_ESTADO.includes("?") ? "&" : "?";
@@ -650,7 +733,13 @@
             // Se o apontador já autorizou o tempo e o backend enviou como
             // notificacao_geral, também abrimos o cronômetro imediatamente.
             // Pedido do treinador puro NÃO abre cronômetro.
-            if (ehTempo && origem === "apontador" && ["iniciado", "inicio", "autorizado", "executado"].includes(status || "iniciado")) {
+            if (ehTempo && isEventoTempoOficial(dados) && (
+                origem === "apontador" ||
+                tipoRaw.includes("tempo_executado") ||
+                tipoRaw.includes("cronometro") ||
+                tipoRaw.includes("cronômetro") ||
+                ["iniciado", "inicio", "autorizado", "executado"].includes(status || "iniciado")
+            )) {
                 receberCronometroOficial(dados);
             }
 
@@ -660,57 +749,87 @@
         let cronInterval = null;
 
         function fecharCronometro() {
-            const overlay = document.getElementById("cronometroOverlay");
-            overlay.classList.remove("mostrar");
+            esconderOverlayCronometro();
             if (cronInterval) clearInterval(cronInterval);
             cronInterval = null;
         }
 
         function iniciarCronometro(dados = {}) {
-            const overlay = document.getElementById("cronometroOverlay");
-            const tempoEl = document.getElementById("cronTempo");
-            const subEl = document.getElementById("cronSub");
-            let restante = parseInt(dados.duracao || dados.segundos || dados.tempo || dados.restante || 30, 10);
+            const { tempoEl, subEl } = elementoCronometro();
+            if (!tempoEl) return;
+
+            let restante = parseInt(
+                dados.restante ?? dados.segundos ?? dados.duracao ?? dados.tempo ?? 30,
+                10
+            );
+
             if (!Number.isFinite(restante) || restante <= 0) restante = 30;
-            subEl.textContent = dados.equipe_nome || dados.mensagem || "Controle do 2º árbitro";
+
+            const equipeNome = String(
+                dados.equipe_nome ||
+                dados.equipe_solicitante ||
+                dados.mensagem ||
+                "Controle do 2º árbitro"
+            ).trim();
+
+            if (subEl) subEl.textContent = equipeNome;
             tempoEl.textContent = restante;
-            overlay.classList.add("mostrar");
+            abrirOverlayCronometro();
+
             if (cronInterval) clearInterval(cronInterval);
+
             cronInterval = setInterval(() => {
                 restante -= 1;
+
                 if (restante <= 0) {
                     tempoEl.textContent = "FIM";
                     clearInterval(cronInterval);
                     cronInterval = null;
-                    setTimeout(() => overlay.classList.remove("mostrar"), 1400);
+                    setTimeout(esconderOverlayCronometro, 1400);
                     return;
                 }
+
                 tempoEl.textContent = restante;
             }, 1000);
         }
 
         function receberCronometroOficial(dados) {
+            if (!dados || typeof dados !== "object") return;
             if (!payloadDaPartida(dados)) return;
-            const status = String(dados.status || "iniciado").toLowerCase();
-            const overlay = document.getElementById("cronometroOverlay");
-            const tempoEl = document.getElementById("cronTempo");
+            if (!isEventoTempoOficial(dados)) return;
 
-            if (status === "finalizado" || status === "fim") {
+            const status = String(dados.status || "iniciado").toLowerCase();
+            const { tempoEl } = elementoCronometro();
+
+            if (status === "finalizado" || status === "fim" || status === "encerrado") {
                 if (tempoEl) tempoEl.textContent = "FIM";
                 if (cronInterval) clearInterval(cronInterval);
                 cronInterval = null;
-                setTimeout(() => overlay && overlay.classList.remove("mostrar"), 900);
+                abrirOverlayCronometro();
+                setTimeout(esconderOverlayCronometro, 900);
                 return;
             }
 
-            if (status === "tick") {
+            if (status === "tick" || dados.restante != null) {
                 const restante = parseInt(dados.restante ?? dados.segundos ?? 0, 10);
-                if (overlay) overlay.classList.add("mostrar");
                 if (tempoEl && Number.isFinite(restante)) tempoEl.textContent = restante;
+                abrirOverlayCronometro();
+
+                if (restante <= 0) {
+                    if (tempoEl) tempoEl.textContent = "FIM";
+                    setTimeout(esconderOverlayCronometro, 900);
+                }
                 return;
             }
 
-            const chave = `${dados.partida_id || PARTIDA_ID}|${dados.timestamp || dados.id_solicitacao || ''}|${dados.equipe || ''}|${dados.duracao || dados.segundos || dados.tempo || 30}`;
+            const chave = [
+                dados.partida_id || PARTIDA_ID,
+                dados.timestamp || dados.id_solicitacao || dados.iniciado_em || "",
+                dados.equipe || "",
+                dados.equipe_nome || "",
+                dados.duracao || dados.segundos || dados.tempo || 30
+            ].join("|");
+
             if (chave && chave === ultimoCronometroChave) return;
             ultimoCronometroChave = chave;
             iniciarCronometro(dados);
@@ -805,6 +924,10 @@
             socket.on("tempo_executado", receberCronometroOficial);
             socket.on("tempo_autorizado", receberCronometroOficial);
             socket.on("tempo_iniciado", receberCronometroOficial);
+            socket.on("tempo_apontador", receberCronometroOficial);
+            socket.on("tempo_oficial", receberCronometroOficial);
+            socket.on("iniciar_tempo", receberCronometroOficial);
+            socket.on("timer_tempo", receberCronometroOficial);
 
         }
 
@@ -842,7 +965,7 @@
 <script>
     if ("serviceWorker" in navigator) {
         window.addEventListener("load", () => {
-            navigator.serviceWorker.register("/sw.js").catch(() => {});
+            navigator.serviceWorker.register("/static/sw.js").catch(() => {});
         });
     }
 </script>

@@ -35,15 +35,28 @@
         <div class="flash-erro">{{ controle_inscricao.motivo }}</div>
     {% endif %}
 
-    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}">
+    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarFormularioAtleta(this);">
         <label>Nome</label>
-        <input type="text" name="nome" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+        <input type="text" name="nome" required autocomplete="name" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
 
         <label>CPF</label>
-        <input type="text" name="cpf" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+        <input
+            type="text"
+            name="cpf"
+            required
+            maxlength="14"
+            minlength="14"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="000.000.000-00"
+            pattern="\d{3}\.\d{3}\.\d{3}-\d{2}"
+            oninput="mascaraCPF(this)"
+            onblur="validarCPFNaTela(this)"
+            {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}
+        >
 
         <label>Data de nascimento</label>
-        <input type="date" name="data_nascimento" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+        <input type="date" name="data_nascimento" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
 
         <label>Número (opcional no cadastro)</label>
         <input type="number" name="numero" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
@@ -131,4 +144,63 @@
     {% endif %}
 </div>
 {% endif %}
+
+<script>
+function apenasDigitosCPF(valor) {
+    return (valor || '').replace(/\D/g, '').slice(0, 11);
+}
+
+function mascaraCPF(input) {
+    let v = apenasDigitosCPF(input.value);
+
+    if (v.length > 9) {
+        v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, '$1.$2.$3-$4');
+    } else if (v.length > 6) {
+        v = v.replace(/(\d{3})(\d{3})(\d{0,3})/, '$1.$2.$3');
+    } else if (v.length > 3) {
+        v = v.replace(/(\d{3})(\d{0,3})/, '$1.$2');
+    }
+
+    input.value = v;
+}
+
+function cpfValido(valor) {
+    const cpf = apenasDigitosCPF(valor);
+    if (cpf.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(cpf)) return false;
+
+    let soma = 0;
+    for (let i = 0; i < 9; i++) soma += parseInt(cpf.charAt(i), 10) * (10 - i);
+    let d1 = 11 - (soma % 11);
+    d1 = d1 >= 10 ? 0 : d1;
+
+    soma = 0;
+    for (let i = 0; i < 10; i++) soma += parseInt(cpf.charAt(i), 10) * (11 - i);
+    let d2 = 11 - (soma % 11);
+    d2 = d2 >= 10 ? 0 : d2;
+
+    return cpf.endsWith(String(d1) + String(d2));
+}
+
+function validarCPFNaTela(input) {
+    mascaraCPF(input);
+    if (input.value && !cpfValido(input.value)) {
+        input.setCustomValidity('CPF inválido. Informe um CPF real no formato 000.000.000-00.');
+    } else {
+        input.setCustomValidity('');
+    }
+}
+
+function validarFormularioAtleta(form) {
+    const cpf = form.querySelector('input[name="cpf"]');
+    if (cpf) {
+        validarCPFNaTela(cpf);
+        if (!cpf.checkValidity()) {
+            cpf.reportValidity();
+            return false;
+        }
+    }
+    return true;
+}
+</script>
 {% endblock %}

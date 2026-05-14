@@ -188,7 +188,42 @@ def _normalizar_login_equipe(nome_equipe):
 
 
 def _normalizar_login_mesario(nome_mesario):
-    return f"mes_{_normalizar_texto_base(nome_mesario)}"
+    return f"arb_{_normalizar_texto_base(nome_mesario)}"
+
+
+def somente_digitos(valor):
+    return re.sub(r"\D", "", str(valor or ""))
+
+
+def formatar_cpf(cpf):
+    cpf = somente_digitos(cpf)
+    if len(cpf) != 11:
+        return cpf
+    return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}"
+
+
+def cpf_valido(cpf):
+    cpf = somente_digitos(cpf)
+
+    if len(cpf) != 11:
+        return False
+
+    if cpf == cpf[0] * 11:
+        return False
+
+    soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
+    digito_1 = 11 - (soma % 11)
+    digito_1 = 0 if digito_1 >= 10 else digito_1
+
+    soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
+    digito_2 = 11 - (soma % 11)
+    digito_2 = 0 if digito_2 >= 10 else digito_2
+
+    return cpf[-2:] == f"{digito_1}{digito_2}"
+
+
+def _cpf_sql_limpo(campo="cpf"):
+    return f"REGEXP_REPLACE(COALESCE({campo}, ''), '\\D', '', 'g')"
 
 
 def _gerar_login_unico(base):
@@ -1753,7 +1788,7 @@ def listar_mesarios_da_competicao(nome_competicao):
             cur.execute("""
                 SELECT login, nome, senha, perfil, ativo, competicao_vinculada
                 FROM usuarios
-                WHERE perfil = 'mesario'
+                WHERE perfil IN ('mesario', 'arbitro')
                   AND competicao_vinculada = %s
                 ORDER BY nome
             """, (nome_competicao,))
@@ -1766,7 +1801,7 @@ def mesario_existe_na_competicao(nome_mesario, nome_competicao):
             cur.execute("""
                 SELECT login
                 FROM usuarios
-                WHERE perfil = 'mesario'
+                WHERE perfil IN ('mesario', 'arbitro')
                   AND LOWER(nome) = LOWER(%s)
                   AND competicao_vinculada = %s
                 LIMIT 1
@@ -1789,7 +1824,7 @@ def criar_mesario_com_credenciais(nome_mesario, nome_competicao):
                 login_mesario,
                 nome_mesario,
                 senha_mesario,
-                "mesario",
+                "arbitro",
                 True,
                 None,
                 nome_competicao
@@ -1808,7 +1843,7 @@ def redefinir_senha_do_mesario(nome_mesario, nome_competicao):
             cur.execute("""
                 SELECT login
                 FROM usuarios
-                WHERE perfil = 'mesario'
+                WHERE perfil IN ('mesario', 'arbitro')
                   AND nome = %s
                   AND competicao_vinculada = %s
                 LIMIT 1
@@ -1824,7 +1859,7 @@ def redefinir_senha_do_mesario(nome_mesario, nome_competicao):
                 UPDATE usuarios
                 SET senha = %s
                 WHERE login = %s
-                  AND perfil = 'mesario'
+                  AND perfil IN ('mesario', 'arbitro')
                   AND competicao_vinculada = %s
             """, (nova_senha, login_mesario, nome_competicao))
 
@@ -1838,7 +1873,7 @@ def excluir_mesario(nome_mesario, nome_competicao):
         with conn.cursor() as cur:
             cur.execute("""
                 DELETE FROM usuarios
-                WHERE perfil = 'mesario'
+                WHERE perfil IN ('mesario', 'arbitro')
                   AND nome = %s
                   AND competicao_vinculada = %s
             """, (nome_mesario, nome_competicao))
@@ -1942,25 +1977,37 @@ def criar_tabela_atletas(force=False):
     # criar_indices_desempenho()
 
 def atleta_existe_por_cpf(cpf):
+    cpf_limpo = somente_digitos(cpf)
+    if not cpf_limpo:
+        return False
+
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT id
                 FROM atletas
-                WHERE cpf = %s
+                WHERE {_cpf_sql_limpo('cpf')} = %s
                 LIMIT 1
-            """, (cpf,))
+            """, (cpf_limpo,))
             return cur.fetchone() is not None
 
 
 def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
     nome = (nome or "").strip()
-    cpf = (cpf or "").strip()
+    cpf_limpo = somente_digitos(cpf)
+    cpf = formatar_cpf(cpf_limpo)
+    data_nascimento = (data_nascimento or "").strip()
     equipe = (equipe or "").strip()
     competicao = (competicao or "").strip()
 
-    if not nome or not cpf:
+    if not nome or not cpf_limpo:
         return False, "Informe nome e CPF do atleta."
+
+    if not data_nascimento:
+        return False, "Informe a data de nascimento do atleta."
+
+    if not cpf_valido(cpf_limpo):
+        return False, "CPF inválido. Informe um CPF real no formato 000.000.000-00."
 
     numero_final = None
     if numero not in (None, ""):
@@ -1975,12 +2022,12 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT id
                 FROM atletas
-                WHERE cpf = %s
+                WHERE {_cpf_sql_limpo('cpf')} = %s
                 LIMIT 1
-            """, (cpf,))
+            """, (cpf_limpo,))
             if cur.fetchone() is not None:
                 return False, "Já existe um atleta cadastrado com este CPF."
 
