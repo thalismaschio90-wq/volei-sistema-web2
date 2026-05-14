@@ -741,10 +741,14 @@ def solicitar_tempo_treinador(competicao, partida_id):
             "origem": corpo.get("origem") or "treinador_http",
         }
 
-        # Se o navegador já avisou por Socket.IO, esta rota só persiste.
-        # Se o Socket não estava conectado, a rota vira fallback e emite agora.
-        if not corpo.get("tempo_real_emitido"):
+        # GARANTIA REALTIME:
+        # Mesmo que o treinador também tente emitir pelo Socket.IO no navegador,
+        # o backend SEMPRE reemite a solicitação depois do POST.
+        # Isso evita falha no iPhone/PWA quando o socket dorme, reconecta ou perde pacote.
+        try:
             emitir_solicitacao_treinador(partida_id, payload_solicitacao)
+        except Exception as e:
+            print("ERRO emitir solicitação tempo pelo backend:", repr(e), flush=True)
 
         def _salvar_solicitacao_tempo():
             try:
@@ -820,10 +824,14 @@ def solicitar_substituicao_treinador(competicao, partida_id):
             "origem": corpo.get("origem") or "treinador_http",
         }
 
-        # Se o navegador já avisou por Socket.IO, esta rota só persiste.
-        # Se o Socket não estava conectado, a rota vira fallback e emite agora.
-        if not corpo.get("tempo_real_emitido"):
+        # GARANTIA REALTIME:
+        # Mesmo que o treinador também tente emitir pelo Socket.IO no navegador,
+        # o backend SEMPRE reemite a solicitação depois do POST.
+        # Isso evita falha no iPhone/PWA quando o socket dorme, reconecta ou perde pacote.
+        try:
             emitir_solicitacao_treinador(partida_id, payload_solicitacao)
+        except Exception as e:
+            print("ERRO emitir solicitação substituição pelo backend:", repr(e), flush=True)
 
         def _salvar_solicitacao_substituicao():
             try:
