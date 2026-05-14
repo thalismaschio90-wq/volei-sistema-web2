@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block conteudo_sem_sidebar %}
+
+<style>
+    body {
+        background:
+            linear-gradient(90deg, rgba(1,16,39,.96), rgba(1,16,39,.68)),
+            url("/static/img/hero_bg.png");
+        background-size: cover;
+        background-position: center;
+        min-height: 100vh;
+        font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .demo-wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 30px;
+    }
+
+    .demo-card {
+        width: 100%;
+        max-width: 620px;
+        background: #fff;
+        border-radius: 26px;
+        padding: 34px;
+        box-shadow: 0 25px 70px rgba(0,0,0,.28);
+        text-align: center;
+    }
+
+    .demo-logo {
+        width: 82px;
+        margin-bottom: 12px;
+    }
+
+    .demo-title {
+        color: #0a1d3d;
+        font-size: 34px;
+        font-weight: 900;
+        margin-bottom: 10px;
+    }
+
+    .demo-sub {
+        color: #5d6978;
+        line-height: 1.6;
+        font-weight: 700;
+        margin-bottom: 25px;
+    }
+
+    .cred-box {
+        background: #f7f9fc;
+        border: 1px solid #e2e8f0;
+        border-radius: 18px;
+        padding: 20px;
+        text-align: left;
+        margin-bottom: 22px;
+    }
+
+    .cred-line {
+        font-size: 18px;
+        margin-bottom: 10px;
+        color: #0a1d3d;
+        font-weight: 800;
+    }
+
+    .btn-whats {
+        display: block;
+        width: 100%;
+        background: #25d366;
+        color: #fff;
+        padding: 17px;
+        border-radius: 16px;
+        text-decoration: none;
+        font-size: 18px;
+        font-weight: 900;
+        margin-bottom: 14px;
+    }
+
+    .btn-login {
+        display: block;
+        width: 100%;
+        background: #ff7b1c;
+        color: #fff;
+        padding: 17px;
+        border-radius: 16px;
+        text-decoration: none;
+        font-size: 18px;
+        font-weight: 900;
+    }
+
+    .voltar {
+        display: block;
+        margin-top: 18px;
+        color: #0a1d3d;
+        text-decoration: none;
+        font-weight: 800;
+    }
+</style>
+
+<div class="demo-wrap">
+    <div class="demo-card">
+
+        <img src="{{ url_for('static', filename='img/logo.png') }}" class="demo-logo">
+
+        <div class="demo-title">
+            Demonstração criada
+        </div>
+
+        <div class="demo-sub">
+            Clique no botão abaixo para enviar o login e senha para o WhatsApp informado.
+        </div>
+
+        <div class="cred-box">
+            <div class="cred-line">Login: {{ demo.login }}</div>
+            <div class="cred-line">Senha: {{ demo.senha }}</div>
+            <div class="cred-line">
+                Expira em:
+                {{ demo.expira_em.strftime("%d/%m/%Y às %H:%M") if demo.expira_em else "4 horas" }}
+            </div>
+            <div class="cred-line">Link: {{ link_sistema }}</div>
+        </div>
+
+        <a href="{{ link_whatsapp }}" target="_blank" class="btn-whats">
+            Enviar acesso pelo WhatsApp
+        </a>
+
+        <a href="{{ link_sistema }}" class="btn-login">
+            Ir para o login
+        </a>
+
+        <a href="/" class="voltar">
+            Voltar para o início
+        </a>
+
+    </div>
+</div>
+
+{% endblock %}

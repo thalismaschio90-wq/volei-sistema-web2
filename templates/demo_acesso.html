@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demonstração - VolleyTable Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Montserrat',sans-serif}
+        body{min-height:100vh;background:linear-gradient(90deg,rgba(1,16,39,.96),rgba(1,16,39,.72)),url('/static/img/hero_bg.png');background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;padding:30px;color:white}
+        .box{width:100%;max-width:760px;background:rgba(6,25,55,.92);border:1px solid rgba(255,255,255,.12);border-radius:34px;padding:42px;box-shadow:0 30px 80px rgba(0,0,0,.45);backdrop-filter:blur(12px)}
+        .top{display:flex;align-items:center;gap:18px;margin-bottom:28px}
+        .top img{width:78px}.brand{font-size:34px;font-weight:900;line-height:1}.brand span{color:#ff7b1c;display:block}
+        h1{font-size:42px;line-height:1.1;margin-bottom:12px}p{color:#d7e1ee;font-size:18px;line-height:1.65;margin-bottom:24px}
+        .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:28px 0}.card{background:white;color:#0a1d3d;border-radius:22px;padding:24px}.label{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#60708a;font-weight:800;margin-bottom:8px}.value{font-size:25px;font-weight:900;word-break:break-all}.orange{color:#ff7b1c}
+        .actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:28px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:18px 28px;border-radius:16px;text-decoration:none;font-weight:900}.primary{background:#ff7b1c;color:white}.secondary{border:2px solid rgba(255,255,255,.24);color:white}
+        .warn{margin-top:22px;background:rgba(255,123,28,.12);border:1px solid rgba(255,123,28,.35);border-radius:18px;padding:16px;color:#ffe8d8;font-size:15px}
+        @media(max-width:700px){.box{padding:28px}.cards{grid-template-columns:1fr}h1{font-size:32px}.brand{font-size:26px}}
+    </style>
+</head>
+<body>
+    <main class="box">
+        <div class="top">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="VolleyTable Pro">
+            <div class="brand">VOLLEYTABLE <span>PRO</span></div>
+        </div>
+
+        <h1>Demonstração liberada</h1>
+        <p>Seu acesso de teste foi criado automaticamente. Ele fica ativo por 4 horas e depois todos os dados criados nessa demonstração são apagados.</p>
+
+        <div class="cards">
+            <div class="card">
+                <div class="label">Login</div>
+                <div class="value">{{ demo.login }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Senha</div>
+                <div class="value orange">{{ demo.senha }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Competição demo</div>
+                <div class="value">{{ demo.competicao }}</div>
+            </div>
+            <div class="card">
+                <div class="label">Expira em</div>
+                <div class="value">{{ demo.expira_em.strftime('%d/%m/%Y %H:%M') if demo.expira_em else '4 horas' }}</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="{{ url_for('demo.entrar_demo', codigo=demo.codigo) }}" class="btn primary">Entrar no teste agora</a>
+            <a href="/login" class="btn secondary">Ir para o login</a>
+        </div>
+
+        <div class="warn">Ambiente isolado: tudo que for cadastrado aqui é temporário e será removido automaticamente após o prazo.</div>
+    </main>
+</body>
+</html>

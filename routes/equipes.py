@@ -465,6 +465,85 @@ def minhas_partidas_view():
 
 
 # =========================
+# EQUIPE - INÍCIO / DASHBOARD
+# =========================
+def _proxima_partida_da_equipe(partidas):
+    """
+    Pega a primeira partida da própria equipe que ainda não foi finalizada.
+    Se não houver jogo próprio pendente, retorna None.
+    """
+    for partida in partidas:
+        if partida.get("minha_partida") and not partida.get("finalizada"):
+            return partida
+    return None
+
+
+@equipes_bp.route("/painel-equipe/inicio")
+@exigir_perfil("equipe")
+def painel_equipe_inicio_view():
+    usuario = session.get("usuario")
+    equipe = buscar_equipe_por_login(usuario)
+
+    if not equipe:
+        flash("Equipe não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
+    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+    partidas = _preparar_partidas_para_equipe(equipe)
+
+    total_atletas = len(atletas)
+    atletas_aprovados = [a for a in atletas if (a.get("status") or "").strip().lower() == "aprovado"]
+    atletas_pendentes = [a for a in atletas if (a.get("status") or "").strip().lower() in {"", "pendente", "aguardando", "em análise", "em_analise"}]
+    atletas_reprovados = [a for a in atletas if (a.get("status") or "").strip().lower() == "reprovado"]
+
+    limite_atletas = 12
+    try:
+        if controle_inscricao and controle_inscricao.get("limite_atletas"):
+            limite_atletas = int(controle_inscricao.get("limite_atletas"))
+    except Exception:
+        limite_atletas = 12
+
+    percentual_atletas = 0
+    if limite_atletas > 0:
+        percentual_atletas = min(100, round((total_atletas / limite_atletas) * 100))
+
+    minhas_partidas = [p for p in partidas if p.get("minha_partida")]
+    proxima_partida = _proxima_partida_da_equipe(partidas)
+
+    status_equipe = "Equipe em andamento"
+    status_classe = "tag-info"
+
+    if total_atletas >= limite_atletas and len(atletas_pendentes) == 0 and len(atletas_reprovados) == 0:
+        status_equipe = "Equipe completa"
+        status_classe = "tag-aprovado"
+    elif len(atletas_pendentes) > 0:
+        status_equipe = "Aguardando conferência"
+        status_classe = "tag-pendente"
+    elif len(atletas_reprovados) > 0:
+        status_equipe = "Possui atleta reprovado"
+        status_classe = "tag-reprovado"
+
+    return render_template(
+        "painel_equipe_inicio.html",
+        equipe=equipe,
+        atletas=atletas,
+        total_atletas=total_atletas,
+        limite_atletas=limite_atletas,
+        percentual_atletas=percentual_atletas,
+        atletas_aprovados=len(atletas_aprovados),
+        atletas_pendentes=len(atletas_pendentes),
+        atletas_reprovados=len(atletas_reprovados),
+        controle_inscricao=controle_inscricao,
+        partidas=partidas,
+        minhas_partidas=minhas_partidas,
+        proxima_partida=proxima_partida,
+        status_equipe=status_equipe,
+        status_classe=status_classe,
+    )
+
+
+# =========================
 # EQUIPE - ATLETAS
 # =========================
 def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="lista", carregar_atletas=True):

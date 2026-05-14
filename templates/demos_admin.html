@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<style>
+    .demos-hero {
+        background: linear-gradient(135deg,#111827,#123852 62%,#071827);
+        color: white;
+        border-radius: 26px;
+        padding: 26px;
+        margin-bottom: 18px;
+        box-shadow: 0 18px 45px rgba(18,56,82,.18);
+    }
+
+    .demos-title {
+        font-size: 38px;
+        font-weight: 1000;
+        margin-bottom: 8px;
+    }
+
+    .demos-sub {
+        color: rgba(255,255,255,.78);
+        font-weight: 700;
+    }
+
+    .demos-card {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+        overflow-x: auto;
+    }
+
+    .status-demo {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+
+    .status-ativa {
+        background: #eefaf0;
+        color: #256c35;
+        border: 1px solid #c7e6cd;
+    }
+
+    .status-expirada {
+        background: #fff8e7;
+        color: #8a6512;
+        border: 1px solid #f0dfb0;
+    }
+
+    .status-encerrada {
+        background: #fff0f0;
+        color: #a13d3d;
+        border: 1px solid #f0c9c9;
+    }
+
+    .demo-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .demo-actions form {
+        display: inline;
+    }
+
+    .mini-btn {
+        border: 0;
+        border-radius: 10px;
+        padding: 8px 10px;
+        cursor: pointer;
+        font-weight: 900;
+        font-size: 12px;
+    }
+
+    .btn-blue {
+        background: #123852;
+        color: white;
+    }
+
+    .btn-orange {
+        background: #ff7b1c;
+        color: white;
+    }
+
+    .btn-red {
+        background: #b83a3a;
+        color: white;
+    }
+
+    .btn-light {
+        background: #eef4fb;
+        color: #123852;
+    }
+
+    table {
+        min-width: 1100px;
+    }
+</style>
+
+<div class="demos-hero">
+    <div class="demos-title">Demonstrações</div>
+    <div class="demos-sub">
+        Acompanhe quem solicitou teste, controle expiração e libere mais tempo quando necessário.
+    </div>
+</div>
+
+<div class="demos-card">
+
+    {% if demos %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Nome</th>
+                    <th>CPF</th>
+                    <th>WhatsApp</th>
+                    <th>Login</th>
+                    <th>Competição</th>
+                    <th>Criado em</th>
+                    <th>Expira em</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for demo in demos %}
+                    <tr>
+                        <td>
+                            <span class="status-demo status-{{ demo.status_demo }}">
+                                {{ demo.status_demo }}
+                            </span>
+                        </td>
+
+                        <td>{{ demo.nome }}</td>
+                        <td>{{ demo.cpf }}</td>
+                        <td>{{ demo.whatsapp }}</td>
+                        <td>{{ demo.login }}</td>
+                        <td>{{ demo.competicao }}</td>
+
+                        <td>
+                            {{ demo.criado_em.strftime("%d/%m/%Y %H:%M") if demo.criado_em else "-" }}
+                        </td>
+
+                        <td>
+                            {{ demo.expira_em.strftime("%d/%m/%Y %H:%M") if demo.expira_em else "-" }}
+                        </td>
+
+                        <td>
+                            <div class="demo-actions">
+
+                                <form method="POST" action="{{ url_for('demo.demos_estender', demo_id=demo.id, horas=1) }}">
+                                    <button class="mini-btn btn-blue" type="submit">+1h</button>
+                                </form>
+
+                                <form method="POST" action="{{ url_for('demo.demos_estender', demo_id=demo.id, horas=4) }}">
+                                    <button class="mini-btn btn-blue" type="submit">+4h</button>
+                                </form>
+
+                                <form method="POST" action="{{ url_for('demo.demos_estender', demo_id=demo.id, horas=24) }}">
+                                    <button class="mini-btn btn-orange" type="submit">+24h</button>
+                                </form>
+
+                                <form method="POST" action="{{ url_for('demo.demos_liberar_novo_teste', demo_id=demo.id) }}">
+                                    <button class="mini-btn btn-light" type="submit">Liberar novo</button>
+                                </form>
+
+                                <form method="POST" action="{{ url_for('demo.demos_encerrar', demo_id=demo.id) }}">
+                                    <button class="mini-btn btn-red" type="submit">Encerrar</button>
+                                </form>
+
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhuma demonstração solicitada até o momento.</p>
+    {% endif %}
+
+</div>
+
+{% endblock %}

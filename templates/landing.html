@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>VolleyTable Pro</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet"
+    >
+
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <header class="header">
+
+        <div class="header-container">
+
+            <div class="logo-container">
+
+                <img
+                    src="{{ url_for('static', filename='img/logo.png') }}"
+                    class="logo"
+                >
+
+                <div class="logo-text">
+
+                    <span class="logo-white">
+                        VOLLEYTABLE
+                    </span>
+
+                    <span class="logo-orange">
+                        PRO
+                    </span>
+
+                </div>
+
+            </div>
+
+            <nav class="menu">
+
+                <a href="#">Início</a>
+                <a href="#">Recursos</a>
+                <a href="#">Como Funciona</a>
+                <a href="#">Contato</a>
+
+            </nav>
+
+            <a href="/login" class="login-button">
+                Entrar
+            </a>
+
+        </div>
+
+    </header>
+
+
+    <!-- HERO -->
+    <section class="hero">
+
+        <div class="hero-overlay"></div>
+
+        <div class="hero-content">
+
+            <div class="hero-left">
+
+                <h1>
+
+                    VOLLEYTABLE
+                    <span>PRO</span>
+
+                </h1>
+
+                <h2>
+                    Sistema profissional para gestão
+                    de voleibol em tempo real
+                </h2>
+
+                <p>
+                    Organização, arbitragem, apontamento,
+                    scout e placar ao vivo em uma única plataforma.
+                </p>
+
+                <div class="hero-buttons">
+
+                    <a href="/login" class="btn-primary">
+                        Entrar no Sistema
+                    </a>
+
+                    <a
+                        href="/demo"
+                        class="btn-secondary"
+                    >
+                        Solicitar demonstração
+                    </a>
+
+                </div>
+
+                <div class="hero-tags">
+
+                    <div class="tag">
+                        ⚡ Rápido
+                    </div>
+
+                    <div class="tag">
+                        ✔ Intuitivo
+                    </div>
+
+                    <div class="tag">
+                        ⭐ Completo
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="hero-wave"></div>
+
+    </section>
+
+
+    <!-- FEATURES -->
+    <section class="features">
+
+        <span class="section-mini-title">
+            O QUE O VOLLEYTABLE PRO FAZ
+        </span>
+
+        <h2>
+            Tudo que você precisa em um só lugar
+        </h2>
+
+        <div class="features-grid">
+
+            <div class="feature-card">
+
+                <img
+                    src="{{ url_for('static', filename='icons/icon_gestao_competicoes.png') }}"
+                    class="feature-icon"
+                >
+
+                <h3>
+                    Gestão de Competições
+                </h3>
+
+                <p>
+                    Crie campeonatos,
+                    grupos, fases eliminatórias,
+                    equipes e atletas.
+                </p>
+
+            </div>
+
+            <div class="feature-card">
+
+                <img
+                    src="{{ url_for('static', filename='icons/icon_apontador.png') }}"
+                    class="feature-icon"
+                >
+
+                <h3>
+                    Apontador Profissional
+                </h3>
+
+                <p>
+                    Controle pontos,
+                    sets, rotação,
+                    substituições e súmula.
+                </p>
+
+            </div>
+
+            <div class="feature-card">
+
+                <img
+                    src="{{ url_for('static', filename='icons/icon_treinador.png') }}"
+                    class="feature-icon"
+                >
+
+                <h3>
+                    Painel do Treinador
+                </h3>
+
+                <p>
+                    Acompanhe scout,
+                    estatísticas e
+                    solicitações em tempo real.
+                </p>
+
+            </div>
+
+            <div class="feature-card">
+
+                <img
+                    src="{{ url_for('static', filename='icons/icon_telao.png') }}"
+                    class="feature-icon"
+                >
+
+                <h3>
+                    Telão Ao Vivo
+                </h3>
+
+                <p>
+                    Placar profissional
+                    em tempo real para
+                    transmissões e ginásios.
+                </p>
+
+            </div>
+
+            <div class="feature-card">
+
+                <img
+                    src="{{ url_for('static', filename='icons/icon_arbitros.png') }}"
+                    class="feature-icon"
+                >
+
+                <h3>
+                    Painel dos Árbitros
+                </h3>
+
+                <p>
+                    Controle visual de saque,
+                    rotação, tempos e notificações.
+                </p>
+
+            </div>
+
+            <div class="feature-card">
+
+                <img
+                    src="{{ url_for('static', filename='icons/icon_relatorios.png') }}"
+                    class="feature-icon"
+                >
+
+                <h3>
+                    Relatórios e Estatísticas
+                </h3>
+
+                <p>
+                    Acompanhe desempenho
+                    de equipes e atletas
+                    durante toda a competição.
+                </p>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- HOW -->
+    <section class="how-section">
+
+        <span class="section-mini-title">
+            COMO FUNCIONA
+        </span>
+
+        <h2>
+            Simples, rápido e completo
+        </h2>
+
+        <div class="how-grid">
+
+            <div class="how-item">
+
+                <div class="number-box">
+                    1
+                </div>
+
+                <div class="how-text">
+
+                    <h3>
+                        Cadastre a competição
+                    </h3>
+
+                    <p>
+                        Monte equipes,
+                        categorias e
+                        formato do torneio.
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="how-item">
+
+                <div class="number-box">
+                    2
+                </div>
+
+                <div class="how-text">
+
+                    <h3>
+                        Configure as partidas
+                    </h3>
+
+                    <p>
+                        Defina confrontos,
+                        grupos e fases.
+                    </p>
+
+                </div>
+
+            </div>
+
+            <div class="arrow">
+                →
+            </div>
+
+            <div class="how-item">
+
+                <div class="number-box">
+                    3
+                </div>
+
+                <div class="how-text">
+
+                    <h3>
+                        Controle tudo ao vivo
+                    </h3>
+
+                    <p>
+                        Apontamento,
+                        scout,
+                        arbitragem e telão
+                        sincronizados.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- DIFFERENTIALS -->
+    <section class="differentials">
+
+        <span class="section-mini-title orange">
+            DIFERENCIAIS DO SISTEMA
+        </span>
+
+        <h2>
+            Por que escolher o VolleyTable Pro?
+        </h2>
+
+        <div class="diff-grid">
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/tempo_real.png') }}"
+                >
+
+                <p>
+                    Atualização
+                    em tempo real
+                </p>
+
+            </div>
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/celular.png') }}"
+                >
+
+                <p>
+                    Sistema
+                    otimizado para celular
+                </p>
+
+            </div>
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/telao_16_9.png') }}"
+                >
+
+                <p>
+                    Telão profissional
+                    16:9
+                </p>
+
+            </div>
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/integracao.png') }}"
+                >
+
+                <p>
+                    Integração entre
+                    apontador,
+                    treinador e árbitros
+                </p>
+
+            </div>
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/scout.png') }}"
+                >
+
+                <p>
+                    Scout
+                    completo
+                </p>
+
+            </div>
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/estrutura.png') }}"
+                >
+
+                <p>
+                    Estrutura profissional
+                    de competição
+                </p>
+
+            </div>
+
+            <div class="diff-item">
+
+                <img
+                    src="{{ url_for('static', filename='img/differentials/rapidez.png') }}"
+                >
+
+                <p>
+                    Sistema rápido
+                    e responsivo
+                </p>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- CONTACT -->
+    <section class="contact-section">
+
+        <div class="contact-left">
+
+            <span>
+                QUER USAR O VOLLEYTABLE PRO?
+            </span>
+
+            <h2>
+                Entre em contato!
+            </h2>
+
+            <p>
+                Tire suas dúvidas,
+                solicite uma demonstração
+                e leve sua competição
+                para outro nível.
+            </p>
+
+            <a
+                href="/demo"
+                class="whatsapp-button"
+            >
+                Solicitar demonstração
+            </a>
+
+        </div>
+
+        <div class="contact-right">
+
+        </div>
+
+    </section>
+
+
+    <!-- FOOTER -->
+    <footer class="footer">
+
+        <div class="footer-left">
+
+            <img
+                src="{{ url_for('static', filename='img/logo.png') }}"
+                class="footer-logo"
+            >
+
+            <div>
+
+                <h3>
+                    VOLLEYTABLE PRO
+                </h3>
+
+                <p>
+                    Desenvolvido para competições
+                    de voleibol com foco em agilidade,
+                    organização e experiência profissional.
+                </p>
+
+            </div>
+
+        </div>
+
+        <div class="footer-right">
+
+            © 2024 VolleyTable Pro
+
+        </div>
+
+    </footer>
+
+</body>
+
+</html>

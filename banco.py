@@ -1141,20 +1141,659 @@ def excluir_competicao(nome):
         print("ERRO REAL AO EXCLUIR COMPETIÇÃO:", e)
         return False        
 
-def redefinir_senha_organizador(login_organizador):
-    nova_senha = _gerar_senha_aleatoria(8)
+
+
+# =========================================================
+# DEMONSTRAÇÃO TEMPORÁRIA - VOLLEYTABLE PRO
+# =========================================================
+DEMO_PREFIXO = "DEMO-VTP-"
+
+
+def criar_tabela_demos():
+    """
+    Cria/atualiza a tabela que controla as demonstrações temporárias.
+
+    Regras:
+    - A demo dura 4 horas por padrão.
+    - A competição gerada sempre começa com DEMO-VTP-.
+    - O histórico de CPF/WhatsApp permanece salvo para evitar abuso.
+    - Os dados operacionais da demo podem ser apagados sem apagar o histórico.
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS demos_temporarias (
+                    id SERIAL PRIMARY KEY,
+                    codigo TEXT UNIQUE NOT NULL,
+                    nome TEXT DEFAULT '',
+                    cpf TEXT DEFAULT '',
+                    whatsapp TEXT DEFAULT '',
+                    competicao TEXT UNIQUE NOT NULL,
+                    login TEXT UNIQUE NOT NULL,
+                    senha TEXT NOT NULL,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    expira_em TIMESTAMP NOT NULL,
+                    encerrada BOOLEAN DEFAULT FALSE,
+                    motivo_encerramento TEXT DEFAULT '',
+                    whatsapp_enviado BOOLEAN DEFAULT FALSE,
+                    liberado_novo_teste BOOLEAN DEFAULT FALSE
+                )
+            """)
+
+            cur.execute("""
+                ALTER TABLE demos_temporarias
+                ADD COLUMN IF NOT EXISTS nome TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS cpf TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS whatsapp TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS motivo_encerramento TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS whatsapp_enviado BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS liberado_novo_teste BOOLEAN DEFAULT FALSE
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_cpf_limpo
+                ON demos_temporarias (
+                    REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g')
+                )
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_whatsapp_limpo
+                ON demos_temporarias (
+                    REGEXP_REPLACE(COALESCE(whatsapp, ''), '\\D', '', 'g')
+                )
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_login
+                ON demos_temporarias (login)
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_competicao
+                ON demos_temporarias (competicao)
+            """)
+
+        conn.commit()
+
+    return True
+
+
+def _buscar_tabelas_publicas(cur):
+    cur.execute("""
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+    """)
+    return {row["table_name"] for row in cur.fetchall()}
+
+
+def _buscar_colunas_cur(cur, tabela):
+    cur.execute("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+    """, (tabela,))
+    return {row["column_name"] for row in cur.fetchall()}
+
+
+def _gerar_codigo_demo_unico(cur):
+    criar_tabela_demos()
+
+    for _ in range(50):
+        numero = "".join(random.choice(string.digits) for _ in range(6))
+        codigo = f"{DEMO_PREFIXO}{numero}"
+
+        cur.execute("""
+            SELECT 1
+            FROM demos_temporarias
+            WHERE codigo = %s
+               OR competicao = %s
+            LIMIT 1
+        """, (codigo, codigo))
+
+        if not cur.fetchone():
+            return codigo
+
+    raise RuntimeError("Não foi possível gerar um código único para a demonstração.")
+
+
+def _gerar_senha_demo():
+    numero = "".join(random.choice(string.digits) for _ in range(4))
+    return f"VTPro-{numero}"
+
+
+def _gerar_login_demo(codigo):
+    numero = (codigo or "").replace(DEMO_PREFIXO, "").strip().lower()
+    return f"demo_{numero}"
+
+
+def demo_ja_usada_por_cpf_ou_whatsapp(cpf, whatsapp):
+    """
+    Verifica se CPF ou WhatsApp já usaram uma demo.
+
+    Observação:
+    - Se o superadmin clicou em 'Liberar novo teste', o registro antigo não bloqueia.
+    """
+    criar_tabela_demos()
+
+    cpf_limpo = somente_digitos(cpf)
+    whatsapp_limpo = somente_digitos(whatsapp)
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE usuarios
-                SET senha = %s
-                WHERE login = %s
-                  AND perfil = 'organizador'
-            """, (nova_senha, login_organizador))
+                SELECT *
+                FROM demos_temporarias
+                WHERE (
+                    REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                    OR REGEXP_REPLACE(COALESCE(whatsapp, ''), '\\D', '', 'g') = %s
+                )
+                AND COALESCE(liberado_novo_teste, FALSE) = FALSE
+                LIMIT 1
+            """, (cpf_limpo, whatsapp_limpo))
+            return cur.fetchone()
+
+
+def _delete_por_competicao_se_existir(cur, tabelas, tabela, competicao):
+    if tabela not in tabelas:
+        return
+
+    colunas = _buscar_colunas_cur(cur, tabela)
+    if "competicao" not in colunas:
+        return
+
+    cur.execute(f"DELETE FROM {tabela} WHERE competicao = %s", (competicao,))
+
+
+def limpar_demo_por_competicao(competicao, motivo="expirada"):
+    """
+    Apaga os dados operacionais de uma demo com segurança.
+
+    Segurança:
+    - Só executa se a competição começar com DEMO-VTP-.
+    - Mantém o registro em demos_temporarias para histórico/bloqueio de CPF/WhatsApp.
+    """
+    criar_tabela_demos()
+
+    competicao = (competicao or "").strip()
+
+    if not competicao.startswith(DEMO_PREFIXO):
+        print("⚠️ Limpeza de demo bloqueada. Prefixo inválido:", competicao)
+        return False
+
+    tabelas_por_competicao = [
+        "competicao_oficiais",
+        "equipe_conferencia",
+        "eventos",
+        "eventos_partida",
+        "grupo_equipes",
+        "grupos_equipes",
+        "historico_rotacao",
+        "papeletas",
+        "sancoes_partida",
+        "solicitacoes_treinador",
+        "atletas",
+        "equipes",
+        "grupos",
+        "partidas",
+    ]
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            tabelas = _buscar_tabelas_publicas(cur)
+
+            cpfs_demo = []
+            if "competicao_oficiais" in tabelas:
+                colunas_oficiais = _buscar_colunas_cur(cur, "competicao_oficiais")
+                if "competicao" in colunas_oficiais and "cpf" in colunas_oficiais:
+                    cur.execute("""
+                        SELECT DISTINCT cpf
+                        FROM competicao_oficiais
+                        WHERE competicao = %s
+                    """, (competicao,))
+                    cpfs_demo = [
+                        row["cpf"]
+                        for row in cur.fetchall()
+                        if row.get("cpf")
+                    ]
+
+            # Apaga usuários criados/vinculados na demo:
+            # organizador demo, equipes, treinadores, árbitros/mesários etc.
+            if "usuarios" in tabelas:
+                colunas_usuarios = _buscar_colunas_cur(cur, "usuarios")
+                if "competicao_vinculada" in colunas_usuarios:
+                    cur.execute("""
+                        DELETE FROM usuarios
+                        WHERE competicao_vinculada = %s
+                          AND COALESCE(perfil, '') <> 'superadmin'
+                    """, (competicao,))
+
+            # Remove dados principais vinculados à competição demo.
+            for tabela in tabelas_por_competicao:
+                _delete_por_competicao_se_existir(cur, tabelas, tabela, competicao)
+
+            # Remove apontadores criados somente para essa demo, se não houver vínculo real.
+            if cpfs_demo and "apontadores" in tabelas:
+                colunas_apontadores = _buscar_colunas_cur(cur, "apontadores")
+                if "cpf" in colunas_apontadores:
+                    for cpf in cpfs_demo:
+                        tem_vinculo_real = False
+
+                        if "competicao_oficiais" in tabelas:
+                            colunas_oficiais = _buscar_colunas_cur(cur, "competicao_oficiais")
+                            if "cpf" in colunas_oficiais and "competicao" in colunas_oficiais:
+                                cur.execute("""
+                                    SELECT 1
+                                    FROM competicao_oficiais
+                                    WHERE cpf = %s
+                                      AND competicao <> %s
+                                    LIMIT 1
+                                """, (cpf, competicao))
+                                tem_vinculo_real = cur.fetchone() is not None
+
+                        if not tem_vinculo_real:
+                            cur.execute("""
+                                DELETE FROM apontadores
+                                WHERE cpf = %s
+                            """, (cpf,))
+
+            if "competicoes" in tabelas:
+                cur.execute("""
+                    DELETE FROM competicoes
+                    WHERE nome = %s
+                """, (competicao,))
+
+            cur.execute("""
+                UPDATE demos_temporarias
+                SET encerrada = TRUE,
+                    motivo_encerramento = CASE
+                        WHEN COALESCE(motivo_encerramento, '') = ''
+                        THEN %s
+                        ELSE motivo_encerramento
+                    END
+                WHERE competicao = %s
+            """, (motivo or "expirada", competicao))
+
         conn.commit()
 
-    return {"login": login_organizador, "senha": nova_senha}
+    print("✅ Demo limpa com segurança:", competicao)
+    return True
+
+
+def limpar_demos_expiradas():
+    """
+    Limpa todas as demos vencidas.
+    Pode ser chamada ao acessar /demo, /login ou /demos.
+    """
+    criar_tabela_demos()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT competicao
+                FROM demos_temporarias
+                WHERE encerrada = FALSE
+                  AND expira_em <= NOW()
+            """)
+            demos = cur.fetchall()
+
+    total = 0
+    for demo in demos:
+        if limpar_demo_por_competicao(demo["competicao"], motivo="expirada"):
+            total += 1
+
+    return total
+
+
+def criar_demo_temporaria(nome="", cpf="", whatsapp=""):
+    """
+    Cria uma competição demo, um organizador demo e validade de 4 horas.
+
+    Tudo fica isolado pela competição DEMO-VTP-XXXXXX.
+    O CPF/WhatsApp ficam salvos para histórico e bloqueio de novo teste.
+    """
+    criar_tabela_demos()
+    limpar_demos_expiradas()
+
+    nome = (nome or "").strip() or "Solicitante Demo"
+    cpf_limpo = somente_digitos(cpf)
+    whatsapp_limpo = somente_digitos(whatsapp)
+
+    if cpf_limpo and not cpf_valido(cpf_limpo):
+        raise ValueError("CPF inválido.")
+
+    if cpf_limpo or whatsapp_limpo:
+        ja_usou = demo_ja_usada_por_cpf_ou_whatsapp(cpf_limpo, whatsapp_limpo)
+        if ja_usou:
+            raise ValueError("Este CPF ou WhatsApp já utilizou a demonstração gratuita.")
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            tabelas = _buscar_tabelas_publicas(cur)
+
+            if "usuarios" not in tabelas or "competicoes" not in tabelas:
+                raise RuntimeError("Tabelas usuarios/competicoes não encontradas.")
+
+            codigo = _gerar_codigo_demo_unico(cur)
+            competicao = codigo
+            login = _gerar_login_demo(codigo)
+            senha = _gerar_senha_demo()
+
+            cur.execute("""
+                INSERT INTO usuarios (
+                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                login,
+                f"Organizador Demo - {nome}",
+                senha,
+                "organizador",
+                True,
+                None,
+                competicao,
+            ))
+
+            colunas = _buscar_colunas_cur(cur, "competicoes")
+
+            campos = ["nome", "data", "status", "organizador_login"]
+            valores = [
+                competicao,
+                datetime.now().strftime("%Y-%m-%d"),
+                "Demo ativa",
+                login,
+            ]
+
+            defaults = {
+                "cidade": "Demonstração",
+                "ginasio": "Ginásio Demo VolleyTable Pro",
+                "categoria": "Demo",
+                "sexo": "Livre",
+                "divisao": "Demonstração",
+                "qtd_equipes": 0,
+                "formato": "grupos",
+                "tem_grupos": False,
+                "qtd_grupos": 0,
+                "qtd_quadras": 1,
+                "modo_operacao": "simples",
+                "tempos_por_set": 2,
+                "substituicoes_por_set": 6,
+                "sets_tipo": "melhor_de_3",
+                "pontos_set": 25,
+                "tem_tiebreak": True,
+                "pontos_tiebreak": 15,
+                "diferenca_minima": 2,
+                "vitoria_set_unico": 2,
+                "derrota_set_unico": 0,
+                "vitoria_2x0": 3,
+                "vitoria_2x1": 2,
+                "derrota_1x2": 1,
+                "derrota_0x2": 0,
+                "vitoria_3x0": 3,
+                "vitoria_3x1": 3,
+                "vitoria_3x2": 2,
+                "derrota_2x3": 1,
+                "derrota_1x3": 0,
+                "derrota_0x3": 0,
+                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
+                "tipo_classificacao": "grupo",
+                "qtd_classificados": 0,
+                "formato_finais": "mata_mata",
+                "possui_bye": False,
+                "qtd_bye": 0,
+                "fases_config": json.dumps({}, ensure_ascii=False),
+                "tipo_confronto": "grupo_interno",
+                "cruzamentos_grupos": "",
+                "bloquear_apos_inicio": False,
+                "limite_atletas": 12,
+                "permitir_edicao_pos_prazo": True,
+                "travada": False,
+                "motivo_travamento": "",
+                "travada_em": None,
+            }
+
+            for campo, valor in defaults.items():
+                if campo in colunas:
+                    campos.append(campo)
+                    valores.append(valor)
+
+            placeholders = ", ".join(["%s"] * len(valores))
+
+            cur.execute(
+                f"""
+                INSERT INTO competicoes ({", ".join(campos)})
+                VALUES ({placeholders})
+                """,
+                tuple(valores),
+            )
+
+            cur.execute("""
+                INSERT INTO demos_temporarias (
+                    codigo,
+                    nome,
+                    cpf,
+                    whatsapp,
+                    competicao,
+                    login,
+                    senha,
+                    expira_em,
+                    encerrada
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
+                    NOW() + INTERVAL '4 hours',
+                    FALSE
+                )
+                RETURNING *
+            """, (
+                codigo,
+                nome,
+                formatar_cpf(cpf_limpo) if cpf_limpo else "",
+                whatsapp_limpo,
+                competicao,
+                login,
+                senha,
+            ))
+
+            demo = cur.fetchone()
+
+        conn.commit()
+
+    return demo
+
+
+def buscar_demo_ativa_por_codigo(codigo):
+    criar_tabela_demos()
+
+    codigo = (codigo or "").strip()
+    if not codigo:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM demos_temporarias
+                WHERE codigo = %s
+                  AND encerrada = FALSE
+                LIMIT 1
+            """, (codigo,))
+            demo = cur.fetchone()
+
+            if not demo:
+                return None
+
+            cur.execute("SELECT NOW() AS agora")
+            agora = cur.fetchone()["agora"]
+
+            if demo.get("expira_em") and demo["expira_em"] <= agora:
+                competicao = demo["competicao"]
+            else:
+                return demo
+
+    limpar_demo_por_competicao(competicao, motivo="expirada")
+    return None
+
+
+def demo_expirada(login):
+    """
+    Retorna True se o login pertence a uma demo vencida.
+    Se estiver vencida, limpa automaticamente a demo.
+    """
+    criar_tabela_demos()
+
+    login = (login or "").strip()
+    if not login:
+        return False
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT competicao, expira_em
+                FROM demos_temporarias
+                WHERE login = %s
+                  AND encerrada = FALSE
+                LIMIT 1
+            """, (login,))
+            demo = cur.fetchone()
+
+            if not demo:
+                return False
+
+            cur.execute("SELECT NOW() AS agora")
+            agora = cur.fetchone()["agora"]
+
+            if demo["expira_em"] <= agora:
+                competicao = demo["competicao"]
+            else:
+                return False
+
+    limpar_demo_por_competicao(competicao, motivo="expirada")
+    return True
+
+
+def usuario_eh_demo(login):
+    criar_tabela_demos()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT 1
+                FROM demos_temporarias
+                WHERE login = %s
+                  AND encerrada = FALSE
+                LIMIT 1
+            """, ((login or "").strip(),))
+            return cur.fetchone() is not None
+
+
+def listar_demos_admin():
+    """
+    Lista todas as demonstrações para o painel do superadmin.
+    """
+    criar_tabela_demos()
+    limpar_demos_expiradas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    *,
+                    CASE
+                        WHEN encerrada = TRUE THEN 'encerrada'
+                        WHEN expira_em <= NOW() THEN 'expirada'
+                        ELSE 'ativa'
+                    END AS status_demo
+                FROM demos_temporarias
+                ORDER BY criado_em DESC
+            """)
+            return cur.fetchall()
+
+
+def estender_demo(demo_id, horas):
+    """
+    Aumenta o tempo de uma demonstração.
+    Se ela já estiver vencida, soma o tempo a partir de agora.
+    """
+    criar_tabela_demos()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE demos_temporarias
+                SET expira_em = GREATEST(expira_em, NOW()) + (%s || ' hours')::interval,
+                    encerrada = FALSE,
+                    motivo_encerramento = ''
+                WHERE id = %s
+                RETURNING *
+            """, (int(horas), int(demo_id)))
+            demo = cur.fetchone()
+
+        conn.commit()
+
+    return demo
+
+
+def encerrar_demo(demo_id):
+    """
+    Encerra uma demonstração manualmente pelo superadmin.
+    """
+    criar_tabela_demos()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT competicao
+                FROM demos_temporarias
+                WHERE id = %s
+                LIMIT 1
+            """, (int(demo_id),))
+            demo = cur.fetchone()
+
+    if not demo:
+        return False
+
+    return limpar_demo_por_competicao(
+        demo["competicao"],
+        motivo="encerrada_manual"
+    )
+
+
+def liberar_novo_teste(demo_id):
+    """
+    Libera o mesmo CPF/WhatsApp para pedir outra demo.
+    """
+    criar_tabela_demos()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE demos_temporarias
+                SET liberado_novo_teste = TRUE
+                WHERE id = %s
+            """, (int(demo_id),))
+
+        conn.commit()
+
+    return True
+
+
+def marcar_whatsapp_demo_enviado(demo_id):
+    criar_tabela_demos()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE demos_temporarias
+                SET whatsapp_enviado = TRUE
+                WHERE id = %s
+            """, (int(demo_id),))
+
+        conn.commit()
+
+    return True
 
 
 # =========================================================
@@ -8285,3 +8924,23 @@ def listar_atletas_para_conferencia(nome_competicao):
                 ORDER BY equipe, nome
             """, (nome_competicao,))
             return cur.fetchall()
+        
+
+def redefinir_senha_organizador(login_organizador):
+    nova_senha = _gerar_senha_aleatoria(8)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE usuarios
+                SET senha = %s
+                WHERE login = %s
+                  AND perfil = 'organizador'
+            """, (nova_senha, login_organizador))
+
+        conn.commit()
+
+    return {
+        "login": login_organizador,
+        "senha": nova_senha
+    }

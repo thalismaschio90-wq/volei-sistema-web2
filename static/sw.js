@@ -1,72 +1,55 @@
-const CACHE_NAME = "volleypwa-v1";
+const CACHE_NAME = "voleitable-v1";
 
-const ASSETS = [
+const urlsToCache = [
     "/",
-    "/static/manifest.json",
+    "/login",
+    "/static/css/landing.css"
 ];
 
-self.addEventListener("install", (event) => {
-
-    event.waitUntil(
-
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(ASSETS);
-        })
-
-    );
+self.addEventListener("install", event => {
 
     self.skipWaiting();
 
+    event.waitUntil(
+        caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(urlsToCache))
+    );
+
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener("activate", event => {
 
     event.waitUntil(
-
-        caches.keys().then((keys) => {
-
+        caches.keys().then(keys => {
             return Promise.all(
-
-                keys.map((key) => {
-
+                keys.map(key => {
                     if (key !== CACHE_NAME) {
                         return caches.delete(key);
                     }
-
                 })
-
             );
-
         })
-
     );
-
-    self.clients.claim();
 
 });
 
-self.addEventListener("fetch", (event) => {
+self.addEventListener("fetch", event => {
 
-    // NÃO intercepta APIs/socket/estado
-    if (
-        event.request.url.includes("/estado")
-        || event.request.url.includes("/socket.io")
-        || event.request.method !== "GET"
-    ) {
+    if (event.request.mode === "navigate") {
+
+        event.respondWith(
+            fetch(event.request)
+                .catch(() => caches.match("/"))
+        );
+
         return;
     }
 
     event.respondWith(
-
-        caches.match(event.request).then((response) => {
-
-            return (
-                response ||
-                fetch(event.request)
-            );
-
-        })
-
+        caches.match(event.request)
+            .then(response => {
+                return response || fetch(event.request);
+            })
     );
 
 });

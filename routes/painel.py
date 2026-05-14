@@ -157,13 +157,53 @@ def inicio():
     # ORGANIZADOR
     # =========================
     elif perfil == "organizador":
-        competicoes = listar_competicoes_do_organizador(
-            session.get("usuario")
+        login_organizador = session.get("usuario")
+        competicoes = listar_competicoes_do_organizador(login_organizador) or []
+
+        # O organizador não pode depender de competicao_vinculada.
+        # A competição dele vem da relação criada no cadastro da competição
+        # (organizador_login / responsável). Se existir pelo menos uma competição,
+        # o painel deve liberar a operação automaticamente.
+        competicao_atual = (
+            (session.get("competicao_atual") or "").strip()
+            or (session.get("competicao_vinculada") or "").strip()
         )
+
+        nomes_competicoes = []
+        for comp in competicoes:
+            if isinstance(comp, dict):
+                nome_comp = (
+                    comp.get("competicao")
+                    or comp.get("nome")
+                    or comp.get("nome_competicao")
+                    or comp.get("titulo")
+                    or ""
+                )
+            else:
+                nome_comp = str(comp or "")
+            nome_comp = nome_comp.strip()
+            if nome_comp:
+                nomes_competicoes.append(nome_comp)
+
+        if not competicao_atual and nomes_competicoes:
+            competicao_atual = nomes_competicoes[0]
+
+        if competicao_atual:
+            session["competicao_atual"] = competicao_atual
+            session["competicao_vinculada"] = competicao_atual
+
+        tem_competicao = bool(nomes_competicoes or competicao_atual)
 
         return render_template(
             "painel_organizador.html",
-            competicoes=competicoes
+            competicoes=competicoes,
+            competicao_atual=competicao_atual,
+            competicao_vinculada=competicao_atual,
+            competicao=competicao_atual,
+            tem_competicao=tem_competicao,
+            total_competicoes=len(nomes_competicoes),
+            operacao_liberada=tem_competicao,
+            mensagem=None if tem_competicao else "Você ainda não possui competição cadastrada."
         )
 
     # =========================
@@ -213,7 +253,7 @@ def inicio():
     elif perfil == "equipe":
 
         return redirect(
-            url_for("equipes.minhas_partidas_view")
+            url_for("equipes.painel_equipe_inicio_view")
         )
 
     # =========================

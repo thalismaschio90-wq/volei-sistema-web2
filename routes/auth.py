@@ -6,24 +6,61 @@ from banco import (
     definir_senha_apontador,
 )
 
+try:
+    from routes.demo import criar_tabela_demos, limpar_demo_por_competicao
+except Exception:
+    criar_tabela_demos = None
+    limpar_demo_por_competicao = None
+
+
 auth_bp = Blueprint("auth", __name__)
 
 
-@auth_bp.route("/")
-def raiz():
-    if "usuario" in session:
-        if session.get("perfil") == "apontador":
-            return redirect(url_for("apontadores.painel_apontador"))
-        return redirect(url_for("painel.inicio"))
+def _demo_expirada_para_login(login):
+    if not login or criar_tabela_demos is None:
+        return False
 
-    return redirect(url_for("auth.login"))
+    try:
+        criar_tabela_demos()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT competicao, expira_em
+                    FROM demos_temporarias
+                    WHERE login = %s
+                      AND encerrada = FALSE
+                    LIMIT 1
+                """, (login,))
+                demo = cur.fetchone()
+
+                if not demo:
+                    return False
+
+                cur.execute("SELECT NOW() AS agora")
+                agora = cur.fetchone()["agora"]
+
+                if demo["expira_em"] <= agora:
+                    if limpar_demo_por_competicao is not None:
+                        limpar_demo_por_competicao(demo["competicao"])
+                    return True
+
+                return False
+    except Exception as e:
+        print("ERRO AO VERIFICAR DEMO EXPIRADA:", repr(e))
+        return False
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if "usuario" in session:
+        if _demo_expirada_para_login(session.get("usuario")):
+            session.clear()
+            flash("Sua demonstração expirou. Gere uma nova demonstração.", "erro")
+            return redirect(url_for("demo.demo"))
+
         if session.get("perfil") == "apontador":
             return redirect(url_for("apontadores.painel_apontador"))
+
         return redirect(url_for("painel.inicio"))
 
     if request.method == "POST":
@@ -34,19 +71,19 @@ def login():
             flash("Informe login e senha.", "erro")
             return render_template("login.html")
 
-        # =====================================================
-        # 1) TENTA LOGIN DE USUÁRIO NORMAL
-        # =====================================================
         try:
             with conectar() as conn:
                 usuario = buscar_usuario_por_login(login_digitado, conn)
-
         except Exception as e:
             print("ERRO LOGIN BANCO:", repr(e))
             flash("Erro temporário ao conectar no banco. Tente novamente.", "erro")
             return render_template("login.html")
 
         if usuario:
+            if _demo_expirada_para_login(usuario["login"]):
+                flash("Essa demonstração expirou. Gere uma nova demonstração.", "erro")
+                return redirect(url_for("demo.demo"))
+
             if not usuario.get("ativo", True):
                 flash("Usuário inativo.", "erro")
                 return render_template("login.html")
@@ -66,9 +103,6 @@ def login():
 
             return redirect(url_for("painel.inicio"))
 
-        # =====================================================
-        # 2) SE NÃO FOR USUÁRIO NORMAL, TENTA APONTADOR POR CPF
-        # =====================================================
         try:
             apontador = autenticar_apontador(login_digitado, senha_digitada)
         except Exception as e:

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block conteudo_sem_sidebar %}
+
+<style>
+    body {
+        background:
+            linear-gradient(90deg, rgba(1,16,39,.96), rgba(1,16,39,.68)),
+            url("/static/img/hero_bg.png");
+        background-size: cover;
+        background-position: center;
+        min-height: 100vh;
+        font-family: Arial, Helvetica, sans-serif;
+    }
+
+    .demo-wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 30px;
+    }
+
+    .demo-card {
+        width: 100%;
+        max-width: 560px;
+        background: #fff;
+        border-radius: 26px;
+        padding: 34px;
+        box-shadow: 0 25px 70px rgba(0,0,0,.28);
+    }
+
+    .demo-logo {
+        width: 82px;
+        display: block;
+        margin: 0 auto 14px;
+    }
+
+    .demo-title {
+        text-align: center;
+        color: #0a1d3d;
+        font-size: 34px;
+        font-weight: 900;
+        margin-bottom: 8px;
+    }
+
+    .demo-sub {
+        text-align: center;
+        color: #5d6978;
+        line-height: 1.6;
+        margin-bottom: 26px;
+        font-weight: 700;
+    }
+
+    .campo {
+        margin-bottom: 16px;
+    }
+
+    .campo label {
+        font-weight: 900;
+        color: #0a1d3d;
+        margin-bottom: 8px;
+        display: block;
+    }
+
+    .campo input {
+        width: 100%;
+        padding: 15px;
+        border: 1px solid #d9dde6;
+        border-radius: 14px;
+        font-size: 16px;
+    }
+
+    .btn-demo {
+        width: 100%;
+        border: 0;
+        background: #ff7b1c;
+        color: white;
+        padding: 17px;
+        border-radius: 16px;
+        font-size: 17px;
+        font-weight: 900;
+        cursor: pointer;
+        margin-top: 8px;
+    }
+
+    .voltar {
+        display: block;
+        text-align: center;
+        margin-top: 18px;
+        color: #0a1d3d;
+        text-decoration: none;
+        font-weight: 800;
+    }
+
+    .flash-box {
+        margin-bottom: 14px;
+    }
+
+    .flash-erro {
+        background: #fff0f0;
+        border: 1px solid #f0c9c9;
+        color: #a13d3d;
+        padding: 13px;
+        border-radius: 12px;
+        font-weight: 800;
+        margin-bottom: 12px;
+    }
+
+    .aviso {
+        background: #f7f9fc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 14px;
+        color: #4b5563;
+        font-weight: 700;
+        line-height: 1.5;
+        margin-bottom: 18px;
+    }
+</style>
+
+<div class="demo-wrap">
+    <div class="demo-card">
+
+        <img src="{{ url_for('static', filename='img/logo.png') }}" class="demo-logo">
+
+        <div class="demo-title">
+            Solicitar demonstração
+        </div>
+
+        <div class="demo-sub">
+            Preencha seus dados para receber no WhatsApp um acesso de teste válido por 4 horas.
+        </div>
+
+        {% with mensagens = get_flashed_messages(with_categories=true) %}
+            {% if mensagens %}
+                <div class="flash-box">
+                    {% for categoria, mensagem in mensagens %}
+                        {% if categoria == 'erro' %}
+                            <div class="flash-erro">{{ mensagem }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% if ja_usou %}
+            <div class="aviso">
+                Você já utilizou a demonstração gratuita.
+                Para liberar novo acesso, entre em contato com o suporte.
+            </div>
+
+            <a class="btn-demo" href="https://wa.me/{{ whatsapp_suporte }}">
+                Falar com o suporte
+            </a>
+        {% else %}
+            <form method="POST">
+
+                <div class="campo">
+                    <label>Nome completo</label>
+                    <input type="text" name="nome" placeholder="Digite seu nome completo" required>
+                </div>
+
+                <div class="campo">
+                    <label>CPF</label>
+                    <input type="text" name="cpf" placeholder="000.000.000-00" required>
+                </div>
+
+                <div class="campo">
+                    <label>WhatsApp</label>
+                    <input type="text" name="whatsapp" placeholder="(54) 99999-9999" required>
+                </div>
+
+                <button type="submit" class="btn-demo">
+                    Gerar demonstração
+                </button>
+
+            </form>
+        {% endif %}
+
+        <a href="/" class="voltar">
+            Voltar para o início
+        </a>
+
+    </div>
+</div>
+
+{% endblock %}
