@@ -427,6 +427,7 @@ body {
 
 <script>
 const apontador = {{ (apontador if apontador is defined else '') | tojson }};
+const ESTADO_INICIAL = {{ (estado if estado is defined else {}) | tojson | safe }};
 const socket = io();
 
 const telao = document.getElementById("telao");
@@ -455,12 +456,10 @@ let ultimosPontosA = 0;
 let ultimosPontosB = 0;
 
 /*
-  EVOLUÇÃO NOVA:
-  - Não depende do banco.
-  - Não tenta montar histórico de partida antiga.
-  - Só começa quando esta tela recebe uma partida AO VIVO zerada ou recém-iniciada.
-  - Se abrir partida já começada, fica vazia/desativada para não mostrar evolução errada.
-  - Se finalizar sem F5, mantém o que foi montado nesta tela.
+  EVOLUÇÃO PERSISTENTE:
+  - A fonte principal é dados.evolucao_pontos, montada no backend pelos eventos salvos.
+  - Se atualizar, sair ou voltar para a partida, o telão reconstrói a evolução pelo banco.
+  - O cálculo local abaixo fica apenas como reserva enquanto o socket ainda não trouxe histórico.
 */
 let evolucaoAtiva = false;
 let evolucaoCongelada = false;
@@ -918,7 +917,11 @@ function aplicarEstado(dados) {
     renderizarEvolucao(evolucaoAtiva || evolucaoPontos.length > 0 || evolucaoCongelada);
 }
 
-renderizarLinhaVazia();
+if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_INICIAL).length) {
+    aplicarEstado(ESTADO_INICIAL);
+} else {
+    renderizarLinhaVazia();
+}
 
 socket.on("placar_apontador_atualizado", aplicarEstado);
 </script>

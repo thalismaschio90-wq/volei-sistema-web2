@@ -656,6 +656,19 @@
         to { transform: scale(1); opacity: 1; }
     }
 
+    #btn-ponto-a,
+    #btn-ponto-b {
+        background: #fff !important;
+        color: #00304f !important;
+        border: 1px solid #d6e2f0 !important;
+        box-shadow: none !important;
+    }
+
+    #btn-ponto-a:hover,
+    #btn-ponto-b:hover {
+        background: #f8fbff !important;
+    }
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -753,7 +766,7 @@
 
             <div class="acoes-quadra">
                 <div class="acoes-jogo">
-                    <button id="btn-ponto-a" class="btn-padrao" type="button">+ ponto {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
+                    <button id="btn-ponto-a" class="btn-secundario" type="button">+ ponto {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
                     <button id="btn-ponto-b" class="btn-secundario" type="button">+ ponto {{ partida.equipe_b_operacional or partida.equipe_b }}</button>
                     <button id="btn-desfazer" class="btn-secundario" type="button">⟲ Desfazer</button>
                     <button id="btn-wo-a" class="btn-wo btn-secundario" type="button">WO {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
@@ -806,8 +819,7 @@
         <button id="btn-abrir-placar" class="btn-secundario" type="button">Abrir placar ao vivo</button>
         <button id="btn-inverter-lados" class="btn-secundario" type="button">Inverter lados</button>
     </div>
-
-    <div id="erro-jogo" style="display:none; margin-top:14px; color:#b91c1c; font-weight:700; text-align:center;"></div>
+<div id="erro-jogo" style="display:none; margin-top:14px; color:#b91c1c; font-weight:700; text-align:center;"></div>
 </div>
 
 <div id="substituicao-modal-fundo" class="substituicao-modal-fundo">
@@ -3405,7 +3417,10 @@ async function registrarPonto(equipe, scout) {
                 tipo_erro: (scout && scout.tipo_erro) || "",
                 atleta_numero: (scout && scout.atleta_numero) || "",
                 atleta_nome: (scout && scout.atleta_nome) || "",
-                atleta_label: (scout && scout.atleta_label) || ""
+                atleta_label: (scout && scout.atleta_label) || "",
+                responsavel_lado: (scout && scout.responsavel_lado) || "",
+                equipe_pontuadora: equipe,
+                equipe_scout: (scout && scout.responsavel_lado) || equipe
             })
         });
 

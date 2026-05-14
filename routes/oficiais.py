@@ -139,6 +139,26 @@ def _montar_estado_arbitro(competicao, partida_id):
     mapa_a = _atletas_mapa(equipe_a, competicao)
     mapa_b = _atletas_mapa(equipe_b, competicao)
 
+    saque_atual = str(estado.get("saque_atual") or "").strip().upper()
+
+    if saque_atual == "A":
+        rotacao_saque = _normalizar_rotacao(rotacao_a, mapa_a)
+        equipe_sacadora = equipe_a
+    elif saque_atual == "B":
+        rotacao_saque = _normalizar_rotacao(rotacao_b, mapa_b)
+        equipe_sacadora = equipe_b
+    else:
+        rotacao_saque = []
+        equipe_sacadora = ""
+
+    sacador = {"numero": "-", "nome": ""}
+
+    if rotacao_saque and len(rotacao_saque) >= 6:
+        sacador = rotacao_saque[5] or sacador
+
+    numero_sacador = sacador.get("numero") or "-"
+    nome_sacador = sacador.get("nome") or ""
+
     return {
         "ok": True,
         "competicao": competicao,
@@ -150,7 +170,10 @@ def _montar_estado_arbitro(competicao, partida_id):
         "sets_a": _int_seguro(estado.get("sets_a"), 0),
         "sets_b": _int_seguro(estado.get("sets_b"), 0),
         "set_atual": set_atual,
-        "saque_atual": str(estado.get("saque_atual") or "").strip().upper(),
+        "saque_atual": saque_atual,
+        "equipe_sacadora": equipe_sacadora,
+        "numero_sacador": numero_sacador,
+        "nome_sacador": nome_sacador,
         "rotacao_a": _normalizar_rotacao(rotacao_a, mapa_a),
         "rotacao_b": _normalizar_rotacao(rotacao_b, mapa_b),
         "historico": estado.get("historico") or [],

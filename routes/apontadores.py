@@ -485,9 +485,19 @@ def _rotacao_segura_estado(estado, lado):
     return normalizada[:6]
 
 
-def _montar_evolucao_pontos(partida_id, competicao):
+def _montar_evolucao_pontos(partida_id, competicao, set_atual=None):
+    """
+    Monta a evolução ponto a ponto a partir do banco.
+
+    Regra importante:
+    - o telão não deve depender da página estar aberta;
+    - ao atualizar/sair/voltar, a evolução é reconstruída pelos eventos salvos;
+    - quando existir detalhes.equipe_pontuadora, ela é a fonte mais confiável.
+    """
+    import json
+
     try:
-        eventos = listar_eventos_partida(partida_id, competicao, limite=80) or []
+        eventos = listar_eventos_partida(partida_id, competicao, limite=300) or []
     except TypeError:
         try:
             eventos = listar_eventos_partida(partida_id, competicao) or []
@@ -496,40 +506,55 @@ def _montar_evolucao_pontos(partida_id, competicao):
     except Exception:
         return []
 
+    try:
+        set_filtro = int(set_atual) if set_atual not in (None, "") else None
+    except Exception:
+        set_filtro = None
+
     def chave_ordem(ev):
         return (
             ev.get("id") or 0,
             str(ev.get("criado_em") or "")
         )
 
-    eventos = sorted(eventos, key=chave_ordem)
+    def detalhes_dict(ev):
+        detalhes = ev.get("detalhes") or {}
+        if isinstance(detalhes, dict):
+            return detalhes
+        if isinstance(detalhes, str) and detalhes.strip():
+            try:
+                obj = json.loads(detalhes)
+                return obj if isinstance(obj, dict) else {}
+            except Exception:
+                return {}
+        return {}
 
-    evolucao = []
-
-    for ev in eventos:
+    def lado_pontuador(ev):
         tipo_evento = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+        if tipo_evento not in {"ponto", "pontuacao", "pontuação"}:
+            return ""
+
+        det = detalhes_dict(ev)
+
+        # Novo padrão salvo por registrar_ponto_partida: sempre aponta quem ganhou o ponto.
+        equipe_pontuadora = str(det.get("equipe_pontuadora") or "").strip().upper()
+        if equipe_pontuadora in {"A", "B"}:
+            return equipe_pontuadora
+
         equipe = str(ev.get("equipe") or "").strip().upper()
+        if equipe not in {"A", "B"}:
+            return ""
 
         fundamento = str(ev.get("fundamento") or "").strip().lower()
         resultado = str(ev.get("resultado") or "").strip().lower()
         tipo_lance = str(
             ev.get("tipo_lance")
             or ev.get("detalhe")
+            or det.get("tipo_lance")
+            or det.get("resultado")
             or ev.get("detalhes")
             or ""
         ).strip().lower()
-
-        if equipe not in {"A", "B"}:
-            continue
-
-        if tipo_evento not in {"ponto", "pontuacao", "pontuação"}:
-            continue
-
-        eh_ponto_proprio = (
-            resultado == "ponto"
-            or tipo_lance == "ponto"
-            or fundamento in {"ataque", "bloqueio", "ace"}
-        )
 
         eh_erro_ou_falta = (
             resultado in {"erro", "falta"}
@@ -539,19 +564,46 @@ def _montar_evolucao_pontos(partida_id, competicao):
                 "erro_geral",
                 "rede",
                 "invasao",
+                "invasão",
                 "rotacao",
+                "rotação",
                 "conducao",
+                "condução",
                 "dois_toques",
+                "dois toques",
             }
         )
 
+        eh_ponto_proprio = (
+            resultado == "ponto"
+            or tipo_lance == "ponto"
+            or fundamento in {"ataque", "bloqueio", "ace"}
+        )
+
         if eh_erro_ou_falta:
-            evolucao.append("B" if equipe == "A" else "A")
-        elif eh_ponto_proprio:
-            evolucao.append(equipe)
+            return "B" if equipe == "A" else "A"
+        if eh_ponto_proprio:
+            return equipe
+
+        return ""
+
+    evolucao = []
+
+    for ev in sorted(eventos, key=chave_ordem):
+        if set_filtro is not None:
+            ev_set = ev.get("set_numero") or ev.get("set_atual") or ev.get("set")
+            if ev_set not in (None, ""):
+                try:
+                    if int(ev_set) != set_filtro:
+                        continue
+                except Exception:
+                    pass
+
+        lado = lado_pontuador(ev)
+        if lado in {"A", "B"}:
+            evolucao.append(lado)
 
     return evolucao[-50:]
-
 
 def _calcular_placar_atual_por_eventos(partida_id, competicao, set_atual=None):
     """
@@ -725,10 +777,13 @@ def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=No
     if "placar_b" not in estado:
         estado["placar_b"] = estado.get("pontos_b", 0)
 
-    if "evolucao_pontos" not in estado:
-        estado["evolucao_pontos"] = _montar_evolucao_pontos(partida_id, competicao)
-
     estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+
+    estado["evolucao_pontos"] = _montar_evolucao_pontos(
+        partida_id,
+        competicao,
+        estado.get("set_atual") or 1,
+    )
 
     return estado
 
@@ -758,6 +813,14 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
     estado["equipe_b"] = equipe_b_op
 
     estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+
+    # Sempre envia a evolução reconstruída pelos eventos do banco.
+    # Assim, atualizar o telão, sair e voltar não zera a evolução ponto a ponto.
+    estado["evolucao_pontos"] = _montar_evolucao_pontos(
+        partida_id,
+        competicao,
+        estado.get("set_atual") or 1,
+    )
 
     estado.setdefault("pontos_a", estado.get("placar_a", 0))
     estado.setdefault("pontos_b", estado.get("placar_b", 0))
@@ -2089,86 +2152,241 @@ def sincronizar_acao_view(competicao, partida_id):
         tipo = (corpo.get("tipo") or "").strip().lower()
         equipe = (corpo.get("equipe") or "").strip().upper()
 
+        if not tipo:
+            estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+            estado_atual = _emitir_estado_e_placar(
+                partida_id,
+                competicao,
+                estado_atual,
+                origem="SINCRONIZAR_SEM_TIPO"
+            )
+            return _json_no_cache({
+                "ok": True,
+                "ignorado": True,
+                "mensagem": "Sincronização sem tipo ignorada.",
+                **estado_atual
+            }, 200)
+
+        if tipo == "ponto":
+            estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+            estado_atual = _emitir_estado_e_placar(
+                partida_id,
+                competicao,
+                estado_atual,
+                origem="SINCRONIZAR_PONTO_IGNORADO"
+            )
+            return _json_no_cache({
+                "ok": True,
+                "ignorado": True,
+                "mensagem": "Ponto já é registrado pela rota oficial.",
+                **estado_atual
+            }, 200)
+
+        if tipo in {"tempo", "substituicao", "substituicao_excepcional", "retardamento", "sancao", "cartao_verde"}:
+            if equipe not in {"A", "B"}:
+                estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    origem="SINCRONIZAR_EQUIPE_INVALIDA"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": "Ação sem equipe válida ignorada.",
+                    **estado_atual
+                }, 200)
+
         if tipo == "tempo":
             partida = buscar_partida_operacional(partida_id, competicao) or {}
             estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+
             permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
-                partida_id, competicao, equipe, "tempo", partida=partida, estado=estado_atual
+                partida_id,
+                competicao,
+                equipe,
+                "tempo",
+                partida=partida,
+                estado=estado_atual
             )
+
             if not permitido:
-                estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="SINCRONIZAR_TEMPO_LIMITE")
-                return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    partida=partida,
+                    origem="SINCRONIZAR_TEMPO_LIMITE"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": mensagem_limite,
+                    **estado_atual
+                }, 200)
+
             ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
 
         elif tipo == "substituicao":
+            numero_sai = str(corpo.get("numero_sai") or "").strip()
+            numero_entra = str(corpo.get("numero_entra") or "").strip()
+
+            if not numero_sai or not numero_entra:
+                estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    origem="SINCRONIZAR_SUB_INVALIDA"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": "Substituição incompleta ignorada.",
+                    **estado_atual
+                }, 200)
+
             partida = buscar_partida_operacional(partida_id, competicao) or {}
             estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+
             permitido, mensagem_limite, estado_atual = _validar_limite_operacional(
-                partida_id, competicao, equipe, "substituicao", partida=partida, estado=estado_atual
+                partida_id,
+                competicao,
+                equipe,
+                "substituicao",
+                partida=partida,
+                estado=estado_atual
             )
+
             if not permitido:
-                estado_atual = _emitir_estado_e_placar(partida_id, competicao, estado_atual, partida=partida, origem="SINCRONIZAR_SUBSTITUICAO_LIMITE")
-                return _json_no_cache({"ok": False, "mensagem": mensagem_limite, **estado_atual}, 400)
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    partida=partida,
+                    origem="SINCRONIZAR_SUBSTITUICAO_LIMITE"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": mensagem_limite,
+                    **estado_atual
+                }, 200)
+
             ok, retorno = registrar_substituicao_partida(
                 partida_id,
                 competicao,
                 equipe,
-                str(corpo.get("numero_sai") or "").strip(),
-                str(corpo.get("numero_entra") or "").strip()
+                numero_sai,
+                numero_entra
             )
 
         elif tipo == "substituicao_excepcional":
+            numero_sai = str(corpo.get("numero_sai") or "").strip()
+            numero_entra = str(corpo.get("numero_entra") or "").strip()
+            motivo = str(corpo.get("motivo") or "").strip()
+
+            if not numero_sai or not numero_entra:
+                estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    origem="SINCRONIZAR_SUB_EX_INVALIDA"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": "Substituição excepcional incompleta ignorada.",
+                    **estado_atual
+                }, 200)
+
             try:
                 ok, retorno = registrar_substituicao_excepcional_partida(
                     partida_id,
                     competicao,
                     equipe,
-                    str(corpo.get("numero_sai") or "").strip(),
-                    str(corpo.get("numero_entra") or "").strip(),
-                    str(corpo.get("motivo") or "").strip()
+                    numero_sai,
+                    numero_entra,
+                    motivo
                 )
             except TypeError:
                 ok, retorno = registrar_substituicao_excepcional_partida(
                     partida_id,
                     competicao,
                     equipe,
-                    str(corpo.get("numero_sai") or "").strip(),
-                    str(corpo.get("numero_entra") or "").strip()
+                    numero_sai,
+                    numero_entra
                 )
 
         elif tipo == "retardamento":
             ok, retorno = registrar_retardamento_partida(partida_id, competicao, equipe)
 
         elif tipo == "sancao":
+            tipo_pessoa = str(corpo.get("tipo_pessoa") or "").strip().lower()
+            alvo = str(corpo.get("alvo") or corpo.get("numero") or corpo.get("nome") or "").strip()
+            sancao = str(corpo.get("sancao") or corpo.get("tipo_sancao") or "").strip().lower()
+
+            if not tipo_pessoa or not alvo or not sancao:
+                estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    origem="SINCRONIZAR_SANCAO_INVALIDA"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": "Sanção incompleta ignorada.",
+                    **estado_atual
+                }, 200)
+
             ok, retorno = registrar_sancao_partida(
                 partida_id,
                 competicao,
                 equipe,
-                str(corpo.get("tipo_pessoa") or "").strip().lower(),
-                str(corpo.get("alvo") or corpo.get("numero") or corpo.get("nome") or "").strip(),
-                str(corpo.get("sancao") or corpo.get("tipo_sancao") or "").strip().lower()
+                tipo_pessoa,
+                alvo,
+                sancao
             )
 
         elif tipo == "cartao_verde":
+            tipo_pessoa = str(corpo.get("tipo_pessoa") or "").strip().lower()
+            alvo = str(corpo.get("alvo") or corpo.get("numero") or corpo.get("nome") or "").strip()
+
+            if not tipo_pessoa or not alvo:
+                estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+                estado_atual = _emitir_estado_e_placar(
+                    partida_id,
+                    competicao,
+                    estado_atual,
+                    origem="SINCRONIZAR_VERDE_INVALIDO"
+                )
+                return _json_no_cache({
+                    "ok": True,
+                    "ignorado": True,
+                    "mensagem": "Cartão verde incompleto ignorado.",
+                    **estado_atual
+                }, 200)
+
             ok, retorno = registrar_cartao_verde_partida(
                 partida_id,
                 competicao,
                 equipe,
-                str(corpo.get("tipo_pessoa") or "").strip().lower(),
-                str(corpo.get("alvo") or corpo.get("numero") or corpo.get("nome") or "").strip()
+                tipo_pessoa,
+                alvo
             )
 
         else:
-            # Evita que uma fila offline antiga/malformada fique batendo 400 em loop
-            # e trave a tela do apontador. Retorna o estado atual e deixa o frontend
-            # descartar o item inválido.
-            estado_atual = obter_estado_cache(partida_id) or {}
-            if not estado_atual:
-                try:
-                    estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
-                except Exception:
-                    estado_atual = {}
-            estado_atual["ultima_acao"] = estado_atual.get("ultima_acao") or "Sincronização ignorada"
+            estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+            estado_atual = _emitir_estado_e_placar(
+                partida_id,
+                competicao,
+                estado_atual,
+                origem="SINCRONIZAR_INVALIDO"
+            )
             return _json_no_cache({
                 "ok": True,
                 "ignorado": True,
@@ -2177,7 +2395,19 @@ def sincronizar_acao_view(competicao, partida_id):
             }, 200)
 
         if not ok:
-            return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
+            estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+            estado_atual = _emitir_estado_e_placar(
+                partida_id,
+                competicao,
+                estado_atual,
+                origem=f"SINCRONIZAR_{tipo.upper()}_FALHOU"
+            )
+            return _json_no_cache({
+                "ok": True,
+                "ignorado": True,
+                "mensagem": retorno if isinstance(retorno, str) else "Ação ignorada.",
+                **estado_atual
+            }, 200)
 
         estado = _normalizar_estado_pos_acao(
             partida_id,
@@ -2189,10 +2419,13 @@ def sincronizar_acao_view(competicao, partida_id):
         return _json_no_cache({"ok": True, **estado})
 
     except Exception as e:
+        estado_atual = obter_estado_cache(partida_id) or {}
         return _json_no_cache({
-            "ok": False,
-            "mensagem": f"Erro ao sincronizar ação: {e}"
-        }, 500)
+            "ok": True,
+            "ignorado": True,
+            "mensagem": f"Sincronização ignorada: {e}",
+            **estado_atual
+        }, 200)
     
 
 @apontadores_bp.route("/apontador/estado/<competicao>/<int:partida_id>")

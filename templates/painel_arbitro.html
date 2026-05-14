@@ -1,38 +1,187 @@
 {% extends "base.html" %}
 
-{% block titulo %}Painel do Árbitro{% endblock %}
+{% block titulo %}Painel dos Árbitros{% endblock %}
 
 {% block conteudo %}
-<div class="topbar">
+<div class="topo-secao">
     <div>
-        <h1 class="page-title">Painel do Árbitro</h1>
-        <div class="page-subtitle">Área operacional da mesa.</div>
+        <div class="titulo-secao" style="margin-bottom: 6px;">Painel dos Árbitros</div>
+        <div style="color: var(--muted); font-weight: 700;">
+            Escolha qual tablet você está configurando para a operação da partida.
+        </div>
     </div>
 </div>
 
-<div class="grid">
-    <div class="card">
-        <h3 class="card-title">Tabela</h3>
-        <p class="muted">Acesso rápido para abrir a tabela do dia.</p>
-        <div style="margin-top: 16px;">
-            <a class="btn btn-primary" href="#">Abrir</a>
+<style>
+    .arbitro-hero {
+        background: linear-gradient(135deg, #123852 0%, #0d2a3e 62%, #091d2c 100%);
+        color: #ffffff;
+        border-radius: 24px;
+        padding: 26px;
+        box-shadow: 0 18px 45px rgba(18, 56, 82, .22);
+        margin-bottom: 18px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .arbitro-hero::after {
+        content: "";
+        position: absolute;
+        right: -80px;
+        top: -80px;
+        width: 220px;
+        height: 220px;
+        border-radius: 999px;
+        background: rgba(212, 166, 42, .18);
+    }
+
+    .arbitro-hero-titulo {
+        font-size: clamp(26px, 4vw, 42px);
+        font-weight: 1000;
+        line-height: 1;
+        margin-bottom: 10px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .arbitro-hero-texto {
+        color: rgba(255,255,255,.78);
+        max-width: 760px;
+        line-height: 1.55;
+        font-weight: 700;
+        position: relative;
+        z-index: 1;
+    }
+
+    .arbitro-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+    }
+
+    .arbitro-card {
+        background: #ffffff;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: var(--shadow);
+        display: flex;
+        flex-direction: column;
+        min-height: 260px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .arbitro-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 6px;
+        background: linear-gradient(90deg, #123852, #d4a62a);
+    }
+
+    .arbitro-card-icone {
+        width: 58px;
+        height: 58px;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #eef4fb;
+        font-size: 30px;
+        margin-bottom: 18px;
+    }
+
+    .arbitro-card-titulo {
+        font-size: 25px;
+        font-weight: 1000;
+        color: var(--text);
+        margin-bottom: 8px;
+    }
+
+    .arbitro-card-texto {
+        color: var(--muted);
+        line-height: 1.55;
+        font-weight: 700;
+        margin-bottom: 22px;
+        flex: 1;
+    }
+
+    .arbitro-btn {
+        width: 100%;
+        padding: 15px 18px;
+        border-radius: 16px;
+        font-size: 16px;
+        font-weight: 900;
+        text-decoration: none;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        background: linear-gradient(135deg, #123852 0%, #0f3147 100%);
+        color: #ffffff;
+        box-shadow: 0 10px 24px rgba(18, 56, 82, .18);
+        transition: .18s ease;
+    }
+
+    .arbitro-btn:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.04);
+    }
+
+    .arbitro-info {
+        margin-top: 18px;
+        background: #f8fbff;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+        color: var(--muted);
+        font-weight: 700;
+        line-height: 1.5;
+    }
+
+    @media (max-width: 800px) {
+        .arbitro-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<div class="arbitro-hero">
+    <div class="arbitro-hero-titulo">Central dos Árbitros</div>
+    <div class="arbitro-hero-texto">
+        Deixe cada tablet fixo na sua função. Depois que o apontador confirmar o pré-jogo,
+        a partida aparecerá automaticamente na tela correta.
+        {% if competicao %}<br><strong>Competição vinculada:</strong> {{ competicao }}{% endif %}
+    </div>
+</div>
+
+<div class="arbitro-grid">
+    <div class="arbitro-card">
+        <div class="arbitro-card-icone">⬆️</div>
+        <div class="arbitro-card-titulo">1º Árbitro</div>
+        <div class="arbitro-card-texto">
+            Use no tablet que ficará com o árbitro principal. A tela ficará aguardando a próxima partida ativa e abrirá automaticamente.
         </div>
+        <a class="arbitro-btn" href="{{ url_for('painel.painel_arbitro_1') }}">
+            Entrar no painel do 1º árbitro
+        </a>
     </div>
 
-    <div class="card">
-        <h3 class="card-title">Pré-jogo</h3>
-        <p class="muted">Conferência e configuração operacional antes da partida.</p>
-        <div style="margin-top: 16px;">
-            <a class="btn btn-primary" href="#">Abrir</a>
+    <div class="arbitro-card">
+        <div class="arbitro-card-icone">⬇️</div>
+        <div class="arbitro-card-titulo">2º Árbitro</div>
+        <div class="arbitro-card-texto">
+            Use no tablet que ficará com o segundo árbitro. A tela ficará aguardando a próxima partida ativa e abrirá automaticamente.
         </div>
+        <a class="arbitro-btn" href="{{ url_for('painel.painel_arbitro_2') }}">
+            Entrar no painel do 2º árbitro
+        </a>
     </div>
+</div>
 
-    <div class="card">
-        <h3 class="card-title">Jogo</h3>
-        <p class="muted">Início e controle da partida em andamento.</p>
-        <div style="margin-top: 16px;">
-            <a class="btn btn-primary" href="#">Abrir</a>
-        </div>
-    </div>
+<div class="arbitro-info">
+    <strong>Como usar:</strong> faça login uma vez em cada tablet, escolha a função do tablet e deixe a tela aberta.
+    Quando o apontador salvar o pré-jogo/sorteio, o sistema encontra a partida e redireciona automaticamente para a tela correta.
 </div>
 {% endblock %}

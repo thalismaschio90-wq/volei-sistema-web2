@@ -94,17 +94,47 @@ def _resposta_json_rapida(payload, status=200):
 
 
 def _normalizar_rotacao_visual(rotacao):
-    rotacao = rotacao or []
+    """
+    Mantém a mesma ordem visual usada pelo apontador e pelos árbitros.
+    A ordem da quadra no sistema é [4, 3, 2, 5, 6, 1], onde o índice 5
+    representa a posição 1 do voleibol, ou seja, o sacador.
+
+    Essa normalização evita que o painel do treinador envie/receba rotação
+    em ordem diferente e acabe sobrescrevendo a rotação correta dos árbitros.
+    """
+    ordem_visual = [4, 3, 2, 5, 6, 1]
 
     if not isinstance(rotacao, list):
         return ["", "", "", "", "", ""]
 
-    rotacao = [str(x or "").strip() for x in rotacao]
+    rotacao_convertida = []
 
-    while len(rotacao) < 6:
-        rotacao.append("")
+    for item in rotacao:
+        if isinstance(item, dict):
+            numero = str(
+                item.get("numero")
+                or item.get("camisa")
+                or item.get("numero_camisa")
+                or ""
+            ).strip()
+        else:
+            numero = str(item or "").strip()
 
-    return rotacao[:6]
+        rotacao_convertida.append(numero)
+
+    while len(rotacao_convertida) < 6:
+        rotacao_convertida.append("")
+
+    mapa = {}
+    for idx, posicao in enumerate(ordem_visual):
+        mapa[posicao] = rotacao_convertida[idx] if idx < len(rotacao_convertida) else ""
+
+    saida = [mapa.get(posicao, "") for posicao in ordem_visual]
+
+    while len(saida) < 6:
+        saida.append("")
+
+    return saida[:6]
 
 
 def _rotacao_tem_valor(rotacao):

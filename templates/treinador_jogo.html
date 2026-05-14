@@ -1284,7 +1284,10 @@ if (socket) {
     });
 
     socket.on("connect_error", () => buscarEstadoTreinadorSeguro(true));
-    socket.on("disconnect", () => buscarEstadoTreinadorSeguro(true));
+    socket.on("disconnect", () => {
+        // Só usa fallback quando perder a conexão em tempo real.
+        buscarEstadoTreinadorSeguro(true);
+    });
 
     socket.on("estado_jogo_atualizado", (dados) => {
         aplicarEstadoTreinador(dados);
@@ -1309,8 +1312,13 @@ if (socket) {
 // Primeira carga rápida
 setTimeout(() => buscarEstadoTreinadorSeguro(true), 300);
 
-// Atualização geral leve
-setInterval(() => buscarEstadoTreinadorSeguro(false), 8000);
+// Atualização geral leve apenas como fallback.
+// Durante o jogo, a atualização principal vem por Socket.IO.
+setInterval(() => {
+    if (!socket || !socket.connected) {
+        buscarEstadoTreinadorSeguro(false);
+    }
+}, 30000);
 
 // Scout em tempo real apenas quando a aba Scout estiver aberta.
 setInterval(() => {

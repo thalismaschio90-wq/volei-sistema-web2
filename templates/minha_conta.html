@@ -3,13 +3,228 @@
 {% block titulo %}Minha Conta{% endblock %}
 
 {% block conteudo %}
+
 <div class="topo-secao">
-    <div class="titulo-secao">Minha Conta</div>
+
+    <div class="titulo-secao">
+        Minha Conta
+    </div>
+
 </div>
 
+<style>
+
+.card-conta-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.info-item {
+    background: #f8fbff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+}
+
+.info-label {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: .4px;
+}
+
+.info-valor {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.form-alterar-senha {
+    max-width: 720px;
+}
+
+.grupo-input {
+    margin-bottom: 18px;
+}
+
+.input-estilizado {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid #d6e0ea;
+    background: #fbfdff;
+    font-size: 15px;
+    transition: .18s ease;
+}
+
+.input-estilizado:focus {
+    outline: none;
+    border-color: #7da3bf;
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(18, 56, 82, 0.08);
+}
+
+.botao-salvar-senha {
+    background: linear-gradient(135deg, #123852 0%, #0f3147 100%);
+    color: white;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 20px;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: .18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 10px 24px rgba(18, 56, 82, 0.16);
+}
+
+.botao-salvar-senha:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.03);
+}
+
+.titulo-card {
+    font-size: 22px;
+    font-weight: 900;
+    margin-bottom: 20px;
+    color: var(--text);
+}
+
+.subtexto-card {
+    color: var(--muted);
+    margin-top: -10px;
+    margin-bottom: 22px;
+    line-height: 1.5;
+}
+
+</style>
+
 <div class="card-painel">
-    <p><strong>Usuário:</strong> {{ usuario }}</p>
-    <p><strong>Nome:</strong> {{ nome }}</p>
-    <p><strong>Perfil:</strong> {{ perfil }}</p>
+
+    <div class="titulo-card">
+        Informações da Conta
+    </div>
+
+    <div class="card-conta-info">
+
+        <div class="info-item">
+
+            <div class="info-label">
+                Usuário
+            </div>
+
+            <div class="info-valor">
+                {{ usuario }}
+            </div>
+
+        </div>
+
+        <div class="info-item">
+
+            <div class="info-label">
+                Nome
+            </div>
+
+            <div class="info-valor">
+                {{ nome }}
+            </div>
+
+        </div>
+
+        <div class="info-item">
+
+            <div class="info-label">
+                Perfil
+            </div>
+
+            <div class="info-valor">
+                {{ perfil }}
+            </div>
+
+        </div>
+
+    </div>
+
 </div>
+
+<div class="card-painel" style="margin-top: 20px;">
+
+    <div class="titulo-card">
+        Alterar Senha
+    </div>
+
+    <div class="subtexto-card">
+        Utilize uma senha segura e fácil de lembrar.
+    </div>
+
+    <form
+        method="POST"
+        action="{{ url_for('painel.alterar_senha_minha_conta') }}"
+        class="form-alterar-senha"
+    >
+
+        <div class="grupo-input">
+
+            <label>
+                Senha Atual
+            </label>
+
+            <input
+                type="password"
+                name="senha_atual"
+                class="input-estilizado"
+                required
+            >
+
+        </div>
+
+        <div class="grupo-input">
+
+            <label>
+                Nova Senha
+            </label>
+
+            <input
+                type="password"
+                name="nova_senha"
+                class="input-estilizado"
+                required
+                minlength="4"
+            >
+
+        </div>
+
+        <div class="grupo-input">
+
+            <label>
+                Confirmar Nova Senha
+            </label>
+
+            <input
+                type="password"
+                name="confirmar_senha"
+                class="input-estilizado"
+                required
+                minlength="4"
+            >
+
+        </div>
+
+        <button
+            type="submit"
+            class="botao-salvar-senha"
+        >
+            🔐 Salvar nova senha
+        </button>
+
+    </form>
+
+</div>
+
 {% endblock %}

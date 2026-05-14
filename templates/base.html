@@ -621,6 +621,18 @@
             }
         }
     </style>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#07111f">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="VolleyTable">
+    <script>
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("/sw.js").catch(() => {});
+            });
+        }
+    </script>
 </head>
 
 <body>
@@ -708,36 +720,77 @@
             </div>
 
         {% elif perfil == 'mesario' %}
-            <div class="menu-section-title">Operação</div>
+            <div class="menu-section-title">Operação dos árbitros</div>
 
             <div class="menu-item">
-                <a class="menu-link" href="#">Competição</a>
-                <div class="tooltip-texto">Consulte as informações gerais da competição.</div>
+                <a class="menu-link {% if path == '/painel-arbitros' %}active{% endif %}" href="/painel-arbitros">Painel dos árbitros</a>
+                <div class="tooltip-texto">Escolha entre o painel fixo do 1º árbitro e do 2º árbitro.</div>
             </div>
 
             <div class="menu-item">
-                <a class="menu-link" href="#">Tabela</a>
-                <div class="tooltip-texto">Visualize os jogos disponíveis e selecione uma partida.</div>
+                <a class="menu-link {% if path.startswith('/painel-arbitro-1') %}active{% endif %}" href="/painel-arbitro-1">1º árbitro</a>
+                <div class="tooltip-texto">Tela fixa para o tablet do árbitro principal.</div>
             </div>
 
             <div class="menu-item">
-                <a class="menu-link" href="#">Pré-jogo</a>
-                <div class="tooltip-texto">Confira atletas, capitão e informações iniciais da partida.</div>
-            </div>
-
-            <div class="menu-item">
-                <a class="menu-link" href="#">Jogo</a>
-                <div class="tooltip-texto">Controle operacional da partida em andamento.</div>
-            </div>
-
-            <div class="menu-item">
-                <a class="menu-link" href="#">Súmula</a>
-                <div class="tooltip-texto">Acesse e finalize a súmula da partida.</div>
+                <a class="menu-link {% if path.startswith('/painel-arbitro-2') %}active{% endif %}" href="/painel-arbitro-2">2º árbitro</a>
+                <div class="tooltip-texto">Tela fixa para o tablet do segundo árbitro.</div>
             </div>
 
             <div class="menu-item">
                 <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
                 <div class="tooltip-texto">Veja e gerencie seus dados de acesso.</div>
+            </div>
+
+        {% elif perfil == 'apontador' %}
+
+            <div class="menu-section-title">
+                Operação
+            </div>
+
+            <div class="menu-item">
+
+                <a class="menu-link {% if path == '/inicio' %}active{% endif %}"
+                href="/inicio">
+
+                    Início
+
+                </a>
+
+                <div class="tooltip-texto">
+                    Volta para o painel principal do apontador.
+                </div>
+
+            </div>
+
+            <div class="menu-item">
+
+                <a class="menu-link {% if path.startswith('/apontador') %}active{% endif %}"
+                href="/apontador">
+
+                    Painel do apontador
+
+                </a>
+
+                <div class="tooltip-texto">
+                    Acesse rapidamente as partidas e ferramentas operacionais.
+                </div>
+
+            </div>
+
+            <div class="menu-item">
+
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}"
+                href="/minha-conta">
+
+                    Minha conta
+
+                </a>
+
+                <div class="tooltip-texto">
+                    Veja e gerencie seus dados de acesso e senha.
+                </div>
+
             </div>
 
         {% elif perfil == 'equipe' %}

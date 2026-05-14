@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Volley App Tempo Real</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/app_tempo_real.css') }}"
+    >
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="topo">
+            <div class="perfil">
+                {{ perfil.upper() }}
+            </div>
+
+            <div class="partida">
+                PARTIDA #{{ partida_id }}
+            </div>
+        </div>
+
+        <div class="placar-area">
+
+            <div class="equipe">
+                <div
+                    class="nome-equipe"
+                    id="nomeEquipeA"
+                >
+                    Equipe A
+                </div>
+
+                <div
+                    class="placar"
+                    id="placarA"
+                >
+                    0
+                </div>
+            </div>
+
+            <div class="meio">
+                <div id="setInfo">
+                    SET 1
+                </div>
+
+                <div id="ultimaAcao">
+                    Aguardando jogo...
+                </div>
+            </div>
+
+            <div class="equipe">
+                <div
+                    class="nome-equipe"
+                    id="nomeEquipeB"
+                >
+                    Equipe B
+                </div>
+
+                <div
+                    class="placar"
+                    id="placarB"
+                >
+                    0
+                </div>
+            </div>
+
+        </div>
+
+        <div
+            class="sacador"
+            id="sacadorAtual"
+        >
+            SACADOR: —
+        </div>
+
+    </div>
+
+    <script>
+        const PARTIDA_ID = {{ partida_id }};
+        const PERFIL = "{{ perfil }}";
+    </script>
+
+    <script
+        src="{{ url_for('static', filename='js/app_tempo_real.js') }}"
+    ></script>
+
+</body>
+</html>

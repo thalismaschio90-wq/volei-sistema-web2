@@ -1,7 +1,10 @@
 from datetime import date, datetime
+import time
+
 from flask import request
 from flask_socketio import join_room
 from extensions import socketio
+
 
 # =========================
 # CACHE ULTRA RÁPIDO
@@ -22,20 +25,13 @@ def _room(partida_id):
 
 
 def _room_arbitros(partida_id):
-    # Sala principal dos árbitros. Mantemos igual à sala da partida para
-    # compatibilidade com telas antigas e com o apontador.
     return _room(partida_id)
 
 
 def _rooms_partida(partida_id, competicao=None):
-    """
-    Salas compatíveis para a mesma partida.
-    IMPORTANTE PARA CELULAR:
-    o navegador mobile pode reconectar e o front pode entrar em salas com ou sem
-    nome da competição. Por isso emitimos em todas as variações usadas pelo app.
-    """
     base = _room(partida_id)
     comp = str(competicao or "").strip()
+
     if not base:
         return []
 
@@ -61,6 +57,7 @@ def _rooms_partida(partida_id, competicao=None):
 def _emitir_salas(evento, payload, partida_id, **kwargs):
     payload = _json_safe(payload)
     competicao = payload.get("competicao") if isinstance(payload, dict) else None
+
     for sala in _rooms_partida(partida_id, competicao):
         socketio.emit(evento, payload, room=sala, **kwargs)
 
@@ -86,15 +83,21 @@ def _to_int(valor, padrao=0):
 def _to_bool(valor, padrao=False):
     if isinstance(valor, bool):
         return valor
+
     if valor is None or valor == "":
         return padrao
+
     if isinstance(valor, (int, float)):
         return bool(valor)
+
     texto = str(valor).strip().lower()
+
     if texto in {"1", "true", "sim", "yes", "y", "on"}:
         return True
+
     if texto in {"0", "false", "nao", "não", "no", "n", "off"}:
         return False
+
     return padrao
 
 
@@ -114,6 +117,7 @@ def _primeiro_valor(dados, chaves, padrao=None):
     for chave in chaves:
         if chave in dados and dados.get(chave) is not None and dados.get(chave) != "":
             return dados.get(chave)
+
     return padrao
 
 
@@ -142,8 +146,10 @@ def obter_estado_cache(partida_id):
 
 def atualizar_estado_cache(partida_id, dados):
     sala = _room(partida_id)
+
     if not sala:
         return
+
     _ESTADO_PARTIDAS[sala] = _normalizar_payload(partida_id, dados)
 
 
@@ -151,7 +157,6 @@ def limpar_estado_cache(partida_id):
     _ESTADO_PARTIDAS.pop(_room(partida_id), None)
 
 
-# Mantém compatibilidade com apontadores.py / placar ao vivo.
 def obter_ultimo_placar_apontador(apontador):
     apontador = _normalizar_apontador(apontador)
     return _ULTIMO_PLACAR_APONTADOR.get(apontador)
@@ -163,8 +168,15 @@ def obter_ultimo_placar_apontador(apontador):
 def _normalizar_payload(partida_id, dados=None):
     dados = dict(dados or {})
 
-    pontos_a = _to_int(_primeiro_valor(dados, ["pontos_a", "placar_a"], 0), 0)
-    pontos_b = _to_int(_primeiro_valor(dados, ["pontos_b", "placar_b"], 0), 0)
+    pontos_a = _to_int(
+        _primeiro_valor(dados, ["pontos_a", "placar_a"], 0),
+        0,
+    )
+
+    pontos_b = _to_int(
+        _primeiro_valor(dados, ["pontos_b", "placar_b"], 0),
+        0,
+    )
 
     payload = {
         **dados,
@@ -172,38 +184,25 @@ def _normalizar_payload(partida_id, dados=None):
         "partida_id": str(partida_id),
         "competicao": dados.get("competicao") or "",
 
-        # =========================
-        # PLACAR
-        # =========================
         "pontos_a": pontos_a,
         "pontos_b": pontos_b,
         "placar_a": pontos_a,
         "placar_b": pontos_b,
 
-        # =========================
-        # SETS
-        # =========================
         "sets_a": _to_int(dados.get("sets_a"), 0),
         "sets_b": _to_int(dados.get("sets_b"), 0),
         "set_atual": _to_int(dados.get("set_atual", 1), 1),
 
-        # =========================
-        # EQUIPES
-        # =========================
         "equipe_a": dados.get("equipe_a") or dados.get("nome_a") or dados.get("time_a") or "",
         "equipe_b": dados.get("equipe_b") or dados.get("nome_b") or dados.get("time_b") or "",
 
-        # =========================
-        # SAQUE / ROTAÇÃO
-        # =========================
         "saque_atual": dados.get("saque_atual") or "",
+        "sacador_nome": dados.get("sacador_nome") or dados.get("nome_sacador") or "",
+        "sacador_numero": dados.get("sacador_numero") or dados.get("numero_sacador") or "",
+
         "rotacao_a": _normalizar_lista(dados.get("rotacao_a")),
         "rotacao_b": _normalizar_lista(dados.get("rotacao_b")),
 
-        # =========================
-        # TEMPOS E SUBSTITUIÇÕES
-        # =========================
-        # No seu sistema, tempos_a/tempos_b representam tempos USADOS no set.
         "tempos_a": _to_int(dados.get("tempos_a"), 0),
         "tempos_b": _to_int(dados.get("tempos_b"), 0),
         "limite_tempos": _to_int(dados.get("limite_tempos", 2), 2),
@@ -212,9 +211,6 @@ def _normalizar_payload(partida_id, dados=None):
         "subs_b": _to_int(dados.get("subs_b"), 0),
         "limite_substituicoes": _to_int(dados.get("limite_substituicoes", 6), 6),
 
-        # =========================
-        # SANÇÕES / CARTÕES
-        # =========================
         "sancoes_a": _normalizar_lista(dados.get("sancoes_a")),
         "sancoes_b": _normalizar_lista(dados.get("sancoes_b")),
         "cartoes_verdes_a": _normalizar_lista(dados.get("cartoes_verdes_a")),
@@ -222,19 +218,28 @@ def _normalizar_payload(partida_id, dados=None):
         "status_jogadores_a": _normalizar_dict(dados.get("status_jogadores_a")),
         "status_jogadores_b": _normalizar_dict(dados.get("status_jogadores_b")),
 
-        # =========================
-        # REGRAS DA COMPETIÇÃO
-        # =========================
         "pontos_set": _to_int(
-            _primeiro_valor(dados, ["pontos_set", "ponto_alvo_set", "pontos_para_vencer_set"], 25),
+            _primeiro_valor(
+                dados,
+                ["pontos_set", "ponto_alvo_set", "pontos_para_vencer_set"],
+                25,
+            ),
             25,
         ),
         "ponto_alvo_set": _to_int(
-            _primeiro_valor(dados, ["ponto_alvo_set", "pontos_set", "pontos_para_vencer_set"], 25),
+            _primeiro_valor(
+                dados,
+                ["ponto_alvo_set", "pontos_set", "pontos_para_vencer_set"],
+                25,
+            ),
             25,
         ),
         "pontos_para_vencer_set": _to_int(
-            _primeiro_valor(dados, ["pontos_para_vencer_set", "pontos_set", "ponto_alvo_set"], 25),
+            _primeiro_valor(
+                dados,
+                ["pontos_para_vencer_set", "pontos_set", "ponto_alvo_set"],
+                25,
+            ),
             25,
         ),
         "pontos_tiebreak": _to_int(dados.get("pontos_tiebreak", 15), 15),
@@ -243,9 +248,6 @@ def _normalizar_payload(partida_id, dados=None):
         "sets_max": _to_int(dados.get("sets_max", 3), 3),
         "sets_tipo": dados.get("sets_tipo") or "",
 
-        # =========================
-        # FASE / FINALIZAÇÃO
-        # =========================
         "fase_partida": dados.get("fase_partida") or "jogo",
         "status_jogo": dados.get("status_jogo") or "em_andamento",
         "fim_set": _to_bool(dados.get("fim_set"), False),
@@ -255,9 +257,6 @@ def _normalizar_payload(partida_id, dados=None):
         "vencedor_set": dados.get("vencedor_set") or "",
         "vencedor_partida": dados.get("vencedor_partida") or "",
 
-        # =========================
-        # HISTÓRICO / SCOUT / TELÃO
-        # =========================
         "historico": _normalizar_lista(dados.get("historico")),
         "scout": _normalizar_dict(dados.get("scout")),
         "atletas": dados.get("atletas") or {},
@@ -265,14 +264,12 @@ def _normalizar_payload(partida_id, dados=None):
         "evolucao_pontos": _normalizar_lista(dados.get("evolucao_pontos")),
         "ultima_acao": dados.get("ultima_acao") or "-",
 
-        # =========================
-        # IDENTIFICAÇÃO / VISUAL
-        # =========================
         "apontador": dados.get("apontador") or dados.get("apontador_login") or dados.get("operador_login") or "",
-        # Inversão visual controlada pelo apontador. Isso NÃO muda equipe A/B no banco;
-        # serve só para o placar ao vivo desenhar igual ao jogo do apontador.
         "lados_invertidos_apontador": _to_bool(
-            dados.get("lados_invertidos_apontador", dados.get("lados_invertidos", dados.get("quadra_invertida"))),
+            dados.get(
+                "lados_invertidos_apontador",
+                dados.get("lados_invertidos", dados.get("quadra_invertida")),
+            ),
             False,
         ),
     }
@@ -285,35 +282,49 @@ def _normalizar_payload(partida_id, dados=None):
 # =========================
 def emitir_estado_partida(partida_id, dados=None):
     sala = _room(partida_id)
+
     if not sala:
         return
 
     payload = _normalizar_payload(partida_id, dados)
 
-    # Salva estado global para reconexão e para telas que entram depois.
     _ESTADO_PARTIDAS[sala] = payload
 
-    # Compatibilidade com telas antigas, treinador, placar e telas dos árbitros.
     _emitir_salas("estado_partida", payload, partida_id)
     _emitir_salas("estado_jogo_atualizado", payload, partida_id)
     _emitir_salas("estado_arbitros", payload, partida_id)
 
+    # NOVO APP TEMPO REAL
+    _emitir_salas("estado_partida_tempo_real", payload, partida_id)
+
     ultima_acao = str(payload.get("ultima_acao") or "").strip()
+
     if ultima_acao and ultima_acao != "-":
-        _emitir_salas("ultima_acao_arbitros", {
-            "partida_id": str(partida_id),
-            "texto": ultima_acao,
-            "descricao": ultima_acao,
-        }, partida_id)
+        _emitir_salas(
+            "ultima_acao_arbitros",
+            {
+                "partida_id": str(partida_id),
+                "texto": ultima_acao,
+                "descricao": ultima_acao,
+            },
+            partida_id,
+        )
 
     saque_atual = str(payload.get("saque_atual") or "").strip().upper()
+
     if saque_atual in {"A", "B"}:
-        _emitir_salas("saque_arbitros", {
-            "partida_id": str(partida_id),
-            "equipe": saque_atual,
-            "equipe_nome": payload.get("equipe_a") if saque_atual == "A" else payload.get("equipe_b"),
-            "saque_atual": saque_atual,
-        }, partida_id)
+        _emitir_salas(
+            "saque_arbitros",
+            {
+                "partida_id": str(partida_id),
+                "equipe": saque_atual,
+                "equipe_nome": payload.get("equipe_a") if saque_atual == "A" else payload.get("equipe_b"),
+                "saque_atual": saque_atual,
+                "sacador_nome": payload.get("sacador_nome") or "",
+                "sacador_numero": payload.get("sacador_numero") or "",
+            },
+            partida_id,
+        )
 
 
 # =========================
@@ -321,6 +332,7 @@ def emitir_estado_partida(partida_id, dados=None):
 # =========================
 def emitir_solicitacao_treinador(partida_id, dados):
     sala = _room(partida_id)
+
     if not sala:
         return
 
@@ -356,20 +368,17 @@ def emitir_solicitacao_treinador(partida_id, dados):
         "status": str(dados.get("status") or "pendente").strip().lower(),
         "origem": str(dados.get("origem") or "treinador_http").strip(),
         "duracao": _to_int(dados.get("duracao") or dados.get("segundos") or 30, 30),
-        "timestamp": time.time(),  # 🔥 importante pro mobile não ignorar evento antigo
+        "timestamp": time.time(),
         **dados,
     }
 
     payload = _json_safe(payload)
 
-    # =========================
-    # 🚀 ENVIO GARANTIDO (TODAS TELAS)
-    # =========================
     eventos = (
-        "solicitacao_treinador",   # apontador
-        "resposta_solicitacao",    # treinador
-        "solicitacao_arbitros",    # árbitros
-        "notificacao_geral",       # fallback universal
+        "solicitacao_treinador",
+        "resposta_solicitacao",
+        "solicitacao_arbitros",
+        "notificacao_geral",
     )
 
     for evento in eventos:
@@ -378,36 +387,29 @@ def emitir_solicitacao_treinador(partida_id, dados):
         except Exception as e:
             print(f"ERRO emitir {evento}:", e, flush=True)
 
-    # =========================
-    # 🔥 REFORÇO EXTRA (CELULAR)
-    # =========================
     try:
-        # força broadcast direto também
         socketio.emit("solicitacao_arbitros", payload, room=str(partida_id))
         socketio.emit("notificacao_geral", payload, room=str(partida_id))
     except Exception as e:
         print("ERRO fallback socket:", e, flush=True)
 
-    # IMPORTANTE:
-    # 👉 NÃO iniciar cronômetro aqui
-    # 👉 só notificar
-
 
 # =========================
-# APONTADOR → ÁRBITROS / TELAS AO VIVO
+# APONTADOR → ÁRBITROS
 # =========================
 def emitir_tempo_executado(partida_id, dados=None):
-    """
-    Cronômetro oficial do tempo.
-    REGRA: só deve ser chamado quando o apontador/mesário clicar em Tempo A/B.
-    Pedido do treinador NÃO pode chamar esta função.
-    """
     sala = _room(partida_id)
+
     if not sala:
         return
 
     dados = dict(dados or {})
-    duracao = _to_int(dados.get("duracao") or dados.get("segundos") or dados.get("restante") or 30, 30)
+
+    duracao = _to_int(
+        dados.get("duracao") or dados.get("segundos") or dados.get("restante") or 30,
+        30,
+    )
+
     equipe = str(dados.get("equipe") or "").strip().upper()
 
     payload = {
@@ -424,29 +426,23 @@ def emitir_tempo_executado(partida_id, dados=None):
         "origem": str(dados.get("origem") or "apontador").strip(),
         **dados,
     }
+
     payload = _json_safe(payload)
 
-    # Envia para a sala inteira: apontador, treinador, 1º árbitro e 2º árbitro.
     _emitir_salas("cronometro_tempo", payload, partida_id)
     _emitir_salas("cronometro_arbitros", payload, partida_id)
     _emitir_salas("tempo_executado", payload, partida_id)
-    _emitir_salas("notificacao_geral", {
-        **payload,
-        "tipo": "tempo_executado",
-        "mensagem": payload.get("mensagem") or "Tempo autorizado.",
-    }, partida_id)
+    _emitir_salas("notificacao_geral", {**payload, "tipo": "tempo_executado"}, partida_id)
 
 
 def emitir_substituicao_executada(partida_id, dados=None):
-    """
-    Substituição oficial executada pelo apontador/mesário.
-    Pedido do treinador apenas notifica; a execução nasce aqui.
-    """
     sala = _room(partida_id)
+
     if not sala:
         return
 
     dados = dict(dados or {})
+
     equipe = str(dados.get("equipe") or "").strip().upper()
     numero_sai = str(dados.get("numero_sai") or dados.get("sai") or "").strip()
     numero_entra = str(dados.get("numero_entra") or dados.get("entra") or "").strip()
@@ -460,18 +456,18 @@ def emitir_substituicao_executada(partida_id, dados=None):
         "numero_entra": numero_entra,
         "status": str(dados.get("status") or "executada").strip().lower(),
         "origem": str(dados.get("origem") or "apontador").strip(),
-        "mensagem": str(dados.get("mensagem") or f"Substituição executada - Equipe {equipe or '-'}: #{numero_sai} → #{numero_entra}").strip(),
+        "mensagem": str(
+            dados.get("mensagem")
+            or f"Substituição executada - Equipe {equipe or '-'}: #{numero_sai} → #{numero_entra}"
+        ).strip(),
         **dados,
     }
+
     payload = _json_safe(payload)
 
     _emitir_salas("substituicao_executada", payload, partida_id)
     _emitir_salas("substituicao_arbitros", payload, partida_id)
-    _emitir_salas("notificacao_geral", {
-        **payload,
-        "tipo": "substituicao_executada",
-        "mensagem": payload.get("mensagem") or "Substituição executada.",
-    }, partida_id)
+    _emitir_salas("notificacao_geral", {**payload, "tipo": "substituicao_executada"}, partida_id)
 
 
 # =========================
@@ -482,19 +478,24 @@ def emitir_resposta_solicitacao(partida_id, dados):
         "partida_id": str(partida_id),
         **(dados or {}),
     }
+
     _emitir_salas("resposta_solicitacao", payload, partida_id)
 
 
 def _emitir_pedido_treinador_socket(partida_id, tipo, dados=None):
-    """Pedido rápido via SocketIO: avisa todas as telas sem esperar banco/HTTP."""
     dados = dict(dados or {})
     dados["tipo"] = tipo
     dados["origem"] = dados.get("origem") or "treinador_socket"
+
     emitir_solicitacao_treinador(partida_id, dados)
 
-    # Confirma também diretamente ao navegador que pediu, quando possível.
     try:
-        payload = {"partida_id": str(partida_id), **dados, "status": dados.get("status") or "pendente"}
+        payload = {
+            "partida_id": str(partida_id),
+            **dados,
+            "status": dados.get("status") or "pendente",
+        }
+
         socketio.emit("resposta_solicitacao", _json_safe(payload), room=request.sid)
     except Exception:
         pass
@@ -504,8 +505,10 @@ def _emitir_pedido_treinador_socket(partida_id, tipo, dados=None):
 def pedido_tempo_socket(data):
     data = data or {}
     partida_id = str(data.get("partida_id") or "").strip()
+
     if not partida_id:
         return
+
     _emitir_pedido_treinador_socket(partida_id, "tempo", data)
 
 
@@ -513,8 +516,10 @@ def pedido_tempo_socket(data):
 def pedido_substituicao_socket(data):
     data = data or {}
     partida_id = str(data.get("partida_id") or "").strip()
+
     if not partida_id:
         return
+
     _emitir_pedido_treinador_socket(partida_id, "substituicao", data)
 
 
@@ -540,10 +545,10 @@ def emitir_placar_apontador(apontador, partida_id, dados=None):
     payload = _normalizar_payload(partida_id, dados)
 
     inv_key = (apontador, str(partida_id or ""))
+
     if inv_key in _INVERSAO_PLACAR_APONTADOR:
         payload["lados_invertidos_apontador"] = bool(_INVERSAO_PLACAR_APONTADOR[inv_key])
 
-    # Salva para reconexão.
     _ULTIMO_PLACAR_APONTADOR[apontador] = payload
 
     socketio.emit("placar_apontador_atualizado", payload, room=sala)
@@ -565,6 +570,7 @@ def on_disconnect():
 @socketio.on("entrar_partida")
 def entrar_partida(data):
     data = data or {}
+
     partida_id = str(data.get("partida_id") or "").strip()
     competicao = str(data.get("competicao") or "").strip()
 
@@ -572,28 +578,91 @@ def entrar_partida(data):
         return
 
     sala = _room(partida_id)
+
     for r in _rooms_partida(partida_id, competicao):
         join_room(r)
-    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "competicao": competicao, "room": sala}, room=request.sid)
+
+    socketio.emit(
+        "entrou_partida",
+        {
+            "ok": True,
+            "partida_id": str(partida_id),
+            "competicao": competicao,
+            "room": sala,
+        },
+        room=request.sid,
+    )
 
     estado = _ESTADO_PARTIDAS.get(sala)
 
     if estado:
         payload = _normalizar_payload(partida_id, estado)
+
         socketio.emit("estado_partida", payload, room=request.sid)
         socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
 
 
+@socketio.on("entrar_partida_tempo_real")
+def entrar_partida_tempo_real(data):
+    data = data or {}
+
+    partida_id = str(data.get("partida_id") or "").strip()
+    perfil = str(data.get("perfil") or "").strip()
+    competicao = str(data.get("competicao") or "").strip()
+
+    if not partida_id:
+        return
+
+    sala = _room(partida_id)
+
+    for r in _rooms_partida(partida_id, competicao):
+        join_room(r)
+
+    socketio.emit(
+        "entrou_partida_tempo_real",
+        {
+            "ok": True,
+            "partida_id": partida_id,
+            "perfil": perfil,
+            "competicao": competicao,
+            "room": sala,
+        },
+        room=request.sid,
+    )
+
+    estado = _ESTADO_PARTIDAS.get(sala)
+
+    if estado:
+        payload = _normalizar_payload(partida_id, estado)
+    else:
+        payload = _normalizar_payload(
+            partida_id,
+            {
+                "equipe_a": "Equipe A",
+                "equipe_b": "Equipe B",
+                "pontos_a": 0,
+                "pontos_b": 0,
+                "set_atual": 1,
+                "ultima_acao": "Conectado ao tempo real",
+                "sacador_nome": "Aguardando",
+                "status_jogo": "aguardando",
+            },
+        )
+
+    socketio.emit("estado_partida_tempo_real", payload, room=request.sid)
+    socketio.emit("estado_partida", payload, room=request.sid)
+    socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
+
+
 @socketio.on("join_partida")
 def join_partida(data):
-    # Compatibilidade com templates que usam join_partida.
     return entrar_partida(data)
 
 
 @socketio.on("join")
 def join_generico(data):
-    """Compatibilidade com telas mobile que entram diretamente em uma sala."""
     data = data or {}
+
     room = str(data.get("room") or data.get("sala") or "").strip()
     partida_id = str(data.get("partida_id") or "").strip()
     competicao = str(data.get("competicao") or "").strip()
@@ -605,12 +674,22 @@ def join_generico(data):
         for r in _rooms_partida(partida_id, competicao):
             join_room(r)
 
-    socketio.emit("entrou_partida", {"ok": True, "room": room, "partida_id": partida_id, "competicao": competicao}, room=request.sid)
+    socketio.emit(
+        "entrou_partida",
+        {
+            "ok": True,
+            "room": room,
+            "partida_id": partida_id,
+            "competicao": competicao,
+        },
+        room=request.sid,
+    )
 
 
 @socketio.on("entrar_arbitro")
 def entrar_arbitro(data):
     data = data or {}
+
     partida_id = str(data.get("partida_id") or "").strip()
     competicao = str(data.get("competicao") or "").strip()
 
@@ -618,40 +697,61 @@ def entrar_arbitro(data):
         return
 
     sala = _room_arbitros(partida_id)
+
     for r in _rooms_partida(partida_id, competicao):
         join_room(r)
-    socketio.emit("entrou_partida", {"ok": True, "partida_id": str(partida_id), "competicao": competicao, "room": sala, "arbitro": True}, room=request.sid)
+
+    socketio.emit(
+        "entrou_partida",
+        {
+            "ok": True,
+            "partida_id": str(partida_id),
+            "competicao": competicao,
+            "room": sala,
+            "arbitro": True,
+        },
+        room=request.sid,
+    )
 
     estado = _ESTADO_PARTIDAS.get(sala)
+
     if estado:
         payload = _normalizar_payload(partida_id, estado)
+
         socketio.emit("estado_arbitros", payload, room=request.sid)
         socketio.emit("estado_partida", payload, room=request.sid)
         socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
+        socketio.emit("estado_partida_tempo_real", payload, room=request.sid)
 
 
 def emitir_ultima_acao_arbitros(partida_id, texto):
-    _emitir_salas("ultima_acao_arbitros", {
-        "partida_id": str(partida_id),
-        "texto": str(texto or ""),
-        "descricao": str(texto or ""),
-    }, partida_id)
+    _emitir_salas(
+        "ultima_acao_arbitros",
+        {
+            "partida_id": str(partida_id),
+            "texto": str(texto or ""),
+            "descricao": str(texto or ""),
+        },
+        partida_id,
+    )
 
 
 def emitir_cronometro_arbitros(partida_id, dados=None):
-    payload = {"partida_id": str(partida_id), **(dados or {})}
+    payload = {
+        "partida_id": str(partida_id),
+        **(dados or {}),
+    }
+
     _emitir_salas("cronometro_arbitros", payload, partida_id)
     _emitir_salas("cronometro_tempo", payload, partida_id)
 
 
 @socketio.on("cronometro_tempo")
 def cronometro_tempo_socket(data):
-    """
-    Relé oficial do cronômetro: somente o apontador deve disparar esse evento.
-    Pedido do treinador NÃO passa por aqui.
-    """
     data = dict(data or {})
+
     partida_id = str(data.get("partida_id") or "").strip()
+
     if not partida_id:
         return
 
@@ -674,11 +774,8 @@ def cronometro_tempo_socket(data):
 
 @socketio.on("inversao_lados_apontador")
 def inversao_lados_apontador(data=None):
-    """Sincroniza a inversão visual do jogo do apontador com o placar ao vivo.
-
-    Importante: isso é apenas VISUAL. Não troca equipe A/B no banco.
-    """
     data = dict(data or {})
+
     apontador = _normalizar_apontador(data.get("apontador"))
     partida_id = str(data.get("partida_id") or "").strip()
 
@@ -687,6 +784,7 @@ def inversao_lados_apontador(data=None):
 
     invertido = _to_bool(data.get("invertido", data.get("lados_invertidos")), False)
     sala = _room_placar_apontador(apontador)
+
     _INVERSAO_PLACAR_APONTADOR[(apontador, partida_id)] = invertido
 
     payload = {
@@ -697,6 +795,7 @@ def inversao_lados_apontador(data=None):
     }
 
     ultimo = _ULTIMO_PLACAR_APONTADOR.get(apontador)
+
     if isinstance(ultimo, dict):
         ultimo = dict(ultimo)
         ultimo["lados_invertidos_apontador"] = invertido

@@ -2755,15 +2755,45 @@ def criar_estrutura_rotacao_profissional(force=False):
 # ------------------------------
 
 def _normalizar_rotacao_oficial(rotacao):
+    """
+    Normaliza a rotação na ordem visual/oficial do sistema:
+    [IV, III, II, V, VI, I].
+
+    Aceita lista de números, lista de dicts, tuplas ou JSON em texto.
+    Isso evita que um estado parcial/socket/JSON antigo quebre um lado da rotação.
+    """
+    if isinstance(rotacao, str):
+        try:
+            rotacao = json.loads(rotacao or "[]")
+        except Exception:
+            rotacao = []
+
+    if isinstance(rotacao, tuple):
+        rotacao = list(rotacao)
+
     if not isinstance(rotacao, list):
         rotacao = []
 
-    rotacao = [str(x or "").strip() for x in rotacao]
+    normalizada = []
 
-    while len(rotacao) < 6:
-        rotacao.append("")
+    for item in rotacao[:6]:
+        if isinstance(item, dict):
+            numero = (
+                item.get("numero")
+                or item.get("camisa")
+                or item.get("numero_camisa")
+                or item.get("n")
+                or ""
+            )
+        else:
+            numero = item
 
-    return rotacao[:6]
+        normalizada.append(str(numero or "").strip())
+
+    while len(normalizada) < 6:
+        normalizada.append("")
+
+    return normalizada[:6]
 
 
 def _rotacao_tem_6_validos(rotacao):
@@ -4815,20 +4845,6 @@ def _calcular_rotacoes_partida(partida_id, competicao, partida=None):
     for evento in eventos:
         tipo = (evento.get("tipo") or "").strip().lower()
         equipe_evento = (evento.get("equipe") or "").strip().upper()
-        if equipe_evento not in {"A", "B"}:
-            continue
-
-        if tipo == 'ponto':
-            if saque_corrente in {"A", "B"} and equipe_evento != saque_corrente:
-                if equipe_evento == "A":
-                    posicoes_a = _girar_posicoes_horario(posicoes_a)
-                else:
-                    posicoes_b = _girar_posicoes_horario(posicoes_b)
-            saque_corrente = equipe_evento
-            continue
-
-        if tipo not in {'substituicao', 'substituicao_excepcional'}:
-            continue
 
         detalhes = evento.get('detalhes')
         if isinstance(detalhes, str):
@@ -4838,6 +4854,35 @@ def _calcular_rotacoes_partida(partida_id, competicao, partida=None):
                 detalhes = {}
         if not isinstance(detalhes, dict):
             detalhes = {}
+
+        # Para ponto por erro/falta, evento.equipe guarda quem cometeu/foi scoutado.
+        # A equipe que realmente ganhou o ponto fica em detalhes.equipe_pontuadora.
+        # A rotação precisa usar SEMPRE quem ganhou o ponto, senão um lado não gira.
+        equipe_ponto = str(
+            detalhes.get('equipe_pontuadora')
+            or detalhes.get('equipe_ponto')
+            or evento.get("equipe")
+            or ""
+        ).strip().upper()
+
+        if tipo == 'ponto':
+            if equipe_ponto not in {"A", "B"}:
+                continue
+
+            if saque_corrente in {"A", "B"} and equipe_ponto != saque_corrente:
+                if equipe_ponto == "A":
+                    posicoes_a = _girar_posicoes_horario(posicoes_a)
+                else:
+                    posicoes_b = _girar_posicoes_horario(posicoes_b)
+
+            saque_corrente = equipe_ponto
+            continue
+
+        if equipe_evento not in {"A", "B"}:
+            continue
+
+        if tipo not in {'substituicao', 'substituicao_excepcional'}:
+            continue
 
         numero_sai = str(detalhes.get('numero_sai') or detalhes.get('sai') or '').strip()
         numero_entra = str(detalhes.get('numero_entra') or detalhes.get('entra') or '').strip()
@@ -5142,8 +5187,8 @@ def _snapshot_estado_partida(partida, competicao):
         "saque_inicial": partida.get("saque_inicial") or "",
         "status_jogo": partida.get("status_jogo") or "pre_jogo",
         "status": partida.get("status") or "",
-        "rotacao_a": _json_load_text(partida.get("rotacao_a_json"), ["", "", "", "", "", ""]),
-        "rotacao_b": _json_load_text(partida.get("rotacao_b_json"), ["", "", "", "", "", ""]),
+        "rotacao_a": _normalizar_rotacao_oficial(_json_load_text(partida.get("rotacao_a_json"), partida.get("rotacao_a") or ["", "", "", "", "", ""])),
+        "rotacao_b": _normalizar_rotacao_oficial(_json_load_text(partida.get("rotacao_b_json"), partida.get("rotacao_b") or ["", "", "", "", "", ""])),
         "status_jogadores_a": _json_load_text(partida.get("status_jogadores_a_json"), {}),
         "status_jogadores_b": _json_load_text(partida.get("status_jogadores_b_json"), {}),
         "subs_a": int(partida.get("subs_a") or 0),
@@ -5176,6 +5221,8 @@ def _salvar_snapshot_estado_jogo(partida_id, competicao, estado):
                 SET saque_atual = %s,
                     status_jogo = %s,
                     fase_partida = %s,
+                    rotacao_a = %s,
+                    rotacao_b = %s,
                     rotacao_a_json = %s,
                     rotacao_b_json = %s,
                     status_jogadores_a_json = %s,
@@ -5203,8 +5250,10 @@ def _salvar_snapshot_estado_jogo(partida_id, competicao, estado):
                 estado.get("saque_atual") or None,
                 estado.get("status_jogo") or "pre_jogo",
                 estado.get("fase_partida") or 'jogo',
-                json.dumps(estado.get("rotacao_a", ["", "", "", "", "", ""]), ensure_ascii=False),
-                json.dumps(estado.get("rotacao_b", ["", "", "", "", "", ""]), ensure_ascii=False),
+                _normalizar_rotacao_oficial(estado.get("rotacao_a", ["", "", "", "", "", ""])),
+                _normalizar_rotacao_oficial(estado.get("rotacao_b", ["", "", "", "", "", ""])),
+                json.dumps(_normalizar_rotacao_oficial(estado.get("rotacao_a", ["", "", "", "", "", ""])), ensure_ascii=False),
+                json.dumps(_normalizar_rotacao_oficial(estado.get("rotacao_b", ["", "", "", "", "", ""])), ensure_ascii=False),
                 json.dumps(estado.get("status_jogadores_a", {}), ensure_ascii=False),
                 json.dumps(estado.get("status_jogadores_b", {}), ensure_ascii=False),
                 int(estado.get("subs_a") or 0),
@@ -5721,17 +5770,20 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         campo_array = f"rotacao_{lado}"
         campo_json = f"rotacao_{lado}_json"
 
-        rotacao = partida.get(campo_array)
-        if isinstance(rotacao, list) and _rotacao_tem_6_validos(rotacao):
-            return _normalizar_rotacao_oficial(rotacao)
-
+        # Prioridade para o JSON, porque substituições/sanções salvam o snapshot nele.
+        # Antes o array ganhava prioridade e podia estar atrasado, fazendo um lado não girar.
+        rotacao_json = partida.get(campo_json)
         try:
-            rotacao_json = json.loads(partida.get(campo_json) or "[]")
+            rotacao_json = json.loads(rotacao_json or "[]") if isinstance(rotacao_json, str) else rotacao_json
         except Exception:
             rotacao_json = []
 
         if _rotacao_tem_6_validos(rotacao_json):
             return _normalizar_rotacao_oficial(rotacao_json)
+
+        rotacao = partida.get(campo_array)
+        if _rotacao_tem_6_validos(rotacao):
+            return _normalizar_rotacao_oficial(rotacao)
 
         return ["", "", "", "", "", ""]
 
