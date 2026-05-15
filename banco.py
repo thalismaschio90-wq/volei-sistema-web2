@@ -8944,3 +8944,60 @@ def redefinir_senha_organizador(login_organizador):
         "login": login_organizador,
         "senha": nova_senha
     }
+# =========================================================
+# JOGO AVULSO / JOGO RÁPIDO - PERMISSÃO DO APONTADOR
+# =========================================================
+def garantir_coluna_jogo_avulso_apontador():
+    """Cria a coluna de permissão do jogo rápido no cadastro de apontadores."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE apontadores_acesso
+                ADD COLUMN IF NOT EXISTS pode_criar_jogo_avulso BOOLEAN DEFAULT FALSE
+            """)
+        conn.commit()
+
+
+def apontador_pode_criar_jogo_avulso(cpf):
+    """Retorna True quando o Super ADM liberou o modo Jogo Rápido para o apontador."""
+    if not cpf:
+        return False
+
+    try:
+        garantir_coluna_jogo_avulso_apontador()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COALESCE(pode_criar_jogo_avulso, FALSE) AS pode
+                    FROM apontadores_acesso
+                    WHERE cpf = %s
+                    LIMIT 1
+                """, (cpf,))
+                row = cur.fetchone()
+                if not row:
+                    return False
+                try:
+                    return bool(row.get("pode"))
+                except Exception:
+                    return bool(row[0])
+    except Exception as e:
+        print("ERRO apontador_pode_criar_jogo_avulso:", e, flush=True)
+        return False
+
+
+def definir_permissao_jogo_avulso_apontador(cpf, liberado):
+    """Libera ou bloqueia o Jogo Rápido para um apontador."""
+    if not cpf:
+        return False
+
+    garantir_coluna_jogo_avulso_apontador()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE apontadores_acesso
+                   SET pode_criar_jogo_avulso = %s
+                 WHERE cpf = %s
+            """, (bool(liberado), cpf))
+            atualizado = cur.rowcount
+        conn.commit()
+    return atualizado > 0

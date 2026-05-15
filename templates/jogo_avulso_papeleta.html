@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block titulo %}Papeleta jogo rápido{% endblock %}
+
+{% block conteudo %}
+<style>
+.av-wrap { max-width:1180px; margin:0 auto; }
+.av-card { background:#fff; border:1px solid var(--border); border-radius:22px; box-shadow:var(--shadow); padding:18px; margin-bottom:14px; }
+.av-head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; }
+.av-title { font-size:24px; font-weight:1000; color:#0f172a; }
+.av-sub { color:#64748b; font-weight:800; margin-top:4px; }
+.quadra-container { display:flex; gap:36px; flex-wrap:wrap; justify-content:center; margin-top:18px; }
+.quadra-box { min-width:330px; }
+.quadra { display:grid; grid-template-columns:repeat(3, 110px); grid-template-rows:repeat(2, 110px); gap:12px; }
+.posicao { border:2px solid #dbe3ef; border-radius:16px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f8fafc; }
+.posicao input { width:72px; text-align:center; font-size:30px; font-weight:1000; border:0; background:transparent; color:#0f172a; outline:none; }
+.posicao small { color:#64748b; font-weight:900; }
+.banco { margin-top:14px; }
+.banco label { font-weight:900; display:block; margin-bottom:6px; }
+.banco input { width:100%; border:1px solid #dbe3ef; border-radius:12px; padding:12px; font-weight:800; }
+.av-actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:18px; }
+.av-primary { border:0; border-radius:12px; padding:13px 18px; background:#16a34a; color:#fff; font-weight:1000; cursor:pointer; }
+.av-secondary { border:1px solid #dbe3ef; border-radius:12px; padding:13px 18px; background:#fff; color:#0f172a; font-weight:900; text-decoration:none; }
+.av-chip { display:inline-flex; padding:7px 10px; border-radius:999px; background:#e0f2fe; color:#075985; font-weight:900; margin:3px; }
+@media(max-width:780px){ .quadra{grid-template-columns:repeat(3, 92px); grid-template-rows:repeat(2,92px);} .posicao input{font-size:24px;width:58px;} }
+</style>
+
+<div class="av-wrap">
+    <div class="av-card av-head">
+        <div>
+            <div class="av-title">Papeleta por número</div>
+            <div class="av-sub">{{ estado.equipe_a or 'Equipe A' }} x {{ estado.equipe_b or 'Equipe B' }} • Código {{ codigo }}</div>
+        </div>
+        <div><span class="av-chip">Sem cadastro de atletas</span><span class="av-chip">Scout por número</span></div>
+    </div>
+
+    <form method="post" action="{{ url_for('jogo_avulso.iniciar_jogo_avulso', codigo=codigo) }}" id="form-papeleta-avulsa" class="av-card">
+        <div class="quadra-container">
+            {% for lado, nome in [('A', estado.equipe_a or 'Equipe A'), ('B', estado.equipe_b or 'Equipe B')] %}
+            <div class="quadra-box">
+                <h3>Equipe {{ lado }} — {{ nome }}</h3>
+                <div class="quadra">
+                    {% for i in [4,3,2,5,6,1] %}
+                    <div class="posicao">
+                        <input inputmode="numeric" pattern="[0-9]*" maxlength="3" name="{{ lado }}_{{ i }}" id="{{ lado }}_{{ i }}" placeholder="-" oninput="somenteNumero(this)">
+                        <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="banco">
+                    <label>Reservas / banco da equipe {{ lado }}</label>
+                    <input name="banco_{{ lado }}" placeholder="Ex: 3, 5, 8, 12" oninput="somenteNumerosVirgula(this)">
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="av-actions">
+            <a class="av-secondary" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">Voltar</a>
+            <button class="av-primary" type="submit" id="btn-iniciar">Iniciar jogo</button>
+        </div>
+    </form>
+</div>
+
+<script>
+function somenteNumero(el){ el.value = (el.value || '').replace(/\D/g,'').slice(0,3); }
+function somenteNumerosVirgula(el){ el.value = (el.value || '').replace(/[^0-9,; ]/g,''); }
+function validarLado(lado){
+    const usados = new Set();
+    for(const pos of [1,2,3,4,5,6]){
+        const el = document.getElementById(`${lado}_${pos}`);
+        const v = (el.value || '').trim();
+        if(!v){ alert(`Preencha todas as posições da equipe ${lado}.`); el.focus(); return false; }
+        if(usados.has(v)){ alert(`Número ${v} repetido na equipe ${lado}.`); el.focus(); return false; }
+        usados.add(v);
+    }
+    return true;
+}
+document.getElementById('form-papeleta-avulsa').addEventListener('submit', function(e){
+    if(!validarLado('A') || !validarLado('B')){ e.preventDefault(); return; }
+    document.getElementById('btn-iniciar').disabled = true;
+    document.getElementById('btn-iniciar').innerText = 'Iniciando...';
+});
+</script>
+{% endblock %}

@@ -33,6 +33,7 @@ from routes.formato_competicao import formato_competicao_bp
 from routes.treinador import treinador_bp
 from routes.relatorios import relatorios_bp
 from routes.demo import demo_bp
+from routes.jogo_avulso import jogo_avulso_bp
 
 # ============================================================
 # 🔥 APP TEMPO REAL
@@ -96,6 +97,7 @@ app.register_blueprint(formato_competicao_bp)
 app.register_blueprint(treinador_bp)
 app.register_blueprint(relatorios_bp)
 app.register_blueprint(demo_bp)
+app.register_blueprint(jogo_avulso_bp)
 
 if app_tempo_real_bp is not None:
     app.register_blueprint(app_tempo_real_bp)

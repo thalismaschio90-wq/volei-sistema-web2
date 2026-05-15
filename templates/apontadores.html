@@ -19,6 +19,7 @@
                     <th>CPF</th>
                     <th>Status</th>
                     <th>Primeiro acesso</th>
+                    <th>Jogo rápido</th>
                     <th>Ações</th>
                 </tr>
             </thead>
@@ -43,6 +44,16 @@
                             <span class="tag tag-pendente">Pendente</span>
                         {% else %}
                             <span class="tag tag-info">Concluído</span>
+                        {% endif %}
+                    </td>
+
+                    <td id="jogo-avulso-{{ a.cpf }}">
+                        {% if a.pode_criar_jogo_avulso %}
+                            <span class="tag tag-aprovado">Liberado</span>
+                            <button class="btn-neutro" onclick="alterarJogoAvulso('{{ a.cpf }}', 'bloquear')">Bloquear</button>
+                        {% else %}
+                            <span class="tag tag-reprovado">Bloqueado</span>
+                            <button class="btn-sucesso" onclick="alterarJogoAvulso('{{ a.cpf }}', 'liberar')">Liberar</button>
                         {% endif %}
                     </td>
 
@@ -72,6 +83,33 @@
      SCRIPT ULTRA LEVE
 ========================= -->
 <script>
+function alterarJogoAvulso(cpf, acao) {
+    const texto = acao === "liberar" ? "liberar o Jogo Rápido" : "bloquear o Jogo Rápido";
+    if (!confirm(`Tem certeza que deseja ${texto} para este apontador?`)) return;
+
+    fetch(`/apontadores/jogo-avulso/${cpf}/${acao}`, {
+        method: "POST",
+        headers: { "X-Requested-With": "fetch", "Accept": "application/json" }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (!data.ok) {
+            alert(data.mensagem || "Erro ao alterar permissão.");
+            return;
+        }
+
+        const celula = document.getElementById("jogo-avulso-" + cpf);
+        if (!celula) return;
+
+        if (data.liberado) {
+            celula.innerHTML = `<span class="tag tag-aprovado">Liberado</span> <button class="btn-neutro" onclick="alterarJogoAvulso('${cpf}', 'bloquear')">Bloquear</button>`;
+        } else {
+            celula.innerHTML = `<span class="tag tag-reprovado">Bloqueado</span> <button class="btn-sucesso" onclick="alterarJogoAvulso('${cpf}', 'liberar')">Liberar</button>`;
+        }
+    })
+    .catch(() => alert("Erro de conexão."));
+}
+
 function excluirApontador(cpf) {
     if (!confirm("Tem certeza? Isso excluirá este apontador do sistema inteiro.\nO histórico de jogos será mantido.")) {
         return;
@@ -141,6 +179,26 @@ function excluirApontador(cpf) {
 
 .btn-perigo:hover {
     background: #b91c1c;
+}
+
+.btn-sucesso,
+.btn-neutro {
+    border: none;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 800;
+    margin-left: 6px;
+}
+
+.btn-sucesso {
+    background: #16a34a;
+    color: white;
+}
+
+.btn-neutro {
+    background: #e5e7eb;
+    color: #111827;
 }
 
 .tag {

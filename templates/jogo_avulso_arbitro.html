@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ arbitro }} Jogo Rápido</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0f172a;color:#fff;font-family:Inter,Arial,sans-serif}.wrap{min-height:100vh;padding:18px;display:grid;grid-template-rows:auto auto 1fr;gap:14px}.top{background:linear-gradient(135deg,#123852,#0f766e);border-radius:22px;padding:16px;display:flex;justify-content:space-between;gap:12px;align-items:center}.role{font-size:28px;font-weight:1000}.code{color:#cbd5e1;font-weight:900}.placar{display:grid;grid-template-columns:1fr 120px 1fr;gap:10px}.team{border-radius:20px;padding:14px;text-align:center}.a{background:#1d4ed8}.b{background:#dc2626}.name{font-size:20px;font-weight:1000}.score{font-size:72px;font-weight:1000;line-height:1}.mid{background:#020617;border-radius:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:1000}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{background:#fff;color:#0f172a;border-radius:20px;padding:14px}.panel h3{margin:0 0 10px}.rot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.rot div{background:#f1f5f9;border-radius:14px;min-height:64px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:1000}.saque{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#facc15;color:#111827;border-radius:999px;padding:14px 24px;font-size:22px;font-weight:1000;text-align:center;max-width:92vw}.ultima{background:#020617;border-radius:18px;padding:14px;font-weight:900;color:#e2e8f0}.tempoOverlay{position:fixed;inset:0;background:rgba(15,23,42,.86);z-index:99;display:none;align-items:center;justify-content:center;padding:18px}.tempoCard{background:#fff;color:#0f172a;border-radius:28px;padding:30px;text-align:center;width:min(460px,94vw);box-shadow:0 25px 90px rgba(0,0,0,.45)}.tempoCard .tempoEquipe{font-size:24px;font-weight:1000}.tempoCard .tempoNum{font-size:110px;line-height:1;font-weight:1000;margin:10px 0;color:#dc2626}@media(max-width:760px){.grid{grid-template-columns:1fr}.placar{grid-template-columns:1fr}.mid{padding:12px}.score{font-size:58px}}
+</style></head>
+<body>
+<div class="wrap">
+ <div class="top"><div class="role">{{ arbitro }}</div><div class="code">Jogo {{ codigo }}</div></div>
+ <div class="placar"><div class="team a"><div class="name" id="nomeA">Equipe A</div><div class="score" id="scoreA">0</div></div><div class="mid"><div>SET</div><div id="setAtual" style="font-size:42px">1</div><div><span id="setsA">0</span> x <span id="setsB">0</span></div></div><div class="team b"><div class="name" id="nomeB">Equipe B</div><div class="score" id="scoreB">0</div></div></div>
+ <div class="grid"><div class="panel"><h3>Rotação A</h3><div class="rot" id="rotA"></div></div><div class="panel"><h3>Rotação B</h3><div class="rot" id="rotB"></div></div><div class="ultima" id="ultima">Aguardando...</div></div>
+</div>
+<div class="saque" id="saqueAtual">Saque: -</div><div class="tempoOverlay" id="tempoOverlay"><div class="tempoCard"><div class="tempoEquipe" id="tempoEquipe">Tempo</div><div class="tempoNum" id="tempoNum">30</div><div style="font-weight:900;color:#64748b">Cronômetro de tempo técnico</div></div></div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const CODIGO={{ codigo|tojson }};const PARTIDA_ID='avulso:'+CODIGO;let estado={{ estado|tojson }}||{};
+function nome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B')}
+function render(){document.getElementById('nomeA').innerText=estado.equipe_a||'Equipe A';document.getElementById('nomeB').innerText=estado.equipe_b||'Equipe B';document.getElementById('scoreA').innerText=estado.pontos_a||0;document.getElementById('scoreB').innerText=estado.pontos_b||0;document.getElementById('setsA').innerText=estado.sets_a||0;document.getElementById('setsB').innerText=estado.sets_b||0;document.getElementById('setAtual').innerText=estado.set_atual||1;document.getElementById('saqueAtual').innerText='Saque: '+nome(estado.saque_atual||'A');document.getElementById('rotA').innerHTML=(estado.rotacao_a||[]).map(n=>`<div>${n||'-'}</div>`).join('');document.getElementById('rotB').innerHTML=(estado.rotacao_b||[]).map(n=>`<div>${n||'-'}</div>`).join('');document.getElementById('ultima').innerText=estado.ultima_acao||'Aguardando...';atualizarTempo()}
+
+function segundosTempo(){if(!estado.tempo_ativo)return 0;return Math.max(0,Math.ceil(Number(estado.tempo_fim_ts||0)-(Date.now()/1000)))}
+function atualizarTempo(){const ov=document.getElementById('tempoOverlay');if(!ov)return;const resto=segundosTempo();if(estado.tempo_ativo&&resto>0){ov.style.display='flex';document.getElementById('tempoEquipe').innerText='Tempo — '+nome(estado.tempo_lado||'A');document.getElementById('tempoNum').innerText=resto}else{ov.style.display='none'}}
+setInterval(atualizarTempo,250);
+async function buscar(){try{const r=await fetch(`/apontador/jogo-avulso/${CODIGO}/estado`);const j=await r.json();if(j.estado){estado=j.estado;render();}}catch(e){}}
+try{const socket=io();socket.emit('entrar_arbitro',{partida_id:PARTIDA_ID,competicao:'JOGO AVULSO'});['estado_partida','estado_jogo_atualizado','estado_arbitros','estado_partida_tempo_real'].forEach(ev=>socket.on(ev,d=>{if(String(d.partida_id)===PARTIDA_ID){estado=d;render();}}));}catch(e){}
+render();buscar();setInterval(buscar,5000);
+</script>
+</body></html>

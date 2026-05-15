@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block titulo %}Criar jogo rápido{% endblock %}
+
+{% block conteudo %}
+<style>
+.av-card { max-width:980px; margin:0 auto; background:#fff; border:1px solid var(--border); border-radius:24px; box-shadow:var(--shadow); padding:22px; }
+.av-hero { background:linear-gradient(135deg,#0f766e,#0b2740); color:#fff; border-radius:22px; padding:22px; margin-bottom:16px; }
+.av-hero h2 { margin:0; font-size:32px; font-weight:1000; }
+.av-hero p { margin:8px 0 0; color:rgba(255,255,255,.82); font-weight:700; }
+.av-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.av-field label { display:block; font-weight:900; margin-bottom:6px; color:#111827; }
+.av-field input,.av-field select { width:100%; border:1px solid #dbe3ef; border-radius:12px; padding:12px; font-weight:800; font-size:15px; }
+.av-actions { margin-top:18px; display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.av-primary { border:0; border-radius:12px; padding:13px 18px; background:#16a34a; color:#fff; font-weight:1000; cursor:pointer; }
+.av-secondary { border:1px solid #dbe3ef; border-radius:12px; padding:13px 18px; background:#fff; color:#0f172a; font-weight:900; text-decoration:none; }
+.av-note { background:#f8fafc; border:1px solid #e5e7eb; border-radius:16px; padding:14px; margin-top:14px; color:#475569; font-weight:700; }
+@media(max-width:760px){ .av-grid{grid-template-columns:1fr;} }
+</style>
+
+<div class="topo-secao"><div class="titulo-secao">Criar jogo rápido</div></div>
+
+<div class="av-card">
+    <div class="av-hero">
+        <h2>⚡ Jogo Avulso</h2>
+        <p>Crie uma partida temporária, sem competição, sem cadastro de atletas e com operação rápida por números.</p>
+    </div>
+
+    <form method="post" id="form-avulso">
+        <div class="av-grid">
+            <div class="av-field">
+                <label>Equipe A</label>
+                <input name="equipe_a" maxlength="60" required placeholder="Ex: Galácticas">
+            </div>
+            <div class="av-field">
+                <label>Equipe B</label>
+                <input name="equipe_b" maxlength="60" required placeholder="Ex: IESA">
+            </div>
+            <div class="av-field">
+                <label>Formato</label>
+                <select name="sets_tipo">
+                    <option value="set_unico">Set único</option>
+                    <option value="melhor_de_3" selected>Melhor de 3</option>
+                    <option value="melhor_de_5">Melhor de 5</option>
+                </select>
+            </div>
+            <div class="av-field">
+                <label>Pontos do set</label>
+                <input name="pontos_set" type="number" min="1" max="99" value="21" required>
+            </div>
+            <div class="av-field">
+                <label>Pontos do tie-break</label>
+                <input name="pontos_tiebreak" type="number" min="1" max="99" value="15" required>
+            </div>
+            <div class="av-field">
+                <label>Diferença mínima</label>
+                <input name="diferenca_minima" type="number" min="1" max="20" value="2" required>
+            </div>
+            <div class="av-field">
+                <label>Tempos por set</label>
+                <input name="tempos_por_set" type="number" min="0" max="9" value="2" required>
+            </div>
+            <div class="av-field">
+                <label>Substituições por set</label>
+                <input name="substituicoes_por_set" type="number" min="0" max="30" value="6" required>
+            </div>
+            <div class="av-field">
+                <label>Saque inicial</label>
+                <select name="saque_inicial">
+                    <option value="A">Equipe A</option>
+                    <option value="B">Equipe B</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="av-note">
+            Esse jogo fica como partida temporária. Ele não cria competição, não cadastra atletas e não altera tabela/classificação.
+        </div>
+
+        <div class="av-actions">
+            <a class="av-secondary" href="{{ url_for('apontadores.painel_apontador') }}">Voltar</a>
+            <button class="av-primary" type="submit">Continuar para papeleta</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

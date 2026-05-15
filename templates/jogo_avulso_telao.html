@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telão Jogo Rápido {{ codigo }}</title>
+<style>
+*{box-sizing:border-box} body{margin:0;background:#050816;color:#fff;font-family:Inter,Arial,sans-serif;overflow:hidden} .screen{width:100vw;height:100vh;padding:34px;display:grid;grid-template-rows:auto 1fr auto;gap:22px;background:radial-gradient(circle at top,#123852 0,#050816 48%,#020617 100%)} .top{display:flex;justify-content:space-between;align-items:center;gap:20px}.brand{font-size:28px;font-weight:1000;letter-spacing:.5px}.code{font-size:18px;color:#cbd5e1;font-weight:800}.main{display:grid;grid-template-columns:1fr 280px 1fr;gap:22px;align-items:stretch}.team{border-radius:34px;padding:30px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 26px 90px rgba(0,0,0,.35)}.a{background:linear-gradient(135deg,#1d4ed8,#0f172a)}.b{background:linear-gradient(135deg,#dc2626,#0f172a)}.name{font-size:clamp(28px,4vw,62px);font-weight:1000;text-transform:uppercase;line-height:1}.score{font-size:clamp(120px,18vw,260px);font-weight:1000;line-height:.9;text-align:center}.center{border:1px solid rgba(255,255,255,.14);background:rgba(15,23,42,.72);border-radius:30px;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}.label{color:#cbd5e1;font-weight:900;text-transform:uppercase}.sets{font-size:58px;font-weight:1000}.serve{font-size:22px;font-weight:1000;text-align:center;color:#facc15}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:14px}.rot{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.rot div{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:12px;text-align:center;font-size:24px;font-weight:1000}.ultima{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(15,23,42,.92);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:14px 24px;font-weight:1000;color:#fff;max-width:88vw;text-align:center}.tempoOverlay{position:fixed;inset:0;background:rgba(15,23,42,.82);z-index:99;display:none;align-items:center;justify-content:center;padding:22px}.tempoCard{background:#fff;color:#0f172a;border-radius:34px;padding:38px;text-align:center;width:min(540px,94vw);box-shadow:0 25px 90px rgba(0,0,0,.5)}.tempoCard .tempoEquipe{font-size:32px;font-weight:1000}.tempoCard .tempoNum{font-size:150px;line-height:1;font-weight:1000;margin:12px 0;color:#dc2626}@media(max-width:900px){.main{grid-template-columns:1fr}.screen{overflow:auto}.score{font-size:110px}.bottom{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="screen">
+  <div class="top"><div class="brand">VolleyTable Pro • Jogo Rápido</div><div class="code">{{ codigo }}</div></div>
+  <div class="main">
+    <div class="team a"><div class="name" id="nomeA">Equipe A</div><div class="score" id="scoreA">0</div></div>
+    <div class="center"><div class="label">SET</div><div class="sets" id="setAtual">1</div><div class="label">SETS</div><div class="sets"><span id="setsA">0</span> x <span id="setsB">0</span></div><div class="serve" id="saqueAtual">Saque</div></div>
+    <div class="team b"><div class="name" id="nomeB">Equipe B</div><div class="score" id="scoreB">0</div></div>
+  </div>
+  <div class="bottom"><div class="rot" id="rotA"></div><div class="rot" id="rotB"></div></div>
+</div>
+<div class="ultima" id="ultima">Aguardando jogo...</div><div class="tempoOverlay" id="tempoOverlay"><div class="tempoCard"><div class="tempoEquipe" id="tempoEquipe">Tempo</div><div class="tempoNum" id="tempoNum">30</div><div style="font-weight:900;color:#64748b">Cronômetro de tempo</div></div></div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const CODIGO={{ codigo|tojson }}; const PARTIDA_ID='avulso:'+CODIGO; let estado={{ estado|tojson }} || {};
+function nome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B')}
+function render(){document.getElementById('nomeA').innerText=estado.equipe_a||'Equipe A';document.getElementById('nomeB').innerText=estado.equipe_b||'Equipe B';document.getElementById('scoreA').innerText=estado.pontos_a||0;document.getElementById('scoreB').innerText=estado.pontos_b||0;document.getElementById('setsA').innerText=estado.sets_a||0;document.getElementById('setsB').innerText=estado.sets_b||0;document.getElementById('setAtual').innerText=estado.set_atual||1;document.getElementById('saqueAtual').innerText='Saque: '+nome(estado.saque_atual||'A');document.getElementById('rotA').innerHTML=(estado.rotacao_a||[]).map(n=>`<div>${n||'-'}</div>`).join('');document.getElementById('rotB').innerHTML=(estado.rotacao_b||[]).map(n=>`<div>${n||'-'}</div>`).join('');document.getElementById('ultima').innerText=estado.ultima_acao||'Aguardando jogo...';atualizarTempo()}
+
+function segundosTempo(){if(!estado.tempo_ativo)return 0;return Math.max(0,Math.ceil(Number(estado.tempo_fim_ts||0)-(Date.now()/1000)))}
+function atualizarTempo(){const ov=document.getElementById('tempoOverlay');if(!ov)return;const resto=segundosTempo();if(estado.tempo_ativo&&resto>0){ov.style.display='flex';document.getElementById('tempoEquipe').innerText='Tempo — '+nome(estado.tempo_lado||'A');document.getElementById('tempoNum').innerText=resto}else{ov.style.display='none'}}
+setInterval(atualizarTempo,250);
+async function buscar(){try{const r=await fetch(`/apontador/jogo-avulso/${CODIGO}/estado`);const j=await r.json();if(j.estado){estado=j.estado;render();}}catch(e){}}
+try{const socket=io();socket.emit('entrar_partida',{partida_id:PARTIDA_ID,competicao:'JOGO AVULSO'});['estado_partida','estado_jogo_atualizado','estado_arbitros'].forEach(ev=>socket.on(ev,d=>{if(String(d.partida_id)===PARTIDA_ID){estado=d;render();}}));}catch(e){}
+render(); buscar(); setInterval(buscar,5000);
+</script>
+</body></html>

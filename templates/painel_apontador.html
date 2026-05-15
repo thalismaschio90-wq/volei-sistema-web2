@@ -53,6 +53,11 @@
         <div class="ap-sub">Entre rápido no pré-jogo, operação ao vivo e telão da competição.</div>
     </div>
     <div class="ap-actions">
+        {% if pode_jogo_avulso %}
+            <a class="btn-padrao ap-btn-green" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">⚡ Criar jogo rápido</a>
+        {% else %}
+            <span class="ap-badge ap-done" title="Liberação feita pelo Super ADM">Jogo rápido bloqueado</span>
+        {% endif %}
         <button type="button" class="btn-padrao ap-btn-dark" onclick="abrirModalAtalhosApontador()">⚙️ Teclas de atalho</button>
         {% if modo_partidas %}
             <a class="btn-padrao ap-btn-green" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank">🖥️ Abrir Telão</a>

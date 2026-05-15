@@ -47,6 +47,9 @@ from banco import (
     aplicar_capitaes_padrao_partida,
     listar_atalhos_apontador as banco_listar_atalhos_apontador,
     salvar_atalhos_apontador as banco_salvar_atalhos_apontador,
+    garantir_coluna_jogo_avulso_apontador,
+    apontador_pode_criar_jogo_avulso,
+    definir_permissao_jogo_avulso_apontador,
 )
 from routes.utils import exigir_perfil
 from socket_events import (
@@ -859,6 +862,11 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
 # CONSULTAS BÁSICAS
 # =========================================================
 def listar_apontadores():
+    try:
+        garantir_coluna_jogo_avulso_apontador()
+    except Exception as e:
+        print("ERRO garantir coluna jogo avulso:", e, flush=True)
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -866,7 +874,8 @@ def listar_apontadores():
                     o.nome,
                     o.cpf,
                     a.ativo,
-                    a.primeiro_acesso
+                    a.primeiro_acesso,
+                    COALESCE(a.pode_criar_jogo_avulso, FALSE) AS pode_criar_jogo_avulso
                 FROM apontadores_acesso a
                 JOIN oficiais o ON o.cpf = a.cpf
                 ORDER BY o.nome
@@ -893,36 +902,62 @@ def excluir_apontador_global_view(cpf):
     flash("Apontador excluído permanentemente do sistema.", "sucesso")
     return redirect(url_for("apontadores.apontadores"))
 
+
+
+@apontadores_bp.route("/apontadores/jogo-avulso/<cpf>/<acao>", methods=["POST"])
+@exigir_perfil("superadmin")
+def alterar_permissao_jogo_avulso_view(cpf, acao):
+    liberar = str(acao or "").strip().lower() in {"liberar", "1", "true", "sim"}
+
+    try:
+        ok = definir_permissao_jogo_avulso_apontador(cpf, liberar)
+        if request.headers.get("X-Requested-With") == "fetch" or request.accept_mimetypes.best == "application/json":
+            return _json_no_cache({
+                "ok": bool(ok),
+                "liberado": bool(liberar),
+                "mensagem": "Permissão atualizada." if ok else "Apontador não encontrado.",
+            }, 200 if ok else 404)
+
+        flash("Jogo rápido liberado para o apontador." if liberar else "Jogo rápido bloqueado para o apontador.", "sucesso" if ok else "erro")
+    except Exception as e:
+        print("ERRO alterar_permissao_jogo_avulso_view:", e, flush=True)
+        flash("Erro ao alterar permissão do jogo rápido.", "erro")
+
+    return redirect(url_for("apontadores.apontadores"))
+
 @apontadores_bp.route("/apontador")
 @exigir_perfil("apontador")
 def painel_apontador():
     criar_tabelas_oficiais()
 
     cpf = session.get("usuario")
+    pode_jogo_avulso = apontador_pode_criar_jogo_avulso(cpf) if cpf else False
 
     if not cpf:
         flash("CPF do apontador não encontrado na sessão.", "erro")
-        return render_template("painel_apontador.html")
+        return render_template("painel_apontador.html", pode_jogo_avulso=pode_jogo_avulso)
 
     oficial = buscar_oficial_por_cpf(cpf)
     if not oficial:
         flash("Não foi possível localizar o apontador pelo CPF informado.", "erro")
-        return render_template("painel_apontador.html")
+        return render_template("painel_apontador.html", pode_jogo_avulso=pode_jogo_avulso)
 
     competicoes = listar_competicoes_apontador(cpf)
 
     if not competicoes:
-        return render_template("painel_apontador.html")
+        return render_template("painel_apontador.html", pode_jogo_avulso=pode_jogo_avulso)
 
     if len(competicoes) == 1:
         return render_template(
             "painel_apontador.html",
-            competicao_unica=competicoes[0]
+            competicao_unica=competicoes[0],
+            pode_jogo_avulso=pode_jogo_avulso
         )
 
     return render_template(
         "painel_apontador.html",
-        competicoes=competicoes
+        competicoes=competicoes,
+        pode_jogo_avulso=pode_jogo_avulso
     )
 
 
@@ -938,7 +973,8 @@ def entrar_competicao_apontador(competicao):
         "painel_apontador.html",
         modo_partidas=True,
         competicao_nome=competicao,
-        partidas=partidas
+        partidas=partidas,
+        pode_jogo_avulso=apontador_pode_criar_jogo_avulso(session.get("usuario"))
     )
 
 
