@@ -4,82 +4,323 @@
 
 {% block conteudo %}
 <style>
-.av-wrap { max-width:1180px; margin:0 auto; }
-.av-card { background:#fff; border:1px solid var(--border); border-radius:22px; box-shadow:var(--shadow); padding:18px; margin-bottom:14px; }
-.av-head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; }
-.av-title { font-size:24px; font-weight:1000; color:#0f172a; }
-.av-sub { color:#64748b; font-weight:800; margin-top:4px; }
-.quadra-container { display:flex; gap:36px; flex-wrap:wrap; justify-content:center; margin-top:18px; }
-.quadra-box { min-width:330px; }
-.quadra { display:grid; grid-template-columns:repeat(3, 110px); grid-template-rows:repeat(2, 110px); gap:12px; }
-.posicao { border:2px solid #dbe3ef; border-radius:16px; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f8fafc; }
-.posicao input { width:72px; text-align:center; font-size:30px; font-weight:1000; border:0; background:transparent; color:#0f172a; outline:none; }
-.posicao small { color:#64748b; font-weight:900; }
-.banco { margin-top:14px; }
-.banco label { font-weight:900; display:block; margin-bottom:6px; }
-.banco input { width:100%; border:1px solid #dbe3ef; border-radius:12px; padding:12px; font-weight:800; }
-.av-actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:18px; }
-.av-primary { border:0; border-radius:12px; padding:13px 18px; background:#16a34a; color:#fff; font-weight:1000; cursor:pointer; }
-.av-secondary { border:1px solid #dbe3ef; border-radius:12px; padding:13px 18px; background:#fff; color:#0f172a; font-weight:900; text-decoration:none; }
-.av-chip { display:inline-flex; padding:7px 10px; border-radius:999px; background:#e0f2fe; color:#075985; font-weight:900; margin:3px; }
-@media(max-width:780px){ .quadra{grid-template-columns:repeat(3, 92px); grid-template-rows:repeat(2,92px);} .posicao input{font-size:24px;width:58px;} }
+.av-wrap{max-width:1180px;margin:0 auto}.av-card{background:#fff;border:1px solid var(--border);border-radius:22px;box-shadow:var(--shadow);padding:18px;margin-bottom:14px}.av-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}.av-title{font-size:24px;font-weight:1000;color:#0f172a}.av-sub{color:#64748b;font-weight:800;margin-top:4px}.quadra-container{display:flex;gap:36px;flex-wrap:wrap;justify-content:center;margin-top:18px}.quadra-box{min-width:330px}.quadra{display:grid;grid-template-columns:repeat(3,110px);grid-template-rows:repeat(2,110px);gap:12px}.posicao{border:2px solid #dbe3ef;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f8fafc}.posicao input{width:72px;text-align:center;font-size:30px;font-weight:1000;border:0;background:transparent;color:#0f172a;outline:none}.posicao input.erro{color:#dc2626}.posicao.erro{border-color:#ef4444;background:#fef2f2}.posicao small{color:#64748b;font-weight:900}.banco{margin-top:14px}.banco label{font-weight:900;display:block;margin-bottom:6px}.banco input{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:12px;font-weight:800;background:#f8fafc}.banco-help{margin-top:7px;color:#64748b;font-size:13px;font-weight:700;line-height:1.35}.chips-reservas{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px;min-height:34px}.chip-num{border:1px solid #dbe3ef;background:#fff;color:#0f172a;border-radius:999px;padding:8px 12px;font-weight:1000;cursor:pointer}.chip-num:hover{background:#e0f2fe;border-color:#7dd3fc}.chip-num.usado{display:none}.chip-vazio{color:#94a3b8;font-weight:800;padding:8px 0}.av-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px}.av-primary{border:0;border-radius:12px;padding:13px 18px;background:#16a34a;color:#fff;font-weight:1000;cursor:pointer}.av-primary:disabled{opacity:.65;cursor:not-allowed}.av-secondary{border:1px solid #dbe3ef;border-radius:12px;padding:13px 18px;background:#fff;color:#0f172a;font-weight:900;text-decoration:none;cursor:pointer}.av-danger{border:0;border-radius:12px;padding:13px 18px;background:#ef4444;color:#fff;font-weight:1000;cursor:pointer}.av-chip{display:inline-flex;padding:7px 10px;border-radius:999px;background:#e0f2fe;color:#075985;font-weight:900;margin:3px}.lado-invertido .quadra-container{flex-direction:row-reverse}.tb{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:14px;margin-top:12px}.tb label{font-weight:1000;margin-right:12px}.tb select{border:1px solid #fed7aa;border-radius:10px;padding:10px;font-weight:900}.alerta-local{display:none;margin-top:12px;padding:12px;border-radius:14px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;font-weight:900}@media(max-width:780px){.quadra{grid-template-columns:repeat(3,92px);grid-template-rows:repeat(2,92px)}.posicao input{font-size:24px;width:58px}.quadra-box{min-width:285px}}
 </style>
 
-<div class="av-wrap">
+{% set set_atual = estado.set_atual or 1 %}
+{% set proximo_set_pendente = estado.proximo_set_pendente or estado.fase_partida == 'papeleta' %}
+{% set sets_para_vencer = estado.sets_para_vencer or 1 %}
+{% set eh_tiebreak = (estado.sets_tipo != 'set_unico' and estado.sets_a == (sets_para_vencer - 1) and estado.sets_b == (sets_para_vencer - 1)) %}
+
+<div class="av-wrap" id="wrapPapeleta">
     <div class="av-card av-head">
         <div>
-            <div class="av-title">Papeleta por número</div>
+            <div class="av-title">Papeleta do {{ set_atual }}º set</div>
             <div class="av-sub">{{ estado.equipe_a or 'Equipe A' }} x {{ estado.equipe_b or 'Equipe B' }} • Código {{ codigo }}</div>
+            <div class="av-sub">Sets: {{ estado.sets_a or 0 }} x {{ estado.sets_b or 0 }} • Modo: {{ 'Avançado com scout' if estado.modo_operacao == 'avancado' else 'Simples' }}</div>
         </div>
-        <div><span class="av-chip">Sem cadastro de atletas</span><span class="av-chip">Scout por número</span></div>
+        <div>
+            <span class="av-chip">Sem cadastro</span><span class="av-chip">Por número</span>
+            <button type="button" class="av-secondary" onclick="inverterLadoLocal()">Inverter lado desta tela</button>
+        </div>
     </div>
 
     <form method="post" action="{{ url_for('jogo_avulso.iniciar_jogo_avulso', codigo=codigo) }}" id="form-papeleta-avulsa" class="av-card">
+        {% if eh_tiebreak or estado.aguardando_tiebreak_saque %}
+        <div class="tb">
+            <label>Set desempate: quem irá sacar?</label>
+            <select name="saque_set">
+                <option value="A">{{ estado.equipe_a or 'Equipe A' }}</option>
+                <option value="B">{{ estado.equipe_b or 'Equipe B' }}</option>
+            </select>
+        </div>
+        {% else %}
+        <input type="hidden" name="saque_set" value="{{ estado.saque_atual or 'A' }}">
+        {% endif %}
+
+        <div id="alerta-papeleta" class="alerta-local"></div>
+
         <div class="quadra-container">
             {% for lado, nome in [('A', estado.equipe_a or 'Equipe A'), ('B', estado.equipe_b or 'Equipe B')] %}
-            <div class="quadra-box">
+            {% set papeleta_lado = (estado.get('papeleta_' ~ lado.lower(), {}) or {}) %}
+            {% set banco_lado = (estado.get('banco_' ~ lado.lower(), []) or []) %}
+            {% set numeros_lado = (estado.get('numeros_' ~ lado.lower(), []) or []) %}
+            {% set base_reservas = numeros_lado if proximo_set_pendente else banco_lado %}
+            <div class="quadra-box" data-lado="{{ lado }}">
                 <h3>Equipe {{ lado }} — {{ nome }}</h3>
                 <div class="quadra">
                     {% for i in [4,3,2,5,6,1] %}
-                    <div class="posicao">
-                        <input inputmode="numeric" pattern="[0-9]*" maxlength="3" name="{{ lado }}_{{ i }}" id="{{ lado }}_{{ i }}" placeholder="-" oninput="somenteNumero(this)">
+                    <div class="posicao" id="box_{{ lado }}_{{ i }}">
+                        <input
+                            inputmode="numeric"
+                            pattern="[0-9]*"
+                            maxlength="3"
+                            name="{{ lado }}_{{ i }}"
+                            id="{{ lado }}_{{ i }}"
+                            data-lado="{{ lado }}"
+                            placeholder="-"
+                            value="{{ '' if proximo_set_pendente else papeleta_lado.get(i|string, '') }}"
+                            oninput="aoDigitarPosicao(this)"
+                            onblur="normalizarCampoPosicao(this)"
+                        >
                         <small>{{ ['I','II','III','IV','V','VI'][i-1] }}</small>
                     </div>
                     {% endfor %}
                 </div>
+
                 <div class="banco">
                     <label>Reservas / banco da equipe {{ lado }}</label>
-                    <input name="banco_{{ lado }}" placeholder="Ex: 3, 5, 8, 12" oninput="somenteNumerosVirgula(this)">
+
+                    <input
+                        name="banco_{{ lado }}"
+                        id="banco_{{ lado }}"
+                        value=""
+                        placeholder="Será preenchido automaticamente"
+                        readonly
+                    >
+
+                    <div class="banco-help">
+                        Os números usados em sets anteriores aparecem abaixo como opção.
+                        Quando um número for colocado na quadra, ele sai automaticamente das reservas para não duplicar.
+                    </div>
+
+                    <div
+                        id="chips_{{ lado }}"
+                        class="chips-reservas"
+                        data-lado="{{ lado }}"
+                        data-base="{{ (base_reservas or [])|join(',') }}"
+                    ></div>
                 </div>
             </div>
             {% endfor %}
         </div>
 
         <div class="av-actions">
-            <a class="av-secondary" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">Voltar</a>
-            <button class="av-primary" type="submit" id="btn-iniciar">Iniciar jogo</button>
+            {% if not proximo_set_pendente %}<a class="av-secondary" href="{{ url_for('jogo_avulso.operacao_jogo_avulso', codigo=codigo) }}">Voltar ao jogo</a>{% endif %}
+            <button class="av-primary" type="submit" id="btn-iniciar">Iniciar {{ set_atual }}º set</button>
         </div>
     </form>
 </div>
 
 <script>
-function somenteNumero(el){ el.value = (el.value || '').replace(/\D/g,'').slice(0,3); }
-function somenteNumerosVirgula(el){ el.value = (el.value || '').replace(/[^0-9,; ]/g,''); }
-function validarLado(lado){
-    const usados = new Set();
-    for(const pos of [1,2,3,4,5,6]){
-        const el = document.getElementById(`${lado}_${pos}`);
-        const v = (el.value || '').trim();
-        if(!v){ alert(`Preencha todas as posições da equipe ${lado}.`); el.focus(); return false; }
-        if(usados.has(v)){ alert(`Número ${v} repetido na equipe ${lado}.`); el.focus(); return false; }
-        usados.add(v);
+const CODIGO = {{ codigo|tojson }};
+const SET_ATUAL = {{ set_atual|tojson }};
+const POSICOES = [1,2,3,4,5,6];
+
+const K_INV_SET = 'avulso_papeleta_invertido_set_' + CODIGO;
+const K_INV = 'avulso_papeleta_invertido_' + CODIGO;
+
+if (localStorage.getItem(K_INV_SET) !== String(SET_ATUAL)) {
+    localStorage.setItem(K_INV, (parseInt(SET_ATUAL, 10) % 2 === 0) ? '1' : '0');
+    localStorage.setItem(K_INV_SET, String(SET_ATUAL));
+}
+
+function aplicarInversao() {
+    const wrap = document.getElementById('wrapPapeleta');
+    if (wrap) wrap.classList.toggle('lado-invertido', localStorage.getItem(K_INV) === '1');
+}
+
+function inverterLadoLocal() {
+    localStorage.setItem(K_INV, localStorage.getItem(K_INV) === '1' ? '0' : '1');
+    aplicarInversao();
+}
+
+function numeroLimpo(valor) {
+    return String(valor || '').replace(/\D/g, '').slice(0, 3);
+}
+
+function listaNumeros(valor) {
+    return String(valor || '')
+        .split(/[,\s;]+/)
+        .map(numeroLimpo)
+        .filter(Boolean)
+        .filter((n, i, arr) => arr.indexOf(n) === i);
+}
+
+function mostrarAlerta(texto) {
+    const el = document.getElementById('alerta-papeleta');
+    if (!el) return;
+    el.textContent = texto || '';
+    el.style.display = texto ? 'block' : 'none';
+}
+
+function camposDoLado(lado) {
+    return POSICOES
+        .map(pos => document.getElementById(`${lado}_${pos}`))
+        .filter(Boolean);
+}
+
+function selecionadosDoLado(lado) {
+    return camposDoLado(lado)
+        .map(el => numeroLimpo(el.value))
+        .filter(Boolean);
+}
+
+function baseReservasDoLado(lado) {
+    const chips = document.getElementById(`chips_${lado}`);
+    return listaNumeros(chips ? chips.dataset.base : '');
+}
+
+function uniaoNumeros(...listas) {
+    const saida = [];
+    listas.flat().forEach(n => {
+        const limpo = numeroLimpo(n);
+        if (limpo && !saida.includes(limpo)) saida.push(limpo);
+    });
+    return saida;
+}
+
+function reservasDisponiveis(lado) {
+    const base = baseReservasDoLado(lado);
+    const selecionados = selecionadosDoLado(lado);
+    return base.filter(n => !selecionados.includes(n));
+}
+
+function atualizarReservas(lado) {
+    const selecionados = selecionadosDoLado(lado);
+    const base = baseReservasDoLado(lado);
+    const disponiveis = base.filter(n => !selecionados.includes(n));
+    const banco = document.getElementById(`banco_${lado}`);
+    const chips = document.getElementById(`chips_${lado}`);
+
+    if (banco) banco.value = disponiveis.join(', ');
+
+    if (!chips) return;
+    chips.innerHTML = '';
+
+    if (!disponiveis.length) {
+        const vazio = document.createElement('div');
+        vazio.className = 'chip-vazio';
+        vazio.textContent = 'Nenhuma reserva disponível.';
+        chips.appendChild(vazio);
+        return;
     }
+
+    disponiveis.forEach(numero => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'chip-num';
+        btn.textContent = `Nº ${numero}`;
+        btn.onclick = () => preencherPrimeiraPosicaoVazia(lado, numero);
+        chips.appendChild(btn);
+    });
+}
+
+function atualizarTodasReservas() {
+    atualizarReservas('A');
+    atualizarReservas('B');
+    validarDuplicadosVisual('A', false);
+    validarDuplicadosVisual('B', false);
+}
+
+function primeiraPosicaoVazia(lado) {
+    return camposDoLado(lado).find(el => !numeroLimpo(el.value));
+}
+
+function preencherPrimeiraPosicaoVazia(lado, numero) {
+    const limpo = numeroLimpo(numero);
+    if (!limpo) return;
+
+    if (selecionadosDoLado(lado).includes(limpo)) {
+        mostrarAlerta(`Número ${limpo} já está em quadra na equipe ${lado}.`);
+        return;
+    }
+
+    const campo = primeiraPosicaoVazia(lado);
+    if (!campo) {
+        mostrarAlerta(`Todas as posições da equipe ${lado} já estão preenchidas.`);
+        return;
+    }
+
+    campo.value = limpo;
+    campo.focus();
+    mostrarAlerta('');
+    atualizarTodasReservas();
+}
+
+function aoDigitarPosicao(el) {
+    el.value = numeroLimpo(el.value);
+    mostrarAlerta('');
+    atualizarTodasReservas();
+}
+
+function normalizarCampoPosicao(el) {
+    el.value = numeroLimpo(el.value);
+    atualizarTodasReservas();
+}
+
+function marcarErroCampo(el, ativo) {
+    if (!el) return;
+    el.classList.toggle('erro', !!ativo);
+    const box = document.getElementById(`box_${el.dataset.lado}_${el.id.split('_')[1]}`);
+    if (box) box.classList.toggle('erro', !!ativo);
+}
+
+function validarDuplicadosVisual(lado, alertar) {
+    const vistos = new Map();
+    let ok = true;
+
+    camposDoLado(lado).forEach(el => marcarErroCampo(el, false));
+
+    camposDoLado(lado).forEach(el => {
+        const v = numeroLimpo(el.value);
+        if (!v) return;
+
+        if (vistos.has(v)) {
+            marcarErroCampo(el, true);
+            marcarErroCampo(vistos.get(v), true);
+            ok = false;
+        } else {
+            vistos.set(v, el);
+        }
+    });
+
+    if (!ok && alertar) {
+        mostrarAlerta(`Existe número repetido na equipe ${lado}. Corrija antes de iniciar o set.`);
+    }
+
+    return ok;
+}
+
+function validarLado(lado) {
+    mostrarAlerta('');
+
+    for (const pos of POSICOES) {
+        const el = document.getElementById(`${lado}_${pos}`);
+        const v = numeroLimpo(el ? el.value : '');
+
+        if (!v) {
+            mostrarAlerta(`Preencha todas as posições da equipe ${lado}.`);
+            if (el) el.focus();
+            return false;
+        }
+    }
+
+    if (!validarDuplicadosVisual(lado, true)) {
+        const erro = camposDoLado(lado).find(el => el.classList.contains('erro'));
+        if (erro) erro.focus();
+        return false;
+    }
+
     return true;
 }
-document.getElementById('form-papeleta-avulsa').addEventListener('submit', function(e){
-    if(!validarLado('A') || !validarLado('B')){ e.preventDefault(); return; }
-    document.getElementById('btn-iniciar').disabled = true;
-    document.getElementById('btn-iniciar').innerText = 'Iniciando...';
+
+document.getElementById('form-papeleta-avulsa').addEventListener('submit', function(e) {
+    atualizarTodasReservas();
+
+    if (!validarLado('A') || !validarLado('B')) {
+        e.preventDefault();
+        return;
+    }
+
+    const btn = document.getElementById('btn-iniciar');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Iniciando...';
+    }
 });
+
+aplicarInversao();
+atualizarTodasReservas();
 </script>
 {% endblock %}

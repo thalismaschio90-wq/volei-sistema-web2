@@ -1,6 +1,16 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
 from routes.utils import exigir_perfil
-from socket_events import emitir_estado_partida, obter_estado_cache, atualizar_estado_cache
+
+try:
+    from socket_events import emitir_estado_partida, obter_estado_cache, atualizar_estado_cache
+except Exception:
+    _CACHE_FALLBACK = {}
+    def emitir_estado_partida(partida_id, estado):
+        return None
+    def obter_estado_cache(partida_id):
+        return _CACHE_FALLBACK.get(str(partida_id))
+    def atualizar_estado_cache(partida_id, estado):
+        _CACHE_FALLBACK[str(partida_id)] = estado
 
 try:
     from banco import apontador_pode_criar_jogo_avulso
@@ -97,6 +107,23 @@ def _salvar_estado(codigo, estado):
     return estado
 
 
+def _sets_config(sets_tipo):
+    if sets_tipo == "melhor_de_5":
+        return 5, 3
+    if sets_tipo == "melhor_de_3":
+        return 3, 2
+    return 1, 1
+
+
+def _ordenar_numeros(lista):
+    unicos = []
+    for n in lista:
+        s = str(n or "").strip()
+        if s.isdigit() and s not in unicos:
+            unicos.append(s)
+    return sorted(unicos, key=lambda x: int(x))
+
+
 @jogo_avulso_bp.route("/apontador/jogo-avulso/novo", methods=["GET", "POST"])
 @exigir_perfil("apontador")
 def novo_jogo_avulso():
@@ -112,11 +139,18 @@ def novo_jogo_avulso():
     if sets_tipo not in {"set_unico", "melhor_de_3", "melhor_de_5"}:
         sets_tipo = "set_unico"
 
-    sets_max = 1 if sets_tipo == "set_unico" else (3 if sets_tipo == "melhor_de_3" else 5)
-    sets_para_vencer = 1 if sets_tipo == "set_unico" else (2 if sets_tipo == "melhor_de_3" else 3)
+    modo_operacao = (request.form.get("modo_operacao") or "simples").strip().lower()
+    if modo_operacao not in {"simples", "avancado"}:
+        modo_operacao = "simples"
+
+    sets_max, sets_para_vencer = _sets_config(sets_tipo)
 
     equipe_a = (request.form.get("equipe_a") or "Equipe A").strip()[:60] or "Equipe A"
     equipe_b = (request.form.get("equipe_b") or "Equipe B").strip()[:60] or "Equipe B"
+
+    saque_inicial = (request.form.get("saque_inicial") or "A").strip().upper()
+    if saque_inicial not in {"A", "B"}:
+        saque_inicial = "A"
 
     estado = {
         "ok": True,
@@ -124,6 +158,7 @@ def novo_jogo_avulso():
         "partida_id": _partida_id(codigo),
         "competicao": "JOGO AVULSO",
         "modo_avulso": True,
+        "modo_operacao": modo_operacao,
         "apontador": _cpf_apontador(),
         "equipe_a": equipe_a,
         "equipe_b": equipe_b,
@@ -143,7 +178,8 @@ def novo_jogo_avulso():
         "sets_a": 0,
         "sets_b": 0,
         "set_atual": 1,
-        "saque_atual": (request.form.get("saque_inicial") or "A").strip().upper() if (request.form.get("saque_inicial") or "A").strip().upper() in {"A", "B"} else "A",
+        "saque_atual": saque_inicial,
+        "saque_inicial_partida": saque_inicial,
         "fase_partida": "papeleta",
         "status_jogo": "papeleta",
         "rotacao_a": [],
@@ -159,7 +195,10 @@ def novo_jogo_avulso():
         "historico": [],
         "eventos": [],
         "evolucao_pontos": [],
-        "scout": {},
+        "historico_sets": [],
+        "scout_eventos": [],
+        "scout_resumo": {},
+        "relatorio_gerado": False,
         "ultima_acao": "Jogo rápido criado",
     }
 
@@ -195,20 +234,21 @@ def iniciar_jogo_avulso(codigo):
         return redirect(url_for("apontadores.painel_apontador"))
 
     estado = dict(jogo.get("estado") or {})
+    set_atual = _normalizar_int(estado.get("set_atual"), 1, 1, 5)
 
     def numeros_lado(lado):
-        pos = []
+        titulares = []
         for i in [1, 2, 3, 4, 5, 6]:
             n = (request.form.get(f"{lado}_{i}") or "").strip()
             if n and n.isdigit():
-                pos.append(n)
+                titulares.append(n)
         banco_txt = (request.form.get(f"banco_{lado}") or "").replace(";", ",").replace(" ", ",")
         banco = []
         for pedaco in banco_txt.split(","):
             pedaco = pedaco.strip()
-            if pedaco and pedaco.isdigit() and pedaco not in pos and pedaco not in banco:
+            if pedaco and pedaco.isdigit() and pedaco not in titulares and pedaco not in banco:
                 banco.append(pedaco)
-        return pos, banco
+        return titulares, banco
 
     titulares_a, banco_a = numeros_lado("A")
     titulares_b, banco_b = numeros_lado("B")
@@ -217,24 +257,48 @@ def iniciar_jogo_avulso(codigo):
         flash("Preencha as 6 posições das duas equipes com números.", "erro")
         return redirect(url_for("jogo_avulso.papeleta_jogo_avulso", codigo=codigo))
 
-    # A tela usa a ordem visual [4,3,2,5,6,1], mas o formulário salva por posição real.
-    # Para operar a rotação, guardamos na ordem de quadra: IV, III, II, V, VI, I.
     rotacao_a = [request.form.get(f"A_{i}", "").strip() for i in [4, 3, 2, 5, 6, 1]]
     rotacao_b = [request.form.get(f"B_{i}", "").strip() for i in [4, 3, 2, 5, 6, 1]]
+
+    saque = (request.form.get("saque_set") or estado.get("saque_atual") or "A").strip().upper()
+    if saque not in {"A", "B"}:
+        saque = "A"
+
+    historico = list(estado.get("historico") or [])
+    historico.append({
+        "descricao": f"{set_atual}º set iniciado",
+        "tipo": "inicio_set",
+        "set": set_atual,
+        "ts": time.time(),
+    })
 
     estado.update({
         "fase_partida": "jogo",
         "status_jogo": "em_andamento",
+        "pontos_a": 0,
+        "pontos_b": 0,
+        "placar_a": 0,
+        "placar_b": 0,
+        "tempos_a": 0,
+        "tempos_b": 0,
+        "subs_a": 0,
+        "subs_b": 0,
+        "saque_atual": saque,
         "rotacao_a": rotacao_a,
         "rotacao_b": rotacao_b,
         "papeleta_a": {str(i): request.form.get(f"A_{i}", "").strip() for i in [1, 2, 3, 4, 5, 6]},
         "papeleta_b": {str(i): request.form.get(f"B_{i}", "").strip() for i in [1, 2, 3, 4, 5, 6]},
         "banco_a": banco_a,
         "banco_b": banco_b,
-        "numeros_a": sorted(list(dict.fromkeys(titulares_a + banco_a)), key=lambda x: int(x)),
-        "numeros_b": sorted(list(dict.fromkeys(titulares_b + banco_b)), key=lambda x: int(x)),
-        "historico": [{"descricao": "Jogo iniciado", "tipo": "inicio", "set": 1, "ts": time.time()}],
-        "ultima_acao": "Jogo iniciado",
+        "numeros_a": _ordenar_numeros(titulares_a + banco_a + list(estado.get("numeros_a") or [])),
+        "numeros_b": _ordenar_numeros(titulares_b + banco_b + list(estado.get("numeros_b") or [])),
+        "vinculos_substituicao": {"A": {}, "B": {}},
+        "substituidos_finalizados": {"A": [], "B": []},
+        "inversao_apontador_auto": bool(set_atual % 2 == 0),
+        "proximo_set_pendente": False,
+        "historico": historico,
+        "ultima_acao": f"{set_atual}º set iniciado",
+        "aguardando_tiebreak_saque": False,
     })
 
     _salvar_estado(codigo, estado)

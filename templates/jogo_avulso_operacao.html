@@ -1,323 +1,240 @@
 {% extends "base.html" %}
-
-{% block titulo %}Jogo rápido{% endblock %}
-
+{% block titulo %}Jogo avulso{% endblock %}
 {% block conteudo %}
 <style>
-.av-app { max-width:1280px; margin:0 auto; }
-.av-top { background:linear-gradient(135deg,#0b2740,#0f766e); color:#fff; border-radius:22px; padding:16px; display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
-.av-top h2 { margin:0; font-size:26px; font-weight:1000; }
-.av-links { display:flex; gap:8px; flex-wrap:wrap; }
-.av-link { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.25); border-radius:12px; padding:10px 12px; text-decoration:none; font-weight:900; cursor:pointer; }
-.score-grid { display:grid; grid-template-columns:1fr 230px 1fr; gap:14px; align-items:stretch; }
-.team { border-radius:24px; padding:18px; color:#fff; min-height:260px; display:flex; flex-direction:column; justify-content:space-between; box-shadow:0 16px 44px rgba(15,23,42,.18); }
-.team-a { background:linear-gradient(135deg,#1d4ed8,#0f172a); }
-.team-b { background:linear-gradient(135deg,#dc2626,#0f172a); }
-.team-name { font-size:28px; font-weight:1000; }
-.score { font-size:110px; line-height:.9; font-weight:1000; text-align:center; }
-.team-actions { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-.team-actions button,.center button { border:0; border-radius:12px; padding:12px; font-weight:1000; cursor:pointer; }
-.btn-point { background:#fff; color:#0f172a; font-size:18px; }
-.btn-soft { background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.25)!important; }
-.center { background:#fff; border:1px solid var(--border); border-radius:22px; box-shadow:var(--shadow); padding:14px; display:flex; flex-direction:column; gap:10px; text-align:center; }
-.sets { font-size:36px; font-weight:1000; color:#0f172a; }
-.meta { color:#64748b; font-weight:900; }
-.btn-dark { background:#111827; color:#fff; }
-.btn-danger { background:#dc2626; color:#fff; }
-.btn-green { background:#16a34a; color:#fff; }
-.panels { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-top:14px; }
-.panel { background:#fff; border:1px solid var(--border); border-radius:20px; padding:14px; box-shadow:var(--shadow); }
-.panel h3 { margin:0 0 10px; color:#0f172a; }
-.rot { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-.rot div { background:#f8fafc; border:1px solid #e5e7eb; border-radius:14px; min-height:58px; display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:1000; }
-.hist { max-height:230px; overflow:auto; display:flex; flex-direction:column; gap:6px; }
-.hist div { background:#f8fafc; border-radius:12px; padding:9px; font-weight:800; color:#334155; }
-.modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:16px; background:rgba(15,23,42,.72); z-index:99999; }
-.modal-card { width:min(520px,96vw); background:#fff; border-radius:20px; padding:18px; color:#0f172a; }
-.modal-card h3 { margin-top:0; }
-.modal-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
-.modal-grid button { border:1px solid #dbe3ef; background:#f8fafc; border-radius:12px; padding:12px; font-weight:1000; cursor:pointer; }
-.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
-.modal-actions button { border:0; border-radius:12px; padding:10px 14px; font-weight:900; cursor:pointer; }
-.input-numero { width:100%; border:1px solid #dbe3ef; border-radius:12px; padding:12px; font-size:18px; font-weight:900; margin-top:8px; }
-.timer-box { position:fixed; inset:0; background:rgba(15,23,42,.78); z-index:99998; display:none; align-items:center; justify-content:center; padding:18px; }
-.timer-card { background:#fff; color:#0f172a; border-radius:26px; padding:28px; text-align:center; width:min(430px,94vw); box-shadow:0 25px 80px rgba(0,0,0,.35); }
-.timer-card .tempo-num { font-size:96px; font-weight:1000; line-height:1; margin:12px 0; }
-.timer-card .tempo-equipe { font-size:24px; font-weight:1000; }
-.timer-card button { border:0; border-radius:14px; padding:13px 18px; background:#111827; color:#fff; font-weight:1000; cursor:pointer; }
-
-@media(max-width:980px){ .score-grid{grid-template-columns:1fr;} .panels{grid-template-columns:1fr;} .score{font-size:86px;} }
+header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;margin:0 auto}.av-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}.av-title{font-size:24px;font-weight:1000;color:#0f172a}.av-sub{color:#64748b;font-weight:800}.av-actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #dbe3ef;border-radius:12px;padding:10px 13px;background:#fff;color:#0f172a;font-weight:1000;cursor:pointer;text-decoration:none}.btn:hover{background:#f8fafc}.btn-green{background:#16a34a;color:#fff;border:0}.btn-blue{background:#2563eb;color:#fff;border:0}.btn-red{background:#ef4444;color:#fff;border:0}.btn-yellow{background:#f59e0b;color:#111827;border:0}.placar{display:grid;grid-template-columns:1fr 180px 1fr;gap:12px;align-items:stretch}.time{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px}.time h2{margin:0;font-size:28px;font-weight:1000}.pontos{font-size:92px;line-height:.9;font-weight:1000;color:#0f172a;text-align:center}.sets{background:#0f172a;color:#fff;border-radius:22px;padding:18px;text-align:center;display:flex;flex-direction:column;justify-content:center}.sets .n{font-size:42px;font-weight:1000}.sets small{color:#cbd5e1;font-weight:900}.saque{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:1000}.quadra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pos{border:2px solid #dbe3ef;background:#f8fafc;border-radius:16px;min-height:72px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-weight:1000;font-size:24px}.pos small{font-size:12px;color:#64748b}.pos.saque-atual{background:#fef3c7;border-color:#f59e0b}.team-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.painel{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow)}.lista{max-height:310px;overflow:auto}.item{padding:9px 0;border-bottom:1px solid #eef2f7;font-weight:800;color:#334155}.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:14px}.modal.aberto{display:flex}.modal-box{background:#fff;border-radius:22px;padding:18px;max-width:620px;width:100%;box-shadow:0 18px 60px rgba(0,0,0,.35)}.modal-box h3{margin:0 0 10px}.opcoes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.chip{border:1px solid #dbe3ef;border-radius:14px;background:#f8fafc;padding:11px 13px;font-weight:1000;cursor:pointer;min-width:92px;text-align:center}.chip.ativo{background:#dcfce7;border-color:#86efac;color:#166534}.chip.bloqueado{opacity:.42;cursor:not-allowed}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;font-weight:900;margin-bottom:5px}.field input,.field select{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:11px;font-weight:900}.cronometro,.popup-saque{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:9998;display:none;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}.cronometro.aberto,.popup-saque.aberto{display:flex}.cronometro .tempo{font-size:150px;font-weight:1000;line-height:1}.popup-card{background:radial-gradient(circle at top,#fff,#dbeafe);color:#10283d;border-radius:34px;box-shadow:0 28px 90px rgba(0,0,0,.42);width:min(900px,96vw);min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:28px}.popup-card .titulo{font-size:clamp(30px,5vw,62px);font-weight:1000;letter-spacing:.08em}.popup-card .numero{font-size:clamp(110px,18vw,190px);font-weight:1000;line-height:.9}.popup-card .equipe{font-size:clamp(22px,4vw,42px);font-weight:1000}.relatorio{display:none}.relatorio.aberto{display:block}.rel-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.tabela{width:100%;border-collapse:collapse}.tabela th,.tabela td{border:1px solid #e5e7eb;padding:8px;text-align:left}.tabela th{background:#f8fafc}.av-alert{position:fixed;top:18px;right:18px;background:#111827;color:#fff;padding:12px 14px;border-radius:14px;z-index:10000;font-weight:900;display:none}@media(max-width:900px){.placar{grid-template-columns:1fr}.painel{grid-template-columns:1fr}.pontos{font-size:76px}.sets{order:-1}.rel-grid{grid-template-columns:1fr}}@media print{body *{visibility:hidden}.relatorio,.relatorio *{visibility:visible}.relatorio{position:absolute;left:0;top:0;width:100%;display:block!important}.no-print{display:none!important}}
 </style>
-
-<div class="av-app">
-    <div class="av-top">
-        <div>
-            <h2>⚡ Jogo Rápido — {{ codigo }}</h2>
-            <div style="opacity:.82;font-weight:800;">Operação local/temporária por números</div>
-        </div>
-        <div class="av-links">
-            <a class="av-link" href="{{ url_for('jogo_avulso.telao_jogo_avulso', codigo=codigo) }}" target="_blank">🖥️ Telão</a>
-            <a class="av-link" href="{{ url_for('jogo_avulso.arbitro1_jogo_avulso', codigo=codigo) }}" target="_blank">1º árbitro</a>
-            <a class="av-link" href="{{ url_for('jogo_avulso.arbitro2_jogo_avulso', codigo=codigo) }}" target="_blank">2º árbitro</a>
-            <button class="av-link" onclick="copiarLinks()">Copiar links</button>
-        </div>
+<div id="avAlert" class="av-alert"></div>
+<div class="av-wrap" id="wrap">
+  <div class="av-top no-print">
+    <div><div class="av-title">Jogo Avulso • <span id="codigoTxt">{{ codigo }}</span></div><div class="av-sub"><span id="subInfo"></span></div></div>
+    <div class="av-actions">
+      <button class="btn" onclick="inverterLadoLocal()">Inverter lado do apontador</button>
+      <button class="btn btn-blue" onclick="abrirLink('telao')">Abrir telão</button><button class="btn" onclick="copiarLink('telao')">Copiar telão</button>
+      <button class="btn btn-blue" onclick="abrirLink('arb1')">Abrir árbitro 1</button><button class="btn" onclick="copiarLink('arb1')">Copiar árbitro 1</button>
+      <button class="btn btn-blue" onclick="abrirLink('arb2')">Abrir árbitro 2</button><button class="btn" onclick="copiarLink('arb2')">Copiar árbitro 2</button>
     </div>
-
-    <div class="score-grid">
-        <div class="team team-a">
-            <div class="team-name" id="nomeA">Equipe A</div>
-            <div class="score" id="scoreA">0</div>
-            <div class="team-actions">
-                <button class="btn-point" onclick="ponto('A')">+ Ponto</button>
-                <button class="btn-soft" onclick="abrirTempo('A')">Tempo</button>
-                <button class="btn-soft" onclick="abrirSub('A')">Substituição</button>
-                <button class="btn-soft" onclick="abrirScout('A')">Scout</button>
-            </div>
-        </div>
-
-        <div class="center">
-            <div class="meta">Set atual</div>
-            <div class="sets" id="setAtual">1</div>
-            <div class="meta">Sets</div>
-            <div class="sets"><span id="setsA">0</span> x <span id="setsB">0</span></div>
-            <div class="meta" id="saqueAtual">Saque: -</div>
-            <button class="btn-dark" onclick="desfazer()">Desfazer ponto</button>
-            <button class="btn-green" onclick="proximoSetManual()">Iniciar próximo set</button>
-            <button class="btn-danger" onclick="encerrarJogo()">Encerrar jogo</button>
-        </div>
-
-        <div class="team team-b">
-            <div class="team-name" id="nomeB">Equipe B</div>
-            <div class="score" id="scoreB">0</div>
-            <div class="team-actions">
-                <button class="btn-point" onclick="ponto('B')">+ Ponto</button>
-                <button class="btn-soft" onclick="abrirTempo('B')">Tempo</button>
-                <button class="btn-soft" onclick="abrirSub('B')">Substituição</button>
-                <button class="btn-soft" onclick="abrirScout('B')">Scout</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="panels">
-        <div class="panel"><h3>Rotação A</h3><div class="rot" id="rotA"></div></div>
-        <div class="panel"><h3>Últimas ações</h3><div class="hist" id="historico"></div></div>
-        <div class="panel"><h3>Rotação B</h3><div class="rot" id="rotB"></div></div>
-    </div>
+  </div>
+  <div class="placar no-print" id="placarBox"><div class="time" id="cardEsq"></div><div class="sets" id="setsBox"></div><div class="time" id="cardDir"></div></div>
+  <div class="painel no-print"><div class="card"><h3>Últimas ações</h3><div class="lista" id="historicoBox"></div></div>{% if estado.modo_operacao == 'avancado' %}<div class="card"><h3>Relatório da partida</h3><p style="font-weight:800;color:#64748b">O relatório fica local e persistente até finalizar/limpar a partida.</p><button class="btn btn-blue" onclick="abrirRelatorio()">Ver relatório</button> <button class="btn btn-green" onclick="exportarPDF()">Exportar PDF</button> <button class="btn btn-red" onclick="encerrarManual()">Encerrar manualmente</button> <button class="btn" onclick="limparLocal()">Limpar local</button></div>{% endif %}</div>
+  <div class="relatorio card" id="relatorioBox"></div>
 </div>
-
-<div class="modal" id="modal"><div class="modal-card" id="modalCard"></div></div>
-<div class="timer-box" id="timerBox"><div class="timer-card"><div class="tempo-equipe" id="timerEquipe">Tempo</div><div class="tempo-num" id="timerNum">30</div><button onclick="encerrarTempoManual()">Encerrar tempo</button></div></div>
-
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<div class="modal" id="modalScout"><div class="modal-box"><h3>Justificativa do ponto</h3><div id="scoutEquipeTxt" style="font-weight:900;color:#64748b"></div><div><b>1. O que aconteceu?</b><div class="opcoes" id="scoutTipoBox"></div></div><div id="scoutDetalheWrap" style="display:none"><b>2. Qual foi o lance?</b><div class="opcoes" id="scoutDetalheBox"></div></div><div id="scoutAtletaWrap" style="display:none"><b id="scoutAtletaTitulo">3. Quem fez?</b><div class="opcoes" id="scoutAtletaBox"></div></div><div id="scoutResumo" style="font-weight:800;color:#64748b;margin-top:8px">Selecione o tipo do lance.</div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharScout()">Cancelar</button><button class="btn btn-green" onclick="confirmarScout()">Confirmar ponto</button></div></div></div>
+<div class="modal" id="modalSub"><div class="modal-box"><h3>Substituição</h3><div id="subEquipeTxt" style="font-weight:900;color:#64748b"></div><b>Sai da quadra</b><div class="opcoes" id="subSaiBox"></div><div class="field"><label>Entra nº</label><input id="subEntra" inputmode="numeric" pattern="[0-9]*" placeholder="Digite o número que entra"></div><div style="margin-top:6px;color:#64748b;font-weight:800;font-size:13px">Você pode clicar em um número sugerido ou digitar o número manualmente. O vínculo da substituição só é criado ao confirmar.</div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharSub()">Cancelar</button><button class="btn btn-green" onclick="confirmarSub()">Confirmar</button></div></div></div>
+<div class="modal" id="modalGenerico"><div class="modal-box"><h3 id="genTitulo"></h3><div id="genConteudo"></div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharGenerico()">Cancelar</button><button class="btn btn-green" onclick="confirmarGenerico()">Confirmar</button></div></div></div>
+<div class="cronometro" id="cronometro"><div><div style="font-size:34px;font-weight:1000">TEMPO</div><div class="tempo" id="tempoNumero">30</div><button class="btn btn-red" onclick="fecharCronometro()">Fechar</button></div></div>
+<div class="popup-saque" id="popupSaque"><div class="popup-card"><div class="titulo">NOVO SAQUE</div><div class="numero" id="popupNumero">?</div><div class="equipe" id="popupEquipe"></div><button class="btn btn-red" style="margin-top:20px" onclick="fecharPopupSaque()">Fechar</button></div></div>
 <script>
-const CODIGO = {{ codigo|tojson }};
-const PARTIDA_ID = "avulso:" + CODIGO;
-const ESTADO_INICIAL = {{ estado|tojson }};
-const storageKey = "voleitable_jogo_avulso_" + CODIGO;
-let estado = carregarEstado();
-let socket = null;
+const CODIGO={{ codigo|tojson }}; const ESTADO_SERVIDOR={{ estado|tojson }}; const endpoint=`/apontador/jogo-avulso/${CODIGO}/estado`;
+const LS_ESTADO=`jogo_avulso_estado_${CODIGO}`; const LS_INV=`jogo_avulso_inversao_apontador_${CODIGO}`; const LS_INV_SET=`jogo_avulso_inversao_apontador_set_${CODIGO}`;
+const SET_SERVIDOR_ATUAL=int((ESTADO_SERVIDOR||{}).set_atual,1);
+if(localStorage.getItem(LS_INV_SET)!==String(SET_SERVIDOR_ATUAL)){localStorage.setItem(LS_INV,(SET_SERVIDOR_ATUAL%2===0)?'1':'0');localStorage.setItem(LS_INV_SET,String(SET_SERVIDOR_ATUAL));}
+let ladoInvertido=localStorage.getItem(LS_INV)==='1'; let timerTempo=null; let popupTimer=null; let scoutTemp={}, subTemp={}, genTemp={};
+function clone(o){return JSON.parse(JSON.stringify(o||{}));} function int(v,p=0){const n=parseInt(v,10);return Number.isFinite(n)?n:p;} function equipeNome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B');} function rot(l){return l==='A'?estado.rotacao_a:estado.rotacao_b;} function banco(l){return l==='A'?estado.banco_a:estado.banco_b;} function setRot(l,r){if(l==='A')estado.rotacao_a=r;else estado.rotacao_b=r;} function posLabel(i){return ['IV','III','II','V','VI','I'][i]||'';} function numeroPos(l,posReal){const r=rot(l)||[]; const map={4:0,3:1,2:2,5:3,6:4,1:5}; return r[map[posReal]]||'';} function sacador(l){return numeroPos(l,1)||'?';}
+function estadoDefault(){return {codigo:CODIGO,equipe_a:'Equipe A',equipe_b:'Equipe B',set_atual:1,sets_a:0,sets_b:0,pontos_a:0,pontos_b:0,saque_atual:'A',rotacao_a:['','','','','',''],rotacao_b:['','','','','',''],banco_a:[],banco_b:[],modo_operacao:'simples',sets_tipo:'set_unico',sets_para_vencer:1,pontos_set:21,pontos_tiebreak:15,diferenca_minima:2,limite_tempos:2,limite_substituicoes:6,tempos_a:0,tempos_b:0,subs_a:0,subs_b:0,vinculos_substituicao:{A:{},B:{}},substituidos_finalizados:{A:[],B:[]},historico:[],eventos:[],scout_eventos:[],historico_sets:[],status_jogo:'em_andamento'};}
+function carregarEstado(){let local={};try{local=JSON.parse(localStorage.getItem(LS_ESTADO)||'{}')}catch(e){} const servidor=ESTADO_SERVIDOR||{}; const temLocal=Object.keys(local).length>0; const tsLocal=Number(local.atualizado_em||0); const tsServidor=Number(servidor.atualizado_em||0); const base=(!temLocal || tsServidor>tsLocal)?servidor:local; return Object.assign(estadoDefault(),clone(base||{}));}
+let estado=carregarEstado(); salvarLocal();
+function salvarLocal(){localStorage.setItem(LS_ESTADO,JSON.stringify(estado));}
+async function salvarServidor(){salvarLocal(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
+function toast(t){const el=document.getElementById('avAlert');el.textContent=t;el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',2200)}
+function ladoVisual(pos){const esq=ladoInvertido?'B':'A'; const dir=ladoInvertido?'A':'B'; return pos==='esq'?esq:dir;}
+function urlTipo(tipo){const path=tipo==='telao'?`/telao-avulso/${CODIGO}`:tipo==='arb1'?`/arbitro1-avulso/${CODIGO}`:`/arbitro2-avulso/${CODIGO}`; return `${location.origin}${path}`;} function abrirLink(t){window.open(urlTipo(t),'_blank','noopener');} async function copiarLink(t){await navigator.clipboard.writeText(urlTipo(t));toast('Link copiado');}
+function addHist(desc,tipo='acao',extra={}){const item={descricao:desc,tipo,set:estado.set_atual,placar:`${estado.pontos_a}x${estado.pontos_b}`,ts:Date.now(),...extra}; estado.historico=[item,...(estado.historico||[])].slice(0,120); estado.eventos=[item,...(estado.eventos||[])]; estado.ultima_acao=desc;}
+function renderQuadra(l){const r=rot(l)||[]; return `<div class='quadra'>${r.map((n,i)=>`<div class='pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}'><span>${n||'-'}</span><small>${posLabel(i)}</small></div>`).join('')}</div>`;}
+function renderTime(l){return `<h2>${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">🏐 Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
+function valorVisual(lado, campoA, campoB, padrao=0){return lado==='A'?(estado[campoA]??padrao):(estado[campoB]??padrao);}
+function render(){const esq=ladoVisual('esq'); const dir=ladoVisual('dir'); const setsEsq=valorVisual(esq,'sets_a','sets_b',0); const setsDir=valorVisual(dir,'sets_a','sets_b',0); const pontosEsq=valorVisual(esq,'pontos_a','pontos_b',0); const pontosDir=valorVisual(dir,'pontos_a','pontos_b',0); document.getElementById('subInfo').textContent=`${estado.modo_operacao==='avancado'?'Avançado com scout':'Simples'} • ${estado.set_atual}º set • Saque: ${equipeNome(estado.saque_atual||'A')}`; document.getElementById('cardEsq').innerHTML=renderTime(esq); document.getElementById('cardDir').innerHTML=renderTime(dir); document.getElementById('setsBox').innerHTML=`<small>SET ATUAL</small><div class='n'>${estado.set_atual}º</div><small>SETS</small><div class='n'>${setsEsq} x ${setsDir}</div><small>${pontosEsq} x ${pontosDir}</small>`; document.getElementById('historicoBox').innerHTML=(estado.historico||[]).slice(0,50).map(h=>`<div class='item'>${h.descricao}<br><small>${h.placar||''}</small></div>`).join('')||'<div class="item">Nenhuma ação.</div>';}
+function inverterLadoLocal(){ladoInvertido=!ladoInvertido;localStorage.setItem(LS_INV,ladoInvertido?'1':'0');render();}
+function girarRotacao(l){const r=rot(l)||[]; if(r.length!==6)return; setRot(l,[r[3],r[0],r[1],r[4],r[5],r[2]]);} function pontoAlvo(){return estado.set_atual>=int(estado.sets_max,1)&&estado.sets_tipo!=='set_unico'?int(estado.pontos_tiebreak,15):int(estado.pontos_set||estado.ponto_alvo_set,21);} function venceuSet(l){const pa=estado.pontos_a,pb=estado.pontos_b, alvo=pontoAlvo(), diff=Math.abs(pa-pb); return (l==='A'?pa:pb)>=alvo && diff>=int(estado.diferenca_minima,2);} function oponente(l){return l==='A'?'B':'A';}
+function acaoPonto(l){if(estado.status_jogo==='finalizado')return toast('Jogo já finalizado'); if(estado.modo_operacao==='avancado'){abrirScout(l);return;} confirmarPonto(l,{tipo:'ponto_simples',detalhe:'Ponto simples'});}
+function confirmarPonto(l,scout){const saqueAntes=estado.saque_atual; if(l==='A')estado.pontos_a++; else estado.pontos_b++; if(saqueAntes!==l){girarRotacao(l); estado.saque_atual=l; estado.popup_saque={equipe:l,numero:sacador(l),ts:Date.now()}; mostrarPopupSaqueLocal(l);} if(scout) registrarScout(l,scout); addHist(`Ponto ${equipeNome(l)}${scout?.detalhe?` • ${scout.detalhe}`:''}`,'ponto',{equipe:l,scout}); if(venceuSet(l)) finalizarSet(l); salvarServidor(); render();}
+function pontoAutomatico(l,descricao,tipo='ponto_automatico',extra={}){const saqueAntes=estado.saque_atual; if(l==='A')estado.pontos_a++; else estado.pontos_b++; if(saqueAntes!==l){girarRotacao(l); estado.saque_atual=l; estado.popup_saque={equipe:l,numero:sacador(l),ts:Date.now()}; mostrarPopupSaqueLocal(l);} addHist(descricao||`Ponto ${equipeNome(l)}`,tipo,{equipe:l,...extra}); if(venceuSet(l)) finalizarSet(l); salvarServidor(); render();}
+function aplicarPenalidadeContra(equipeQueCometeu,origem,detalhe){const adv=oponente(equipeQueCometeu); pontoAutomatico(adv,`${origem}: ${detalhe} • ponto e saque para ${equipeNome(adv)}`,'penalidade',{equipe_penalizada:equipeQueCometeu,origem,detalhe});}
+function finalizarSet(vencedor){const parcial={set:estado.set_atual,pontos_a:estado.pontos_a,pontos_b:estado.pontos_b,vencedor,rotacao_a:clone(estado.rotacao_a),rotacao_b:clone(estado.rotacao_b)}; estado.historico_sets=[...(estado.historico_sets||[]),parcial]; if(vencedor==='A')estado.sets_a++; else estado.sets_b++; addHist(`${equipeNome(vencedor)} venceu o ${estado.set_atual}º set por ${parcial.pontos_a}x${parcial.pontos_b}`,'fim_set'); if(estado.sets_a>=estado.sets_para_vencer||estado.sets_b>=estado.sets_para_vencer){estado.status_jogo='finalizado';estado.fase_partida='finalizado';addHist(`Jogo finalizado: ${estado.equipe_a} ${estado.sets_a} x ${estado.sets_b} ${estado.equipe_b}`,'fim_jogo');abrirRelatorio();return;} estado.set_atual++; estado.pontos_a=0;estado.pontos_b=0;estado.tempos_a=0;estado.tempos_b=0;estado.subs_a=0;estado.subs_b=0;estado.fase_partida='papeleta'; estado.status_jogo='papeleta'; estado.proximo_set_pendente=true; const isTie=estado.set_atual===estado.sets_max && estado.sets_tipo!=='set_unico'; estado.aguardando_tiebreak_saque=!!isTie; salvarServidor().then(()=>{location.href=`/apontador/jogo-avulso/${CODIGO}/papeleta`;});}
+function registrarScout(l,s){estado.scout_eventos=[...(estado.scout_eventos||[]),{set:estado.set_atual,equipe:l,equipe_nome:equipeNome(l),numero:s.numero||'',tipo:s.tipo,detalhe:s.detalhe||'',ts:Date.now()}];}
+function abrirScout(l){scoutTemp={equipe:l,tipo:'',detalhe:'',numero:''}; document.getElementById('scoutEquipeTxt').textContent=`Ponto para ${equipeNome(l)}`; renderScout(); document.getElementById('modalScout').classList.add('aberto');}
+function fecharScout(){document.getElementById('modalScout').classList.remove('aberto');}
+function chip(html,ativo,onclick,extra=''){return `<button class='chip ${ativo?'ativo':''} ${extra}' onclick="${onclick}">${html}</button>`;}
+function renderScout(){
+const tipos=[['ponto','Ponto'],['erro','Erro adversário'],['falta','Falta adversária']];
+document.getElementById('scoutTipoBox').innerHTML=tipos.map(t=>chip(t[1],scoutTemp.tipo===t[0],`scoutSetTipo('${t[0]}')`)).join('');
+const dw=document.getElementById('scoutDetalheWrap'), aw=document.getElementById('scoutAtletaWrap');
+if(!scoutTemp.tipo){dw.style.display='none';aw.style.display='none';return;}
+dw.style.display='block';
+let detalhes=[];
+if(scoutTemp.tipo==='ponto'){
+    detalhes=[['ataque','Ataque'],['bloqueio','Bloqueio']];
+    if(estado.saque_atual===scoutTemp.equipe) detalhes.push(['ace','Ace']);
+} else if(scoutTemp.tipo==='erro'){
+    detalhes=[['erro_geral','Erro geral'],['erro_saque','Erro de saque']];
+} else {
+    detalhes=[['rede','Rede'],['invasao','Invasão'],['rotacao','Rotação'],['conducao','Condução'],['dois_toques','Dois toques']];
+}
+document.getElementById('scoutDetalheBox').innerHTML=detalhes.map(d=>chip(d[1],scoutTemp.detalhe===d[0],`scoutSetDetalhe('${d[0]}')`)).join('');
+if(!scoutTemp.detalhe){aw.style.display='none';document.getElementById('scoutResumo').textContent='Selecione o detalhe do lance.';return;}
 
-function carregarEstado(){
-    try { return JSON.parse(localStorage.getItem(storageKey)) || ESTADO_INICIAL || {}; } catch(e){ return ESTADO_INICIAL || {}; }
+// Igual à lógica do apontador oficial para o avulso:
+// - Ponto de ataque: escolhe um dos 6 números em quadra da equipe que pontuou.
+// - Ponto de bloqueio: só posições 2, 3 e 4 da equipe que pontuou.
+// - Ace: automaticamente o número da posição 1/sacador.
+// - Erro de saque, erro geral e faltas: NÃO exigem número do atleta.
+const precisaNumero = scoutTemp.tipo==='ponto';
+if(!precisaNumero){
+    scoutTemp.numero='';
+    aw.style.display='none';
+    const labelTipo = scoutTemp.tipo==='erro' ? 'Erro adversário' : 'Falta adversária';
+    document.getElementById('scoutResumo').textContent=`${labelTipo} • ${scoutTemp.detalhe}`;
+    return;
 }
-function salvarLocal(){ localStorage.setItem(storageKey, JSON.stringify(estado)); }
-function nomeEquipe(lado){ return lado === 'A' ? (estado.equipe_a || 'Equipe A') : (estado.equipe_b || 'Equipe B'); }
-function numeros(lado){ return lado === 'A' ? (estado.numeros_a || []) : (estado.numeros_b || []); }
-function rotacao(lado){ return lado === 'A' ? (estado.rotacao_a || []) : (estado.rotacao_b || []); }
-function setRotacao(lado, r){ if(lado === 'A') estado.rotacao_a = r; else estado.rotacao_b = r; }
-function historico(txt,tipo='acao'){ estado.historico = estado.historico || []; estado.historico.unshift({descricao:txt,tipo,set:estado.set_atual || 1,ts:Date.now()/1000}); estado.historico = estado.historico.slice(0,80); estado.ultima_acao = txt; }
-function render(){
-    normalizarEstadoBasico();
-    document.getElementById('nomeA').innerText = estado.equipe_a || 'Equipe A';
-    document.getElementById('nomeB').innerText = estado.equipe_b || 'Equipe B';
-    document.getElementById('scoreA').innerText = estado.pontos_a || 0;
-    document.getElementById('scoreB').innerText = estado.pontos_b || 0;
-    document.getElementById('setsA').innerText = estado.sets_a || 0;
-    document.getElementById('setsB').innerText = estado.sets_b || 0;
-    document.getElementById('setAtual').innerText = estado.set_atual || 1;
-    document.getElementById('saqueAtual').innerText = 'Saque: ' + nomeEquipe(estado.saque_atual || 'A');
-    document.getElementById('rotA').innerHTML = (estado.rotacao_a || []).map(n=>`<div>${n || '-'}</div>`).join('');
-    document.getElementById('rotB').innerHTML = (estado.rotacao_b || []).map(n=>`<div>${n || '-'}</div>`).join('');
-    document.getElementById('historico').innerHTML = (estado.historico || []).slice(0,18).map(h=>`<div>${h.descricao || h}</div>`).join('') || '<div>Sem ações ainda.</div>';
-    atualizarCronometroTempo();
+aw.style.display='block';
+let nums=[];
+if(scoutTemp.detalhe==='ace') nums=[numeroPos(scoutTemp.equipe,1)];
+else if(scoutTemp.detalhe==='bloqueio') nums=[numeroPos(scoutTemp.equipe,2),numeroPos(scoutTemp.equipe,3),numeroPos(scoutTemp.equipe,4)];
+else nums=(rot(scoutTemp.equipe)||[]);
+nums=nums.filter(Boolean);
+document.getElementById('scoutAtletaTitulo').textContent='3. Quem fez?';
+document.getElementById('scoutAtletaBox').innerHTML=nums.map(n=>chip('Nº '+n,scoutTemp.numero===n,`scoutSetNumero('${n}')`)).join('')||'<span style="color:#64748b;font-weight:900">Sem números em quadra.</span>';
+document.getElementById('scoutResumo').textContent=`Ponto • ${scoutTemp.detalhe||''} • ${scoutTemp.numero?('nº '+scoutTemp.numero):'selecione número'}`;
 }
-function normalizarEstadoBasico(){
-    estado.numeros_a = Array.from(new Set((estado.numeros_a || []).map(String).filter(Boolean)));
-    estado.numeros_b = Array.from(new Set((estado.numeros_b || []).map(String).filter(Boolean)));
-    estado.banco_a = Array.from(new Set((estado.banco_a || []).map(String).filter(Boolean)));
-    estado.banco_b = Array.from(new Set((estado.banco_b || []).map(String).filter(Boolean)));
-}
-function adicionarNumeroLado(lado, numero){
-    numero = String(numero || '').replace(/\D/g,'').slice(0,3);
-    if(!numero) return '';
-    const todosKey = lado === 'A' ? 'numeros_a' : 'numeros_b';
-    const bancoKey = lado === 'A' ? 'banco_a' : 'banco_b';
-    estado[todosKey] = Array.from(new Set([...(estado[todosKey] || []).map(String), numero]));
-    const emQuadra = new Set(rotacao(lado).map(String));
-    if(!emQuadra.has(numero)){
-        estado[bancoKey] = Array.from(new Set([...(estado[bancoKey] || []).map(String), numero]));
+function scoutSetTipo(t){scoutTemp.tipo=t;scoutTemp.detalhe='';scoutTemp.numero='';renderScout();} function scoutSetDetalhe(d){scoutTemp.detalhe=d;scoutTemp.numero=''; if(d==='ace')scoutTemp.numero=numeroPos(scoutTemp.equipe,1); renderScout();} function scoutSetNumero(n){scoutTemp.numero=n;renderScout();} function confirmarScout(){if(!scoutTemp.tipo||!scoutTemp.detalhe)return toast('Complete o scout'); if(scoutTemp.tipo==='ponto'&&!scoutTemp.numero)return toast('Selecione o número que fez o ponto'); fecharScout(); confirmarPonto(scoutTemp.equipe,{tipo:scoutTemp.tipo,detalhe:scoutTemp.detalhe,numero:scoutTemp.numero||''});}
+function garantirVinculosSub(){estado.vinculos_substituicao=estado.vinculos_substituicao||{A:{},B:{}};estado.vinculos_substituicao.A=estado.vinculos_substituicao.A||{};estado.vinculos_substituicao.B=estado.vinculos_substituicao.B||{};estado.substituidos_finalizados=estado.substituidos_finalizados||{A:[],B:[]};estado.substituidos_finalizados.A=estado.substituidos_finalizados.A||[];estado.substituidos_finalizados.B=estado.substituidos_finalizados.B||[];}
+function numerosDoBanco(l){garantirVinculosSub();const emQuadra=new Set((rot(l)||[]).filter(Boolean).map(String));const todos=new Set([...(estado[`numeros_${l.toLowerCase()}`]||[]),...(estado[`banco_${l.toLowerCase()}`]||[])].filter(Boolean).map(String));Object.keys((estado.vinculos_substituicao||{})[l]||{}).forEach(n=>todos.add(String(n)));(estado.substituidos_finalizados?.[l]||[]).forEach(n=>todos.add(String(n)));return [...todos].filter(n=>!emQuadra.has(n));}
+function entradasPermitidas(l,sai){
+    garantirVinculosSub();
+    const vinc=estado.vinculos_substituicao[l]||{};
+    const finalizados=new Set((estado.substituidos_finalizados[l]||[]).map(String));
+    const bancoAtual=numerosDoBanco(l).map(String);
+    const historicos=(l==='A'?(estado.numeros_a||[]):(estado.numeros_b||[])).map(String);
+    const emQuadra=new Set((rot(l)||[]).filter(Boolean).map(String));
+    const sugestoes=[];
+    function add(n){n=String(n||'').replace(/\D/g,''); if(n && !sugestoes.includes(n) && !emQuadra.has(n) && !finalizados.has(n)) sugestoes.push(n);}
+    if(vinc[sai]){
+        add(vinc[sai]);
+        return sugestoes;
     }
-    return numero;
+    [...bancoAtual,...historicos].forEach(add);
+    Object.keys(vinc).forEach(n=>{ if(!vinc[n]) add(n); });
+    return sugestoes;
 }
-
-async function emitir(){
-    estado.partida_id = PARTIDA_ID; estado.codigo = CODIGO; estado.competicao = 'JOGO AVULSO'; estado.modo_avulso = true;
-    estado.placar_a = estado.pontos_a || 0; estado.placar_b = estado.pontos_b || 0;
-    salvarLocal(); render();
-    try { await fetch(`/apontador/jogo-avulso/${CODIGO}/estado`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({estado})}); } catch(e){}
-    if(socket) socket.emit('estado_partida', estado);
+function entradaRegularPermitida(l,sai,entra){
+    garantirVinculosSub();
+    sai=String(sai||'').replace(/\D/g,'');
+    entra=String(entra||'').replace(/\D/g,'');
+    if(!sai || !entra || sai===entra) return false;
+    const r=(rot(l)||[]).map(String);
+    if(r.includes(entra)) return false;
+    const vinc=estado.vinculos_substituicao[l]||{};
+    const finalizados=new Set((estado.substituidos_finalizados[l]||[]).map(String));
+    if(finalizados.has(entra)) return false;
+    // Se o titular que saiu já tem vínculo, só o substituto dele pode devolver.
+    if(vinc[sai]) return String(vinc[sai])===entra;
+    // Se o número digitado já é substituto vinculado a outro titular, não pode entrar regular.
+    if(vinc[entra]) return false;
+    // No jogo avulso, número digitado manualmente é permitido como nova entrada regular.
+    return true;
 }
-function girar(lado){
-    // Ordem visual guardada: [IV, III, II, V, VI, I].
-    // Regra real do voleibol no side-out: 2→1, 1→6, 6→5, 5→4, 4→3, 3→2.
-    const r = [...rotacao(lado)];
-    if(r.length >= 6){
-        const nova = [r[3], r[0], r[1], r[4], r[5], r[2]];
-        setRotacao(lado, nova);
-    }
-}
-function ponto(lado){
-    if(estado.status_jogo === 'finalizada') return;
-    const antesSaque = estado.saque_atual || 'A';
-    estado.eventos = estado.eventos || [];
-    estado.eventos.push(JSON.parse(JSON.stringify({tipo:'ponto', lado, pontos_a:estado.pontos_a||0, pontos_b:estado.pontos_b||0, saque_atual:antesSaque, rotacao_a:estado.rotacao_a, rotacao_b:estado.rotacao_b})));
-    if(lado === 'A') estado.pontos_a = (estado.pontos_a || 0) + 1; else estado.pontos_b = (estado.pontos_b || 0) + 1;
-    if(antesSaque !== lado){ girar(lado); estado.saque_atual = lado; }
-    estado.evolucao_pontos = estado.evolucao_pontos || [];
-    estado.evolucao_pontos.push({lado, ponto_lado: lado === 'A' ? estado.pontos_a : estado.pontos_b, set: estado.set_atual || 1});
-    historico(`Ponto ${nomeEquipe(lado)} — ${estado.pontos_a || 0} x ${estado.pontos_b || 0}`,'ponto');
-    verificarFimSet(); emitir();
-}
-function verificarFimSet(){
-    const a = estado.pontos_a || 0, b = estado.pontos_b || 0;
-    const alvo = ((estado.sets_tipo !== 'set_unico') && (estado.set_atual || 1) === (estado.sets_max || 3)) ? (estado.pontos_tiebreak || 15) : (estado.pontos_set || 21);
-    const diff = estado.diferenca_minima || 2;
-    if((a >= alvo || b >= alvo) && Math.abs(a-b) >= diff){
-        const vencedor = a > b ? 'A' : 'B';
-        if(vencedor === 'A') estado.sets_a = (estado.sets_a || 0) + 1; else estado.sets_b = (estado.sets_b || 0) + 1;
-        historico(`Set ${estado.set_atual || 1} finalizado: ${nomeEquipe(vencedor)} venceu por ${a} x ${b}`,'fim_set');
-        if((estado.sets_a || 0) >= (estado.sets_para_vencer || 1) || (estado.sets_b || 0) >= (estado.sets_para_vencer || 1)){
-            estado.status_jogo = 'finalizada'; estado.fim_jogo = true;
-            historico(`Jogo encerrado. Vencedor: ${nomeEquipe(vencedor)}`,'fim_jogo');
-        } else {
-            estado.status_jogo = 'entre_sets'; estado.fim_set = true;
-            alert('Set finalizado. Clique em "Iniciar próximo set" quando estiver pronto.');
+function abrirSub(l,porExpulsao=false){garantirVinculosSub();subTemp={equipe:l,sai:'',entra:'',porExpulsao:!!porExpulsao}; document.getElementById('subEquipeTxt').textContent=equipeNome(l)+(porExpulsao?' • substituição por expulsão':''); document.getElementById('subSaiBox').innerHTML=(rot(l)||[]).filter(Boolean).map(n=>chip('Nº '+n,false,`subSetSai('${n}')`)).join(''); document.getElementById('subEntra').value=''; let lista=document.getElementById('subEntradaOpcoes'); if(lista)lista.innerHTML=''; document.getElementById('modalSub').classList.add('aberto');} function fecharSub(){document.getElementById('modalSub').classList.remove('aberto');} function subSetSai(n){subTemp.sai=String(n); document.querySelectorAll('#subSaiBox .chip').forEach(b=>b.classList.toggle('ativo',b.textContent.includes(String(n)))); const opcoes=entradasPermitidas(subTemp.equipe,String(n)); const input=document.getElementById('subEntra'); input.value=''; const box=input.parentElement; let lista=document.getElementById('subEntradaOpcoes'); if(!lista){lista=document.createElement('div');lista.id='subEntradaOpcoes';lista.className='opcoes';box.after(lista);} lista.innerHTML=opcoes.map(x=>chip('Nº '+x,false,`subSetEntra('${x}')`)).join('') || '<span style="font-weight:900;color:#64748b">Digite o número que irá entrar.</span>'; } function subSetEntra(n){subTemp.entra=String(n);document.getElementById('subEntra').value=String(n);document.querySelectorAll('#subEntradaOpcoes .chip').forEach(b=>b.classList.toggle('ativo',b.textContent.includes(String(n))));}
+function confirmarSub(){
+    garantirVinculosSub();
+    const entra=(document.getElementById('subEntra').value||subTemp.entra||'').replace(/\D/g,'');
+    if(!subTemp.sai||!entra)return toast('Informe quem sai e quem entra');
+    if(!subTemp.porExpulsao && !entradaRegularPermitida(subTemp.equipe,subTemp.sai,entra))return toast('Entrada não permitida pela regra de vínculo. Use substituição excepcional quando necessário.');
+    const r=rot(subTemp.equipe)||[];
+    const idx=r.indexOf(subTemp.sai);
+    if(idx>=0)r[idx]=entra;
+    setRot(subTemp.equipe,r);
+    const vinc=estado.vinculos_substituicao[subTemp.equipe];
+    if(!subTemp.porExpulsao){
+        if(vinc[subTemp.sai]&&String(vinc[subTemp.sai])===String(entra)){
+            estado.substituidos_finalizados[subTemp.equipe].push(String(subTemp.sai));
+            estado.substituidos_finalizados[subTemp.equipe].push(String(entra));
+            delete vinc[subTemp.sai];
+        }else{
+            vinc[entra]=String(subTemp.sai);
         }
     }
+    if(subTemp.equipe==='A')estado.subs_a++; else estado.subs_b++;
+    const numsKey=subTemp.equipe==='A'?'numeros_a':'numeros_b';
+    estado[numsKey]=Array.from(new Set([...(estado[numsKey]||[]).map(String),String(subTemp.sai),String(entra)])).sort((a,b)=>int(a)-int(b));
+    addHist(`Substituição ${equipeNome(subTemp.equipe)}: sai nº ${subTemp.sai}, entra nº ${entra}`,'substituicao',{equipe:subTemp.equipe,sai:subTemp.sai,entra,por_expulsao:!!subTemp.porExpulsao});
+    fecharSub(); salvarServidor(); render();
 }
-function proximoSetManual(){
-    if(estado.status_jogo === 'finalizada') return;
-    estado.set_atual = (estado.set_atual || 1) + 1; estado.pontos_a = 0; estado.pontos_b = 0; estado.fim_set = false; estado.status_jogo = 'em_andamento'; estado.tempos_a=0; estado.tempos_b=0; estado.subs_a=0; estado.subs_b=0;
-    historico(`Set ${estado.set_atual} iniciado`,'inicio_set'); emitir();
+function abrirTempo(l){if(l==='A')estado.tempos_a++;else estado.tempos_b++; estado.tempo_ativo={equipe:l,equipe_nome:equipeNome(l),inicio:Date.now(),segundos:30}; addHist(`Tempo ${equipeNome(l)}`,'tempo'); salvarServidor(); abrirCronometro(30); render();}
+function abrirCronometro(s){let t=s; const cr=document.getElementById('cronometro'), num=document.getElementById('tempoNumero'); cr.classList.add('aberto'); clearInterval(timerTempo); num.textContent=t; timerTempo=setInterval(()=>{t--;num.textContent=Math.max(0,t);estado.tempo_ativo={...(estado.tempo_ativo||{}),restante:Math.max(0,t)};salvarLocal(); if(t<=0){clearInterval(timerTempo);}},1000);} function fecharCronometro(){document.getElementById('cronometro').classList.remove('aberto');clearInterval(timerTempo);estado.tempo_ativo=null;salvarServidor();}
+function mostrarPopupSaqueLocal(l){document.getElementById('popupNumero').textContent=sacador(l);document.getElementById('popupEquipe').textContent=equipeNome(l);document.getElementById('popupSaque').classList.add('aberto');clearTimeout(popupTimer);popupTimer=setTimeout(fecharPopupSaque,4300)} function fecharPopupSaque(){document.getElementById('popupSaque').classList.remove('aberto');}
+function abrirSancao(l){abrirAcaoDisciplinar('Sanção',l,'sancao',['Advertência','Penalidade','Expulsão','Desqualificação']);}
+function abrirVerde(l){abrirAcaoDisciplinar('Cartão verde',l,'cartao_verde',['Cartão verde']);}
+function abrirRetardamento(l){abrirGenerico('Retardamento',l,['Advertência por retardamento','Penalidade por retardamento'],'retardamento')}
+function abrirSubEx(l){abrirGenerico('Substituição excepcional',l,['Lesão','Sangramento','Indisposição','Outro'],'sub_excepcional')}
+function alvosAcaoEquipe(l,tipoPessoa){
+    if(tipoPessoa==='atleta') return (rot(l)||[]).filter(Boolean).map(n=>({valor:n,label:'Nº '+n}));
+    return [{valor:'tecnico',label:'Técnico'},{valor:'auxiliar',label:'Auxiliar'},{valor:'comissao',label:'Comissão técnica'}];
 }
-function desfazer(){
-    const ev = (estado.eventos || []).pop();
-    if(!ev){ alert('Nada para desfazer.'); return; }
-    estado.pontos_a = ev.pontos_a || 0; estado.pontos_b = ev.pontos_b || 0; estado.saque_atual = ev.saque_atual || estado.saque_atual; estado.rotacao_a = ev.rotacao_a || estado.rotacao_a; estado.rotacao_b = ev.rotacao_b || estado.rotacao_b;
-    historico('Último ponto desfeito','desfazer'); emitir();
+function abrirAcaoDisciplinar(titulo,l,tipo,opcoes){
+    genTemp={tipo,equipe:l,titulo,opcoes,valor:'',tipoPessoa:'atleta',alvo:''};
+    renderAcaoDisciplinar();
+    document.getElementById('modalGenerico').classList.add('aberto');
 }
-function abrirTempo(lado){
-    const key = lado === 'A' ? 'tempos_a' : 'tempos_b';
-    if((estado[key] || 0) >= (estado.limite_tempos || 2)){ alert('Limite de tempos atingido.'); return; }
-    estado[key] = (estado[key] || 0) + 1;
-    estado.tempo_ativo = true;
-    estado.tempo_lado = lado;
-    estado.tempo_inicio_ts = Math.floor(Date.now() / 1000);
-    estado.tempo_duracao = 30;
-    estado.tempo_fim_ts = estado.tempo_inicio_ts + estado.tempo_duracao;
-    historico(`Tempo para ${nomeEquipe(lado)} (${estado[key]}/${estado.limite_tempos || 2})`,'tempo');
-    emitir();
-    atualizarCronometroTempo();
+function renderAcaoDisciplinar(){
+    document.getElementById('genTitulo').textContent=`${genTemp.titulo} • ${equipeNome(genTemp.equipe)}`;
+    const alvos=alvosAcaoEquipe(genTemp.equipe,genTemp.tipoPessoa);
+    const html=`
+        <div><b>1. Tipo de pessoa</b><div class='opcoes'>
+            ${chip('Atleta em quadra',genTemp.tipoPessoa==='atleta',`genSetTipoPessoa('atleta')`)}
+            ${chip('Comissão técnica',genTemp.tipoPessoa==='comissao',`genSetTipoPessoa('comissao')`)}
+        </div></div>
+        <div><b>2. Alvo</b><div class='opcoes'>
+            ${alvos.map(a=>chip(a.label,genTemp.alvo===a.valor,`genSetAlvo('${a.valor}')`)).join('') || '<span style="color:#64748b;font-weight:900">Sem números em quadra.</span>'}
+        </div></div>
+        <div><b>3. Tipo</b><div class='opcoes'>
+            ${(genTemp.opcoes||[]).map(o=>chip(o,genTemp.valor===o,`genSet('${o}')`)).join('')}
+        </div></div>
+        <div style='margin-top:8px;color:#64748b;font-weight:900'>${resumoAcaoDisciplinar()}</div>`;
+    document.getElementById('genConteudo').innerHTML=html;
 }
-function segundosRestantesTempo(){
-    if(!estado.tempo_ativo) return 0;
-    const fim = Number(estado.tempo_fim_ts || 0);
-    return Math.max(0, Math.ceil(fim - (Date.now() / 1000)));
+function resumoAcaoDisciplinar(){
+    const alvoLabel = genTemp.tipoPessoa==='atleta' ? (genTemp.alvo?('Nº '+genTemp.alvo):'selecione o número') : (genTemp.alvo||'selecione o alvo');
+    return `${genTemp.titulo||'Ação'} • ${equipeNome(genTemp.equipe)} • ${alvoLabel} • ${genTemp.valor||'selecione o tipo'}`;
 }
-function atualizarCronometroTempo(){
-    const box = document.getElementById('timerBox');
-    if(!box) return;
-    const resto = segundosRestantesTempo();
-    if(estado.tempo_ativo && resto > 0){
-        box.style.display = 'flex';
-        document.getElementById('timerEquipe').innerText = `Tempo — ${nomeEquipe(estado.tempo_lado || 'A')}`;
-        document.getElementById('timerNum').innerText = resto;
-    } else {
-        box.style.display = 'none';
-        if(estado.tempo_ativo && resto <= 0){
-            estado.tempo_ativo = false;
-            estado.ultima_acao = `Tempo encerrado — ${nomeEquipe(estado.tempo_lado || 'A')}`;
-            salvarLocal();
-        }
+function genSetTipoPessoa(v){genTemp.tipoPessoa=v;genTemp.alvo='';renderAcaoDisciplinar();}
+function genSetAlvo(v){genTemp.alvo=v;renderAcaoDisciplinar();}
+function abrirGenerico(t,l,ops,tipo){genTemp={tipo,equipe:l,valor:''};document.getElementById('genTitulo').textContent=`${t} • ${equipeNome(l)}`;document.getElementById('genConteudo').innerHTML=`<div class='opcoes'>${ops.map(o=>chip(o,false,`genSet('${o}')`)).join('')}</div>`;document.getElementById('modalGenerico').classList.add('aberto');}
+function genSet(v){genTemp.valor=v;if(['sancao','cartao_verde'].includes(genTemp.tipo)){renderAcaoDisciplinar();return;}document.querySelectorAll('#genConteudo .chip').forEach(b=>b.classList.toggle('ativo',b.textContent===v));}
+function fecharGenerico(){document.getElementById('modalGenerico').classList.remove('aberto');}
+function confirmarGenerico(){
+    if(['sancao','cartao_verde'].includes(genTemp.tipo)){
+        if(!genTemp.alvo||!genTemp.valor)return toast('Selecione alvo e tipo');
+        const alvoTxt=genTemp.tipoPessoa==='atleta'?`nº ${genTemp.alvo}`:genTemp.alvo;
+        const titulo=genTemp.titulo||genTemp.tipo;
+        addHist(`${titulo}: ${genTemp.valor} • ${equipeNome(genTemp.equipe)} • ${alvoTxt}`,genTemp.tipo,{equipe:genTemp.equipe,tipo_pessoa:genTemp.tipoPessoa,alvo:genTemp.alvo,valor:genTemp.valor});
+        const valorLower=String(genTemp.valor||'').toLowerCase();
+        const ehPenalidade=valorLower.includes('penalidade');
+        const ehExpulsao=valorLower.includes('expuls');
+        const equipe=genTemp.equipe;
+        fecharGenerico();
+        if(ehPenalidade){aplicarPenalidadeContra(equipe,titulo,genTemp.valor);return;}
+        salvarServidor(); render();
+        if(ehExpulsao){setTimeout(()=>abrirSub(equipe,true),250);}
+        return;
     }
+    if(genTemp.tipo==='retardamento'){
+        if(!genTemp.valor)return toast('Selecione o tipo de retardamento');
+        const valorLower=String(genTemp.valor||'').toLowerCase();
+        const titulo='Retardamento';
+        const equipe=genTemp.equipe;
+        addHist(`${titulo}: ${genTemp.valor} • ${equipeNome(equipe)}`,genTemp.tipo,{equipe:equipe,valor:genTemp.valor});
+        fecharGenerico();
+        if(valorLower.includes('penalidade')){aplicarPenalidadeContra(equipe,titulo,genTemp.valor);return;}
+        salvarServidor(); render();
+        return;
+    }
+    if(!genTemp.valor)return toast('Selecione uma opção'); addHist(`${genTemp.valor} • ${equipeNome(genTemp.equipe)}`,genTemp.tipo,{equipe:genTemp.equipe}); fecharGenerico(); salvarServidor(); render();
 }
-function encerrarTempoManual(){
-    if(!estado.tempo_ativo) return;
-    historico(`Tempo encerrado — ${nomeEquipe(estado.tempo_lado || 'A')}`,'tempo_fim');
-    estado.tempo_ativo = false;
-    estado.tempo_fim_ts = Math.floor(Date.now()/1000);
-    emitir();
-}
-
-function abrirSub(lado){
-    const r = rotacao(lado);
-    modal(`<h3>Substituição — ${nomeEquipe(lado)}</h3><p>Escolha quem sai. Depois escolha um número do banco ou digite um novo número na hora.</p><div><b>Sai</b><div class="modal-grid">${r.map(n=>`<button onclick="escolherSai('${lado}','${n}')">${n}</button>`).join('')}</div></div><div id="entraBox"></div><div class="modal-actions"><button onclick="fecharModal()">Fechar</button></div>`);
-}
-function escolherSai(lado,sai){
-    const emQuadra = new Set(rotacao(lado).map(String));
-    const disponiveis = numeros(lado).map(String).filter(n=>!emQuadra.has(n) || n===String(sai));
-    const botoes = disponiveis.length ? disponiveis.map(n=>`<button onclick="confirmarSub('${lado}','${sai}','${n}')">${n}</button>`).join('') : '<div style="font-weight:800;color:#64748b;grid-column:1/-1">Nenhum reserva cadastrado.</div>';
-    document.getElementById('entraBox').innerHTML = `<div style="margin-top:12px"><b>Entra</b><div class="modal-grid">${botoes}</div><input class="input-numero" id="numeroNovoSub" inputmode="numeric" maxlength="3" placeholder="Ou digite o número que vai entrar" oninput="this.value=this.value.replace(/\D/g,'').slice(0,3)"><div class="modal-actions"><button class="btn-green" onclick="confirmarSubDigitada('${lado}','${sai}')">Confirmar número digitado</button></div></div>`;
-}
-function confirmarSubDigitada(lado,sai){
-    const el = document.getElementById('numeroNovoSub');
-    const numero = adicionarNumeroLado(lado, el ? el.value : '');
-    if(!numero){ alert('Digite o número que vai entrar.'); return; }
-    confirmarSub(lado, sai, numero);
-}
-function confirmarSub(lado,sai,entra){
-    entra = adicionarNumeroLado(lado, entra);
-    if(!entra){ alert('Número inválido.'); return; }
-    if(String(sai) === String(entra)){ fecharModal(); return; }
-    const key = lado === 'A' ? 'subs_a' : 'subs_b';
-    if((estado[key] || 0) >= (estado.limite_substituicoes || 6)){ alert('Limite de substituições atingido.'); return; }
-    const r = rotacao(lado).map(n=> String(n) === String(sai) ? String(entra) : n);
-    setRotacao(lado,r);
-    const bancoKey = lado === 'A' ? 'banco_a' : 'banco_b';
-    estado[bancoKey] = Array.from(new Set([...(estado[bancoKey] || []).map(String).filter(n=>String(n)!==String(entra)), String(sai)]));
-    estado[key] = (estado[key] || 0) + 1;
-    historico(`Substituição ${nomeEquipe(lado)}: sai ${sai}, entra ${entra}`,'substituicao');
-    fecharModal(); emitir();
-}
-function abrirScout(lado){
-    const botoes = numeros(lado).map(n=>`<button onclick="scoutNumero('${lado}','${n}')">${n}</button>`).join('');
-    modal(`<h3>Scout — ${nomeEquipe(lado)}</h3><p>Escolha o número ou digite um número novo.</p><div class="modal-grid">${botoes}</div><input class="input-numero" id="numeroNovoScout" inputmode="numeric" maxlength="3" placeholder="Digitar número" oninput="this.value=this.value.replace(/\D/g,'').slice(0,3)"><div class="modal-actions"><button class="btn-green" onclick="scoutNumeroDigitado('${lado}')">Usar número digitado</button></div><div id="scoutTipo"></div><div class="modal-actions"><button onclick="fecharModal()">Fechar</button></div>`);
-}
-function scoutNumeroDigitado(lado){
-    const el = document.getElementById('numeroNovoScout');
-    const numero = adicionarNumeroLado(lado, el ? el.value : '');
-    if(!numero){ alert('Digite o número.'); return; }
-    scoutNumero(lado, numero);
-}
-function scoutNumero(lado,n){
-    const tipos = ['Ataque ponto','Ace','Bloqueio','Erro saque','Erro ataque','Defesa'];
-    document.getElementById('scoutTipo').innerHTML = `<div style="margin-top:12px"><b>Ação do nº ${n}</b><div class="modal-grid">${tipos.map(t=>`<button onclick="confirmarScout('${lado}','${n}','${t}')">${t}</button>`).join('')}</div></div>`;
-}
-function confirmarScout(lado,n,tipo){
-    estado.scout = estado.scout || {}; const key = `${lado}_${n}_${tipo}`; estado.scout[key] = (estado.scout[key] || 0) + 1;
-    historico(`Scout ${nomeEquipe(lado)} nº ${n}: ${tipo}`,'scout'); fecharModal(); emitir();
-}
-function encerrarJogo(){ if(confirm('Encerrar este jogo rápido?')){ estado.status_jogo='finalizada'; estado.fim_jogo=true; historico('Jogo encerrado manualmente','fim_jogo'); emitir(); } }
-function modal(html){ document.getElementById('modalCard').innerHTML = html; document.getElementById('modal').style.display='flex'; }
-function fecharModal(){ document.getElementById('modal').style.display='none'; }
-function copiarLinks(){
-    const base = window.location.origin;
-    const texto = `Jogo rápido ${CODIGO}\nTelão: ${base}/telao-avulso/${CODIGO}\n1º árbitro: ${base}/arbitro1-avulso/${CODIGO}\n2º árbitro: ${base}/arbitro2-avulso/${CODIGO}`;
-    navigator.clipboard.writeText(texto).then(()=>alert('Links copiados.')).catch(()=>prompt('Copie os links:', texto));
-}
-function iniciarSocket(){
-    try { socket = io(); socket.emit('entrar_partida', {partida_id:PARTIDA_ID, competicao:'JOGO AVULSO'}); } catch(e){}
-}
-iniciarSocket(); render(); emitir(); setInterval(atualizarCronometroTempo, 250);
+function wo(l){if(!confirm(`Confirmar WO para ${equipeNome(l)}?`))return; const o=oponente(l); estado.pontos_a=l==='A'?21:0;estado.pontos_b=l==='B'?21:0; finalizarSet(l); salvarServidor(); render();}
+function encerrarManual(){if(confirm('Encerrar a partida agora?')){estado.status_jogo='finalizado';estado.fase_partida='finalizado';addHist('Partida encerrada manualmente','fim_jogo');salvarServidor();abrirRelatorio();render();}}
+function abrirRelatorio(){if(estado.modo_operacao!=='avancado'){return toast('Relatório disponível apenas no modo avançado.');} const box=document.getElementById('relatorioBox'); const scouts=estado.scout_eventos||[]; const porNum={}; scouts.forEach(s=>{const k=`${s.equipe_nome} nº ${s.numero}`; porNum[k]=porNum[k]||{ataque:0,bloqueio:0,ace:0,total:0}; if(s.detalhe==='ataque')porNum[k].ataque++; if(s.detalhe==='bloqueio')porNum[k].bloqueio++; if(s.detalhe==='ace')porNum[k].ace++; if(['ataque','bloqueio','ace'].includes(s.detalhe))porNum[k].total++;}); box.innerHTML=`<h2>Relatório - Jogo Avulso ${CODIGO}</h2><p><b>${estado.equipe_a}</b> ${estado.sets_a} x ${estado.sets_b} <b>${estado.equipe_b}</b></p><p>Placar atual/final: ${estado.pontos_a} x ${estado.pontos_b}</p><h3>Parciais</h3><table class='tabela'><tr><th>Set</th><th>${estado.equipe_a}</th><th>${estado.equipe_b}</th><th>Vencedor</th></tr>${(estado.historico_sets||[]).map(s=>`<tr><td>${s.set}</td><td>${s.pontos_a}</td><td>${s.pontos_b}</td><td>${equipeNome(s.vencedor)}</td></tr>`).join('')}</table><h3>Scout por número</h3><table class='tabela'><tr><th>Atleta</th><th>Ataque</th><th>Bloqueio</th><th>Ace</th><th>Total</th></tr>${Object.entries(porNum).map(([k,v])=>`<tr><td>${k}</td><td>${v.ataque}</td><td>${v.bloqueio}</td><td>${v.ace}</td><td>${v.total}</td></tr>`).join('')||'<tr><td colspan="5">Sem scout registrado.</td></tr>'}</table><h3>Eventos</h3>${(estado.eventos||[]).slice().reverse().map(e=>`<div class='item'>${e.descricao}</div>`).join('')}`; box.classList.add('aberto');}
+function exportarPDF(){if(estado.modo_operacao!=='avancado'){return toast('PDF disponível apenas no modo avançado.');} abrirRelatorio();setTimeout(()=>window.print(),200)} function limparLocal(){if(confirm('Limpar estado local desta partida neste aparelho?')){localStorage.removeItem(LS_ESTADO);location.reload();}}
+setInterval(async()=>{try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json(); if(j.estado&&j.estado.atualizado_em&&j.estado.atualizado_em!==estado.atualizado_em){/* não sobrescreve operação local ativa */}}catch(e){}},5000);
+render();
 </script>
 {% endblock %}
