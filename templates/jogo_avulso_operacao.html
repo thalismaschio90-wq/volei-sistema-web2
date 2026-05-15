@@ -3,9 +3,198 @@
 {% block conteudo %}
 <style>
 header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;margin:0 auto}.av-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}.av-title{font-size:24px;font-weight:1000;color:#0f172a}.av-sub{color:#64748b;font-weight:800}.av-actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid #dbe3ef;border-radius:12px;padding:10px 13px;background:#fff;color:#0f172a;font-weight:1000;cursor:pointer;text-decoration:none}.btn:hover{background:#f8fafc}.btn-green{background:#16a34a;color:#fff;border:0}.btn-blue{background:#2563eb;color:#fff;border:0}.btn-red{background:#ef4444;color:#fff;border:0}.btn-yellow{background:#f59e0b;color:#111827;border:0}.placar{display:grid;grid-template-columns:1fr 180px 1fr;gap:12px;align-items:stretch}.time{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px}.time h2{margin:0;font-size:28px;font-weight:1000}.pontos{font-size:92px;line-height:.9;font-weight:1000;color:#0f172a;text-align:center}.sets{background:#0f172a;color:#fff;border-radius:22px;padding:18px;text-align:center;display:flex;flex-direction:column;justify-content:center}.sets .n{font-size:42px;font-weight:1000}.sets small{color:#cbd5e1;font-weight:900}.saque{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:1000}.quadra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pos{border:2px solid #dbe3ef;background:#f8fafc;border-radius:16px;min-height:72px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-weight:1000;font-size:24px}.pos small{font-size:12px;color:#64748b}.pos.saque-atual{background:#fef3c7;border-color:#f59e0b}.team-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.painel{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow)}.lista{max-height:310px;overflow:auto}.item{padding:9px 0;border-bottom:1px solid #eef2f7;font-weight:800;color:#334155}.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:14px}.modal.aberto{display:flex}.modal-box{background:#fff;border-radius:22px;padding:18px;max-width:620px;width:100%;box-shadow:0 18px 60px rgba(0,0,0,.35)}.modal-box h3{margin:0 0 10px}.opcoes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.chip{border:1px solid #dbe3ef;border-radius:14px;background:#f8fafc;padding:11px 13px;font-weight:1000;cursor:pointer;min-width:92px;text-align:center}.chip.ativo{background:#dcfce7;border-color:#86efac;color:#166534}.chip.bloqueado{opacity:.42;cursor:not-allowed}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;font-weight:900;margin-bottom:5px}.field input,.field select{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:11px;font-weight:900}.cronometro,.popup-saque{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:9998;display:none;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}.cronometro.aberto,.popup-saque.aberto{display:flex}.cronometro .tempo{font-size:150px;font-weight:1000;line-height:1}.popup-card{background:radial-gradient(circle at top,#fff,#dbeafe);color:#10283d;border-radius:34px;box-shadow:0 28px 90px rgba(0,0,0,.42);width:min(900px,96vw);min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:28px}.popup-card .titulo{font-size:clamp(30px,5vw,62px);font-weight:1000;letter-spacing:.08em}.popup-card .numero{font-size:clamp(110px,18vw,190px);font-weight:1000;line-height:.9}.popup-card .equipe{font-size:clamp(22px,4vw,42px);font-weight:1000}.relatorio{display:none}.relatorio.aberto{display:block}.rel-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.tabela{width:100%;border-collapse:collapse}.tabela th,.tabela td{border:1px solid #e5e7eb;padding:8px;text-align:left}.tabela th{background:#f8fafc}.av-alert{position:fixed;top:18px;right:18px;background:#111827;color:#fff;padding:12px 14px;border-radius:14px;z-index:10000;font-weight:900;display:none}@media(max-width:900px){.placar{grid-template-columns:1fr}.painel{grid-template-columns:1fr}.pontos{font-size:76px}.sets{order:-1}.rel-grid{grid-template-columns:1fr}}@media print{body *{visibility:hidden}.relatorio,.relatorio *{visibility:visible}.relatorio{position:absolute;left:0;top:0;width:100%;display:block!important}.no-print{display:none!important}}
+
+
+/* =========================================================
+   RESPONSIVO MOBILE - OPERAÇÃO DO JOGO AVULSO
+   Mantém a mesa do apontador em modo paisagem no celular.
+   ========================================================= */
+.aviso-horizontal{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:999999;
+    background:linear-gradient(160deg,#06111f,#0f172a);
+    color:#fff;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:28px;
+    box-sizing:border-box;
+}
+.aviso-horizontal-card{
+    width:min(420px,92vw);
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:26px;
+    background:rgba(255,255,255,.08);
+    box-shadow:0 24px 80px rgba(0,0,0,.35);
+    padding:24px 20px;
+}
+.aviso-horizontal-icone{font-size:64px;line-height:1;margin-bottom:14px;}
+.aviso-horizontal strong{display:block;font-size:28px;font-weight:1000;margin-bottom:8px;}
+.aviso-horizontal p{margin:0;color:#cbd5e1;font-size:16px;font-weight:800;line-height:1.35;}
+
+@media (orientation: portrait) and (max-width: 900px){
+    html,body{height:100%;overflow:hidden!important;}
+    .aviso-horizontal{display:flex;}
+    .conteudo-operacao{display:none!important;}
+    .modal,.cronometro,.popup-saque,.av-alert{display:none!important;}
+}
+
+@media (orientation: landscape) and (max-width: 950px){
+    html,body{
+        width:100vw;
+        min-height:100vh;
+        overflow:auto!important;
+        -webkit-text-size-adjust:100%;
+        touch-action:manipulation;
+    }
+    .aviso-horizontal{display:none!important;}
+    .conteudo-operacao{
+        display:block;
+        transform:none;
+        width:100vw;
+        max-width:none;
+        min-height:100vh;
+        padding:8px;
+        box-sizing:border-box;
+    }
+    .av-wrap{max-width:none!important;}
+    .av-top{
+        padding:8px;
+        border-radius:14px;
+        gap:8px;
+        margin-bottom:8px;
+    }
+    .av-title{font-size:17px;line-height:1.1;}
+    .av-sub{font-size:12px;}
+    .av-actions{gap:6px;}
+    .btn{
+        min-height:44px;
+        padding:9px 10px;
+        border-radius:11px;
+        font-size:12px;
+        line-height:1.05;
+    }
+    .placar{
+        grid-template-columns:minmax(0,1fr) 112px minmax(0,1fr);
+        gap:8px;
+        align-items:stretch;
+    }
+    .time{
+        padding:9px;
+        border-radius:16px;
+        gap:8px;
+        min-width:0;
+    }
+    .time h2{
+        font-size:16px;
+        line-height:1.05;
+        min-height:34px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        text-align:center;
+    }
+    .pontos{font-size:54px;line-height:.9;}
+    .sets{
+        padding:8px;
+        border-radius:16px;
+    }
+    .sets .n{font-size:24px;line-height:1.05;}
+    .sets small{font-size:10px;}
+    .saque{
+        width:100%;
+        box-sizing:border-box;
+        justify-content:center;
+        padding:6px 8px;
+        font-size:11px;
+        white-space:nowrap;
+    }
+    .quadra{
+        grid-template-columns:repeat(3,1fr);
+        gap:6px;
+    }
+    .pos{
+        min-height:48px;
+        border-radius:11px;
+        font-size:21px;
+    }
+    .pos small{font-size:10px;}
+    .team-actions{
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        gap:6px;
+    }
+    .team-actions .btn{
+        min-height:46px;
+        padding:7px 6px;
+        font-size:11px;
+        white-space:normal;
+    }
+    .team-actions .btn-green{
+        grid-column:span 2;
+        font-size:14px;
+        min-height:50px;
+    }
+    .painel{
+        grid-template-columns:1fr 1fr;
+        gap:8px;
+        margin-top:8px;
+    }
+    .card{
+        padding:10px;
+        border-radius:16px;
+    }
+    .card h3{margin:0 0 8px;font-size:15px;}
+    .lista{max-height:130px;}
+    .item{padding:6px 0;font-size:12px;}
+    .modal{padding:8px;}
+    .modal-box{
+        max-width:92vw;
+        max-height:92vh;
+        overflow:auto;
+        border-radius:18px;
+        padding:12px;
+    }
+    .modal-box h3{font-size:18px;}
+    .opcoes{gap:6px;margin:8px 0;}
+    .chip{
+        min-width:72px;
+        min-height:44px;
+        padding:9px 10px;
+        font-size:13px;
+    }
+    .field input,.field select{
+        min-height:46px;
+        font-size:16px;
+    }
+    .cronometro .tempo{font-size:120px;}
+    .popup-card{
+        min-height:260px;
+        width:min(720px,94vw);
+        border-radius:26px;
+        padding:20px;
+    }
+}
+
+@media (orientation: landscape) and (max-width: 760px){
+    .av-top{align-items:flex-start;}
+    .av-actions .btn{font-size:11px;min-height:40px;padding:7px 8px;}
+    .placar{grid-template-columns:minmax(0,1fr) 96px minmax(0,1fr);gap:6px;}
+    .pontos{font-size:46px;}
+    .sets .n{font-size:21px;}
+    .pos{min-height:42px;font-size:19px;}
+    .team-actions .btn{min-height:42px;font-size:10px;}
+    .team-actions .btn-green{min-height:46px;font-size:13px;}
+    .painel{grid-template-columns:1fr;}
+    .lista{max-height:100px;}
+}
+
 </style>
+<div id="avisoHorizontalOperacao" class="aviso-horizontal"><div class="aviso-horizontal-card"><div class="aviso-horizontal-icone">📱↔️</div><strong>Vire o celular</strong><p>Esta tela de operação foi feita para usar com o celular deitado, igual uma mesa de apontamento.</p></div></div>
 <div id="avAlert" class="av-alert"></div>
-<div class="av-wrap" id="wrap">
+<div class="av-wrap conteudo-operacao" id="wrap">
   <div class="av-top no-print">
     <div><div class="av-title">Jogo Avulso • <span id="codigoTxt">{{ codigo }}</span></div><div class="av-sub"><span id="subInfo"></span></div></div>
     <div class="av-actions">

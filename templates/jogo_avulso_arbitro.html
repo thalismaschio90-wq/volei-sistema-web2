@@ -1,27 +1,79 @@
 <!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ arbitro }} Jogo Rápido</title>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{ arbitro }} avulso</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#0f172a;color:#fff;font-family:Inter,Arial,sans-serif}.wrap{min-height:100vh;padding:18px;display:grid;grid-template-rows:auto auto 1fr;gap:14px}.top{background:linear-gradient(135deg,#123852,#0f766e);border-radius:22px;padding:16px;display:flex;justify-content:space-between;gap:12px;align-items:center}.role{font-size:28px;font-weight:1000}.code{color:#cbd5e1;font-weight:900}.placar{display:grid;grid-template-columns:1fr 120px 1fr;gap:10px}.team{border-radius:20px;padding:14px;text-align:center}.a{background:#1d4ed8}.b{background:#dc2626}.name{font-size:20px;font-weight:1000}.score{font-size:72px;font-weight:1000;line-height:1}.mid{background:#020617;border-radius:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:1000}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{background:#fff;color:#0f172a;border-radius:20px;padding:14px}.panel h3{margin:0 0 10px}.rot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.rot div{background:#f1f5f9;border-radius:14px;min-height:64px;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:1000}.saque{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#facc15;color:#111827;border-radius:999px;padding:14px 24px;font-size:22px;font-weight:1000;text-align:center;max-width:92vw}.ultima{background:#020617;border-radius:18px;padding:14px;font-weight:900;color:#e2e8f0}.tempoOverlay{position:fixed;inset:0;background:rgba(15,23,42,.86);z-index:99;display:none;align-items:center;justify-content:center;padding:18px}.tempoCard{background:#fff;color:#0f172a;border-radius:28px;padding:30px;text-align:center;width:min(460px,94vw);box-shadow:0 25px 90px rgba(0,0,0,.45)}.tempoCard .tempoEquipe{font-size:24px;font-weight:1000}.tempoCard .tempoNum{font-size:110px;line-height:1;font-weight:1000;margin:10px 0;color:#dc2626}@media(max-width:760px){.grid{grid-template-columns:1fr}.placar{grid-template-columns:1fr}.mid{padding:12px}.score{font-size:58px}}
-</style></head>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;min-height:100%;background:#0f172a;color:#fff;font-family:Arial,sans-serif;overflow:hidden}
+.aviso-horizontal{display:none;position:fixed;inset:0;z-index:99999;background:#0f172a;color:#fff;align-items:center;justify-content:center;text-align:center;padding:28px}
+.aviso-horizontal strong{display:block;font-size:34px;font-weight:1000;margin-bottom:10px}
+.aviso-horizontal p{font-size:18px;color:#cbd5e1;font-weight:800;margin:0;line-height:1.35}
+.conteudo-arbitro{width:100vw;min-height:100vh;overflow:hidden}
+.top{height:58px;background:#111827;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:2;border-bottom:1px solid #334155}
+.top b{font-size:17px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.10);color:#fff;border-radius:12px;padding:10px 13px;font-weight:1000;cursor:pointer;white-space:nowrap}
+.score{height:calc(100vh - 58px);display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px}
+.team{background:#1e293b;border:1px solid #334155;border-radius:22px;padding:12px;text-align:center;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.team h2{margin:0 0 6px;font-size:22px;font-weight:1000;line-height:1.05;min-height:46px;display:flex;align-items:center;justify-content:center;word-break:break-word}
+.pts{font-size:72px;font-weight:1000;line-height:.88;margin:2px 0 5px}
+.serve{color:#fde68a;font-weight:1000;margin:4px 0 8px;font-size:15px;min-height:20px}
+.quadra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;flex:1;min-height:0}
+.pos{background:#334155;border:1px solid #475569;border-radius:14px;min-height:58px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-size:28px;font-weight:1000;color:#fff}
+.pos.saque-atual{background:#78350f;border-color:#f59e0b;color:#fff7ed}
+.pos small{display:block;font-size:11px;color:#cbd5e1;margin-top:3px}
+.info{position:absolute;left:10px;right:10px;bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;pointer-events:none}
+.card{background:rgba(15,23,42,.86);border:1px solid #334155;border-radius:16px;padding:10px;font-size:13px;font-weight:800;max-height:96px;overflow:hidden}
+.card b{font-weight:1000;color:#fff}.hist-item{border-top:1px solid #334155;padding:5px 0;color:#e2e8f0}.hist-item:first-child{border-top:0}
+.popup,.tempo{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;text-align:center;z-index:9;padding:16px}.popup.aberto,.tempo.aberto{display:flex}.big{font-size:170px;font-weight:1000;line-height:.9}.label{font-size:38px;font-weight:1000}.tempo .big{font-size:150px}
+@media (orientation: portrait) and (max-width: 900px){.aviso-horizontal{display:flex}.conteudo-arbitro{display:none}}
+@media (orientation: landscape) and (max-width: 950px){
+  .conteudo-arbitro{transform:none;width:100vw;min-height:100vh;padding:0}
+  .top{height:42px;padding:6px 8px}.top b{font-size:13px}.btn{padding:7px 9px;border-radius:9px;font-size:12px}
+  .score{height:calc(100vh - 42px);grid-template-columns:1fr 1fr;gap:7px;padding:7px 7px 78px}
+  .team{border-radius:16px;padding:7px}.team h2{font-size:16px;min-height:30px;margin-bottom:2px}.pts{font-size:50px;margin:0 0 2px}.serve{font-size:12px;margin:2px 0 4px;min-height:16px}
+  .quadra{grid-template-columns:repeat(3,1fr);gap:5px;margin-top:4px}.pos{min-height:58px;font-size:22px;border-radius:10px;padding:3px}.pos small{font-size:9px;margin-top:1px}
+  .info{left:7px;right:7px;bottom:6px;grid-template-columns:1fr 1fr;gap:6px}.card{border-radius:12px;padding:7px;font-size:11px;max-height:66px}.hist-item{padding:3px 0}
+  .big{font-size:118px}.label{font-size:28px}.tempo .big{font-size:120px}
+}
+</style>
+</head>
 <body>
-<div class="wrap">
- <div class="top"><div class="role">{{ arbitro }}</div><div class="code">Jogo {{ codigo }}</div></div>
- <div class="placar"><div class="team a"><div class="name" id="nomeA">Equipe A</div><div class="score" id="scoreA">0</div></div><div class="mid"><div>SET</div><div id="setAtual" style="font-size:42px">1</div><div><span id="setsA">0</span> x <span id="setsB">0</span></div></div><div class="team b"><div class="name" id="nomeB">Equipe B</div><div class="score" id="scoreB">0</div></div></div>
- <div class="grid"><div class="panel"><h3>Rotação A</h3><div class="rot" id="rotA"></div></div><div class="panel"><h3>Rotação B</h3><div class="rot" id="rotB"></div></div><div class="ultima" id="ultima">Aguardando...</div></div>
+<div class="aviso-horizontal"><div><strong>Vire o celular</strong><p>Esta tela foi feita para uso com o celular deitado.</p></div></div>
+<div class="conteudo-arbitro">
+  <div class="top"><b>{{ arbitro }} • Avulso {{ codigo }}</b><button class="btn" onclick="inv()">Inverter lados</button></div>
+  <div class="score"><div class="team" id="esq"></div><div class="team" id="dir"></div></div>
+  <div class="info"><div class="card" id="info"></div><div class="card"><b>Últimas ações</b><div id="hist"></div></div></div>
+  <div class="popup" id="popup"><div><div class="label">NOVO SAQUE</div><div class="big" id="pnum">?</div><div class="label" id="pequipe"></div></div></div>
+  <div class="tempo" id="tempo"><div><div class="label">TEMPO</div><div class="big" id="tnum">30</div></div></div>
 </div>
-<div class="saque" id="saqueAtual">Saque: -</div><div class="tempoOverlay" id="tempoOverlay"><div class="tempoCard"><div class="tempoEquipe" id="tempoEquipe">Tempo</div><div class="tempoNum" id="tempoNum">30</div><div style="font-weight:900;color:#64748b">Cronômetro de tempo técnico</div></div></div>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
-const CODIGO={{ codigo|tojson }};const PARTIDA_ID='avulso:'+CODIGO;let estado={{ estado|tojson }}||{};
+const CODIGO={{ codigo|tojson }}, ESTADO_INICIAL={{ estado|tojson }}, endpoint=`/apontador/jogo-avulso/${CODIGO}/estado`, ARB={{ arbitro|tojson }}, LS_INV=`jogo_avulso_inversao_${ARB}_${CODIGO}`;
+let estado=ESTADO_INICIAL||{}, invertido=localStorage.getItem(LS_INV)==='1', ultimoPopup=0, tempoTs=0, tempoTimer=null;
 function nome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B')}
-function render(){document.getElementById('nomeA').innerText=estado.equipe_a||'Equipe A';document.getElementById('nomeB').innerText=estado.equipe_b||'Equipe B';document.getElementById('scoreA').innerText=estado.pontos_a||0;document.getElementById('scoreB').innerText=estado.pontos_b||0;document.getElementById('setsA').innerText=estado.sets_a||0;document.getElementById('setsB').innerText=estado.sets_b||0;document.getElementById('setAtual').innerText=estado.set_atual||1;document.getElementById('saqueAtual').innerText='Saque: '+nome(estado.saque_atual||'A');document.getElementById('rotA').innerHTML=(estado.rotacao_a||[]).map(n=>`<div>${n||'-'}</div>`).join('');document.getElementById('rotB').innerHTML=(estado.rotacao_b||[]).map(n=>`<div>${n||'-'}</div>`).join('');document.getElementById('ultima').innerText=estado.ultima_acao||'Aguardando...';atualizarTempo()}
-
-function segundosTempo(){if(!estado.tempo_ativo)return 0;return Math.max(0,Math.ceil(Number(estado.tempo_fim_ts||0)-(Date.now()/1000)))}
-function atualizarTempo(){const ov=document.getElementById('tempoOverlay');if(!ov)return;const resto=segundosTempo();if(estado.tempo_ativo&&resto>0){ov.style.display='flex';document.getElementById('tempoEquipe').innerText='Tempo — '+nome(estado.tempo_lado||'A');document.getElementById('tempoNum').innerText=resto}else{ov.style.display='none'}}
-setInterval(atualizarTempo,250);
-async function buscar(){try{const r=await fetch(`/apontador/jogo-avulso/${CODIGO}/estado`);const j=await r.json();if(j.estado){estado=j.estado;render();}}catch(e){}}
-try{const socket=io();socket.emit('entrar_arbitro',{partida_id:PARTIDA_ID,competicao:'JOGO AVULSO'});['estado_partida','estado_jogo_atualizado','estado_arbitros','estado_partida_tempo_real'].forEach(ev=>socket.on(ev,d=>{if(String(d.partida_id)===PARTIDA_ID){estado=d;render();}}));}catch(e){}
-render();buscar();setInterval(buscar,5000);
+function pts(l){return l==='A'?(estado.pontos_a||0):(estado.pontos_b||0)}
+function sets(l){return l==='A'?(estado.sets_a||0):(estado.sets_b||0)}
+function lado(p){return invertido?(p==='e'?'B':'A'):(p==='e'?'A':'B')}
+function rot(l){return l==='A'?(estado.rotacao_a||[]):(estado.rotacao_b||[])}
+function sacador(l){return (rot(l)||[])[5]||'?'}
+function q(l){return `<div class='quadra'>${(rot(l)||[]).map((n,i)=>`<div class='pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}'>${n||'-'}<small>${['IV','III','II','V','VI','I'][i]}</small></div>`).join('')}</div>`}
+function team(l){return `<h2>${nome(l)}</h2><div class='pts'>${pts(l)}</div>${estado.saque_atual===l?`<div class='serve'>🏐 Sacador nº ${sacador(l)}</div>`:'<div class="serve">&nbsp;</div>'}${q(l)}`}
+function render(){
+  const le=lado('e'), ld=lado('d');
+  document.getElementById('esq').innerHTML=team(le);
+  document.getElementById('dir').innerHTML=team(ld);
+  document.getElementById('info').innerHTML=`<b>${estado.set_atual||1}º SET</b> • Sets ${sets('A')} x ${sets('B')} • Saque: ${nome(estado.saque_atual||'A')} nº ${sacador(estado.saque_atual||'A')}`;
+  document.getElementById('hist').innerHTML=(estado.historico||[]).slice(0,3).map(h=>`<div class='hist-item'>${h.descricao||''}</div>`).join('') || '<div class="hist-item">Sem ações.</div>';
+  const p=estado.popup_saque||{};
+  if(p.ts&&p.ts!==ultimoPopup){ultimoPopup=p.ts;document.getElementById('pnum').textContent=p.numero||sacador(p.equipe);document.getElementById('pequipe').textContent=nome(p.equipe);document.getElementById('popup').classList.add('aberto');setTimeout(()=>document.getElementById('popup').classList.remove('aberto'),4200)}
+  const t=estado.tempo_ativo||{};
+  if(t.inicio&&t.inicio!==tempoTs){tempoTs=t.inicio;abrirTempo(t.restante||t.segundos||30)}
+}
+function abrirTempo(s){let n=s;clearInterval(tempoTimer);document.getElementById('tnum').textContent=n;document.getElementById('tempo').classList.add('aberto');tempoTimer=setInterval(()=>{n--;document.getElementById('tnum').textContent=Math.max(0,n);if(n<=0){clearInterval(tempoTimer);setTimeout(()=>document.getElementById('tempo').classList.remove('aberto'),800)}},1000)}
+function inv(){invertido=!invertido;localStorage.setItem(LS_INV,invertido?'1':'0');render()}
+async function sync(){try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json();if(j.estado){estado=j.estado;render()}}catch(e){}}
+render();setInterval(sync,1000);sync();
 </script>
-</body></html>
+</body>
+</html>
