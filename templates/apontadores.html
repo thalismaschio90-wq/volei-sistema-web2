@@ -152,7 +152,11 @@ function excluirApontador(cpf) {
     }
 
     fetch(`/apontadores/excluir/${cpf}`, {
-        method: "POST"
+        method: "POST",
+        headers: {
+            "X-Requested-With": "fetch",
+            "Accept": "application/json"
+        }
     })
     .then(res => res.json())
     .then(data => {

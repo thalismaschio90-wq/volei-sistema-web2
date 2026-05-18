@@ -949,8 +949,30 @@ def apontadores():
 @apontadores_bp.route("/apontadores/excluir/<cpf>", methods=["POST"])
 @exigir_perfil("superadmin")
 def excluir_apontador_global_view(cpf):
-    excluir_apontador_global(cpf)
-    flash("Apontador excluído permanentemente do sistema.", "sucesso")
+    cpf_limpo = somente_digitos(cpf or "")
+
+    try:
+        excluir_apontador_global(cpf_limpo)
+
+        if request.headers.get("X-Requested-With") == "fetch" or request.accept_mimetypes.best == "application/json":
+            return _json_no_cache({
+                "ok": True,
+                "cpf": cpf_limpo,
+                "mensagem": "Apontador excluído do sistema."
+            })
+
+        flash("Apontador excluído permanentemente do sistema.", "sucesso")
+    except Exception as e:
+        print("ERRO excluir_apontador_global_view:", e, flush=True)
+
+        if request.headers.get("X-Requested-With") == "fetch" or request.accept_mimetypes.best == "application/json":
+            return _json_no_cache({
+                "ok": False,
+                "mensagem": "Erro ao excluir apontador."
+            }, 500)
+
+        flash("Erro ao excluir apontador.", "erro")
+
     return redirect(url_for("apontadores.apontadores"))
 
 
