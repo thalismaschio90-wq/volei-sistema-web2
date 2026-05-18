@@ -1,11 +1,11 @@
 {
     "name": "VolleyTable Pro",
     "short_name": "VolleyTable",
-    "start_url": "/",
+    "start_url": "/app-login",
     "display": "standalone",
     "background_color": "#07111f",
     "theme_color": "#07111f",
-    "orientation": "landscape",
+    "orientation": "portrait",
     "icons": [
         {
             "src": "/static/icons/icon-192.png",
@@ -17,5 +17,6 @@
             "sizes": "512x512",
             "type": "image/png"
         }
-    ]
+    ],
+    "scope": "/"
 }

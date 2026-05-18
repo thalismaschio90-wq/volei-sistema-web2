@@ -6,6 +6,7 @@ from flask import (
     render_template,
 )
 import os
+from jinja2 import TemplateNotFound
 
 from extensions import socketio
 
@@ -119,6 +120,29 @@ def home():
 @app.route("/inicio")
 def inicio_publico():
     return render_template("landing.html")
+
+
+
+# ============================================================
+# 🔥 LOGIN EXCLUSIVO DO APP / PWA
+# ============================================================
+@app.route("/app")
+@app.route("/app-login")
+def app_login_pwa():
+    """
+    Tela inicial exclusiva para o aplicativo instalado no celular.
+
+    Quando o manifest.json estiver com:
+        "start_url": "/app-login"
+
+    o app abrirá direto aqui, separado da landing page normal do site.
+    Enquanto o template app_login.html ainda não existir, usa login.html
+    como fallback para não quebrar o sistema.
+    """
+    try:
+        return render_template("app_login.html")
+    except TemplateNotFound:
+        return render_template("login.html")
 
 
 # ============================================================

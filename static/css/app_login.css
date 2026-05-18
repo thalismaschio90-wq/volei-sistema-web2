@@ -1,0 +1,311 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    min-height: 100%;
+}
+
+body.app-login-body {
+    min-height: 100vh;
+    font-family: 'Montserrat', Arial, sans-serif;
+    background:
+        radial-gradient(circle at top left, rgba(255, 123, 28, 0.22), transparent 34%),
+        linear-gradient(145deg, rgba(3, 13, 31, 0.96), rgba(8, 24, 49, 0.98)),
+        url('/static/img/fundo_login.png');
+    background-size: cover;
+    background-position: center;
+    color: #fff;
+    overflow-x: hidden;
+}
+
+.app-shell {
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 22px;
+    position: relative;
+}
+
+.app-shell::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(1, 10, 24, 0.35), rgba(1, 10, 24, 0.82));
+    pointer-events: none;
+}
+
+.app-login-card {
+    width: min(100%, 430px);
+    position: relative;
+    z-index: 2;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: rgba(7, 17, 31, 0.78);
+    backdrop-filter: blur(18px);
+    border-radius: 30px;
+    padding: 30px 24px 24px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+.app-brand {
+    text-align: center;
+    margin-bottom: 26px;
+}
+
+.app-logo {
+    width: 96px;
+    height: 96px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 14px;
+    filter: drop-shadow(0 12px 25px rgba(0, 0, 0, 0.36));
+}
+
+.app-title {
+    font-size: 30px;
+    font-weight: 900;
+    line-height: 1.02;
+    letter-spacing: -0.8px;
+}
+
+.app-title span {
+    color: #ff7b1c;
+}
+
+.app-subtitle {
+    margin-top: 8px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.app-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.app-field label {
+    display: block;
+    margin-bottom: 7px;
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.86);
+}
+
+.app-input-wrap {
+    position: relative;
+}
+
+.app-input {
+    width: 100%;
+    height: 54px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 17px;
+    background: rgba(255, 255, 255, 0.095);
+    color: #fff;
+    padding: 0 16px;
+    font-size: 16px;
+    outline: none;
+}
+
+.app-input:focus {
+    border-color: rgba(255, 123, 28, 0.85);
+    box-shadow: 0 0 0 4px rgba(255, 123, 28, 0.13);
+}
+
+.app-input::placeholder {
+    color: rgba(255, 255, 255, 0.42);
+}
+
+.app-password-input {
+    padding-right: 54px;
+}
+
+.app-eye-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 42px;
+    height: 42px;
+    border: 0;
+    border-radius: 13px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 18px;
+}
+
+.app-options {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 2px 0 4px;
+    font-size: 13px;
+}
+
+.app-options label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.app-options input {
+    width: 17px;
+    height: 17px;
+    accent-color: #ff7b1c;
+}
+
+.app-link {
+    color: #ffb37a;
+    text-decoration: none;
+    font-weight: 700;
+}
+
+.app-login-button {
+    width: 100%;
+    height: 56px;
+    border: 0;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #ff7b1c, #ff9d42);
+    color: #111827;
+    font-weight: 900;
+    font-size: 17px;
+    box-shadow: 0 14px 30px rgba(255, 123, 28, 0.28);
+}
+
+.app-helper {
+    margin-top: 16px;
+    padding: 13px 14px;
+    border-radius: 17px;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.app-helper strong {
+    color: #fff;
+}
+
+.app-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+        radial-gradient(circle at center, rgba(255, 123, 28, 0.20), transparent 35%),
+        linear-gradient(145deg, #06101f, #071b36);
+    transition: opacity 0.55s ease, visibility 0.55s ease;
+}
+
+.app-splash.hide {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.splash-content {
+    text-align: center;
+    animation: splash-pop 0.9s ease both;
+}
+
+.splash-logo {
+    width: 132px;
+    height: 132px;
+    object-fit: contain;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 18px 32px rgba(0, 0, 0, 0.40));
+}
+
+.splash-title {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: -0.8px;
+}
+
+.splash-title span {
+    color: #ff7b1c;
+}
+
+.splash-loader {
+    width: 150px;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    margin: 18px auto 0;
+    overflow: hidden;
+}
+
+.splash-loader::after {
+    content: '';
+    display: block;
+    width: 45%;
+    height: 100%;
+    border-radius: inherit;
+    background: #ff7b1c;
+    animation: loading-bar 1.15s ease-in-out infinite;
+}
+
+.web-only,
+.desktop-download,
+.btn-download-windows,
+.windows-download,
+.download-windows,
+.app-desktop-card,
+.card-desktop,
+.desktop-app,
+.pwa-hide {
+    display: none !important;
+}
+
+@keyframes splash-pop {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes loading-bar {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(260%); }
+}
+
+@media (max-width: 480px) {
+    .app-shell {
+        align-items: stretch;
+        padding: 14px;
+    }
+
+    .app-login-card {
+        margin: auto 0;
+        padding: 24px 18px 20px;
+        border-radius: 26px;
+    }
+
+    .app-logo {
+        width: 84px;
+        height: 84px;
+    }
+
+    .app-title {
+        font-size: 27px;
+    }
+
+    .app-input,
+    .app-login-button {
+        height: 54px;
+    }
+}
