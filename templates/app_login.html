@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>VolleyTable Pro App</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#061629">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VolleyTable Pro">
+<link rel="manifest" href="{{ url_for('manifest_pwa') }}?v=20260518-app2">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}?v=20260518-app2">
+<link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192.png') }}?v=20260518-app2">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app_login.css') }}?v=20260518-app2">
+</head>
+<body>
+
+<div class="app-login-page">
+
+    <section id="splashApp" class="splash-app" aria-label="Carregando VolleyTable Pro">
+        <div class="arena-light arena-light-left"></div>
+        <div class="arena-light arena-light-right"></div>
+        <div class="splash-glow"></div>
+
+        <img class="splash-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="VolleyTable Pro">
+
+        <div class="splash-brand">
+            <strong>VOLLEY<span>TABLE</span></strong>
+            <small>PRO</small>
+        </div>
+
+        <p class="splash-subtitle">SISTEMA DE GESTÃO DE VOLEIBOL</p>
+
+        <div class="loading-area">
+            <span>Carregando...</span>
+            <div class="loading-track">
+                <div class="loading-bar"></div>
+            </div>
+            <small>Preparando sua experiência</small>
+        </div>
+    </section>
+
+    <main id="loginApp" class="login-app" aria-label="Login VolleyTable Pro">
+        <div class="login-bg-ball"></div>
+        <div class="top-shine"></div>
+
+        <section class="login-card-app">
+            <img class="login-logo-app" src="{{ url_for('static', filename='img/logo.png') }}" alt="VolleyTable Pro">
+
+            <div class="login-brand-app">
+                <strong>VOLLEY<span>TABLE</span></strong>
+                <small><i></i>PRO<i></i></small>
+            </div>
+
+            <div class="welcome-app">
+                <h1>Bem-vindo de volta!</h1>
+                <p>Faça login para continuar</p>
+            </div>
+
+            {% with mensagens = get_flashed_messages(with_categories=true) %}
+                {% if mensagens %}
+                    <div class="flash-area-app">
+                        {% for categoria, mensagem in mensagens %}
+                            {% if categoria == 'erro' %}
+                                <div class="flash-app flash-erro-app">{{ mensagem }}</div>
+                            {% elif categoria == 'sucesso' %}
+                                <div class="flash-app flash-sucesso-app">{{ mensagem }}</div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <form class="form-app" method="post" action="{{ url_for('auth.login') }}">
+                <label for="login">Login (CPF ou usuário)</label>
+                <div class="input-app-wrap">
+                    <span class="input-app-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21a8 8 0 0 0-16 0"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </span>
+                    <input type="text" id="login" name="login" placeholder="Digite seu CPF ou usuário" autocomplete="username" required>
+                </div>
+
+                <label for="senha">Senha</label>
+                <div class="input-app-wrap">
+                    <span class="input-app-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="5" y="11" width="14" height="10" rx="2"/>
+                            <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                        </svg>
+                    </span>
+                    <input type="password" id="senha" name="senha" placeholder="Digite sua senha" autocomplete="current-password">
+                    <button type="button" id="toggleSenha" class="toggle-senha-app" aria-label="Mostrar ou ocultar senha">
+                        <svg id="iconeOlho" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <label class="lembrar-app">
+                    <input type="checkbox" id="lembrar-dados">
+                    <span class="check-custom"></span>
+                    <span>Lembrar login e senha</span>
+                </label>
+
+                <button class="btn-app-entrar" type="submit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                        <path d="M10 17l5-5-5-5"/>
+                        <path d="M15 12H3"/>
+                    </svg>
+                    Entrar
+                </button>
+
+                <p class="primeiro-acesso-app">
+                    Primeiro acesso do apontador:<br>
+                    informe seu CPF e clique em entrar<br>
+                    para criar sua senha.
+                </p>
+            </form>
+        </section>
+    </main>
+
+</div>
+
+<script src="{{ url_for('static', filename='js/app_login.js') }}?v=20260518-app2"></script>
+</body>
+</html>

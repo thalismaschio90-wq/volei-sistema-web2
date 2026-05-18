@@ -8,6 +8,35 @@
     <div class="titulo-secao">Apontadores</div>
 </div>
 
+<div class="card-painel cadastro-apontador-card">
+    <div class="cadastro-apontador-head">
+        <div>
+            <div class="cadastro-apontador-titulo">Cadastrar apontador global</div>
+            <div class="cadastro-apontador-desc">
+                Cadastre apenas nome e CPF. O apontador fica sem competição vinculada até um organizador adicioná-lo em uma competição.
+            </div>
+        </div>
+    </div>
+
+    <form method="post" class="form-apontador-global" autocomplete="off">
+        <div class="campo-apontador">
+            <label for="nome">Nome do apontador</label>
+            <input id="nome" name="nome" type="text" placeholder="Ex.: João da Silva" required>
+        </div>
+
+        <div class="campo-apontador">
+            <label for="cpf">CPF</label>
+            <input id="cpf" name="cpf" type="text" inputmode="numeric" maxlength="11" placeholder="00000000000" pattern="[0-9]{11}" required>
+        </div>
+
+        <button class="btn-cadastrar-apontador" type="submit">Cadastrar apontador</button>
+    </form>
+
+    <div class="aviso-apontador-global">
+        Depois do cadastro, o apontador acessa com o CPF e cria a própria senha no primeiro acesso.
+    </div>
+</div>
+
 <div class="card-painel">
 
     {% if apontadores %}
@@ -83,6 +112,13 @@
      SCRIPT ULTRA LEVE
 ========================= -->
 <script>
+const campoCpfApontador = document.getElementById("cpf");
+if (campoCpfApontador) {
+    campoCpfApontador.addEventListener("input", () => {
+        campoCpfApontador.value = campoCpfApontador.value.replace(/\D/g, "").slice(0, 11);
+    });
+}
+
 function alterarJogoAvulso(cpf, acao) {
     const texto = acao === "liberar" ? "liberar o Jogo Rápido" : "bloquear o Jogo Rápido";
     if (!confirm(`Tem certeza que deseja ${texto} para este apontador?`)) return;
@@ -138,6 +174,88 @@ function excluirApontador(cpf) {
      ESTILO MELHORADO
 ========================= -->
 <style>
+
+.cadastro-apontador-card {
+    margin-bottom: 18px;
+}
+
+.cadastro-apontador-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+}
+
+.cadastro-apontador-titulo {
+    font-size: 20px;
+    font-weight: 1000;
+    color: #111827;
+}
+
+.cadastro-apontador-desc,
+.aviso-apontador-global {
+    color: #6b7280;
+    font-weight: 700;
+    line-height: 1.45;
+}
+
+.form-apontador-global {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.4fr) minmax(180px, .8fr) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.campo-apontador label {
+    display: block;
+    font-weight: 900;
+    margin-bottom: 6px;
+    color: #111827;
+}
+
+.campo-apontador input {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 14px;
+    padding: 12px 13px;
+    font-weight: 800;
+    outline: none;
+}
+
+.campo-apontador input:focus {
+    border-color: #123852;
+    box-shadow: 0 0 0 3px rgba(18, 56, 82, .12);
+}
+
+.btn-cadastrar-apontador {
+    border: none;
+    border-radius: 14px;
+    padding: 13px 16px;
+    background: #123852;
+    color: #fff;
+    font-weight: 1000;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.aviso-apontador-global {
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+}
+
+@media (max-width: 850px) {
+    .form-apontador-global {
+        grid-template-columns: 1fr;
+    }
+
+    .btn-cadastrar-apontador {
+        width: 100%;
+    }
+}
 
 .tabela-container {
     width: 100%;

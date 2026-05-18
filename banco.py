@@ -3708,14 +3708,15 @@ def criar_tabelas_oficiais():
 # OFICIAIS - BUSCA E CADASTRO
 # =========================================================
 def buscar_oficial_por_cpf(cpf):
+    cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT *
                 FROM oficiais
-                WHERE cpf = %s
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                 LIMIT 1
-            """, (cpf,))
+            """, (cpf_limpo,))
             return cur.fetchone()
 
 
@@ -3748,25 +3749,36 @@ def cadastrar_oficial(nome, cpf):
 # APONTADOR - ACESSO
 # =========================================================
 def apontador_existe(cpf):
+    cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id
                 FROM apontadores_acesso
-                WHERE cpf = %s
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                 LIMIT 1
-            """, (cpf,))
+            """, (cpf_limpo,))
             return cur.fetchone() is not None
 
 
 def criar_apontador(cpf):
+    cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO apontadores_acesso (cpf, senha, ativo, primeiro_acesso)
-                VALUES (%s, NULL, TRUE, TRUE)
-                ON CONFLICT (cpf) DO NOTHING
-            """, (cpf,))
+                SELECT id
+                FROM apontadores_acesso
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                LIMIT 1
+            """, (cpf_limpo,))
+            existente = cur.fetchone()
+
+            if not existente:
+                cur.execute("""
+                    INSERT INTO apontadores_acesso (cpf, senha, ativo, primeiro_acesso)
+                    VALUES (%s, NULL, TRUE, TRUE)
+                    ON CONFLICT (cpf) DO NOTHING
+                """, (cpf_limpo,))
         conn.commit()
 
     return True
@@ -8963,6 +8975,8 @@ def apontador_pode_criar_jogo_avulso(cpf):
     if not cpf:
         return False
 
+    cpf_limpo = somente_digitos(cpf)
+
     try:
         garantir_coluna_jogo_avulso_apontador()
         with conectar() as conn:
@@ -8970,9 +8984,9 @@ def apontador_pode_criar_jogo_avulso(cpf):
                 cur.execute("""
                     SELECT COALESCE(pode_criar_jogo_avulso, FALSE) AS pode
                     FROM apontadores_acesso
-                    WHERE cpf = %s
+                    WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                     LIMIT 1
-                """, (cpf,))
+                """, (cpf_limpo,))
                 row = cur.fetchone()
                 if not row:
                     return False
@@ -8990,14 +9004,16 @@ def definir_permissao_jogo_avulso_apontador(cpf, liberado):
     if not cpf:
         return False
 
+    cpf_limpo = somente_digitos(cpf)
+
     garantir_coluna_jogo_avulso_apontador()
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE apontadores_acesso
                    SET pode_criar_jogo_avulso = %s
-                 WHERE cpf = %s
-            """, (bool(liberado), cpf))
+                 WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+            """, (bool(liberado), cpf_limpo))
             atualizado = cur.rowcount
         conn.commit()
     return atualizado > 0

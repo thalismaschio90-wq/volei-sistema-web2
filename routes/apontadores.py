@@ -8,6 +8,10 @@ from banco import (
     listar_competicoes_apontador,
     excluir_apontador_global,
     buscar_oficial_por_cpf,
+    cadastrar_oficial,
+    criar_apontador,
+    cpf_valido,
+    somente_digitos,
     listar_partidas,
     buscar_partida_operacional,
     assumir_partida_operacional,
@@ -871,22 +875,69 @@ def listar_apontadores():
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
-                    o.nome,
-                    o.cpf,
+                    COALESCE(NULLIF(TRIM(o.nome), ''), 'Apontador sem nome') AS nome,
+                    REGEXP_REPLACE(COALESCE(a.cpf, o.cpf, ''), '\\D', '', 'g') AS cpf,
                     a.ativo,
                     a.primeiro_acesso,
                     COALESCE(a.pode_criar_jogo_avulso, FALSE) AS pode_criar_jogo_avulso
                 FROM apontadores_acesso a
-                JOIN oficiais o ON o.cpf = a.cpf
-                ORDER BY o.nome
+                LEFT JOIN oficiais o
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') =
+                     REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
+                ORDER BY COALESCE(NULLIF(TRIM(o.nome), ''), 'Apontador sem nome')
             """)
             return cur.fetchall()
 
 
-@apontadores_bp.route("/apontadores")
+@apontadores_bp.route("/apontadores", methods=["GET", "POST"])
 @exigir_perfil("superadmin")
 def apontadores():
     criar_tabelas_oficiais()
+
+    if request.method == "POST":
+        nome = (request.form.get("nome") or "").strip()
+        cpf_limpo = somente_digitos(request.form.get("cpf") or "")
+
+        if not nome:
+            flash("Informe o nome do apontador.", "erro")
+            return redirect(url_for("apontadores.apontadores"))
+
+        if not cpf_valido(cpf_limpo):
+            flash("Informe um CPF válido para o apontador.", "erro")
+            return redirect(url_for("apontadores.apontadores"))
+
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT cpf
+                        FROM oficiais
+                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                        LIMIT 1
+                    """, (cpf_limpo,))
+                    oficial_existente = cur.fetchone()
+
+            if oficial_existente and oficial_existente.get("cpf"):
+                with conectar() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE oficiais
+                               SET nome = COALESCE(NULLIF(%s, ''), nome),
+                                   cpf = %s
+                             WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                        """, (nome, cpf_limpo, cpf_limpo))
+                    conn.commit()
+            else:
+                cadastrar_oficial(nome, cpf_limpo)
+
+            criar_apontador(cpf_limpo)
+            flash("Apontador cadastrado com sucesso. Ele ainda não está vinculado a nenhuma competição.", "sucesso")
+        except Exception as e:
+            print("ERRO cadastrar apontador global:", e, flush=True)
+            flash("Erro ao cadastrar apontador. Verifique se o CPF já existe ou tente novamente.", "erro")
+
+        return redirect(url_for("apontadores.apontadores"))
+
     lista = listar_apontadores()
 
     return render_template(

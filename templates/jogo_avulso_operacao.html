@@ -225,14 +225,56 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
         overflow:hidden!important;
     }
 
-    /* No celular, esses links ocupam espaço demais. O apontador abre os links antes. */
-    .av-top{display:none!important;}
+    /* No celular/app, os links precisam ficar visíveis para abrir/copiar árbitros e telão. */
+    .av-top{
+        display:flex!important;
+        width:100%!important;
+        height:40px!important;
+        min-height:40px!important;
+        max-height:40px!important;
+        padding:3px 4px!important;
+        margin:0 0 4px 0!important;
+        border-radius:10px!important;
+        gap:4px!important;
+        align-items:center!important;
+        justify-content:flex-start!important;
+        flex-wrap:nowrap!important;
+        overflow-x:auto!important;
+        overflow-y:hidden!important;
+        -webkit-overflow-scrolling:touch!important;
+        box-shadow:none!important;
+    }
+    .av-top > div:first-child{
+        display:none!important;
+    }
+    .av-actions{
+        width:max-content!important;
+        min-width:100%!important;
+        display:flex!important;
+        flex-wrap:nowrap!important;
+        gap:4px!important;
+        align-items:center!important;
+        overflow-x:auto!important;
+        overflow-y:hidden!important;
+        -webkit-overflow-scrolling:touch!important;
+        padding-bottom:1px!important;
+    }
+    .av-actions .btn{
+        flex:0 0 auto!important;
+        min-height:32px!important;
+        height:32px!important;
+        padding:5px 8px!important;
+        border-radius:8px!important;
+        font-size:10px!important;
+        line-height:1!important;
+        white-space:nowrap!important;
+    }
     .painel{display:none!important;}
     .relatorio{display:none!important;}
 
     .placar{
         width:100%!important;
-        height:100%!important;
+        height:calc(100% - 44px)!important;
         display:grid!important;
         grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
         grid-template-rows:42px minmax(0,1fr)!important;
@@ -425,6 +467,7 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
       <button class="btn btn-blue" onclick="abrirLink('telao')">Abrir telão</button><button class="btn" onclick="copiarLink('telao')">Copiar telão</button>
       <button class="btn btn-blue" onclick="abrirLink('arb1')">Abrir árbitro 1</button><button class="btn" onclick="copiarLink('arb1')">Copiar árbitro 1</button>
       <button class="btn btn-blue" onclick="abrirLink('arb2')">Abrir árbitro 2</button><button class="btn" onclick="copiarLink('arb2')">Copiar árbitro 2</button>
+      <button class="btn btn-yellow" onclick="copiarTodosLinks()">Copiar todos os links</button>
     </div>
   </div>
   <div class="placar no-print" id="placarBox"><div class="time" id="cardEsq"></div><div class="sets" id="setsBox"></div><div class="time" id="cardDir"></div></div>
@@ -450,7 +493,39 @@ function salvarLocal(){localStorage.setItem(LS_ESTADO,JSON.stringify(estado));}
 async function salvarServidor(){salvarLocal(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
 function toast(t){const el=document.getElementById('avAlert');el.textContent=t;el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',2200)}
 function ladoVisual(pos){const esq=ladoInvertido?'B':'A'; const dir=ladoInvertido?'A':'B'; return pos==='esq'?esq:dir;}
-function urlTipo(tipo){const path=tipo==='telao'?`/telao-avulso/${CODIGO}`:tipo==='arb1'?`/arbitro1-avulso/${CODIGO}`:`/arbitro2-avulso/${CODIGO}`; return `${location.origin}${path}`;} function abrirLink(t){window.open(urlTipo(t),'_blank','noopener');} async function copiarLink(t){await navigator.clipboard.writeText(urlTipo(t));toast('Link copiado');}
+function urlTipo(tipo){const path=tipo==='telao'?`/telao-avulso/${CODIGO}`:tipo==='arb1'?`/arbitro1-avulso/${CODIGO}`:`/arbitro2-avulso/${CODIGO}`; return `${location.origin}${path}`;}
+function abrirLink(t){window.open(urlTipo(t),'_blank','noopener');}
+async function copiarTextoSeguro(texto,msg){
+  try{
+    await navigator.clipboard.writeText(texto);
+    toast(msg||'Link copiado');
+  }catch(e){
+    const area=document.createElement('textarea');
+    area.value=texto;
+    area.setAttribute('readonly','readonly');
+    area.style.position='fixed';
+    area.style.left='-9999px';
+    document.body.appendChild(area);
+    area.select();
+    try{document.execCommand('copy');toast(msg||'Link copiado');}
+    catch(err){prompt('Copie os links:',texto);}
+    document.body.removeChild(area);
+  }
+}
+async function copiarLink(t){await copiarTextoSeguro(urlTipo(t),'Link copiado');}
+async function copiarTodosLinks(){
+  const texto=`Links do jogo avulso ${CODIGO}
+
+Telão:
+${urlTipo('telao')}
+
+Árbitro 1:
+${urlTipo('arb1')}
+
+Árbitro 2:
+${urlTipo('arb2')}`;
+  await copiarTextoSeguro(texto,'Links copiados');
+}
 function addHist(desc,tipo='acao',extra={}){const item={descricao:desc,tipo,set:estado.set_atual,placar:`${estado.pontos_a}x${estado.pontos_b}`,ts:Date.now(),...extra}; estado.historico=[item,...(estado.historico||[])].slice(0,120); estado.eventos=[item,...(estado.eventos||[])]; estado.ultima_acao=desc;}
 function renderQuadra(l){const r=rot(l)||[]; return `<div class='quadra'>${r.map((n,i)=>`<div class='pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}'><span>${n||'-'}</span><small>${posLabel(i)}</small></div>`).join('')}</div>`;}
 function renderTime(l){return `<h2>${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">🏐 Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
