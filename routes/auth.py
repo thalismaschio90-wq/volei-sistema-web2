@@ -45,9 +45,50 @@ def _demo_expirada_para_login(login):
                     return True
 
                 return False
+
     except Exception as e:
         print("ERRO AO VERIFICAR DEMO EXPIRADA:", repr(e))
         return False
+
+
+def _is_mobile_ou_app():
+    """
+    Define qual tela de login usar.
+
+    - Navegador desktop normal: login.html
+      Mantém botão "Baixar aplicativo Windows".
+
+    - Celular, PWA ou app desktop Electron: app_login.html
+      Usa tela premium escura, sem botão Windows.
+    """
+    ua = (request.headers.get("User-Agent") or "").lower()
+
+    if request.args.get("app") == "1":
+        return True
+
+    if "electron" in ua:
+        return True
+
+    if "iphone" in ua:
+        return True
+
+    if "ipad" in ua:
+        return True
+
+    if "android" in ua:
+        return True
+
+    if "mobile" in ua:
+        return True
+
+    return False
+
+
+def _template_login():
+    if _is_mobile_ou_app():
+        return "app_login.html"
+
+    return "login.html"
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -69,7 +110,7 @@ def login():
 
         if not login_digitado or not senha_digitada:
             flash("Informe login e senha.", "erro")
-            return render_template("login.html")
+            return render_template(_template_login())
 
         try:
             with conectar() as conn:
@@ -77,7 +118,7 @@ def login():
         except Exception as e:
             print("ERRO LOGIN BANCO:", repr(e))
             flash("Erro temporário ao conectar no banco. Tente novamente.", "erro")
-            return render_template("login.html")
+            return render_template(_template_login())
 
         if usuario:
             if _demo_expirada_para_login(usuario["login"]):
@@ -86,11 +127,11 @@ def login():
 
             if not usuario.get("ativo", True):
                 flash("Usuário inativo.", "erro")
-                return render_template("login.html")
+                return render_template(_template_login())
 
             if usuario["senha"] != senha_digitada:
                 flash("Senha incorreta.", "erro")
-                return render_template("login.html")
+                return render_template(_template_login())
 
             session["usuario"] = usuario["login"]
             session["nome"] = usuario.get("nome") or usuario["login"]
@@ -108,11 +149,11 @@ def login():
         except Exception as e:
             print("ERRO LOGIN APONTADOR:", repr(e))
             flash("Erro temporário ao autenticar apontador.", "erro")
-            return render_template("login.html")
+            return render_template(_template_login())
 
         if apontador is False:
             flash("Senha incorreta.", "erro")
-            return render_template("login.html")
+            return render_template(_template_login())
 
         if apontador:
             session["usuario"] = apontador["cpf"]
@@ -128,7 +169,7 @@ def login():
 
         flash("Usuário não encontrado.", "erro")
 
-    return render_template("login.html")
+    return render_template(_template_login())
 
 
 @auth_bp.route("/criar-senha-apontador", methods=["GET", "POST"])
