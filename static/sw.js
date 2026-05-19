@@ -1,12 +1,12 @@
-const CACHE_NAME = "voleitable-app-v20260518-3";
+const CACHE_NAME = "voleitable-app-v20260519-final";
 
 const APP_SHELL = [
-    "/app-login?v=20260518-app3",
-    "/static/css/app_login.css?v=20260518-app3",
-    "/static/js/app_login.js?v=20260518-app3",
-    "/static/img/logo.png?v=20260518-app3",
-    "/static/icons/icon-192.png?v=20260518-app3",
-    "/static/icons/icon-512.png?v=20260518-app3"
+    "/app-login?v=20260519-final",
+    "/static/css/app_login.css?v=20260519-final",
+    "/static/js/app_login.js?v=20260519-final",
+    "/static/img/logo.png?v=20260519-final",
+    "/static/icons/icon-192.png?v=20260519-final",
+    "/static/icons/icon-512.png?v=20260519-final"
 ];
 
 self.addEventListener("install", event => {
@@ -52,7 +52,7 @@ self.addEventListener("fetch", event => {
 
                     return response;
                 })
-                .catch(() => caches.match("/app-login?v=20260518-app3"))
+                .catch(() => caches.match("/app-login?v=20260519-final"))
         );
 
         return;

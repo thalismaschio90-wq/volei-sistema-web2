@@ -1,12 +1,10 @@
 from flask import (
     Flask,
-    redirect,
     send_from_directory,
     make_response,
     render_template,
 )
 import os
-from jinja2 import TemplateNotFound
 
 from extensions import socketio
 
@@ -59,6 +57,7 @@ app.secret_key = os.environ.get(
     "voleitablepro"
 )
 
+
 # ============================================================
 # 🔥 BANCO
 # ============================================================
@@ -72,6 +71,7 @@ try:
 except Exception as e:
     print("ERRO tabela atalhos:", e)
 
+
 # ============================================================
 # 🔥 SOCKET IO
 # ============================================================
@@ -81,6 +81,7 @@ socketio.init_app(
     ping_timeout=20,
     ping_interval=10,
 )
+
 
 # ============================================================
 # 🔥 BLUEPRINTS
@@ -106,6 +107,7 @@ if app_tempo_real_bp is not None:
 else:
     print("⚠️ app_tempo_real não encontrado")
 
+
 # ============================================================
 # 🔥 LANDING PAGE
 # ============================================================
@@ -122,7 +124,6 @@ def inicio_publico():
     return render_template("landing.html")
 
 
-
 # ============================================================
 # 🔥 LOGIN EXCLUSIVO DO APP / PWA
 # ============================================================
@@ -130,19 +131,14 @@ def inicio_publico():
 @app.route("/app-login")
 def app_login_pwa():
     """
-    Tela inicial exclusiva para o aplicativo instalado no celular.
+    Tela exclusiva para o app instalado no celular e para atalhos mobile/PWA.
 
-    Quando o manifest.json estiver com:
-        "start_url": "/app-login"
-
-    o app abrirá direto aqui, separado da landing page normal do site.
-    Enquanto o template app_login.html ainda não existir, usa login.html
-    como fallback para não quebrar o sistema.
+    IMPORTANTE:
+    - /login continua sendo a tela web normal, controlada por routes/auth.py
+    - /app-login usa templates/app_login.html
+    - manifest.json deve apontar start_url para /app-login?v=...
     """
-    try:
-        return render_template("app_login.html")
-    except TemplateNotFound:
-        return render_template("login.html")
+    return render_template("app_login.html")
 
 
 # ============================================================
@@ -154,11 +150,10 @@ def healthz():
 
 
 # ============================================================
-# 🔥 MANIFEST
+# 🔥 MANIFEST PWA
 # ============================================================
 @app.route("/manifest.json")
 def manifest_pwa():
-
     resposta = make_response(
         send_from_directory(
             "static",
@@ -167,17 +162,18 @@ def manifest_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/manifest+json"
-    resposta.headers["Cache-Control"] = "no-cache"
+    resposta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
 
     return resposta
 
 
 # ============================================================
-# 🔥 SERVICE WORKER
+# 🔥 SERVICE WORKER PWA
 # ============================================================
 @app.route("/sw.js")
 def service_worker_pwa():
-
     resposta = make_response(
         send_from_directory(
             "static",
@@ -186,7 +182,9 @@ def service_worker_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/javascript"
-    resposta.headers["Cache-Control"] = "no-cache"
+    resposta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
 
     return resposta
 
@@ -201,7 +199,6 @@ import socket_events  # noqa
 # 🔥 EXECUÇÃO
 # ============================================================
 if __name__ == "__main__":
-
     port = int(
         os.environ.get(
             "PORT",
