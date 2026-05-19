@@ -456,6 +456,113 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
     .team-actions .btn-green{height:34px!important;min-height:34px!important;font-size:12px!important;}
 }
 
+
+/* =========================================================
+   LINKS MOBILE - JOGO AVULSO
+   No celular deitado, evita barra enorme no topo e deixa os links
+   em um botão flutuante fácil de tocar.
+   ========================================================= */
+.links-mobile-fab,
+.links-mobile-modal{display:none;}
+
+@media (orientation: landscape) and (max-width: 1000px){
+    .av-top{
+        display:none!important;
+    }
+    .placar{
+        height:100%!important;
+        grid-template-rows:38px minmax(0,1fr)!important;
+    }
+    .links-mobile-fab{
+        position:fixed!important;
+        right:6px!important;
+        bottom:6px!important;
+        z-index:9997!important;
+        display:flex!important;
+        gap:5px!important;
+        align-items:center!important;
+    }
+    .links-mobile-fab .btn{
+        min-height:34px!important;
+        height:34px!important;
+        padding:5px 9px!important;
+        border-radius:10px!important;
+        font-size:11px!important;
+        line-height:1!important;
+        box-shadow:0 8px 24px rgba(15,23,42,.22)!important;
+    }
+    .links-mobile-modal{
+        position:fixed!important;
+        inset:0!important;
+        background:rgba(15,23,42,.72)!important;
+        z-index:1000000!important;
+        align-items:center!important;
+        justify-content:center!important;
+        padding:10px!important;
+        box-sizing:border-box!important;
+    }
+    .links-mobile-modal.aberto{
+        display:flex!important;
+    }
+    .links-mobile-card{
+        width:min(620px,94vw)!important;
+        max-height:92dvh!important;
+        overflow:auto!important;
+        background:#fff!important;
+        color:#0f172a!important;
+        border-radius:18px!important;
+        box-shadow:0 24px 90px rgba(0,0,0,.35)!important;
+        padding:12px!important;
+    }
+    .links-mobile-topo{
+        display:flex!important;
+        justify-content:space-between!important;
+        align-items:center!important;
+        gap:8px!important;
+        margin-bottom:10px!important;
+    }
+    .links-mobile-topo h3{
+        margin:0!important;
+        font-size:18px!important;
+        font-weight:1000!important;
+        color:#0f172a!important;
+    }
+    .links-mobile-fechar{
+        width:38px!important;
+        height:38px!important;
+        border:0!important;
+        border-radius:10px!important;
+        background:#e2e8f0!important;
+        color:#0f172a!important;
+        font-size:22px!important;
+        font-weight:1000!important;
+        cursor:pointer!important;
+    }
+    .links-mobile-grid{
+        display:grid!important;
+        grid-template-columns:repeat(2,minmax(0,1fr))!important;
+        gap:8px!important;
+    }
+    .links-mobile-grid .btn{
+        min-height:48px!important;
+        font-size:13px!important;
+        border-radius:12px!important;
+        display:flex!important;
+        align-items:center!important;
+        justify-content:center!important;
+        text-align:center!important;
+    }
+    .links-mobile-grid .btn-full{
+        grid-column:1 / -1!important;
+    }
+}
+
+@media (orientation: landscape) and (max-width: 700px){
+    .links-mobile-grid{
+        grid-template-columns:1fr!important;
+    }
+}
+
 </style>
 <div id="avisoHorizontalOperacao" class="aviso-horizontal"><div class="aviso-horizontal-card"><div class="aviso-horizontal-icone">📱↔️</div><strong>Vire o celular</strong><p>Esta tela de operação foi feita para usar com o celular deitado, igual uma mesa de apontamento.</p></div></div>
 <div id="avAlert" class="av-alert"></div>
@@ -474,6 +581,30 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
   <div class="painel no-print"><div class="card"><h3>Últimas ações</h3><div class="lista" id="historicoBox"></div></div>{% if estado.modo_operacao == 'avancado' %}<div class="card"><h3>Relatório da partida</h3><p style="font-weight:800;color:#64748b">O relatório fica local e persistente até finalizar/limpar a partida.</p><button class="btn btn-blue" onclick="abrirRelatorio()">Ver relatório</button> <button class="btn btn-green" onclick="exportarPDF()">Exportar PDF</button> <button class="btn btn-red" onclick="encerrarManual()">Encerrar manualmente</button> <button class="btn" onclick="limparLocal()">Limpar local</button></div>{% endif %}</div>
   <div class="relatorio card" id="relatorioBox"></div>
 </div>
+
+<div class="links-mobile-fab no-print">
+  <button class="btn btn-blue" type="button" onclick="abrirModalLinksMobile()">🔗 Links</button>
+  <button class="btn" type="button" onclick="inverterLadoLocal()">↔️ Inverter</button>
+</div>
+
+<div id="modalLinksMobile" class="links-mobile-modal no-print">
+  <div class="links-mobile-card">
+    <div class="links-mobile-topo">
+      <h3>Links do jogo avulso</h3>
+      <button class="links-mobile-fechar" type="button" onclick="fecharModalLinksMobile()">×</button>
+    </div>
+    <div class="links-mobile-grid">
+      <button class="btn btn-blue" type="button" onclick="abrirLink('telao')">Abrir telão</button>
+      <button class="btn" type="button" onclick="copiarLink('telao')">Copiar telão</button>
+      <button class="btn btn-blue" type="button" onclick="abrirLink('arb1')">Abrir árbitro 1</button>
+      <button class="btn" type="button" onclick="copiarLink('arb1')">Copiar árbitro 1</button>
+      <button class="btn btn-blue" type="button" onclick="abrirLink('arb2')">Abrir árbitro 2</button>
+      <button class="btn" type="button" onclick="copiarLink('arb2')">Copiar árbitro 2</button>
+      <button class="btn btn-yellow btn-full" type="button" onclick="copiarTodosLinks()">Copiar todos os links</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="modalScout"><div class="modal-box"><h3>Justificativa do ponto</h3><div id="scoutEquipeTxt" style="font-weight:900;color:#64748b"></div><div><b>1. O que aconteceu?</b><div class="opcoes" id="scoutTipoBox"></div></div><div id="scoutDetalheWrap" style="display:none"><b>2. Qual foi o lance?</b><div class="opcoes" id="scoutDetalheBox"></div></div><div id="scoutAtletaWrap" style="display:none"><b id="scoutAtletaTitulo">3. Quem fez?</b><div class="opcoes" id="scoutAtletaBox"></div></div><div id="scoutResumo" style="font-weight:800;color:#64748b;margin-top:8px">Selecione o tipo do lance.</div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharScout()">Cancelar</button><button class="btn btn-green" onclick="confirmarScout()">Confirmar ponto</button></div></div></div>
 <div class="modal" id="modalSub"><div class="modal-box"><h3>Substituição</h3><div id="subEquipeTxt" style="font-weight:900;color:#64748b"></div><b>Sai da quadra</b><div class="opcoes" id="subSaiBox"></div><div class="field"><label>Entra nº</label><input id="subEntra" inputmode="numeric" pattern="[0-9]*" placeholder="Digite o número que entra"></div><div style="margin-top:6px;color:#64748b;font-weight:800;font-size:13px">Você pode clicar em um número sugerido ou digitar o número manualmente. O vínculo da substituição só é criado ao confirmar.</div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharSub()">Cancelar</button><button class="btn btn-green" onclick="confirmarSub()">Confirmar</button></div></div></div>
 <div class="modal" id="modalGenerico"><div class="modal-box"><h3 id="genTitulo"></h3><div id="genConteudo"></div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharGenerico()">Cancelar</button><button class="btn btn-green" onclick="confirmarGenerico()">Confirmar</button></div></div></div>
@@ -526,6 +657,16 @@ ${urlTipo('arb1')}
 ${urlTipo('arb2')}`;
   await copiarTextoSeguro(texto,'Links copiados');
 }
+
+function abrirModalLinksMobile(){
+  const el=document.getElementById('modalLinksMobile');
+  if(el) el.classList.add('aberto');
+}
+function fecharModalLinksMobile(){
+  const el=document.getElementById('modalLinksMobile');
+  if(el) el.classList.remove('aberto');
+}
+
 function addHist(desc,tipo='acao',extra={}){const item={descricao:desc,tipo,set:estado.set_atual,placar:`${estado.pontos_a}x${estado.pontos_b}`,ts:Date.now(),...extra}; estado.historico=[item,...(estado.historico||[])].slice(0,120); estado.eventos=[item,...(estado.eventos||[])]; estado.ultima_acao=desc;}
 function renderQuadra(l){const r=rot(l)||[]; return `<div class='quadra'>${r.map((n,i)=>`<div class='pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}'><span>${n||'-'}</span><small>${posLabel(i)}</small></div>`).join('')}</div>`;}
 function renderTime(l){return `<h2>${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">🏐 Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
