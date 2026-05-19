@@ -8,11 +8,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="VolleyTable Pro">
-<link rel="manifest" href="{{ url_for('manifest_pwa') }}?v=20260518-app2">
-<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}?v=20260518-app2">
-<link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192.png') }}?v=20260518-app2">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/app_login.css') }}?v=20260518-app2">
+
+<link rel="manifest" href="{{ url_for('manifest_pwa') }}?v=20260518-app3">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}?v=20260518-app3">
+<link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192.png') }}?v=20260518-app3">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app_login.css') }}?v=20260518-app3">
 </head>
+
 <body>
 
 <div class="app-login-page">
@@ -22,20 +24,28 @@
         <div class="arena-light arena-light-right"></div>
         <div class="splash-glow"></div>
 
-        <img class="splash-logo" src="{{ url_for('static', filename='img/logo.png') }}" alt="VolleyTable Pro">
+        <img
+            class="splash-logo"
+            src="{{ url_for('static', filename='img/logo.png') }}?v=20260518-app3"
+            alt="VolleyTable Pro"
+        >
 
         <div class="splash-brand">
             <strong>VOLLEY<span>TABLE</span></strong>
             <small>PRO</small>
         </div>
 
-        <p class="splash-subtitle">SISTEMA DE GESTÃO DE VOLEIBOL</p>
+        <p class="splash-subtitle">
+            SISTEMA DE GESTÃO DE VOLEIBOL
+        </p>
 
         <div class="loading-area">
             <span>Carregando...</span>
+
             <div class="loading-track">
                 <div class="loading-bar"></div>
             </div>
+
             <small>Preparando sua experiência</small>
         </div>
     </section>
@@ -45,7 +55,12 @@
         <div class="top-shine"></div>
 
         <section class="login-card-app">
-            <img class="login-logo-app" src="{{ url_for('static', filename='img/logo.png') }}" alt="VolleyTable Pro">
+
+            <img
+                class="login-logo-app"
+                src="{{ url_for('static', filename='img/logo.png') }}?v=20260518-app3"
+                alt="VolleyTable Pro"
+            >
 
             <div class="login-brand-app">
                 <strong>VOLLEY<span>TABLE</span></strong>
@@ -65,6 +80,8 @@
                                 <div class="flash-app flash-erro-app">{{ mensagem }}</div>
                             {% elif categoria == 'sucesso' %}
                                 <div class="flash-app flash-sucesso-app">{{ mensagem }}</div>
+                            {% else %}
+                                <div class="flash-app flash-sucesso-app">{{ mensagem }}</div>
                             {% endif %}
                         {% endfor %}
                     </div>
@@ -72,7 +89,9 @@
             {% endwith %}
 
             <form class="form-app" method="post" action="{{ url_for('auth.login') }}">
+
                 <label for="login">Login (CPF ou usuário)</label>
+
                 <div class="input-app-wrap">
                     <span class="input-app-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -80,10 +99,19 @@
                             <circle cx="12" cy="7" r="4"/>
                         </svg>
                     </span>
-                    <input type="text" id="login" name="login" placeholder="Digite seu CPF ou usuário" autocomplete="username" required>
+
+                    <input
+                        type="text"
+                        id="login"
+                        name="login"
+                        placeholder="Digite seu CPF ou usuário"
+                        autocomplete="username"
+                        required
+                    >
                 </div>
 
                 <label for="senha">Senha</label>
+
                 <div class="input-app-wrap">
                     <span class="input-app-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -91,8 +119,21 @@
                             <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
                         </svg>
                     </span>
-                    <input type="password" id="senha" name="senha" placeholder="Digite sua senha" autocomplete="current-password">
-                    <button type="button" id="toggleSenha" class="toggle-senha-app" aria-label="Mostrar ou ocultar senha">
+
+                    <input
+                        type="password"
+                        id="senha"
+                        name="senha"
+                        placeholder="Digite sua senha"
+                        autocomplete="current-password"
+                    >
+
+                    <button
+                        type="button"
+                        id="toggleSenha"
+                        class="toggle-senha-app"
+                        aria-label="Mostrar ou ocultar senha"
+                    >
                         <svg id="iconeOlho" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
                             <circle cx="12" cy="12" r="3"/>
@@ -112,6 +153,7 @@
                         <path d="M10 17l5-5-5-5"/>
                         <path d="M15 12H3"/>
                     </svg>
+
                     Entrar
                 </button>
 
@@ -120,12 +162,14 @@
                     informe seu CPF e clique em entrar<br>
                     para criar sua senha.
                 </p>
+
             </form>
+
         </section>
     </main>
 
 </div>
 
-<script src="{{ url_for('static', filename='js/app_login.js') }}?v=20260518-app2"></script>
+<script src="{{ url_for('static', filename='js/app_login.js') }}?v=20260518-app3"></script>
 </body>
 </html>
