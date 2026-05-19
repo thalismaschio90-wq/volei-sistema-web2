@@ -1,5 +1,7 @@
 from flask import (
     Flask,
+    request,
+    redirect,
     send_from_directory,
     make_response,
     render_template,
@@ -109,10 +111,43 @@ else:
 
 
 # ============================================================
+# 🔥 DETECTAR CELULAR / APP
+# ============================================================
+def eh_mobile_ou_app():
+    ua = (request.headers.get("User-Agent") or "").lower()
+
+    if request.args.get("app") == "1":
+        return True
+
+    if "electron" in ua:
+        return True
+
+    if "iphone" in ua:
+        return True
+
+    if "ipad" in ua:
+        return True
+
+    if "android" in ua:
+        return True
+
+    if "mobile" in ua:
+        return True
+
+    return False
+
+
+# ============================================================
 # 🔥 LANDING PAGE
 # ============================================================
 @app.route("/")
 def home():
+
+    # 🔥 CELULAR E APP NÃO VEEM LANDING
+    if eh_mobile_ou_app():
+        return redirect("/app-login")
+
+    # 🔥 SOMENTE PC WEB
     return render_template("landing.html")
 
 
@@ -121,23 +156,21 @@ def home():
 # ============================================================
 @app.route("/inicio")
 def inicio_publico():
+
+    # 🔥 CELULAR E APP NÃO VEEM LANDING
+    if eh_mobile_ou_app():
+        return redirect("/app-login")
+
     return render_template("landing.html")
 
 
 # ============================================================
-# 🔥 LOGIN EXCLUSIVO DO APP / PWA
+# 🔥 LOGIN EXCLUSIVO APP / PWA
 # ============================================================
 @app.route("/app")
 @app.route("/app-login")
 def app_login_pwa():
-    """
-    Tela exclusiva para o app instalado no celular e para atalhos mobile/PWA.
 
-    IMPORTANTE:
-    - /login continua sendo a tela web normal, controlada por routes/auth.py
-    - /app-login usa templates/app_login.html
-    - manifest.json deve apontar start_url para /app-login?v=...
-    """
     return render_template("app_login.html")
 
 
@@ -154,6 +187,7 @@ def healthz():
 # ============================================================
 @app.route("/manifest.json")
 def manifest_pwa():
+
     resposta = make_response(
         send_from_directory(
             "static",
@@ -162,7 +196,11 @@ def manifest_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/manifest+json"
-    resposta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+
+    resposta.headers["Cache-Control"] = (
+        "no-cache, no-store, must-revalidate"
+    )
+
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 
@@ -174,6 +212,7 @@ def manifest_pwa():
 # ============================================================
 @app.route("/sw.js")
 def service_worker_pwa():
+
     resposta = make_response(
         send_from_directory(
             "static",
@@ -182,7 +221,11 @@ def service_worker_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/javascript"
-    resposta.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+
+    resposta.headers["Cache-Control"] = (
+        "no-cache, no-store, must-revalidate"
+    )
+
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 
@@ -199,6 +242,7 @@ import socket_events  # noqa
 # 🔥 EXECUÇÃO
 # ============================================================
 if __name__ == "__main__":
+
     port = int(
         os.environ.get(
             "PORT",
