@@ -12,7 +12,8 @@
 .ap-sub { color:rgba(255,255,255,.78); font-weight:700; margin-top:8px; }
 .ap-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .ap-btn-dark { background:#111827 !important; color:#fff !important; border:0; cursor:pointer; }
-.ap-btn-green { background:#0f766e !important; color:#fff !important; text-decoration:none; }
+.ap-btn-green { background:#0f766e !important; color:#fff !important; text-decoration:none; border:0; cursor:pointer; }
+.ap-btn-gold { background:#d4a62a !important; color:#071827 !important; border:0; cursor:pointer; }
 .ap-section { margin-bottom:18px; }
 .ap-section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
 .ap-section-title { font-size:20px; font-weight:1000; color:var(--text); }
@@ -27,8 +28,32 @@
 .ap-pre { background:#fef3c7; color:#92400e; }
 .ap-wait { background:#dbeafe; color:#1e40af; }
 .ap-done { background:#e5e7eb; color:#374151; }
+.ap-offline-ok { background:#ecfdf5; color:#047857; border:1px solid #86efac; }
+.ap-offline-warn { background:#fff7ed; color:#9a3412; border:1px solid #fdba74; }
 .ap-card-actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
 .ap-empty { background:#fff; border:1px dashed var(--border); border-radius:18px; padding:18px; color:var(--muted); font-weight:800; }
+.ap-offline-panel { margin:0 0 18px; border:1px solid #bae6fd; background:linear-gradient(180deg,#f0f9ff,#ffffff); border-radius:20px; padding:14px; display:none; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.ap-offline-panel.aparece { display:flex; }
+.ap-offline-panel strong { color:#0f2f4a; }
+.ap-offline-panel span { color:#64748b; font-weight:800; font-size:13px; }
+.ap-offline-small { font-size:12px; color:#64748b; font-weight:800; margin-top:8px; }
+.ap-btn-offline-card { background:#f8fafc !important; color:#0f2f4a !important; border:1px solid #cbd5e1 !important; cursor:pointer; }
+.ap-btn-offline-card.baixado { background:#dcfce7 !important; color:#166534 !important; border-color:#86efac !important; }
+.ap-btn-offline-card.sincronizando { background:#fff7ed !important; color:#9a3412 !important; border-color:#fdba74 !important; }
+.ap-toast-offline { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:100000; min-width:min(520px,calc(100vw - 28px)); background:#0f2f4a; color:#fff; border-radius:16px; padding:13px 16px; box-shadow:0 18px 45px rgba(15,47,74,.28); display:none; font-weight:900; text-align:center; }
+.ap-toast-offline.erro { background:#991b1b; }
+.ap-toast-offline.ok { background:#166534; }
+.ap-modal-offline { position:fixed; inset:0; z-index:99999; display:none; align-items:center; justify-content:center; padding:16px; background:rgba(15,23,42,.72); }
+.ap-modal-offline.aberto { display:flex; }
+.ap-modal-offline-card { width:min(640px,96vw); max-height:92vh; overflow:auto; background:#fff; border-radius:22px; border:1px solid var(--border); box-shadow:0 24px 70px rgba(0,0,0,.28); padding:18px; color:#0f172a; }
+.ap-modal-offline-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.ap-modal-offline-topo h3 { margin:0; font-size:22px; font-weight:1000; color:#0f2f4a; }
+.ap-modal-offline-fechar { width:38px; height:38px; border:0; border-radius:12px; background:#e5e7eb; color:#111827; font-size:24px; font-weight:900; cursor:pointer; }
+.ap-offline-lista { display:grid; gap:9px; margin:14px 0; }
+.ap-offline-item { border:1px solid #dbe3ef; background:#f8fafc; border-radius:14px; padding:11px 12px; color:#183247; font-weight:850; }
+.ap-offline-item small { display:block; color:#64748b; margin-top:3px; font-weight:750; }
+.ap-offline-modal-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+.ap-offline-modal-actions button, .ap-offline-modal-actions a { flex:1 1 180px; text-align:center; justify-content:center; }
 .modal-atalhos-apontador { position:fixed; inset:0; background:rgba(15,23,42,.72); z-index:99999; display:none; align-items:center; justify-content:center; padding:16px; }
 .modal-atalhos-card { width:min(560px,96vw); max-height:92vh; overflow:auto; background:#fff; color:#0f172a; border-radius:18px; border:1px solid var(--border); box-shadow:0 24px 70px rgba(0,0,0,.28); padding:18px; }
 .modal-atalhos-topo { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
@@ -43,13 +68,15 @@
 .atalhos-acoes button { flex:1; border:0; border-radius:12px; padding:12px; font-weight:900; cursor:pointer; }
 .atalhos-salvar { background:#0f766e; color:#fff; }
 .atalhos-limpar { background:#e5e7eb; color:#111827; }
-@media (max-width:850px) { .ap-grid { grid-template-columns:1fr; } .ap-card { flex-direction:column; align-items:flex-start; } .ap-card-actions { width:100%; justify-content:flex-start; } }
+@media (max-width:850px) { .ap-grid { grid-template-columns:1fr; } .ap-card { flex-direction:column; align-items:flex-start; } .ap-card-actions { width:100%; justify-content:flex-start; } .ap-actions { width:100%; } .ap-actions .btn-padrao { width:100%; justify-content:center; } .ap-hero { padding:22px; } }
 </style>
+
+{% set nome_usuario_offline = session.get('nome') or session.get('usuario_nome') or session.get('usuario') or 'Apontador' %}
+{% set usuario_login_offline = session.get('usuario') or '' %}
 
 <div class="ap-hero">
     <div>
         <div class="ap-kicker">Central de operação</div>
-        <div class="ap-title">Painel do Apontador</div>
         <div class="ap-sub">Entre rápido no pré-jogo, operação ao vivo e telão da competição.</div>
     </div>
     <div class="ap-actions">
@@ -60,8 +87,22 @@
         {% endif %}
         <button type="button" class="btn-padrao ap-btn-dark" onclick="abrirModalAtalhosApontador()">⚙️ Teclas de atalho</button>
         {% if modo_partidas %}
+            <button type="button" class="btn-padrao ap-btn-gold" onclick="abrirModalOfflineApontador()">📦 Modo Offline</button>
             <a class="btn-padrao ap-btn-green" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank">🖥️ Abrir Telão</a>
+        {% elif competicao_unica %}
+            <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
         {% endif %}
+    </div>
+</div>
+
+<div id="ap-offline-panel" class="ap-offline-panel">
+    <div>
+        <strong>📦 Modo offline do apontador</strong><br>
+        <span id="ap-offline-panel-texto">Prepare a competição antes de ir para um local sem internet.</span>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn-padrao ap-btn-gold" onclick="abrirModalOfflineApontador()">Preparar agora</button>
+        <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir tela offline</a>
     </div>
 </div>
 
@@ -70,7 +111,12 @@
     {% set status_partida = (p.status or 'agendada')|lower %}
     {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
     {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
-    <div class="ap-card">
+    {% if jogo_iniciado %}
+        {% set url_operacao = url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) %}
+    {% else %}
+        {% set url_operacao = url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) %}
+    {% endif %}
+    <div class="ap-card" data-partida-card="1" data-partida-id="{{ p.id }}" data-competicao="{{ competicao_nome }}" data-url-operacao="{{ url_operacao }}" data-finalizada="{{ '1' if jogo_finalizado else '0' }}">
         <div class="ap-info">
             <div class="ap-match-line">{{ p.equipe_a }} <span style="color:var(--muted);">x</span> {{ p.equipe_b }}</div>
             <div class="ap-meta">Jogo {{ p.ordem or '-' }}{% if p.quadra %} • Quadra {{ p.quadra }}{% endif %} • {{ p.grupo or '-' }}</div>
@@ -78,15 +124,19 @@
             {% elif jogo_iniciado %}<span class="ap-badge ap-live">Ao vivo</span>
             {% elif status_op in ['pre_jogo','reservado'] %}<span class="ap-badge ap-pre">Pré-jogo</span>
             {% else %}<span class="ap-badge ap-wait">Aguardando</span>{% endif %}
+            <span id="offline-status-{{ p.id }}" class="ap-badge ap-offline-warn" style="display:none; margin-left:8px;">Offline não baixado</span>
             {% if p.operador_nome and not jogo_finalizado %}<span style="margin-left:8px;color:var(--muted);font-weight:700;">Operador: {{ p.operador_nome }}</span>{% endif %}
         </div>
         <div class="ap-card-actions">
             {% if jogo_finalizado %}
                 <span class="ap-badge ap-done">Encerrado</span>
             {% elif jogo_iniciado %}
-                <a class="btn-padrao" href="{{ url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) }}">Entrar no jogo</a>
+                <a class="btn-padrao" href="{{ url_operacao }}">Entrar no jogo</a>
             {% else %}
-                <a class="btn-padrao" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) }}">{% if p.operador_login == session.get('usuario') %}Continuar{% else %}Abrir pré-jogo{% endif %}</a>
+                <a class="btn-padrao" href="{{ url_operacao }}">{% if p.operador_login == session.get('usuario') %}Continuar{% else %}Abrir pré-jogo{% endif %}</a>
+            {% endif %}
+            {% if not jogo_finalizado %}
+                <button type="button" id="btn-offline-partida-{{ p.id }}" class="btn-padrao ap-btn-offline-card" onclick="baixarPartidaOffline('{{ p.id }}')">⬇️ Offline</button>
             {% endif %}
         </div>
     </div>
@@ -99,6 +149,7 @@
                 <div class="ap-section-title">{{ competicao_nome }}</div>
                 <div class="ap-section-hint">Partidas separadas por situação para facilitar a operação.</div>
             </div>
+            <button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>
         </div>
 
         {% set ns = namespace(live=0, pre=0, wait=0, done=0) %}
@@ -174,22 +225,378 @@
         {% endif %}
     </div>
 {% elif competicao_unica %}
-    <div class="card-painel">
+    <div class="card-painel" data-competicao-unica="{{ competicao_unica.competicao }}">
         <div class="ap-section-title">{{ competicao_unica.competicao }}</div>
         <div class="ap-section-hint" style="margin:6px 0 14px;">Você está vinculado a uma competição ativa.</div>
-        <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_unica.competicao) }}">Entrar na competição</a>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_unica.competicao) }}">Entrar na competição</a>
+            <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
+            <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir offline</a>
+        </div>
+        <div class="ap-offline-small" id="status-competicao-unica-offline">Prepare aqui a sessão offline; depois entre na competição e use “Baixar competição inteira” para salvar as partidas.</div>
     </div>
 {% elif competicoes %}
     <div class="card-painel">
         <div class="ap-section-head"><div class="ap-section-title">Competições disponíveis</div></div>
         <table><thead><tr><th>Competição</th><th>Data</th><th>Status</th><th></th></tr></thead><tbody>
         {% for c in competicoes %}
-            <tr><td><strong>{{ c.competicao }}</strong></td><td>{{ c.data or '-' }}</td><td>{{ c.status or '-' }}</td><td><a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a></td></tr>
+            <tr>
+                <td><strong>{{ c.competicao }}</strong></td>
+                <td>{{ c.data or '-' }}</td>
+                <td>{{ c.status or '-' }}</td>
+                <td style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a>
+                    <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>
+                </td>
+            </tr>
         {% endfor %}
         </tbody></table>
     </div>
 {% else %}
     <div class="card-painel">Nenhuma competição disponível no momento.</div>
 {% endif %}
+
+<div id="modal-offline-apontador" class="ap-modal-offline" aria-hidden="true">
+    <div class="ap-modal-offline-card" role="dialog" aria-modal="true" aria-labelledby="modal-offline-titulo">
+        <div class="ap-modal-offline-topo">
+            <div>
+                <h3 id="modal-offline-titulo">📦 Preparar competição offline</h3>
+                <div class="ap-section-hint">Use isso em casa ou onde tiver internet. Depois o apontador consegue abrir as partidas baixadas sem precisar logar de novo.</div>
+            </div>
+            <button type="button" class="ap-modal-offline-fechar" onclick="fecharModalOfflineApontador()">×</button>
+        </div>
+
+        <div class="ap-offline-lista">
+            <div class="ap-offline-item">✅ Sessão offline do apontador <small>Permite abrir a tela offline mesmo se o navegador perder o login online.</small></div>
+            <div class="ap-offline-item">✅ Cache da tela da competição <small>Salva essa tela e a tela de entrada offline no dispositivo.</small></div>
+            <div class="ap-offline-item">✅ Partidas da competição <small>Salva os links das partidas e tenta colocar as telas no cache do navegador.</small></div>
+            <div class="ap-offline-item">⚠️ Scout e ações em tempo real <small>A fila offline completa será tratada no jogo_apontador; esta tela prepara a entrada e os acessos.</small></div>
+        </div>
+
+        <div id="offline-progresso" class="ap-offline-item" style="display:none;"></div>
+
+        <div class="ap-offline-modal-actions">
+            <button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>
+            <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir tela offline</a>
+            <button type="button" class="btn-padrao" onclick="fecharModalOfflineApontador()">Fechar</button>
+        </div>
+    </div>
+</div>
+
+<div id="ap-toast-offline" class="ap-toast-offline"></div>
+
+<script>
+(function () {
+    const OFFLINE_SESSION_KEY = "voleitable_offline_sessao";
+    const OFFLINE_COMPETICOES_KEY = "voleitable_offline_competicoes";
+    const OFFLINE_PARTIDAS_KEY = "voleitable_offline_partidas";
+    const OFFLINE_VERSION = "20260528-painel-apontador-v2";
+
+    const CONTEXTO = {
+        usuario: {{ usuario_login_offline|tojson }},
+        nome: {{ nome_usuario_offline|tojson }},
+        modoPartidas: {{ (modo_partidas if modo_partidas is defined else false)|tojson }},
+        competicao: {% if modo_partidas %}{{ competicao_nome|tojson }}{% elif competicao_unica %}{{ competicao_unica.competicao|tojson }}{% else %}""{% endif %},
+        urlAtual: window.location.pathname + window.location.search,
+        criadoEm: new Date().toISOString()
+    };
+
+    const PARTIDAS_RENDERIZADAS = [
+        {% if modo_partidas and partidas %}
+            {% for p in partidas %}
+                {% set status_op = (p.status_operacao or 'livre')|lower %}
+                {% set status_partida = (p.status or 'agendada')|lower %}
+                {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
+                {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
+                {% if jogo_iniciado %}
+                    {% set url_operacao = url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) %}
+                {% else %}
+                    {% set url_operacao = url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) %}
+                {% endif %}
+                {
+                    id: {{ p.id|tojson }},
+                    competicao: {{ competicao_nome|tojson }},
+                    equipe_a: {{ (p.equipe_a or 'A definir')|tojson }},
+                    equipe_b: {{ (p.equipe_b or 'A definir')|tojson }},
+                    ordem: {{ (p.ordem or '')|tojson }},
+                    quadra: {{ (p.quadra or '')|tojson }},
+                    grupo: {{ (p.grupo or '')|tojson }},
+                    status: {{ (p.status or 'agendada')|tojson }},
+                    status_operacao: {{ (p.status_operacao or 'livre')|tojson }},
+                    finalizada: {{ jogo_finalizado|tojson }},
+                    url: {{ url_operacao|tojson }},
+                    salva_em: new Date().toISOString()
+                }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        {% endif %}
+    ];
+
+    function lerJson(chave, padrao) {
+        try {
+            const bruto = localStorage.getItem(chave);
+            if (!bruto) return padrao;
+            return JSON.parse(bruto);
+        } catch (e) {
+            return padrao;
+        }
+    }
+
+    function salvarJson(chave, valor) {
+        localStorage.setItem(chave, JSON.stringify(valor));
+    }
+
+    function mostrarToast(texto, tipo) {
+        const el = document.getElementById("ap-toast-offline");
+        if (!el) return;
+        el.textContent = texto;
+        el.className = "ap-toast-offline" + (tipo ? " " + tipo : "");
+        el.style.display = "block";
+        clearTimeout(window.__apOfflineToastTimer);
+        window.__apOfflineToastTimer = setTimeout(() => {
+            el.style.display = "none";
+        }, 3600);
+    }
+
+    function atualizarProgresso(texto) {
+        const el = document.getElementById("offline-progresso");
+        if (!el) return;
+        el.style.display = "block";
+        el.textContent = texto;
+    }
+
+    function normalizarId(id) {
+        return String(id || "");
+    }
+
+    function salvarSessaoOffline(competicao) {
+        const sessao = {
+            autorizado: true,
+            usuario: CONTEXTO.usuario,
+            nome: CONTEXTO.nome,
+            competicao: competicao || CONTEXTO.competicao || "",
+            url_painel: CONTEXTO.urlAtual,
+            criada_em: new Date().toISOString(),
+            versao: OFFLINE_VERSION
+        };
+        salvarJson(OFFLINE_SESSION_KEY, sessao);
+        return sessao;
+    }
+
+    function salvarCompeticaoOffline(competicao, dadosExtras) {
+        const mapa = lerJson(OFFLINE_COMPETICOES_KEY, {});
+        mapa[competicao] = Object.assign({
+            competicao: competicao,
+            usuario: CONTEXTO.usuario,
+            nome: CONTEXTO.nome,
+            url: CONTEXTO.urlAtual,
+            salva_em: new Date().toISOString(),
+            versao: OFFLINE_VERSION
+        }, dadosExtras || {});
+        salvarJson(OFFLINE_COMPETICOES_KEY, mapa);
+        return mapa[competicao];
+    }
+
+    function salvarPartidasOffline(partidas) {
+        const mapa = lerJson(OFFLINE_PARTIDAS_KEY, {});
+        partidas.forEach(p => {
+            if (!p || p.finalizada) return;
+            mapa[normalizarId(p.id)] = Object.assign({}, p, {
+                id: normalizarId(p.id),
+                baixada: true,
+                salva_em: new Date().toISOString(),
+                versao: OFFLINE_VERSION
+            });
+        });
+        salvarJson(OFFLINE_PARTIDAS_KEY, mapa);
+        return mapa;
+    }
+
+    async function cachearUrls(urls) {
+        const limpas = Array.from(new Set((urls || []).filter(Boolean)));
+        if (!("caches" in window)) return { ok: false, total: limpas.length, feitas: 0 };
+
+        let feitas = 0;
+        const cache = await caches.open("voleitable-offline-runtime-v20260528");
+
+        for (const url of limpas) {
+            try {
+                atualizarProgresso(`Baixando tela ${feitas + 1}/${limpas.length}...`);
+                const resp = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+                if (resp && resp.ok) {
+                    await cache.put(url, resp.clone());
+                    feitas += 1;
+                }
+            } catch (e) {
+                console.warn("Falha ao cachear", url, e);
+            }
+        }
+
+        return { ok: true, total: limpas.length, feitas };
+    }
+
+    function obterPartidaPorId(id) {
+        const sid = normalizarId(id);
+        return PARTIDAS_RENDERIZADAS.find(p => normalizarId(p.id) === sid) || null;
+    }
+
+    function atualizarStatusVisualOffline() {
+        const mapa = lerJson(OFFLINE_PARTIDAS_KEY, {});
+        const sessao = lerJson(OFFLINE_SESSION_KEY, null);
+        const panel = document.getElementById("ap-offline-panel");
+        const texto = document.getElementById("ap-offline-panel-texto");
+
+        if (sessao && panel) {
+            panel.classList.add("aparece");
+            if (texto) {
+                const total = Object.keys(mapa).length;
+                texto.textContent = total > 0
+                    ? `${total} partida(s) preparada(s) neste dispositivo. Sessão offline ativa para ${sessao.nome || sessao.usuario || "apontador"}.`
+                    : `Sessão offline ativa para ${sessao.nome || sessao.usuario || "apontador"}. Baixe as partidas antes de sair da internet.`;
+            }
+        }
+
+        document.querySelectorAll("[data-partida-card='1']").forEach(card => {
+            const id = normalizarId(card.dataset.partidaId);
+            const btn = document.getElementById(`btn-offline-partida-${id}`);
+            const badge = document.getElementById(`offline-status-${id}`);
+            const baixada = !!mapa[id];
+
+            if (btn) {
+                btn.classList.toggle("baixado", baixada);
+                btn.textContent = baixada ? "✅ Offline" : "⬇️ Offline";
+            }
+            if (badge) {
+                badge.style.display = "inline-flex";
+                badge.className = "ap-badge " + (baixada ? "ap-offline-ok" : "ap-offline-warn");
+                badge.textContent = baixada ? "Offline baixado" : "Offline não baixado";
+            }
+        });
+
+        const statusUnica = document.getElementById("status-competicao-unica-offline");
+        if (statusUnica && sessao) {
+            statusUnica.textContent = `Sessão offline ativa para ${sessao.nome || sessao.usuario || "apontador"}. Entre na competição e baixe as partidas.`;
+        }
+    }
+
+    window.abrirModalOfflineApontador = function () {
+        const modal = document.getElementById("modal-offline-apontador");
+        if (modal) {
+            modal.classList.add("aberto");
+            modal.setAttribute("aria-hidden", "false");
+        }
+    };
+
+    window.fecharModalOfflineApontador = function () {
+        const modal = document.getElementById("modal-offline-apontador");
+        if (modal) {
+            modal.classList.remove("aberto");
+            modal.setAttribute("aria-hidden", "true");
+        }
+    };
+
+    window.prepararCompeticaoUnicaOffline = async function () {
+        const competicao = CONTEXTO.competicao || "Competição";
+        salvarSessaoOffline(competicao);
+        salvarCompeticaoOffline(competicao, {
+            somente_sessao: true,
+            aviso: "Sessão criada pela tela inicial. Entre na competição para baixar as partidas."
+        });
+
+        await cachearUrls([
+            CONTEXTO.urlAtual,
+            "/offline-apontador",
+            "/app-login?app=1&v=20260528-offline1",
+            document.querySelector("[data-competicao-unica] a.btn-padrao")?.getAttribute("href")
+        ]);
+
+        atualizarStatusVisualOffline();
+        mostrarToast("Sessão offline criada. Agora entre na competição e baixe todas as partidas.", "ok");
+    };
+
+    window.prepararCompeticaoListaOffline = async function (competicao, url) {
+        salvarSessaoOffline(competicao);
+        salvarCompeticaoOffline(competicao, { url: url, somente_sessao: true });
+        await cachearUrls([CONTEXTO.urlAtual, "/offline-apontador", url]);
+        atualizarStatusVisualOffline();
+        mostrarToast("Sessão offline criada para essa competição. Entre nela e baixe as partidas.", "ok");
+    };
+
+    window.baixarPartidaOffline = async function (id) {
+        const partida = obterPartidaPorId(id);
+        if (!partida) {
+            mostrarToast("Não encontrei os dados dessa partida nesta tela.", "erro");
+            return;
+        }
+
+        const btn = document.getElementById(`btn-offline-partida-${normalizarId(id)}`);
+        if (btn) {
+            btn.classList.add("sincronizando");
+            btn.textContent = "🔄 Baixando...";
+        }
+
+        try {
+            salvarSessaoOffline(partida.competicao);
+            salvarCompeticaoOffline(partida.competicao, { url: CONTEXTO.urlAtual });
+            salvarPartidasOffline([partida]);
+            await cachearUrls([CONTEXTO.urlAtual, "/offline-apontador", partida.url]);
+            mostrarToast("Partida disponível offline neste dispositivo.", "ok");
+        } catch (e) {
+            console.error(e);
+            mostrarToast("Erro ao preparar a partida offline.", "erro");
+        } finally {
+            if (btn) btn.classList.remove("sincronizando");
+            atualizarStatusVisualOffline();
+        }
+    };
+
+    window.baixarCompeticaoOffline = async function () {
+        const competicao = CONTEXTO.competicao || "Competição";
+        const partidasValidas = PARTIDAS_RENDERIZADAS.filter(p => !p.finalizada);
+
+        if (!competicao) {
+            mostrarToast("Abra uma competição antes de preparar o modo offline.", "erro");
+            return;
+        }
+
+        salvarSessaoOffline(competicao);
+        salvarCompeticaoOffline(competicao, {
+            total_partidas: partidasValidas.length,
+            partidas_ids: partidasValidas.map(p => normalizarId(p.id))
+        });
+        salvarPartidasOffline(partidasValidas);
+
+        const urls = [
+            CONTEXTO.urlAtual,
+            "/offline-apontador",
+            "/app-login?app=1&v=20260528-offline1",
+            ...partidasValidas.map(p => p.url)
+        ];
+
+        try {
+            abrirModalOfflineApontador();
+            atualizarProgresso("Iniciando download offline da competição...");
+            const resultado = await cachearUrls(urls);
+            atualizarProgresso(`Offline preparado: ${partidasValidas.length} partida(s) salvas. Telas em cache: ${resultado.feitas}/${resultado.total}.`);
+            atualizarStatusVisualOffline();
+            mostrarToast("Competição preparada para uso offline.", "ok");
+        } catch (e) {
+            console.error(e);
+            atualizarStatusVisualOffline();
+            mostrarToast("A competição foi salva localmente, mas alguma tela pode não ter entrado no cache.", "erro");
+        }
+    };
+
+    if (typeof window.abrirModalAtalhosApontador !== "function") {
+        window.abrirModalAtalhosApontador = function () {
+            mostrarToast("Modal de atalhos não encontrado nesta tela.");
+        };
+    }
+
+    window.addEventListener("online", () => mostrarToast("Internet voltou. Quando houver ações pendentes, sincronize antes de encerrar.", "ok"));
+    window.addEventListener("offline", () => mostrarToast("Você está offline. As partidas baixadas continuam disponíveis.", "erro"));
+    document.addEventListener("DOMContentLoaded", atualizarStatusVisualOffline);
+    atualizarStatusVisualOffline();
+})();
+</script>
 
 {% endblock %}
