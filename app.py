@@ -10,17 +10,11 @@ import os
 
 from extensions import socketio
 
-# ============================================================
-# 🔥 BANCO / ESTRUTURAS
-# ============================================================
 from banco import (
     criar_estrutura_rotacao_profissional,
     criar_tabela_atalhos_apontador,
 )
 
-# ============================================================
-# 🔥 BLUEPRINTS
-# ============================================================
 from routes.auth import auth_bp
 from routes.painel import painel_bp
 from routes.competicoes import competicoes_bp
@@ -36,18 +30,12 @@ from routes.relatorios import relatorios_bp
 from routes.demo import demo_bp
 from routes.jogo_avulso import jogo_avulso_bp
 
-# ============================================================
-# 🔥 APP TEMPO REAL
-# ============================================================
 try:
     from routes.app_tempo_real import app_tempo_real_bp
 except Exception:
     app_tempo_real_bp = None
 
 
-# ============================================================
-# 🔥 APP
-# ============================================================
 app = Flask(
     __name__,
     static_folder="static",
@@ -59,10 +47,32 @@ app.secret_key = os.environ.get(
     "voleitablepro"
 )
 
+# 🔥 Evita cache quebrado em iPhone/Safari/PWA
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
-# ============================================================
-# 🔥 BANCO
-# ============================================================
+
+@app.after_request
+def aplicar_headers_cache(response):
+    path = request.path or ""
+
+    if (
+        path.endswith(".css")
+        or path.endswith(".js")
+        or path.endswith(".json")
+        or path == "/sw.js"
+        or path == "/manifest.json"
+        or path == "/app-login"
+        or path == "/app"
+    ):
+        response.headers["Cache-Control"] = (
+            "no-cache, no-store, must-revalidate, max-age=0"
+        )
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
+    return response
+
+
 try:
     criar_estrutura_rotacao_profissional()
 except Exception as e:
@@ -74,9 +84,6 @@ except Exception as e:
     print("ERRO tabela atalhos:", e)
 
 
-# ============================================================
-# 🔥 SOCKET IO
-# ============================================================
 socketio.init_app(
     app,
     cors_allowed_origins="*",
@@ -85,9 +92,6 @@ socketio.init_app(
 )
 
 
-# ============================================================
-# 🔥 BLUEPRINTS
-# ============================================================
 app.register_blueprint(auth_bp)
 app.register_blueprint(painel_bp)
 app.register_blueprint(competicoes_bp)
@@ -110,84 +114,58 @@ else:
     print("⚠️ app_tempo_real não encontrado")
 
 
-# ============================================================
-# 🔥 DETECTAR CELULAR / APP
-# ============================================================
 def eh_mobile_ou_app():
     ua = (request.headers.get("User-Agent") or "").lower()
 
-    if request.args.get("app") == "1":
-        return True
-
-    if "electron" in ua:
-        return True
-
-    if "iphone" in ua:
-        return True
-
-    if "ipad" in ua:
-        return True
-
-    if "android" in ua:
-        return True
-
-    if "mobile" in ua:
-        return True
-
-    return False
+    return (
+        request.args.get("app") == "1"
+        or "electron" in ua
+        or "iphone" in ua
+        or "ipad" in ua
+        or "android" in ua
+        or "mobile" in ua
+    )
 
 
-# ============================================================
-# 🔥 LANDING PAGE
-# ============================================================
 @app.route("/")
 def home():
-
-    # 🔥 CELULAR E APP NÃO VEEM LANDING
     if eh_mobile_ou_app():
-        return redirect("/app-login")
+        return redirect("/app-login?app=1&v=20260527-fix2")
 
-    # 🔥 SOMENTE PC WEB
     return render_template("landing.html")
 
 
-# ============================================================
-# 🔥 REDIRECIONAR /inicio
-# ============================================================
 @app.route("/inicio")
 def inicio_publico():
-
-    # 🔥 CELULAR E APP NÃO VEEM LANDING
     if eh_mobile_ou_app():
-        return redirect("/app-login")
+        return redirect("/app-login?app=1&v=20260527-fix2")
 
     return render_template("landing.html")
 
 
-# ============================================================
-# 🔥 LOGIN EXCLUSIVO APP / PWA
-# ============================================================
 @app.route("/app")
 @app.route("/app-login")
 def app_login_pwa():
+    resposta = make_response(
+        render_template("app_login.html")
+    )
 
-    return render_template("app_login.html")
+    resposta.headers["Cache-Control"] = (
+        "no-cache, no-store, must-revalidate, max-age=0"
+    )
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
+
+    return resposta
 
 
-# ============================================================
-# 🔥 HEALTH CHECK
-# ============================================================
 @app.route("/healthz")
 def healthz():
     return "ok", 200
 
 
-# ============================================================
-# 🔥 MANIFEST PWA
-# ============================================================
 @app.route("/manifest.json")
 def manifest_pwa():
-
     resposta = make_response(
         send_from_directory(
             "static",
@@ -196,23 +174,17 @@ def manifest_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/manifest+json"
-
     resposta.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate"
+        "no-cache, no-store, must-revalidate, max-age=0"
     )
-
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 
     return resposta
 
 
-# ============================================================
-# 🔥 SERVICE WORKER PWA
-# ============================================================
 @app.route("/sw.js")
 def service_worker_pwa():
-
     resposta = make_response(
         send_from_directory(
             "static",
@@ -221,28 +193,20 @@ def service_worker_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/javascript"
-
+    resposta.headers["Service-Worker-Allowed"] = "/"
     resposta.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate"
+        "no-cache, no-store, must-revalidate, max-age=0"
     )
-
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 
     return resposta
 
 
-# ============================================================
-# 🔥 SOCKET EVENTS
-# ============================================================
 import socket_events  # noqa
 
 
-# ============================================================
-# 🔥 EXECUÇÃO
-# ============================================================
 if __name__ == "__main__":
-
     port = int(
         os.environ.get(
             "PORT",

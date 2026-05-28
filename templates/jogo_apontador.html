@@ -1205,8 +1205,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     // Scout local em tempo real: durante a partida o banco NÃO é consultado.
     // O apontador acumula aqui e envia no payload Socket.IO para treinador/árbitros/telão.
     let scoutLocalPorLado = {
-        A: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0 }, atletas_lista: [] },
-        B: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0 }, atletas_lista: [] }
+        A: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0, tipos_falta: {}, faltas_lista: [] }, atletas_lista: [] },
+        B: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0, tipos_falta: {}, faltas_lista: [] }, atletas_lista: [] }
     };
 
     let syncTimer = null;
@@ -1265,15 +1265,30 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         const equipe = scoutLocalPorLado[ladoScout].equipe;
         const tipo = String(scout.tipo_lance || scout.resultado || "").toLowerCase();
         const detalhe = String(scout.detalhe_lance || scout.fundamento || scout.tipo_erro || "").toLowerCase();
-        const ehPonto = tipo === "ponto" || ladoScout === String(equipePontuadora || "").toUpperCase();
+        const equipePontuadoraNorm = String(equipePontuadora || "").toUpperCase();
         const ehErro = tipo === "erro";
+        const ehFalta = tipo === "falta" || ["rede", "invasao", "invasão", "rotacao", "rotação", "conducao", "condução", "dois_toques", "dois toques"].includes(detalhe);
+        const ehPonto = tipo === "ponto" || (!ehErro && !ehFalta && ladoScout === equipePontuadoraNorm);
 
         if (ehPonto) equipe.pontos = numeroInteiro(equipe.pontos, 0) + 1;
         if (detalhe.includes("ace")) equipe.aces = numeroInteiro(equipe.aces, 0) + 1;
         if (detalhe.includes("bloque")) equipe.bloqueios = numeroInteiro(equipe.bloqueios, 0) + 1;
         if (ehErro && detalhe.includes("saque")) equipe.erros_saque = numeroInteiro(equipe.erros_saque, 0) + 1;
-        if (ehErro && (detalhe.includes("rede") || detalhe.includes("invas") || detalhe.includes("condu") || detalhe.includes("toque") || detalhe.includes("rotação") || detalhe.includes("rotacao"))) {
+        if (ehFalta) {
             equipe.faltas = numeroInteiro(equipe.faltas, 0) + 1;
+            if (!equipe.tipos_falta || typeof equipe.tipos_falta !== "object") equipe.tipos_falta = {};
+            const chaveFalta = detalhe || "falta";
+            equipe.tipos_falta[chaveFalta] = numeroInteiro(equipe.tipos_falta[chaveFalta], 0) + 1;
+            if (!Array.isArray(equipe.faltas_lista)) equipe.faltas_lista = [];
+            equipe.faltas_lista.unshift({
+                tipo: chaveFalta,
+                atleta_numero: scout.atleta_numero || "",
+                atleta_nome: scout.atleta_nome || scout.atleta_label || "",
+                equipe: ladoScout,
+                equipe_pontuadora: equipePontuadoraNorm,
+                momento: Date.now()
+            });
+            equipe.faltas_lista = equipe.faltas_lista.slice(0, 8);
         }
 
         const atleta = garantirAtletaScoutLocal(ladoScout, scout.atleta_numero, scout.atleta_nome || scout.atleta_label);

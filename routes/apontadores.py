@@ -2655,6 +2655,16 @@ def _persistir_eventos_finais_partida(partida_id, competicao, eventos):
             return "", {}
         tipo = str(item.get("tipo") or "").strip().lower()
         payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+
+        # Compatibilidade com o modo offline-first:
+        # pontos vêm como {"equipe": "A", "scout": {...}}.
+        # Para salvar no banco ao finalizar a partida, achatamos o scout aqui.
+        if tipo == "ponto" and isinstance(payload.get("scout"), dict):
+            scout = payload.get("scout") or {}
+            payload = {**payload, **scout}
+            payload.setdefault("equipe_scout", scout.get("equipe_scout") or scout.get("responsavel_lado"))
+            payload.setdefault("responsavel_lado", scout.get("responsavel_lado") or scout.get("equipe_scout"))
+
         return tipo, payload
 
     for item in eventos:
@@ -2675,8 +2685,16 @@ def _persistir_eventos_finais_partida(partida_id, competicao, eventos):
                     "atleta_nome": payload.get("atleta_nome") or "",
                     "atleta_label": payload.get("atleta_label") or "",
                     "equipe_pontuadora": equipe,
-                    "equipe_scout": payload.get("equipe_scout") or payload.get("responsavel_lado") or equipe,
-                    "responsavel_lado": payload.get("responsavel_lado") or payload.get("equipe_scout") or equipe,
+                    "equipe_scout": payload.get("equipe_scout") or payload.get("responsavel_lado") or (
+                        ("B" if equipe == "A" else "A")
+                        if str(payload.get("tipo_lance") or payload.get("resultado") or "").strip().lower() in {"erro", "falta"}
+                        else equipe
+                    ),
+                    "responsavel_lado": payload.get("responsavel_lado") or payload.get("equipe_scout") or (
+                        ("B" if equipe == "A" else "A")
+                        if str(payload.get("tipo_lance") or payload.get("resultado") or "").strip().lower() in {"erro", "falta"}
+                        else equipe
+                    ),
                 }
                 ok, retorno = registrar_ponto_partida(partida_id, competicao, equipe, "ponto", detalhes)
 

@@ -270,9 +270,15 @@
 
 .resumo-scout {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(3, minmax(170px, 1fr));
     gap: 12px;
     margin-bottom: 14px;
+}
+
+@media (max-width: 860px) {
+    .resumo-scout {
+        grid-template-columns: 1fr;
+    }
 }
 
 .box-resumo {
@@ -280,6 +286,22 @@
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 14px;
+}
+
+.box-resumo-faltas {
+    grid-column: span 1;
+}
+
+.lista-faltas-scout {
+    margin: 8px 0 0;
+    padding-left: 16px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.lista-faltas-scout li {
+    margin: 2px 0;
 }
 
 .box-resumo .label {
@@ -612,18 +634,8 @@
 
     <div class="resumo-scout">
         <div class="box-resumo">
-            <div class="label">Pontos</div>
-            <div class="valor" data-scout-pontos>{{ scout_equipe.get('pontos', 0) }}</div>
-        </div>
-
-        <div class="box-resumo">
-            <div class="label">Aces</div>
-            <div class="valor" data-scout-aces>{{ scout_equipe.get('aces', 0) }}</div>
-        </div>
-
-        <div class="box-resumo">
-            <div class="label">Bloqueios</div>
-            <div class="valor" data-scout-bloqueios>{{ scout_equipe.get('bloqueios', 0) }}</div>
+            <div class="label">Pontos totais</div>
+            <div class="valor" data-scout-pontos>{{ placar_proprio if placar_proprio is defined else scout_equipe.get('pontos', 0) }}</div>
         </div>
 
         <div class="box-resumo">
@@ -631,9 +643,12 @@
             <div class="valor" data-scout-erros-saque>{{ scout_equipe.get('erros_saque', 0) }}</div>
         </div>
 
-        <div class="box-resumo">
-            <div class="label">Faltas</div>
+        <div class="box-resumo box-resumo-faltas">
+            <div class="label">Faltas cometidas</div>
             <div class="valor" data-scout-faltas>{{ scout_equipe.get('faltas', 0) }}</div>
+            <ul id="lista-faltas-scout" class="lista-faltas-scout">
+                <li>Sem faltas registradas.</li>
+            </ul>
         </div>
     </div>
 
@@ -894,15 +909,117 @@ function atualizarSolicitacoes(solicitacoes) {
     });
 }
 
+function obterPontosTotaisEquipeScout(equipeScout = {}) {
+    const dados = ultimoEstadoTreinador || {};
+
+    if (numeroInformado(dados.placar_proprio)) {
+        return numeroSeguro(dados.placar_proprio);
+    }
+
+    if (LADO_TREINADOR === "A") {
+        return numeroSeguro(dados.pontos_a ?? dados.placar_a ?? equipeScout.pontos ?? 0);
+    }
+
+    if (LADO_TREINADOR === "B") {
+        return numeroSeguro(dados.pontos_b ?? dados.placar_b ?? equipeScout.pontos ?? 0);
+    }
+
+    return numeroSeguro(equipeScout.pontos ?? 0);
+}
+
+function normalizarNomeFaltaScout(chave) {
+    const texto = String(chave || "").trim().toLowerCase();
+    const mapa = {
+        rede: "Rede",
+        invasao: "Invasão",
+        invasão: "Invasão",
+        rotacao: "Rotação",
+        rotação: "Rotação",
+        conducao: "Condução",
+        condução: "Condução",
+        dois_toques: "Dois toques",
+        "dois toques": "Dois toques"
+    };
+    return mapa[texto] || (texto ? texto.charAt(0).toUpperCase() + texto.slice(1) : "Falta");
+}
+
+function montarLinhasFaltasScout(scout, equipe) {
+    const candidatos = [
+        equipe.tipos_falta,
+        equipe.faltas_tipos,
+        equipe.faltas_por_tipo,
+        equipe.detalhes_faltas,
+        scout.tipos_falta,
+        scout.faltas_tipos,
+        scout.faltas_por_tipo,
+        scout.detalhes_faltas,
+        scout.faltas_lista,
+        equipe.faltas_lista
+    ];
+
+    const acumulado = new Map();
+
+    candidatos.forEach(item => {
+        if (!item) return;
+
+        if (Array.isArray(item)) {
+            item.forEach(valor => {
+                let tipo = "";
+                let qtd = 1;
+
+                if (typeof valor === "object" && valor !== null) {
+                    tipo = valor.tipo || valor.detalhe || valor.falta || valor.nome || valor.label || "";
+                    qtd = numeroSeguro(valor.qtd ?? valor.quantidade ?? valor.total ?? valor.valor ?? 1, 1);
+                } else {
+                    tipo = valor;
+                }
+
+                tipo = normalizarNomeFaltaScout(tipo);
+                acumulado.set(tipo, numeroSeguro(acumulado.get(tipo), 0) + qtd);
+            });
+        } else if (typeof item === "object") {
+            Object.entries(item).forEach(([chave, valor]) => {
+                const tipo = normalizarNomeFaltaScout(chave);
+                const qtd = numeroSeguro(valor, 0);
+                if (qtd > 0) acumulado.set(tipo, numeroSeguro(acumulado.get(tipo), 0) + qtd);
+            });
+        }
+    });
+
+    return Array.from(acumulado.entries())
+        .filter(([, qtd]) => qtd > 0)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function atualizarListaFaltasScout(scout, equipe) {
+    const lista = document.getElementById("lista-faltas-scout");
+    if (!lista) return;
+
+    const linhas = montarLinhasFaltasScout(scout, equipe);
+    lista.innerHTML = "";
+
+    if (!linhas.length) {
+        const li = document.createElement("li");
+        li.textContent = "Sem faltas registradas.";
+        lista.appendChild(li);
+        return;
+    }
+
+    linhas.slice(0, 5).forEach(([tipo, qtd]) => {
+        const li = document.createElement("li");
+        li.textContent = `${qtd} ${tipo}`;
+        lista.appendChild(li);
+    });
+}
+
 function atualizarScout(scout) {
     scout = scout || {};
     const equipe = scout.equipe || {};
 
-    setTextoTodos("[data-scout-pontos]", equipe.pontos ?? 0);
-    setTextoTodos("[data-scout-aces]", equipe.aces ?? 0);
-    setTextoTodos("[data-scout-bloqueios]", equipe.bloqueios ?? 0);
+    setTextoTodos("[data-scout-pontos]", obterPontosTotaisEquipeScout(equipe));
     setTextoTodos("[data-scout-erros-saque]", equipe.erros_saque ?? 0);
     setTextoTodos("[data-scout-faltas]", equipe.faltas ?? 0);
+    atualizarListaFaltasScout(scout, equipe);
 
     const corpo = document.getElementById("corpo-scout-atletas");
     const boxTabela = document.getElementById("box-tabela-scout");
@@ -935,20 +1052,35 @@ function atualizarScout(scout) {
     boxTabela.style.display = "block";
     vazio.style.display = "none";
 
-    listaBase.forEach(atletaBase => {
+    const listaOrdenada = [...listaBase].map(atletaBase => {
         const numero = String(atletaBase.numero ?? "").trim();
-        const nome = atletaBase.nome || "-";
-
         const dados = mapaScout.get(numero) || {};
 
+        return {
+            numero,
+            nome: atletaBase.nome || "-",
+            pontos: numeroSeguro(dados.pontos ?? 0),
+            ataques: numeroSeguro(dados.ataques ?? dados.ataque ?? 0),
+            aces: numeroSeguro(dados.aces ?? 0),
+            bloqueios: numeroSeguro(dados.bloqueios ?? dados.bloqueio ?? 0)
+        };
+    }).sort((a, b) => {
+        if (b.pontos !== a.pontos) return b.pontos - a.pontos;
+        if (b.ataques !== a.ataques) return b.ataques - a.ataques;
+        if (b.bloqueios !== a.bloqueios) return b.bloqueios - a.bloqueios;
+        if (b.aces !== a.aces) return b.aces - a.aces;
+        return Number(a.numero || 999) - Number(b.numero || 999);
+    });
+
+    listaOrdenada.forEach(atleta => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td><strong>${numero || "-"}</strong></td>
-            <td class="nome-atleta">${nome}</td>
-            <td>${dados.pontos ?? 0}</td>
-            <td>${dados.ataques ?? dados.ataque ?? 0}</td>
-            <td>${dados.aces ?? 0}</td>
-            <td>${dados.bloqueios ?? dados.bloqueio ?? 0}</td>
+            <td><strong>${atleta.numero || "-"}</strong></td>
+            <td class="nome-atleta">${atleta.nome}</td>
+            <td>${atleta.pontos}</td>
+            <td>${atleta.ataques}</td>
+            <td>${atleta.aces}</td>
+            <td>${atleta.bloqueios}</td>
         `;
         corpo.appendChild(tr);
     });

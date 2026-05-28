@@ -495,6 +495,7 @@ def estado_treinador_view(competicao, partida_id):
 
     # Scout completo e automático na aba Scout
     if aba == "scout":
+        import json
         from banco import listar_eventos_partida
 
         eventos = listar_eventos_partida(partida_id, competicao, limite=2000) or []
@@ -517,35 +518,115 @@ def estado_treinador_view(competicao, partida_id):
                 "bloqueios": 0,
             }
 
+        pontos_proprios = _int(contexto.get("placar_proprio"))
+        if pontos_proprios <= 0:
+            pontos_proprios = _int(contexto.get("pontos_a") if lado == "A" else contexto.get("pontos_b"))
+
         resumo = {
-            "pontos": 0,
+            # No painel do treinador, "pontos" é o placar real da equipe no set,
+            # não só pontos creditados individualmente no scout.
+            "pontos": pontos_proprios,
             "aces": 0,
             "bloqueios": 0,
             "erros_saque": 0,
             "faltas": 0,
+            "tipos_falta": {},
+            "faltas_lista": [],
         }
 
+        def _detalhes_dict(ev):
+            detalhes = ev.get("detalhes") or ev.get("detalhe_json") or {}
+            if isinstance(detalhes, dict):
+                return detalhes
+            if isinstance(detalhes, str) and detalhes.strip():
+                try:
+                    obj = json.loads(detalhes)
+                    return obj if isinstance(obj, dict) else {}
+                except Exception:
+                    return {}
+            return {}
+
+        def _limpar_texto(valor):
+            return str(valor or "").strip().lower()
+
+        def _normalizar_falta(valor):
+            texto = _limpar_texto(valor)
+            mapa_faltas = {
+                "rede": "rede",
+                "invasao": "invasao",
+                "invasão": "invasao",
+                "rotacao": "rotacao",
+                "rotação": "rotacao",
+                "conducao": "conducao",
+                "condução": "conducao",
+                "dois_toques": "dois_toques",
+                "dois toques": "dois_toques",
+            }
+            return mapa_faltas.get(texto, texto or "falta")
+
+        def _somar_falta(tipo_falta, ev, det):
+            tipo_falta = _normalizar_falta(tipo_falta)
+            resumo["faltas"] += 1
+            resumo["tipos_falta"][tipo_falta] = resumo["tipos_falta"].get(tipo_falta, 0) + 1
+            resumo["faltas_lista"].insert(0, {
+                "tipo": tipo_falta,
+                "atleta_numero": ev.get("numero") or ev.get("atleta_numero") or det.get("atleta_numero") or "",
+                "atleta_nome": ev.get("atleta_nome") or det.get("atleta_nome") or det.get("atleta_label") or "",
+                "equipe": lado,
+            })
+            resumo["faltas_lista"] = resumo["faltas_lista"][:8]
+
         for ev in eventos:
+            det = _detalhes_dict(ev)
+
             equipe_evento = str(ev.get("equipe") or "").strip().upper()
-            fundamento = str(ev.get("fundamento") or "").strip().lower()
-            resultado = str(ev.get("resultado") or "").strip().lower()
-            tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
-            detalhe = str(ev.get("detalhe") or ev.get("detalhes") or "").strip().lower()
+            responsavel_lado = str(
+                det.get("responsavel_lado")
+                or ev.get("responsavel_lado")
+                or ""
+            ).strip().upper()
+
+            equipe_pontuadora = str(
+                det.get("equipe_pontuadora")
+                or ev.get("equipe_pontuadora")
+                or equipe_evento
+                or ""
+            ).strip().upper()
+
+            fundamento = _limpar_texto(ev.get("fundamento") or det.get("fundamento"))
+            resultado = _limpar_texto(ev.get("resultado") or det.get("resultado") or det.get("tipo_lance"))
+            tipo = _limpar_texto(ev.get("tipo") or ev.get("tipo_evento"))
+            detalhe = _limpar_texto(
+                ev.get("detalhe")
+                or det.get("detalhe_lance")
+                or det.get("tipo_erro")
+                or det.get("detalhe")
+                or ev.get("detalhes")
+            )
 
             numero = str(
                 ev.get("numero")
                 or ev.get("atleta_numero")
+                or det.get("atleta_numero")
                 or ""
             ).strip()
 
-            # Só conta scout da equipe do treinador
-            if equipe_evento != lado:
-                continue
+            eh_falta = (
+                resultado == "falta"
+                or tipo == "falta"
+                or detalhe in {"rede", "invasao", "invasão", "rotacao", "rotação", "conducao", "condução", "dois_toques", "dois toques"}
+                or fundamento in {"rede", "invasao", "invasão", "rotacao", "rotação", "conducao", "condução", "dois_toques", "dois toques"}
+            )
 
-            # Ponto normal de atleta
-            if resultado == "ponto" and numero in mapa:
+            eh_erro = resultado == "erro" or tipo == "erro" or detalhe in {"erro_saque", "erro_geral"} or fundamento in {"erro_saque", "erro_geral"}
+
+            # Quem cometeu erro/falta é o responsavel_lado. Se o evento antigo não tiver
+            # esse campo, usa equipe_evento como fallback para compatibilidade.
+            equipe_responsavel = responsavel_lado if responsavel_lado in {"A", "B"} else equipe_evento
+
+            # Ponto normal creditado para atleta da equipe do treinador.
+            if equipe_pontuadora == lado and resultado == "ponto" and numero in mapa:
                 mapa[numero]["pontos"] += 1
-                resumo["pontos"] += 1
 
                 if fundamento == "ataque" or detalhe == "ataque":
                     mapa[numero]["ataques"] += 1
@@ -558,13 +639,14 @@ def estado_treinador_view(competicao, partida_id):
                     mapa[numero]["bloqueios"] += 1
                     resumo["bloqueios"] += 1
 
-            # Erro/falta conta para a equipe que cometeu, mas não soma ponto de atleta
-            if resultado == "erro" or tipo == "erro" or detalhe in {"erro_saque", "erro_geral"}:
+            # Erro/falta conta para a equipe que cometeu, inclusive quando o ponto
+            # apareceu para o adversário.
+            if equipe_responsavel == lado and eh_erro:
                 if detalhe == "erro_saque" or fundamento == "erro_saque":
                     resumo["erros_saque"] += 1
 
-            if resultado == "falta" or tipo == "falta" or detalhe in {"rede", "invasao", "rotacao", "conducao", "dois_toques"}:
-                resumo["faltas"] += 1
+            if equipe_responsavel == lado and eh_falta:
+                _somar_falta(detalhe or fundamento or "falta", ev, det)
 
         payload["scout"] = {
             "equipe": resumo,

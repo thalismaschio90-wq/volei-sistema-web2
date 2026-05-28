@@ -1,172 +1,103 @@
-const CACHE_NAME = "voleitable-pwa-v20260519-pwa3";
+const CACHE_NAME = "voleitable-pwa-v20260527-fix2";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260519-pwa3",
-
-    "/static/css/app_login.css?v=20260519-pwa3",
-    "/static/js/app_login.js?v=20260519-pwa3",
-
-    "/static/img/logo.png?v=20260519-pwa3",
-
-    "/manifest.json?v=20260519-pwa3"
+    "/app-login?app=1&v=20260527-fix2",
+    "/static/css/app_login.css?v=20260527-fix2",
+    "/static/js/app_login.js?v=20260527-fix2",
+    "/static/img/logo.png?v=20260527-fix2",
+    "/manifest.json?v=20260527-fix2"
 ];
 
-
-// ============================================================
-// 🔥 INSTALL
-// ============================================================
 self.addEventListener("install", event => {
-
     self.skipWaiting();
 
     event.waitUntil(
-
-        caches
-            .open(CACHE_NAME)
-            .then(cache => {
-
-                console.log("📦 Cache inicial criado");
-
-                return cache.addAll(APP_SHELL);
-
-            })
+        caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(APP_SHELL))
             .catch(error => {
-
-                console.log(
-                    "❌ Erro ao salvar cache inicial:",
-                    error
-                );
-
+                console.log("Erro ao criar cache inicial:", error);
             })
-
     );
-
 });
 
-
-// ============================================================
-// 🔥 ACTIVATE
-// ============================================================
 self.addEventListener("activate", event => {
-
     event.waitUntil(
-
-        caches
-            .keys()
+        caches.keys()
             .then(keys => {
-
                 return Promise.all(
-
                     keys.map(key => {
-
                         if (key !== CACHE_NAME) {
-
-                            console.log(
-                                "🗑️ Removendo cache antigo:",
-                                key
-                            );
-
                             return caches.delete(key);
-
                         }
-
                         return null;
-
                     })
-
                 );
-
             })
-            .then(() => {
-
-                console.log("✅ Service Worker ativado");
-
-                return self.clients.claim();
-
-            })
-
+            .then(() => self.clients.claim())
     );
-
 });
 
-
-// ============================================================
-// 🔥 FETCH
-// ============================================================
 self.addEventListener("fetch", event => {
-
     const request = event.request;
 
-    // 🔥 IGNORA MÉTODOS DIFERENTES DE GET
     if (request.method !== "GET") {
         return;
     }
 
-    // 🔥 NAVEGAÇÃO HTML
-    if (request.mode === "navigate") {
+    const url = new URL(request.url);
 
-        event.respondWith(
-
-            fetch(request)
-
-                .then(response => {
-
-                    const clone = response.clone();
-
-                    caches
-                        .open(CACHE_NAME)
-                        .then(cache => {
-
-                            cache.put(request, clone);
-
-                        })
-                        .catch(() => null);
-
-                    return response;
-
-                })
-
-                .catch(() => {
-
-                    return caches.match(
-                        "/app-login?app=1&v=20260519-pwa3"
-                    );
-
-                })
-
-        );
-
+    if (url.pathname.includes("/socket.io/")) {
         return;
     }
 
-    // 🔥 CSS / JS / IMG
+    if (url.pathname.includes("/auth/") || url.pathname.includes("/login")) {
+        return;
+    }
+
+    if (request.mode === "navigate") {
+        event.respondWith(
+            fetch(request, { cache: "no-store" })
+                .then(response => response)
+                .catch(() => caches.match("/app-login?app=1&v=20260527-fix2"))
+        );
+        return;
+    }
+
+    if (
+        url.pathname.endsWith(".css") ||
+        url.pathname.endsWith(".js") ||
+        url.pathname.endsWith(".json")
+    ) {
+        event.respondWith(
+            fetch(request, { cache: "no-store" })
+                .then(response => {
+                    const clone = response.clone();
+
+                    caches.open(CACHE_NAME)
+                        .then(cache => cache.put(request, clone))
+                        .catch(() => null);
+
+                    return response;
+                })
+                .catch(() => caches.match(request))
+        );
+        return;
+    }
+
     event.respondWith(
+        caches.match(request)
+            .then(cached => {
+                return cached || fetch(request)
+                    .then(response => {
+                        const clone = response.clone();
 
-        fetch(request)
+                        caches.open(CACHE_NAME)
+                            .then(cache => cache.put(request, clone))
+                            .catch(() => null);
 
-            .then(response => {
-
-                const clone = response.clone();
-
-                caches
-                    .open(CACHE_NAME)
-                    .then(cache => {
-
-                        cache.put(request, clone);
-
-                    })
-                    .catch(() => null);
-
-                return response;
-
+                        return response;
+                    });
             })
-
-            .catch(() => {
-
-                return caches.match(request);
-
-            })
-
+            .catch(() => fetch(request))
     );
-
 });
