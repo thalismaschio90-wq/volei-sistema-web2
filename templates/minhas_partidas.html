@@ -114,6 +114,67 @@
     color: var(--muted);
     line-height: 1.45;
 }
+
+.partidas-offline-box {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #123452;
+    border-radius: 18px;
+    padding: 14px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.partidas-offline-box strong { display:block; font-size:16px; margin-bottom:4px; }
+.partidas-offline-box span { color:#475569; font-size:13px; font-weight:700; }
+.partidas-offline-acoes { display:flex; gap:8px; flex-wrap:wrap; }
+.btn-offline-partida,
+.btn-offline-geral {
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    background: #0f2f4a;
+    color: #fff;
+}
+.btn-offline-partida.baixada,
+.btn-offline-geral.baixada {
+    background: #15803d;
+}
+.btn-offline-remover {
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    background: #e2e8f0;
+    color: #0f172a;
+}
+.partidas-offline-status {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    margin-top:10px;
+    padding:7px 9px;
+    border-radius:999px;
+    background:#f8fafc;
+    border:1px solid #dbe3ef;
+    color:#475569;
+    font-size:12px;
+    font-weight:900;
+}
+.partidas-offline-status.ok {
+    color:#166534;
+    border-color:#86efac;
+    background:#f0fdf4;
+}
+
 @media (max-width: 800px) {
     .partidas-equipe-resumo { grid-template-columns: 1fr 1fr; }
     .partidas-equipe-jogo { grid-template-columns: 1fr; }
@@ -150,6 +211,18 @@
     </div>
 </div>
 
+
+<div class="partidas-offline-box">
+    <div>
+        <strong>Modo offline do apontador</strong>
+        <span>Use em casa com internet para preparar este dispositivo antes de ir para o ginásio.</span>
+    </div>
+    <div class="partidas-offline-acoes">
+        <button id="btn-preparar-offline" class="btn-offline-geral" type="button">⬇️ Preparar modo offline</button>
+        <button id="btn-remover-offline" class="btn-offline-remover" type="button">Remover offline</button>
+    </div>
+</div>
+
 <div class="card-painel">
     <div style="font-weight:900; margin-bottom: 6px;">Visualizador geral de partidas</div>
     <div class="partidas-equipe-aviso">
@@ -159,7 +232,7 @@
 
 {% if partidas %}
     {% for p in partidas %}
-    <div class="partidas-equipe-card" data-partida-id="{{ p.id }}" data-competicao="{{ equipe.competicao }}" data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}">
+    <div class="partidas-equipe-card" data-partida-id="{{ p.id }}" data-competicao="{{ equipe.competicao }}" data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}" data-equipe-a="{{ p.equipe_a or 'A definir' }}" data-equipe-b="{{ p.equipe_b or 'A definir' }}" data-ordem="{{ p.ordem or p.id }}" data-grupo="{{ p.grupo or '' }}" data-quadra="{{ p.quadra or '' }}" data-finalizada="{{ '1' if p.finalizada else '0' }}">
         <div class="partidas-equipe-topo">
             <div>
                 <div class="partidas-equipe-fase">{{ p.fase_label }}</div>
@@ -190,6 +263,11 @@
             <div><strong>Sets:</strong> <span id="sets-{{ p.id }}">{{ p.sets_a or 0 }} x {{ p.sets_b or 0 }}</span></div>
             <div><strong>Parciais / ao vivo:</strong> <span id="parciais-{{ p.id }}">{% if p.ao_vivo %}{{ p.placar_ao_vivo_a or 0 }} x {{ p.placar_ao_vivo_b or 0 }}{% elif p.finalizada %}{{ p.parciais_formatadas }}{% else %}-{% endif %}</span></div>
         </div>
+
+        <div class="partidas-offline-status" id="offline-status-{{ p.id }}">📡 Online</div>
+        <div class="partidas-offline-acoes" style="margin-top:10px;">
+            <button class="btn-offline-partida" type="button" data-offline-baixar="{{ p.id }}" {% if p.finalizada %}disabled{% endif %}>⬇️ Baixar offline</button>
+        </div>
     </div>
     {% endfor %}
 {% else %}
@@ -199,6 +277,136 @@
 {% endif %}
 
 <script>
+
+const OFFLINE_PARTIDAS_KEY = "voleitable_offline_partidas";
+const OFFLINE_SESSAO_KEY = "voleitable_offline_sessao";
+
+function lerOfflineJSON(chave, padrao) {
+    try { return JSON.parse(localStorage.getItem(chave) || JSON.stringify(padrao)); }
+    catch (e) { return padrao; }
+}
+
+function salvarOfflineJSON(chave, valor) {
+    localStorage.setItem(chave, JSON.stringify(valor));
+}
+
+function offlinePartidaUrl(card) {
+    const linkJogo = card.querySelector('a[href*="jogo"], a[href*="papeleta"], a[href*="apontador"]');
+    return linkJogo ? linkJogo.getAttribute("href") : window.location.href;
+}
+
+function dadosOfflineDaPartida(card) {
+    return {
+        id: card.dataset.partidaId,
+        competicao: card.dataset.competicao || "",
+        equipe_a: card.dataset.equipeA || "Equipe A",
+        equipe_b: card.dataset.equipeB || "Equipe B",
+        ordem: card.dataset.ordem || card.dataset.partidaId,
+        grupo: card.dataset.grupo || "",
+        quadra: card.dataset.quadra || "",
+        finalizada: card.dataset.finalizada === "1",
+        url: window.location.href,
+        url_jogo: offlinePartidaUrl(card),
+        baixada_em: new Date().toISOString()
+    };
+}
+
+function atualizarVisualOffline() {
+    const partidas = lerOfflineJSON(OFFLINE_PARTIDAS_KEY, []);
+    const ids = new Set(partidas.map(p => String(p.id)));
+
+    document.querySelectorAll("[data-partida-id]").forEach(card => {
+        const id = String(card.dataset.partidaId || "");
+        const status = document.getElementById(`offline-status-${id}`);
+        const btn = document.querySelector(`[data-offline-baixar="${id}"]`);
+        const baixada = ids.has(id);
+
+        if (status) {
+            status.textContent = baixada ? "✅ Offline disponível neste dispositivo" : (navigator.onLine ? "📡 Online" : "⚠️ Sem internet / não baixada");
+            status.classList.toggle("ok", baixada);
+        }
+        if (btn) {
+            btn.textContent = baixada ? "✅ Atualizar offline" : "⬇️ Baixar offline";
+            btn.classList.toggle("baixada", baixada);
+        }
+    });
+
+    const btnGeral = document.getElementById("btn-preparar-offline");
+    if (btnGeral) {
+        btnGeral.classList.toggle("baixada", partidas.length > 0);
+        btnGeral.textContent = partidas.length > 0 ? `✅ Offline preparado (${partidas.length})` : "⬇️ Preparar modo offline";
+    }
+}
+
+async function pedirCacheAoServiceWorker(urls) {
+    if (!("serviceWorker" in navigator)) return;
+    const reg = await navigator.serviceWorker.ready.catch(() => null);
+    const alvo = (reg && reg.active) || navigator.serviceWorker.controller;
+    if (alvo) alvo.postMessage({ type: "CACHE_URLS", urls: urls.filter(Boolean) });
+}
+
+async function salvarPartidaOffline(card) {
+    if (!card) return;
+    const partida = dadosOfflineDaPartida(card);
+    if (partida.finalizada) {
+        alert("Partida finalizada não precisa ficar offline.");
+        return;
+    }
+
+    const partidas = lerOfflineJSON(OFFLINE_PARTIDAS_KEY, []);
+    const filtradas = partidas.filter(p => String(p.id) !== String(partida.id));
+    filtradas.push(partida);
+    salvarOfflineJSON(OFFLINE_PARTIDAS_KEY, filtradas);
+
+    salvarOfflineJSON(OFFLINE_SESSAO_KEY, {
+        autorizado: true,
+        tipo: "apontador",
+        nome: "{{ equipe.nome if equipe is defined else 'Apontador' }}",
+        competicao: "{{ equipe.competicao if equipe is defined else '' }}",
+        criada_em: new Date().toISOString()
+    });
+
+    await pedirCacheAoServiceWorker([
+        "/offline-apontador?v=20260528-offline1",
+        "/app-login?app=1&v=20260528-offline1",
+        window.location.href,
+        partida.url_jogo
+    ]);
+
+    atualizarVisualOffline();
+}
+
+async function prepararTodasOffline() {
+    const cards = Array.from(document.querySelectorAll("[data-partida-id]")).filter(c => c.dataset.finalizada !== "1");
+    for (const card of cards) await salvarPartidaOffline(card);
+    alert(`Modo offline preparado neste dispositivo. Partidas baixadas: ${cards.length}`);
+}
+
+function removerOffline() {
+    if (!confirm("Remover as partidas offline deste dispositivo?")) return;
+    localStorage.removeItem(OFFLINE_PARTIDAS_KEY);
+    localStorage.removeItem(OFFLINE_SESSAO_KEY);
+    atualizarVisualOffline();
+}
+
+document.addEventListener("click", event => {
+    const btn = event.target.closest("[data-offline-baixar]");
+    if (!btn) return;
+    const card = btn.closest("[data-partida-id]");
+    salvarPartidaOffline(card);
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+    const btnGeral = document.getElementById("btn-preparar-offline");
+    const btnRemover = document.getElementById("btn-remover-offline");
+    if (btnGeral) btnGeral.addEventListener("click", prepararTodasOffline);
+    if (btnRemover) btnRemover.addEventListener("click", removerOffline);
+    atualizarVisualOffline();
+});
+
+window.addEventListener("online", atualizarVisualOffline);
+window.addEventListener("offline", atualizarVisualOffline);
+
 async function atualizarPartidasEquipeAoVivo() {
     const cards = document.querySelectorAll('[data-partida-id][data-ao-vivo="1"]');
 

@@ -291,42 +291,85 @@
     overflow: hidden;
 }
 
+.box-resumo-erros {
+    min-height: 98px;
+    max-height: 126px;
+}
+
+.lista-erros-scout {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-top: 10px;
+}
+
+.erro-mini-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+}
+
+.erro-mini-label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.1;
+}
+
+.erro-mini-valor {
+    margin-top: 3px;
+    font-size: 18px;
+    font-weight: 1000;
+    color: var(--text);
+}
+
+.erro-mini-divisor {
+    width: 1px;
+    height: 34px;
+    background: var(--border);
+    flex: 0 0 1px;
+}
+
 .box-resumo-faltas {
     min-height: 98px;
     max-height: 126px;
 }
 
-.lista-faltas-scout {
-    list-style: none;
-    margin: 10px 0 0;
-    padding: 0;
+.lista-faltas-fixas {
     display: grid;
-    grid-template-columns: repeat(5, minmax(58px, 1fr));
+    grid-template-columns: repeat(5, minmax(48px, 1fr));
     gap: 8px;
-    color: var(--muted);
-    font-size: 11px;
-    line-height: 1.1;
+    margin-top: 10px;
 }
 
-.lista-faltas-scout li {
-    margin: 0;
+.falta-fixa-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     min-width: 0;
 }
 
-.falta-mini-label {
-    display: block;
-    font-weight: 900;
-    color: var(--muted);
+.falta-fixa-label {
     font-size: 10px;
+    color: var(--muted);
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 100%;
 }
 
-.falta-mini-valor {
-    display: block;
+.falta-fixa-valor {
     margin-top: 3px;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 1000;
     color: var(--text);
 }
@@ -665,17 +708,55 @@
             <div class="valor" data-scout-pontos>{{ placar_proprio if placar_proprio is defined else scout_equipe.get('pontos', 0) }}</div>
         </div>
 
-        <div class="box-resumo">
-            <div class="label">Erros de saque</div>
-            <div class="valor" data-scout-erros-saque>{{ scout_equipe.get('erros_saque', 0) }}</div>
+        <div class="box-resumo box-resumo-erros">
+            <div class="label">Erros</div>
+            <div class="valor" data-scout-erros-total>{{ (scout_equipe.get('erros_saque', 0)|int) + (scout_equipe.get('erros_gerais', 0)|int) }}</div>
+
+            <div class="lista-erros-scout">
+                <div class="erro-mini-item">
+                    <span class="erro-mini-label">Saque</span>
+                    <span class="erro-mini-valor" data-scout-erros-saque>{{ scout_equipe.get('erros_saque', 0) }}</span>
+                </div>
+
+                <div class="erro-mini-divisor"></div>
+
+                <div class="erro-mini-item">
+                    <span class="erro-mini-label">Gerais</span>
+                    <span class="erro-mini-valor" data-scout-erros-gerais>{{ scout_equipe.get('erros_gerais', 0) }}</span>
+                </div>
+            </div>
         </div>
 
         <div class="box-resumo box-resumo-faltas">
             <div class="label">Faltas cometidas</div>
             <div class="valor" data-scout-faltas>{{ scout_equipe.get('faltas', 0) }}</div>
-            <ul id="lista-faltas-scout" class="lista-faltas-scout">
-                <li>Sem faltas registradas.</li>
-            </ul>
+
+            <div class="lista-faltas-fixas">
+                <div class="falta-fixa-item">
+                    <span class="falta-fixa-label">Rede</span>
+                    <span class="falta-fixa-valor" data-falta-rede>0</span>
+                </div>
+
+                <div class="falta-fixa-item">
+                    <span class="falta-fixa-label">Invasão</span>
+                    <span class="falta-fixa-valor" data-falta-invasao>0</span>
+                </div>
+
+                <div class="falta-fixa-item">
+                    <span class="falta-fixa-label">Rotação</span>
+                    <span class="falta-fixa-valor" data-falta-rotacao>0</span>
+                </div>
+
+                <div class="falta-fixa-item">
+                    <span class="falta-fixa-label">Condução</span>
+                    <span class="falta-fixa-valor" data-falta-conducao>0</span>
+                </div>
+
+                <div class="falta-fixa-item">
+                    <span class="falta-fixa-label">Dois toques</span>
+                    <span class="falta-fixa-valor" data-falta-dois_toques>0</span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1097,27 +1178,27 @@ function totalFaltasScout(contagem, equipe) {
 }
 
 function atualizarListaFaltasScout(scout, equipe) {
-    const lista = document.getElementById("lista-faltas-scout");
-    if (!lista) return 0;
-
     const contagem = montarContagemFaltasScout(scout, equipe);
-    const faltasFixas = [
-        ["rede", "Rede"],
-        ["invasao", "Invasão"],
-        ["rotacao", "Rotação"],
-        ["conducao", "Condução"],
-        ["dois_toques", "Dois toques"]
-    ];
 
-    lista.innerHTML = "";
+    const rede = numeroSeguro(contagem.rede, 0);
+    const invasao = numeroSeguro(contagem.invasao, 0);
+    const rotacao = numeroSeguro(contagem.rotacao, 0);
+    const conducao = numeroSeguro(contagem.conducao, 0);
+    const doisToques = numeroSeguro(contagem.dois_toques, 0);
 
-    faltasFixas.forEach(([chave, label]) => {
-        const li = document.createElement("li");
-        li.innerHTML = `<span class="falta-mini-label">${label}</span><span class="falta-mini-valor">${numeroSeguro(contagem[chave], 0)}</span>`;
-        lista.appendChild(li);
-    });
+    const elRede = document.querySelector("[data-falta-rede]");
+    const elInvasao = document.querySelector("[data-falta-invasao]");
+    const elRotacao = document.querySelector("[data-falta-rotacao]");
+    const elConducao = document.querySelector("[data-falta-conducao]");
+    const elDois = document.querySelector("[data-falta-dois_toques]");
 
-    return totalFaltasScout(contagem, equipe);
+    if (elRede) elRede.textContent = rede;
+    if (elInvasao) elInvasao.textContent = invasao;
+    if (elRotacao) elRotacao.textContent = rotacao;
+    if (elConducao) elConducao.textContent = conducao;
+    if (elDois) elDois.textContent = doisToques;
+
+    return rede + invasao + rotacao + conducao + doisToques;
 }
 
 function atualizarScout(scout) {
@@ -1125,7 +1206,14 @@ function atualizarScout(scout) {
     const equipe = scout.equipe || {};
 
     setTextoTodos("[data-scout-pontos]", obterPontosTotaisEquipeScout(equipe));
-    setTextoTodos("[data-scout-erros-saque]", equipe.erros_saque ?? 0);
+
+    const errosSaque = numeroSeguro(equipe.erros_saque ?? 0);
+    const errosGerais = numeroSeguro(equipe.erros_gerais ?? equipe.erros_geral ?? equipe.erro_geral ?? 0);
+
+    setTextoTodos("[data-scout-erros-saque]", errosSaque);
+    setTextoTodos("[data-scout-erros-gerais]", errosGerais);
+    setTextoTodos("[data-scout-erros-total]", errosSaque + errosGerais);
+
     const totalFaltasAtualizado = atualizarListaFaltasScout(scout, equipe);
     setTextoTodos("[data-scout-faltas]", totalFaltasAtualizado);
 

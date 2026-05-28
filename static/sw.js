@@ -1,11 +1,13 @@
-const CACHE_NAME = "voleitable-pwa-v20260527-fix2";
+const CACHE_NAME = "voleitable-pwa-v20260528-offline1";
+const OFFLINE_URL = "/offline-apontador?v=20260528-offline1";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260527-fix2",
-    "/static/css/app_login.css?v=20260527-fix2",
-    "/static/js/app_login.js?v=20260527-fix2",
-    "/static/img/logo.png?v=20260527-fix2",
-    "/manifest.json?v=20260527-fix2"
+    "/app-login?app=1&v=20260528-offline1",
+    OFFLINE_URL,
+    "/static/css/app_login.css?v=20260528-offline1",
+    "/static/js/app_login.js?v=20260528-offline1",
+    "/static/img/logo.png?v=20260528-offline1",
+    "/manifest.json?v=20260528-offline1"
 ];
 
 self.addEventListener("install", event => {
@@ -23,42 +25,97 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
     event.waitUntil(
         caches.keys()
-            .then(keys => {
-                return Promise.all(
-                    keys.map(key => {
-                        if (key !== CACHE_NAME) {
-                            return caches.delete(key);
-                        }
-                        return null;
-                    })
-                );
-            })
+            .then(keys => Promise.all(
+                keys.map(key => key !== CACHE_NAME ? caches.delete(key) : null)
+            ))
             .then(() => self.clients.claim())
     );
+});
+
+async function colocarNoCache(request, response) {
+    try {
+        if (!response || !response.ok) return;
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(request, response.clone());
+    } catch (e) {}
+}
+
+function deveIgnorar(url) {
+    return (
+        url.pathname.includes("/socket.io/") ||
+        url.pathname.includes("/auth/") ||
+        url.pathname.includes("/login") ||
+        url.pathname.includes("/logout")
+    );
+}
+
+function ehPaginaDoSistema(url) {
+    return (
+        url.pathname.includes("/apontador") ||
+        url.pathname.includes("/papeleta") ||
+        url.pathname.includes("/partida") ||
+        url.pathname.includes("/placar") ||
+        url.pathname.includes("/arbitro") ||
+        url.pathname.includes("/treinador") ||
+        url.pathname.includes("/offline-apontador") ||
+        url.pathname === "/app" ||
+        url.pathname === "/app-login"
+    );
+}
+
+self.addEventListener("message", event => {
+    const data = event.data || {};
+
+    if (data.type === "CACHE_URLS" && Array.isArray(data.urls)) {
+        event.waitUntil(
+            caches.open(CACHE_NAME).then(async cache => {
+                for (const rawUrl of data.urls) {
+                    try {
+                        const url = new URL(rawUrl, self.location.origin).toString();
+                        const request = new Request(url, { credentials: "include", cache: "no-store" });
+                        const response = await fetch(request);
+                        if (response && response.ok) await cache.put(url, response.clone());
+                    } catch (e) {
+                        console.log("Falha ao cachear URL offline:", rawUrl, e);
+                    }
+                }
+            })
+        );
+    }
+
+    if (data.type === "SKIP_WAITING") {
+        self.skipWaiting();
+    }
 });
 
 self.addEventListener("fetch", event => {
     const request = event.request;
 
-    if (request.method !== "GET") {
-        return;
-    }
+    if (request.method !== "GET") return;
 
     const url = new URL(request.url);
 
-    if (url.pathname.includes("/socket.io/")) {
-        return;
-    }
-
-    if (url.pathname.includes("/auth/") || url.pathname.includes("/login")) {
-        return;
-    }
+    if (deveIgnorar(url)) return;
 
     if (request.mode === "navigate") {
         event.respondWith(
-            fetch(request, { cache: "no-store" })
-                .then(response => response)
-                .catch(() => caches.match("/app-login?app=1&v=20260527-fix2"))
+            fetch(request, { cache: "no-store", credentials: "include" })
+                .then(response => {
+                    if (response && response.ok && ehPaginaDoSistema(url)) {
+                        colocarNoCache(request, response.clone());
+                    }
+                    return response;
+                })
+                .catch(async () => {
+                    const cache = await caches.open(CACHE_NAME);
+                    const cachedPage = await cache.match(request);
+                    if (cachedPage) return cachedPage;
+
+                    const cachedUrl = await cache.match(url.pathname);
+                    if (cachedUrl) return cachedUrl;
+
+                    return cache.match(OFFLINE_URL) || cache.match("/app-login?app=1&v=20260528-offline1");
+                })
         );
         return;
     }
@@ -66,17 +123,17 @@ self.addEventListener("fetch", event => {
     if (
         url.pathname.endsWith(".css") ||
         url.pathname.endsWith(".js") ||
-        url.pathname.endsWith(".json")
+        url.pathname.endsWith(".json") ||
+        url.pathname.endsWith(".png") ||
+        url.pathname.endsWith(".jpg") ||
+        url.pathname.endsWith(".jpeg") ||
+        url.pathname.endsWith(".webp") ||
+        url.pathname.endsWith(".svg")
     ) {
         event.respondWith(
             fetch(request, { cache: "no-store" })
                 .then(response => {
-                    const clone = response.clone();
-
-                    caches.open(CACHE_NAME)
-                        .then(cache => cache.put(request, clone))
-                        .catch(() => null);
-
+                    colocarNoCache(request, response.clone());
                     return response;
                 })
                 .catch(() => caches.match(request))
@@ -87,17 +144,12 @@ self.addEventListener("fetch", event => {
     event.respondWith(
         caches.match(request)
             .then(cached => {
-                return cached || fetch(request)
-                    .then(response => {
-                        const clone = response.clone();
-
-                        caches.open(CACHE_NAME)
-                            .then(cache => cache.put(request, clone))
-                            .catch(() => null);
-
-                        return response;
-                    });
+                if (cached) return cached;
+                return fetch(request).then(response => {
+                    if (response && response.ok && ehPaginaDoSistema(url)) colocarNoCache(request, response.clone());
+                    return response;
+                });
             })
-            .catch(() => fetch(request))
+            .catch(() => caches.match(OFFLINE_URL))
     );
 });

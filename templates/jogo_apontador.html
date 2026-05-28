@@ -685,6 +685,7 @@
     </div>
 
     <div class="topo-acoes-direita">
+        <button id="btn-preparar-jogo-offline" class="btn-atalhos-apontador" type="button">⬇️ Offline</button>
         <button id="btn-abrir-atalhos-apontador" class="btn-atalhos-apontador" type="button">⚙️ Teclas de atalho</button>
     </div>
 </div>
@@ -1205,8 +1206,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     // Scout local em tempo real: durante a partida o banco NÃO é consultado.
     // O apontador acumula aqui e envia no payload Socket.IO para treinador/árbitros/telão.
     let scoutLocalPorLado = {
-        A: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0, tipos_falta: {}, faltas_lista: [] }, atletas_lista: [] },
-        B: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0, tipos_falta: {}, faltas_lista: [] }, atletas_lista: [] }
+        A: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, erros_gerais: 0, faltas: 0, tipos_falta: {}, faltas_lista: [] }, atletas_lista: [] },
+        B: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, erros_gerais: 0, faltas: 0, tipos_falta: {}, faltas_lista: [] }, atletas_lista: [] }
     };
 
     let syncTimer = null;
@@ -1294,8 +1295,14 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
             if (detalhe.includes("bloque")) equipeScout.bloqueios = numeroInteiro(equipeScout.bloqueios, 0) + 1;
         }
 
-        if (ehErro && detalhe.includes("saque")) {
-            equipeScout.erros_saque = numeroInteiro(equipeScout.erros_saque, 0) + 1;
+        if (ehErro) {
+            // Erro de saque vai para o campo de saque.
+            // Qualquer outro erro marcado como "erro_geral" / "geral" vai para erros gerais.
+            if (detalhe.includes("saque")) {
+                equipeScout.erros_saque = numeroInteiro(equipeScout.erros_saque, 0) + 1;
+            } else {
+                equipeScout.erros_gerais = numeroInteiro(equipeScout.erros_gerais, 0) + 1;
+            }
         }
 
         if (ehFalta) {
@@ -2328,6 +2335,9 @@ function inverterLadosVisual() {
             saqueInfo.textContent += " • Partida finalizada";
             travarBotoes(true);
         }
+
+        if (partidaFinalizada) removerJogoOfflineSeFinalizado();
+        else salvarJogoOfflineLocal(true);
     }
 
     // nomeEquipePorLado centralizada acima.
@@ -3403,6 +3413,106 @@ const URLS_ACAO = {
     sincronizar: "{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}"
 };
 
+const OFFLINE_PARTIDAS_KEY = "voleitable_offline_partidas";
+const OFFLINE_SESSAO_KEY = "voleitable_offline_sessao";
+const OFFLINE_ESTADO_KEY = `voleitable_offline_estado_partida_${PARTIDA_ID}`;
+const btnPrepararJogoOffline = document.getElementById("btn-preparar-jogo-offline");
+
+function lerJSONLocal(chave, padrao) {
+    try { return JSON.parse(localStorage.getItem(chave) || JSON.stringify(padrao)); }
+    catch (e) { return padrao; }
+}
+
+function salvarJSONLocal(chave, valor) {
+    localStorage.setItem(chave, JSON.stringify(valor));
+}
+
+function montarPacoteOfflineJogo() {
+    return {
+        id: PARTIDA_ID,
+        partida_id: PARTIDA_ID,
+        competicao: COMPETICAO,
+        equipe_a: NOME_EQUIPE_A,
+        equipe_b: NOME_EQUIPE_B,
+        url: window.location.href,
+        url_jogo: window.location.href,
+        estado: {
+            ...(estadoAtual || {}),
+            pontos_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
+            pontos_b: numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0),
+            sets_a: numeroInteiro(estadoAtual?.sets_a ?? 0, 0),
+            sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
+            set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
+            saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
+            rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+            rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+            scout_local: scoutLocalPorLado,
+            fila_offline: carregarFilaOffline()
+        },
+        baixada_em: new Date().toISOString()
+    };
+}
+
+async function cachearUrlsOfflineJogo() {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        const alvo = (reg && reg.active) || navigator.serviceWorker.controller;
+        if (alvo) {
+            alvo.postMessage({
+                type: "CACHE_URLS",
+                urls: [
+                    "/offline-apontador?v=20260528-offline1",
+                    "/app-login?app=1&v=20260528-offline1",
+                    window.location.href
+                ]
+            });
+        }
+    } catch (e) {}
+}
+
+function salvarJogoOfflineLocal(silencioso = true) {
+    const pacote = montarPacoteOfflineJogo();
+    salvarJSONLocal(OFFLINE_ESTADO_KEY, pacote.estado);
+
+    const partidas = lerJSONLocal(OFFLINE_PARTIDAS_KEY, []);
+    const filtradas = partidas.filter(p => String(p.id || p.partida_id) !== String(PARTIDA_ID));
+    filtradas.push({
+        id: PARTIDA_ID,
+        partida_id: PARTIDA_ID,
+        competicao: COMPETICAO,
+        equipe_a: NOME_EQUIPE_A,
+        equipe_b: NOME_EQUIPE_B,
+        url: window.location.href,
+        url_jogo: window.location.href,
+        baixada_em: pacote.baixada_em
+    });
+    salvarJSONLocal(OFFLINE_PARTIDAS_KEY, filtradas);
+
+    salvarJSONLocal(OFFLINE_SESSAO_KEY, {
+        autorizado: true,
+        tipo: "apontador",
+        nome: {{ (session.get('usuario') or 'Apontador')|tojson }},
+        competicao: COMPETICAO,
+        criada_em: new Date().toISOString()
+    });
+
+    cachearUrlsOfflineJogo();
+    if (btnPrepararJogoOffline) {
+        btnPrepararJogoOffline.textContent = "✅ Offline salvo";
+        btnPrepararJogoOffline.style.background = "#15803d";
+    }
+    if (!silencioso) alert("Jogo salvo para uso offline neste dispositivo.");
+}
+
+function removerJogoOfflineSeFinalizado() {
+    if (!partidaFinalizada) return;
+    const partidas = lerJSONLocal(OFFLINE_PARTIDAS_KEY, []);
+    salvarJSONLocal(OFFLINE_PARTIDAS_KEY, partidas.filter(p => String(p.id || p.partida_id) !== String(PARTIDA_ID)));
+    localStorage.removeItem(OFFLINE_ESTADO_KEY);
+}
+
+
 function carregarFilaOffline() {
     try { return JSON.parse(localStorage.getItem(FILA_OFFLINE_KEY) || "[]"); }
     catch { return []; }
@@ -3410,6 +3520,7 @@ function carregarFilaOffline() {
 
 function salvarFilaOffline(fila) {
     localStorage.setItem(FILA_OFFLINE_KEY, JSON.stringify(fila || []));
+    try { salvarJogoOfflineLocal(true); } catch (e) {}
 }
 
 function adicionarFilaOffline(tipo, payload) {
@@ -3872,6 +3983,8 @@ btnInverterLados.addEventListener("click", inverterLadosVisual);
 
 renderPainelVisual(estadoAtual);
 renderQuadra();
+if (btnPrepararJogoOffline) btnPrepararJogoOffline.addEventListener("click", function () { salvarJogoOfflineLocal(false); });
+salvarJogoOfflineLocal(true);
 
 btnRetardamentoCancelar.addEventListener("click", fecharModalRetardamento);
 btnRetardamentoConfirmar.addEventListener("click", registrarRetardamento);
