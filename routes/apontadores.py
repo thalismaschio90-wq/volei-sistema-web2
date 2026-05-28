@@ -2257,6 +2257,16 @@ def registrar_cartao_verde_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def sincronizar_acao_view(competicao, partida_id):
     try:
+        # Offline-first oficial: sincronização intermediária não grava banco.
+        # A fila completa só é persistida em /encerrar.
+        estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+        return _json_no_cache({
+            "ok": True,
+            "ignorado": True,
+            "mensagem": "Sincronização intermediária desativada. Banco salva somente ao finalizar a partida.",
+            **estado_atual
+        }, 200)
+
         corpo = request.get_json(silent=True) or {}
         tipo = (corpo.get("tipo") or "").strip().lower()
         equipe = (corpo.get("equipe") or "").strip().upper()
@@ -2628,35 +2638,142 @@ def estado_jogo_view(competicao, partida_id):
         }, 500)
 
 
+
+
+def _persistir_eventos_finais_partida(partida_id, competicao, eventos):
+    """
+    Offline-first oficial: durante o jogo o navegador só guarda eventos.
+    Esta função roda somente no encerramento e grava a súmula no banco em ordem.
+    """
+    if not isinstance(eventos, list):
+        return []
+
+    processados = []
+
+    def _payload_evento(item):
+        if not isinstance(item, dict):
+            return "", {}
+        tipo = str(item.get("tipo") or "").strip().lower()
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        return tipo, payload
+
+    for item in eventos:
+        tipo, payload = _payload_evento(item)
+        if not tipo:
+            continue
+
+        equipe = str(payload.get("equipe") or payload.get("equipe_pontuadora") or "").strip().upper()
+        try:
+            if tipo == "ponto":
+                detalhes = {
+                    "fundamento": payload.get("fundamento") or payload.get("detalhe_lance") or "",
+                    "resultado": payload.get("resultado") or payload.get("tipo_lance") or "ponto",
+                    "tipo_lance": payload.get("tipo_lance") or payload.get("resultado") or "ponto",
+                    "detalhe_lance": payload.get("detalhe_lance") or payload.get("fundamento") or "",
+                    "tipo_erro": payload.get("tipo_erro") or "",
+                    "atleta_numero": payload.get("atleta_numero") or "",
+                    "atleta_nome": payload.get("atleta_nome") or "",
+                    "atleta_label": payload.get("atleta_label") or "",
+                    "equipe_pontuadora": equipe,
+                    "equipe_scout": payload.get("equipe_scout") or payload.get("responsavel_lado") or equipe,
+                    "responsavel_lado": payload.get("responsavel_lado") or payload.get("equipe_scout") or equipe,
+                }
+                ok, retorno = registrar_ponto_partida(partida_id, competicao, equipe, "ponto", detalhes)
+
+            elif tipo == "tempo":
+                ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
+
+            elif tipo == "substituicao":
+                ok, retorno = registrar_substituicao_partida(
+                    partida_id, competicao, equipe,
+                    str(payload.get("numero_sai") or "").strip(),
+                    str(payload.get("numero_entra") or "").strip()
+                )
+
+            elif tipo == "substituicao_excepcional":
+                try:
+                    ok, retorno = registrar_substituicao_excepcional_partida(
+                        partida_id, competicao, equipe,
+                        str(payload.get("numero_sai") or "").strip(),
+                        str(payload.get("numero_entra") or "").strip(),
+                        str(payload.get("motivo") or "").strip()
+                    )
+                except TypeError:
+                    ok, retorno = registrar_substituicao_excepcional_partida(
+                        partida_id, competicao, equipe,
+                        str(payload.get("numero_sai") or "").strip(),
+                        str(payload.get("numero_entra") or "").strip()
+                    )
+
+            elif tipo == "retardamento":
+                ok, retorno = registrar_retardamento_partida(partida_id, competicao, equipe)
+
+            elif tipo == "sancao":
+                ok, retorno = registrar_sancao_partida(
+                    partida_id, competicao, equipe,
+                    str(payload.get("tipo_pessoa") or "").strip().lower(),
+                    str(payload.get("alvo") or payload.get("numero") or payload.get("nome") or "").strip(),
+                    str(payload.get("sancao") or payload.get("tipo_sancao") or "").strip().lower()
+                )
+
+            elif tipo == "cartao_verde":
+                ok, retorno = registrar_cartao_verde_partida(
+                    partida_id, competicao, equipe,
+                    str(payload.get("tipo_pessoa") or "").strip().lower(),
+                    str(payload.get("alvo") or payload.get("numero") or payload.get("nome") or "").strip()
+                )
+
+            else:
+                processados.append({"tipo": tipo, "ok": True, "ignorado": True})
+                continue
+
+            processados.append({"tipo": tipo, "ok": bool(ok)})
+            if not ok:
+                print(f"AVISO salvar final ignorou {tipo}: {retorno}", flush=True)
+
+        except Exception as e:
+            processados.append({"tipo": tipo, "ok": False, "erro": str(e)})
+            print(f"ERRO salvar evento final {tipo}:", e, flush=True)
+
+    return processados
+
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/encerrar", methods=["POST"])
 @exigir_perfil("apontador")
 def encerrar_partida_view(competicao, partida_id):
     try:
-        observacoes = ""
         corpo = request.get_json(silent=True) or {}
+        observacoes = ""
         if request.is_json:
             observacoes = (corpo.get("observacoes") or "").strip()
         else:
             observacoes = (request.form.get("observacoes") or "").strip()
 
+        eventos = corpo.get("eventos") if isinstance(corpo, dict) else []
+        estado_final_cliente = corpo.get("estado_final") if isinstance(corpo.get("estado_final"), dict) else {}
+
+        # ÚNICO MOMENTO EM QUE A FILA LOCAL DO APONTADOR VAI PARA O BANCO.
+        processados = _persistir_eventos_finais_partida(partida_id, competicao, eventos)
+
         estado = buscar_estado_jogo_partida(partida_id, competicao)
         if not estado:
-            return _json_no_cache({"ok": False, "mensagem": "Estado não encontrado."}, 404)
+            estado = dict(obter_estado_cache(partida_id) or estado_final_cliente or {})
 
         encerrar_partida(partida_id, competicao, observacoes)
-        estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        estado = buscar_estado_jogo_partida(partida_id, competicao) or estado or {}
         estado["encerrado"] = True
         estado["partida_finalizada"] = True
         estado["status_jogo"] = "finalizada"
+        estado["eventos_processados_final"] = processados
 
-        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_PARTIDA")
+        estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_PARTIDA_FINAL_OFFLINE")
 
         return _json_no_cache({
             "ok": True,
-            "mensagem": "Partida encerrada com sucesso.",
+            "mensagem": "Partida salva no banco e encerrada com sucesso.",
             "encerrado": True,
             "estado": estado,
             "partida_finalizada": True,
+            "eventos_processados": processados,
             **estado
         })
     except Exception as e:

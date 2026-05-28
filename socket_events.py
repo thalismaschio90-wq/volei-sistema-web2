@@ -697,6 +697,7 @@ def entrar_arbitro(data):
         return
 
     sala = _room_arbitros(partida_id)
+    sala_estado = _room(partida_id)
 
     for r in _rooms_partida(partida_id, competicao):
         join_room(r)
@@ -713,7 +714,7 @@ def entrar_arbitro(data):
         room=request.sid,
     )
 
-    estado = _ESTADO_PARTIDAS.get(sala)
+    estado = _ESTADO_PARTIDAS.get(sala_estado) or _ESTADO_PARTIDAS.get(_room(partida_id))
 
     if estado:
         payload = _normalizar_payload(partida_id, estado)
@@ -744,6 +745,69 @@ def emitir_cronometro_arbitros(partida_id, dados=None):
 
     _emitir_salas("cronometro_arbitros", payload, partida_id)
     _emitir_salas("cronometro_tempo", payload, partida_id)
+
+
+
+
+@socketio.on("estado_partida_local")
+def estado_partida_local_socket(data):
+    """
+    Canal principal do modo rápido/offline-first.
+    O apontador envia o estado já calculado no navegador; o servidor só guarda
+    em cache e retransmite para treinador, árbitros e telão, sem consultar banco.
+    """
+    data = dict(data or {})
+    partida_id = str(data.get("partida_id") or "").strip()
+
+    if not partida_id:
+        return
+
+    payload = _normalizar_payload(partida_id, data)
+    _ESTADO_PARTIDAS[_room(partida_id)] = payload
+
+    eventos = (
+        "estado_partida",
+        "estado_jogo_atualizado",
+        "estado_arbitros",
+        "estado_partida_tempo_real",
+        "placar_atualizado",
+        "ponto_registrado",
+    )
+
+    for evento in eventos:
+        _emitir_salas(evento, payload, partida_id, include_self=False)
+
+    ultima_acao = str(payload.get("ultima_acao") or "").strip()
+    if ultima_acao and ultima_acao != "-":
+        _emitir_salas(
+            "ultima_acao_arbitros",
+            {
+                "partida_id": str(partida_id),
+                "texto": ultima_acao,
+                "descricao": ultima_acao,
+                "ultima_acao": ultima_acao,
+            },
+            partida_id,
+            include_self=False,
+        )
+
+    saque_atual = str(payload.get("saque_atual") or "").strip().upper()
+    if saque_atual in {"A", "B"}:
+        _emitir_salas(
+            "saque_arbitros",
+            {
+                "partida_id": str(partida_id),
+                "equipe": saque_atual,
+                "equipe_nome": payload.get("equipe_a") if saque_atual == "A" else payload.get("equipe_b"),
+                "saque_atual": saque_atual,
+                "sacador_nome": payload.get("sacador_nome") or "",
+                "sacador_numero": payload.get("sacador_numero") or "",
+            },
+            partida_id,
+            include_self=False,
+        )
+
+    socketio.emit("estado_partida_local_ok", {"ok": True, "partida_id": partida_id}, room=request.sid)
 
 
 @socketio.on("cronometro_tempo")

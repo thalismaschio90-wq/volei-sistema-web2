@@ -750,22 +750,8 @@ def solicitar_tempo_treinador(competicao, partida_id):
         except Exception as e:
             print("ERRO emitir solicitação tempo pelo backend:", repr(e), flush=True)
 
-        def _salvar_solicitacao_tempo():
-            try:
-                registrar_solicitacao_treinador(
-                    partida_id,
-                    competicao,
-                    lado,
-                    "tempo",
-                    {
-                        "equipe_nome": equipe.get("nome"),
-                        "set_atual": contexto.get("set_atual"),
-                    }
-                )
-            except Exception as e:
-                print("ERRO async registrar solicitação tempo:", repr(e), flush=True)
-
-        threading.Thread(target=_salvar_solicitacao_tempo, daemon=True).start()
+        # OFFLINE-FIRST: durante a partida a solicitação NÃO é gravada no banco.
+        # Ela vai em tempo real para o apontador; só o fechamento da partida persiste o pacote final.
 
         return _resposta_json_rapida({
             "ok": True,
@@ -833,22 +819,8 @@ def solicitar_substituicao_treinador(competicao, partida_id):
         except Exception as e:
             print("ERRO emitir solicitação substituição pelo backend:", repr(e), flush=True)
 
-        def _salvar_solicitacao_substituicao():
-            try:
-                registrar_solicitacao_treinador(
-                    partida_id,
-                    competicao,
-                    lado,
-                    "substituicao",
-                    {
-                        "equipe_nome": equipe.get("nome"),
-                        "set_atual": contexto.get("set_atual"),
-                    }
-                )
-            except Exception as e:
-                print("ERRO async registrar solicitação substituição:", repr(e), flush=True)
-
-        threading.Thread(target=_salvar_solicitacao_substituicao, daemon=True).start()
+        # OFFLINE-FIRST: durante a partida a solicitação NÃO é gravada no banco.
+        # Ela vai em tempo real para o apontador; só o fechamento da partida persiste o pacote final.
 
         return _resposta_json_rapida({
             "ok": True,

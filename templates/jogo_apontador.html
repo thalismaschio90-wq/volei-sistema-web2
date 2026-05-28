@@ -1146,6 +1146,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const nomeTopoAEl = document.getElementById("nome-a");
     const nomeTopoBEl = document.getElementById("nome-b");
 
+    const PARTIDA_ID = {{ partida.id | tojson }};
+    const COMPETICAO = {{ competicao_nome | tojson }};
     const NOME_EQUIPE_A = {{ (partida.equipe_a_operacional or partida.equipe_a) | tojson }};
     const NOME_EQUIPE_B = {{ (partida.equipe_b_operacional or partida.equipe_b) | tojson }};
     const CHAVE_INVERSAO_QUADRA = `quadra_invertida_{{ competicao_nome|replace(' ', '_') }}_{{ partida.id }}`;
@@ -1200,6 +1202,13 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let verdesA = {{ (estado.cartoes_verdes_a if estado.cartoes_verdes_a is defined else []) | tojson }};
     let verdesB = {{ (estado.cartoes_verdes_b if estado.cartoes_verdes_b is defined else []) | tojson }};
 
+    // Scout local em tempo real: durante a partida o banco NÃO é consultado.
+    // O apontador acumula aqui e envia no payload Socket.IO para treinador/árbitros/telão.
+    let scoutLocalPorLado = {
+        A: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0 }, atletas_lista: [] },
+        B: { equipe: { pontos: 0, aces: 0, bloqueios: 0, erros_saque: 0, faltas: 0 }, atletas_lista: [] }
+    };
+
     let syncTimer = null;
     let socketConectado = false;
     const socket = (typeof io === "function")
@@ -1214,6 +1223,117 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
             forceNew: true
         })
         : null;
+
+
+
+    
+    function atletasBaseDoLadoScout(lado) {
+        return lado === "A" ? (Array.isArray(atletasA) ? atletasA : []) : (Array.isArray(atletasB) ? atletasB : []);
+    }
+
+    function normalizarNumeroScoutLocal(valor) {
+        return String(valor ?? "").trim();
+    }
+
+    function garantirAtletaScoutLocal(lado, numero, nome) {
+        lado = String(lado || "").toUpperCase();
+        if (!scoutLocalPorLado[lado]) return null;
+        numero = normalizarNumeroScoutLocal(numero);
+        nome = String(nome || "").trim();
+        let lista = scoutLocalPorLado[lado].atletas_lista;
+        let item = lista.find(a => normalizarNumeroScoutLocal(a.numero) === numero && numero);
+        if (!item) {
+            const base = atletasBaseDoLadoScout(lado).find(a => normalizarNumeroScoutLocal(a.numero) === numero);
+            item = {
+                numero: numero || (base && base.numero) || "-",
+                nome: nome || (base && base.nome) || "-",
+                pontos: 0,
+                ataques: 0,
+                aces: 0,
+                bloqueios: 0
+            };
+            lista.push(item);
+        }
+        return item;
+    }
+
+    function aplicarScoutLocal(equipePontuadora, scout) {
+        scout = scout || {};
+        const ladoScout = String(scout.responsavel_lado || equipePontuadora || "").toUpperCase();
+        if (!scoutLocalPorLado[ladoScout]) return;
+
+        const equipe = scoutLocalPorLado[ladoScout].equipe;
+        const tipo = String(scout.tipo_lance || scout.resultado || "").toLowerCase();
+        const detalhe = String(scout.detalhe_lance || scout.fundamento || scout.tipo_erro || "").toLowerCase();
+        const ehPonto = tipo === "ponto" || ladoScout === String(equipePontuadora || "").toUpperCase();
+        const ehErro = tipo === "erro";
+
+        if (ehPonto) equipe.pontos = numeroInteiro(equipe.pontos, 0) + 1;
+        if (detalhe.includes("ace")) equipe.aces = numeroInteiro(equipe.aces, 0) + 1;
+        if (detalhe.includes("bloque")) equipe.bloqueios = numeroInteiro(equipe.bloqueios, 0) + 1;
+        if (ehErro && detalhe.includes("saque")) equipe.erros_saque = numeroInteiro(equipe.erros_saque, 0) + 1;
+        if (ehErro && (detalhe.includes("rede") || detalhe.includes("invas") || detalhe.includes("condu") || detalhe.includes("toque") || detalhe.includes("rotação") || detalhe.includes("rotacao"))) {
+            equipe.faltas = numeroInteiro(equipe.faltas, 0) + 1;
+        }
+
+        const atleta = garantirAtletaScoutLocal(ladoScout, scout.atleta_numero, scout.atleta_nome || scout.atleta_label);
+        if (atleta && ehPonto) {
+            atleta.pontos = numeroInteiro(atleta.pontos, 0) + 1;
+            if (detalhe.includes("ataque")) atleta.ataques = numeroInteiro(atleta.ataques, 0) + 1;
+            if (detalhe.includes("ace")) atleta.aces = numeroInteiro(atleta.aces, 0) + 1;
+            if (detalhe.includes("bloque")) atleta.bloqueios = numeroInteiro(atleta.bloqueios, 0) + 1;
+        }
+    }
+
+function montarPayloadTempoReal(extra = {}) {
+        const infoSaque = (function () {
+            try { return infoSacadorDoLado(saqueAtual); } catch (e) { return {}; }
+        })();
+
+        return {
+            ...(estadoAtual || {}),
+            ...extra,
+            ok: true,
+            origem: extra.origem || "apontador_local",
+            partida_id: String(PARTIDA_ID),
+            competicao: String(COMPETICAO || ""),
+            equipe_a: NOME_EQUIPE_A,
+            equipe_b: NOME_EQUIPE_B,
+            pontos_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
+            pontos_b: numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0),
+            placar_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
+            placar_b: numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0),
+            sets_a: numeroInteiro(estadoAtual?.sets_a ?? 0, 0),
+            sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
+            set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
+            saque_atual: String(saqueAtual || estadoAtual?.saque_atual || "").toUpperCase(),
+            sacador_nome: extra.sacador_nome ?? infoSaque.nome ?? estadoAtual?.sacador_nome ?? "",
+            sacador_numero: extra.sacador_numero ?? infoSaque.numero ?? estadoAtual?.sacador_numero ?? "",
+            rotacao_a: Array.isArray(rotA) ? rotA : [],
+            rotacao_b: Array.isArray(rotB) ? rotB : [],
+            ultima_acao: extra.ultima_acao || estadoAtual?.ultima_acao || "Atualização em tempo real",
+            tempos_a: numeroInteiro(estadoAtual?.tempos_a ?? 0, 0),
+            tempos_b: numeroInteiro(estadoAtual?.tempos_b ?? 0, 0),
+            subs_a: numeroInteiro(estadoAtual?.subs_a ?? 0, 0),
+            subs_b: numeroInteiro(estadoAtual?.subs_b ?? 0, 0),
+            sancoes_a: Array.isArray(estadoAtual?.sancoes_a) ? estadoAtual.sancoes_a : sancoesA,
+            sancoes_b: Array.isArray(estadoAtual?.sancoes_b) ? estadoAtual.sancoes_b : sancoesB,
+            cartoes_verdes_a: Array.isArray(estadoAtual?.cartoes_verdes_a) ? estadoAtual.cartoes_verdes_a : verdesA,
+            cartoes_verdes_b: Array.isArray(estadoAtual?.cartoes_verdes_b) ? estadoAtual.cartoes_verdes_b : verdesB,
+            timestamp_local: Date.now(),
+            scout_por_lado: scoutLocalPorLado
+        };
+    }
+
+    function emitirEstadoTempoReal(extra = {}) {
+        if (!socket || !socket.connected) return false;
+        try {
+            socket.emit("estado_partida_local", montarPayloadTempoReal(extra));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
 
     let alertaSolicitacaoTimer = null;
     const alertaSolicitacaoEl = document.getElementById("alerta-solicitacao");
@@ -1266,6 +1386,7 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
                 competicao: "{{ competicao_nome }}",
                 partida_id: {{ partida.id }}
             });
+            setTimeout(() => emitirEstadoTempoReal({ ultima_acao: estadoAtual?.ultima_acao || "Apontador conectado ao tempo real" }), 120);
         });
 
         socket.on("disconnect", function () {
@@ -1435,6 +1556,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     estadoAtual.set_atual = numeroInteiro(estadoAtual.set_atual ?? {{ (estado.set_atual if estado.set_atual is defined else 1) | tojson }}, 1);
     estadoAtual.rotacao_a = rotA;
     estadoAtual.rotacao_b = rotB;
+    saqueAtual = ladoPorEquipeOuNome(saqueAtual) || ladoPorEquipeOuNome(estadoAtual.saque_atual) || "";
+    estadoAtual.saque_atual = saqueAtual;
 
     function equipeVisual(posicaoVisual) {
         const pos = String(posicaoVisual || "").toLowerCase();
@@ -1449,12 +1572,36 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         return lado === "A" ? "direita" : "esquerda";
     }
 
+    function limparNomeComparacao(valor) {
+        return String(valor || "")
+            .trim()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+    }
+
     function nomeEquipePorLado(lado) {
         return String(lado || "").toUpperCase() === "A" ? NOME_EQUIPE_A : NOME_EQUIPE_B;
     }
 
+    function ladoPorEquipeOuNome(valor) {
+        const bruto = String(valor || "").trim();
+        const upper = bruto.toUpperCase();
+
+        if (upper === "A" || upper === "B") return upper;
+
+        const normalizado = limparNomeComparacao(bruto);
+        const nomeA = limparNomeComparacao(NOME_EQUIPE_A);
+        const nomeB = limparNomeComparacao(NOME_EQUIPE_B);
+
+        if (normalizado && nomeA && normalizado === nomeA) return "A";
+        if (normalizado && nomeB && normalizado === nomeB) return "B";
+
+        return "";
+    }
+
     function textoSaqueAtual() {
-        const saque = String(saqueAtual || "").trim().toUpperCase();
+        const saque = ladoPorEquipeOuNome(saqueAtual);
         if (saque === "A" || saque === "B") {
             return `Saque atual: ${nomeEquipePorLado(saque)}`;
         }
@@ -2092,15 +2239,17 @@ function inverterLadosVisual() {
         if (setAtual) setAtual.textContent = `${estadoAtual.set_atual ?? 1}º SET`;
 
         if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
-            const saqueAnterior = String(saqueAtual || "").trim().toUpperCase();
-            const saqueNovo = String(dados.saque_atual || "").trim().toUpperCase();
-            saqueAtual = saqueNovo;
-            estadoAtual.saque_atual = saqueAtual;
+            const saqueAnterior = ladoPorEquipeOuNome(saqueAtual);
+            const saqueNovo = ladoPorEquipeOuNome(dados.saque_atual);
 
-            if ((saqueAnterior === "A" || saqueAnterior === "B") &&
-                (saqueNovo === "A" || saqueNovo === "B") &&
-                saqueAnterior !== saqueNovo) {
-                mostrarPopupNovoSaque(saqueNovo);
+            if (saqueNovo === "A" || saqueNovo === "B") {
+                saqueAtual = saqueNovo;
+                estadoAtual.saque_atual = saqueAtual;
+
+                if ((saqueAnterior === "A" || saqueAnterior === "B") &&
+                    saqueAnterior !== saqueNovo) {
+                    mostrarPopupNovoSaque(saqueNovo);
+                }
             }
         }
         if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
@@ -3118,46 +3267,85 @@ function atualizarResumoSubEx() {
 
 
     async function sincronizarEstadoJogo() {
-    if (socketConectado) return;
-    if (Date.now() < bloquearSyncAte) return;
-
-    const token = ++ultimoTokenSync;
-
-    try {
-        const resposta = await fetch(
-            "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
-            {
-                method: "GET",
-                headers: { "X-Requested-With": "fetch" },
-                cache: "no-store"
-            }
-        );
-
-        const bruto = await resposta.json();
-        const dados = normalizarRespostaJogo(bruto);
-
-        if (!resposta.ok || !dados.ok) return;
-        if (token !== ultimoTokenSync) return;
-
-        aplicarEstado(dados);
-    } catch (e) {}
+    // OFFLINE-FIRST REAL: durante a partida o apontador NÃO busca estado no banco.
+    // Buscar /estado aqui traz placar/rotação antigos e causa exatamente o erro de
+    // “ponto dá erro, depois aparece salvo” ou rotação piscando/voltando.
+    // A verdade da partida em andamento é estadoAtual + fila local + Socket.IO.
+    return null;
 }
 
 
+function rotacionarEquipeLocal(lado) {
+    lado = String(lado || "").toUpperCase();
+    // Ordem compatível com a grade usada no apontador: IV, III, II, V, VI, I.
+    // Quando ganha o direito de saque, a equipe gira uma posição.
+    if (lado === "A" && Array.isArray(rotA) && rotA.length === 6) {
+        rotA = [rotA[3], rotA[0], rotA[1], rotA[4], rotA[5], rotA[2]];
+    }
+    if (lado === "B" && Array.isArray(rotB) && rotB.length === 6) {
+        rotB = [rotB[3], rotB[0], rotB[1], rotB[4], rotB[5], rotB[2]];
+    }
+}
+
 function aplicarPontoOtimista(equipe, scout) {
     equipe = String(equipe || "").toUpperCase();
-    const atualA = numeroInteiro(estadoAtual?.pontos_a ?? 0, 0);
-    const atualB = numeroInteiro(estadoAtual?.pontos_b ?? 0, 0);
+    if (equipe !== "A" && equipe !== "B") return;
+
+    const saqueAnteriorLocal = ladoPorEquipeOuNome(saqueAtual || estadoAtual?.saque_atual);
+    const mudouSaque = saqueAnteriorLocal && saqueAnteriorLocal !== equipe;
+
+    // Se houve side-out, a equipe que ganhou o ponto passa a sacar e DEVE girar.
+    // A rotação do apontador usa a ordem visual: [IV, III, II, V, VI, I].
+    if (mudouSaque) {
+        rotacionarEquipeLocal(equipe);
+        saqueAtual = equipe;
+        if (estadoAtual) estadoAtual.saque_atual = equipe;
+        try { mostrarPopupNovoSaque(equipe); } catch (e) {}
+    } else if (!saqueAnteriorLocal) {
+        // Segurança: se o saque não estava definido, define sem girar.
+        saqueAtual = equipe;
+        if (estadoAtual) estadoAtual.saque_atual = equipe;
+    }
+
+    const atualA = numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0);
+    const atualB = numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0);
     const novoA = equipe === "A" ? atualA + 1 : atualA;
     const novoB = equipe === "B" ? atualB + 1 : atualB;
-    estadoAtual = { ...(estadoAtual || {}), pontos_a: novoA, pontos_b: novoB, placar_a: novoA, placar_b: novoB, rotacao_a: rotA, rotacao_b: rotB };
+
+    estadoAtual = {
+        ...(estadoAtual || {}),
+        pontos_a: novoA,
+        pontos_b: novoB,
+        placar_a: novoA,
+        placar_b: novoB,
+        saque_atual: saqueAtual,
+        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+    };
+
+    // Correção principal: antes atualizava placar, mas a quadra do apontador não era
+    // redesenhada. Árbitros/treinador recebiam certo pelo socket, e só o apontador ficava parado.
     renderPainelVisual(estadoAtual);
+    renderQuadra();
+
     ultimoTokenSync++;
     placarProtegidoAte = Date.now() + 2500;
-    rotacaoProtegidaAte = 0;
-    bloquearSyncAte = 0;
+    rotacaoProtegidaAte = Date.now() + 2500;
+    bloquearSyncAte = Date.now() + 2500;
+
     const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
-    atualizarUltimaAcao(`Registrando ${detalhe} para ${nomeEquipePorLado(equipe)}.`);
+    const msgTempoReal = `Registrando ${detalhe} para ${nomeEquipePorLado(equipe)}.`;
+    atualizarUltimaAcao(msgTempoReal);
+    estadoAtual.ultima_acao = msgTempoReal;
+
+    emitirEstadoTempoReal({
+        ultima_acao: msgTempoReal,
+        tipo_evento: "ponto",
+        equipe_pontuadora: equipe,
+        saque_atual: saqueAtual,
+        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+    });
 }
 
 const FILA_OFFLINE_KEY = `fila_offline_jogo_{{ partida.id }}`;
@@ -3193,7 +3381,7 @@ function adicionarFilaOffline(tipo, payload) {
 
 function descricaoLocal(tipo, payload) {
     const equipe = payload.equipe || "";
-    if (tipo === "tempo") return `Tempo solicitado - Equipe ${equipe}`;
+    if (tipo === "tempo") return `Tempo confirmado - Equipe ${equipe}`;
     if (tipo === "substituicao") return `Equipe ${equipe} • substituição • ${payload.numero_sai}>${payload.numero_entra}`;
     if (tipo === "substituicao_excepcional") return `Equipe ${equipe} • substituição excepcional • ${payload.numero_sai}>${payload.numero_entra}`;
     if (tipo === "retardamento") return `Equipe ${equipe} • retardamento`;
@@ -3276,11 +3464,14 @@ function aplicarAcaoLocal(tipo, payload) {
     }
 
 
+    estadoAtual.ultima_acao = descricao;
+    emitirEstadoTempoReal({ ultima_acao: descricao, tipo_evento: tipo, tipo: tipo === "tempo" ? "tempo_autorizado" : tipo, status: tipo === "tempo" ? "iniciado" : "ok", origem: "apontador", equipe: payload.equipe || "", equipe_nome: nomeEquipePorLado(payload.equipe || "") });
     atualizarTravasOperacionais();
 }
 
 async function enviarAcaoRapida(tipo, payload, aoSucesso) {
-    // OFFLINE-FIRST: a tela responde na hora. O banco sincroniza em segundo plano.
+    // LOCAL/SOCKET ONLY: durante a partida não grava no banco.
+    // O banco só recebe no encerramento oficial da partida.
     payload = payload || {};
     limparErro();
 
@@ -3289,96 +3480,24 @@ async function enviarAcaoRapida(tipo, payload, aoSucesso) {
     }
 
     aplicarAcaoLocal(tipo, payload);
-    // Depois de comando operacional, bloqueia qualquer resposta parcial/atrasada que venha com placar zerado.
+    adicionarFilaOffline(tipo, payload || {});
     placarProtegidoAte = Date.now() + 6000;
 
     if (typeof aoSucesso === "function") {
         try { aoSucesso({ ok: true, local: true }); } catch (e) {}
     }
 
-    const enviarAgora = async () => {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3500);
-        try {
-            const resposta = await fetch(URLS_ACAO[tipo], {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                cache: "no-store",
-                signal: controller.signal,
-                body: JSON.stringify(payload || {})
-            });
-            clearTimeout(timeout);
-
-            const bruto = await resposta.json().catch(() => ({}));
-            const dados = normalizarRespostaJogo(bruto);
-
-            if (!resposta.ok || !dados.ok) {
-                const mensagemErro = String(dados.mensagem || dados.erro || "").toLowerCase();
-                const erroDeRegra = resposta.status === 400 || mensagemErro.includes("limite") || mensagemErro.includes("atingido");
-
-                if (erroDeRegra) {
-                    mostrarErro(dados.mensagem || dados.erro || "Ação bloqueada pela regra da competição.");
-                    agendarSincronizacao(120, true);
-                    return false;
-                }
-
-                adicionarFilaOffline(tipo, payload || {});
-                return false;
-            }
-
-            ultimoTokenSync++;
-            aplicarEstado(dados);
-            return true;
-        } catch (e) {
-            clearTimeout(timeout);
-            adicionarFilaOffline(tipo, payload || {});
-            return false;
-        }
-    };
-
-    if (navigator.onLine) {
-        enviarAgora().then(() => sincronizarFilaOffline()).catch(() => {});
-    } else {
-        adicionarFilaOffline(tipo, payload || {});
-    }
-
     return true;
 }
 
 async function sincronizarFilaOffline() {
-    if (!navigator.onLine) return;
-    let fila = carregarFilaOffline();
-    if (!fila.length) return;
-
-    const restantes = [];
-    for (const item of fila) {
-        try {
-            const resposta = await fetch(URLS_ACAO.sincronizar, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                cache: "no-store",
-                body: JSON.stringify({ tipo: item.tipo, ...(item.payload || {}) })
-            });
-
-            const bruto = await resposta.json().catch(() => ({}));
-            const dados = normalizarRespostaJogo(bruto);
-
-            if (resposta.ok && dados.ok) {
-                ultimoTokenSync++;
-                aplicarEstado(dados);
-            } else {
-                restantes.push(item);
-            }
-        } catch (e) {
-            restantes.push(item);
-            break;
-        }
-    }
-    salvarFilaOffline(restantes);
+    // Intencionalmente vazio durante o jogo.
+    // A fila fica local e deve ser enviada apenas no fechamento/finalização da partida.
+    return;
 }
 
-window.addEventListener("online", sincronizarFilaOffline);
-setInterval(sincronizarFilaOffline, 4000);
+// Sem sincronização automática durante a partida.
+window.addEventListener("online", () => {});
 
 
 async function registrarPonto(equipe, scout) {
@@ -3388,113 +3507,30 @@ async function registrarPonto(equipe, scout) {
     travarBotoes(true);
     limparErro();
 
-    const estadoAntes = { ...(estadoAtual || {}) };
-    const rotAntesA = [...rotA];
-    const rotAntesB = [...rotB];
-    const saqueAntes = saqueAtual;
-
-    aplicarPontoOtimista(equipe, scout);
-    fecharModalPonto();
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
     try {
-        const resposta = await fetch("{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Requested-With": "fetch"
-            },
-            cache: "no-store",
-            signal: controller.signal,
-            body: JSON.stringify({
-                equipe: equipe,
-                fundamento: (scout && scout.fundamento) || "",
-                resultado: (scout && (scout.resultado || scout.tipo_lance)) || "",
-                tipo_lance: (scout && scout.tipo_lance) || "",
-                detalhe_lance: (scout && scout.detalhe_lance) || "",
-                tipo_erro: (scout && scout.tipo_erro) || "",
-                atleta_numero: (scout && scout.atleta_numero) || "",
-                atleta_nome: (scout && scout.atleta_nome) || "",
-                atleta_label: (scout && scout.atleta_label) || "",
-                responsavel_lado: (scout && scout.responsavel_lado) || "",
-                equipe_pontuadora: equipe,
-                equipe_scout: (scout && scout.responsavel_lado) || equipe
-            })
+        aplicarScoutLocal(equipe, scout || {});
+        aplicarPontoOtimista(equipe, scout || {});
+        fecharModalPonto();
+
+        adicionarFilaOffline("ponto", {
+            equipe: equipe,
+            scout: scout || {},
+            estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
         });
 
-        let bruto = {};
-        try {
-            bruto = await resposta.json();
-        } catch (e) {
-            bruto = { ok: false, mensagem: "Resposta inválida do servidor." };
-        }
-
-        const dados = normalizarRespostaJogo(bruto);
-
-        if (!resposta.ok || !dados.ok) {
-            estadoAtual = { ...estadoAntes, rotacao_a: rotAntesA, rotacao_b: rotAntesB, saque_atual: saqueAntes };
-            rotA = rotAntesA;
-            rotB = rotAntesB;
-            saqueAtual = saqueAntes;
-            renderPainelVisual(estadoAtual);
-            renderQuadra();
-            mostrarErro(dados.mensagem || "Erro ao registrar ponto.");
-            atualizarUltimaAcao("Erro ao registrar ponto.");
-            return;
-        }
-
-        ultimoTokenSync++;
-        placarProtegidoAte = Date.now() + 2500;
-        rotacaoProtegidaAte = 0;
-        bloquearSyncAte = 0;
-
-        const temEstadoCompleto = (
-            bruto.estado ||
-            bruto.pontos_a !== undefined || bruto.placar_a !== undefined ||
-            bruto.pontos_b !== undefined || bruto.placar_b !== undefined
-        );
-
-        if (temEstadoCompleto) {
-            aplicarEstado(dados);
-        } else {
-            atualizarUltimaAcao((dados.mensagem || "Ponto registrado com sucesso.").replace(/^ok$/i, "Ponto registrado com sucesso."));
-            agendarSincronizacao(250, true);
-        }
-
-        bloquearSyncAte = Date.now() + 600;
-
-        if (dados.set_finalizado) {
-            atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
-
-            if (dados.partida_finalizada) {
-                partidaFinalizada = true;
-                abrirObservacoesAutomaticamente();
-                return;
-            }
-
-            if (dados.redirecionar_tiebreak) {
-                window.location.href = "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}";
-                return;
-            }
-
-            if (dados.redirecionar_papeleta) {
-                window.location.href = "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}";
-                return;
-            }
-        }
+        const msg = "Ponto registrado";
+        atualizarUltimaAcao(msg);
+        estadoAtual.ultima_acao = msg;
+        emitirEstadoTempoReal({
+            ultima_acao: msg,
+            tipo_evento: "ponto",
+            equipe_pontuadora: equipe,
+            scout_evento: scout || {}
+        });
     } catch (e) {
-        estadoAtual = { ...estadoAntes, rotacao_a: rotAntesA, rotacao_b: rotAntesB, saque_atual: saqueAntes };
-        rotA = rotAntesA;
-        rotB = rotAntesB;
-        saqueAtual = saqueAntes;
-        renderPainelVisual(estadoAtual);
-        renderQuadra();
-        mostrarErro(e && e.name === "AbortError" ? "O ponto foi enviado, aguardando confirmação do servidor." : "Erro de conexão.");
-        atualizarUltimaAcao("Erro ao registrar ponto.");
+        mostrarErro("Erro local ao registrar ponto.");
+        atualizarUltimaAcao("Erro local ao registrar ponto.");
     } finally {
-        clearTimeout(timeout);
         enviando = false;
         travarBotoes(false);
     }

@@ -543,27 +543,10 @@
         }
 
         async function carregarEstado(silencioso = false, forcar = false) {
-            const agora = agoraMs();
-            if (!forcar && agora - ultimaBuscaMs < 700) return;
-            ultimaBuscaMs = agora;
-
-            try {
-                const resp = await fetch(montarUrlEstado(), {
-                    method: "GET",
-                    cache: "no-store",
-                    credentials: "same-origin",
-                    headers: {
-                        "Cache-Control": "no-cache, no-store, must-revalidate",
-                        "Pragma": "no-cache",
-                        "Expires": "0",
-                        "X-Mobile-Arbitro": "1"
-                    }
-                });
-                if (!resp.ok) return;
-                const dados = await resp.json();
-                if (dados && dados.ok) aplicarEstado(dados, silencioso);
-                else if (dados && typeof dados === "object") aplicarEstado(dados, silencioso);
-            } catch (e) {}
+            // SOCKET-FIRST/OFFLINE-FIRST:
+            // durante a partida os árbitros não consultam /estado no banco,
+            // porque isso traz estado antigo e faz a rotação sumir/voltar.
+            return null;
         }
 
         function setSocketStatus(ok) {
@@ -614,7 +597,7 @@
                 4200
             );
 
-            carregarEstado(true, true);
+            // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
         }
 
         function iniciarSocket() {
@@ -639,20 +622,20 @@
             socket.on("connect", () => {
                 setSocketStatus(true);
                 entrarNaSala();
-                carregarEstado(true, true);
+                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
             socket.on("disconnect", () => setSocketStatus(false));
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
-                carregarEstado(true, true);
+                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
             socket.on("reconnect", () => {
                 setSocketStatus(true);
                 entrarNaSala();
-                carregarEstado(true, true);
+                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
             [
@@ -717,7 +700,7 @@
         function acordarTelaMobile() {
             if (socket) socket.connect();
             setTimeout(entrarNaSala, 80);
-            carregarEstado(true, true);
+            // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
         }
 
         document.addEventListener("visibilitychange", () => {

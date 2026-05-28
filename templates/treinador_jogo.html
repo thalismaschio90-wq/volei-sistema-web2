@@ -800,7 +800,15 @@ function atualizarRotacao(dados) {
 
     let minhaRotacao = dados.rotacao_propria || rotacaoDados.propria || [];
 
-    const minhaEquipe = String(dados.equipe_nome || "").trim().toLowerCase();
+    // No modo Socket.IO direto, o payload vem do apontador e não sabe qual treinador está vendo.
+    // Então primeiro usa o lado fixo deste painel.
+    if (!rotacaoTemValor(minhaRotacao)) {
+        minhaRotacao = LADO_TREINADOR === "A"
+            ? (dados.rotacao_a || rotacaoDados.equipe_a || [])
+            : (dados.rotacao_b || rotacaoDados.equipe_b || []);
+    }
+
+    const minhaEquipe = String(dados.equipe_nome || equipeNomeTreinador || "").trim().toLowerCase();
     const nomeEquipeA = String(dados.equipe_a || "").trim().toLowerCase();
     const nomeEquipeB = String(dados.equipe_b || "").trim().toLowerCase();
 
@@ -1010,9 +1018,11 @@ function aplicarEstadoTreinador(dados, forcarRender = false) {
         atualizarSolicitacoes(dados.solicitacoes || []);
     }
 
-    // Scout é pesado: só renderiza quando vier scout completo.
-    // Pacotes leves do socket/fetch não podem zerar a tabela.
-    if (dados.scout && Object.keys(dados.scout).length > 0) {
+    // Scout em tempo real vindo direto do apontador via Socket.IO.
+    if (dados.scout_por_lado && dados.scout_por_lado[LADO_TREINADOR]) {
+        atualizarScout(dados.scout_por_lado[LADO_TREINADOR]);
+        scoutCarregado = true;
+    } else if (dados.scout && Object.keys(dados.scout).length > 0) {
         atualizarScout(dados.scout);
         scoutCarregado = true;
     }
@@ -1322,7 +1332,7 @@ setInterval(() => {
 
 // Scout em tempo real apenas quando a aba Scout estiver aberta.
 setInterval(() => {
-    if ((ABA_ATIVA || "papeleta") === "scout") {
+    if ((ABA_ATIVA || "papeleta") === "scout" && (!socket || !socket.connected)) {
         scoutCarregado = false;
         carregarScoutTreinador(true);
     }

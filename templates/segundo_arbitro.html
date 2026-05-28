@@ -491,11 +491,13 @@
                 dados.segundos != null ||
                 dados.restante != null;
 
-            const veioDoTreinadorComoPedido =
-                origem.includes("treinador") &&
-                !["iniciado", "inicio", "autorizado", "executado", "tick", "finalizado", "fim"].includes(status);
+            // Só é oficial quando veio do apontador/autorização explícita.
+            // Pedido do treinador apenas avisa; não inicia cronômetro.
+            const oficial = origem.includes("apontador") ||
+                ["iniciado", "inicio", "autorizado", "executado", "tick", "finalizado", "fim"].includes(status) ||
+                tipo.includes("tempo_autorizado") || tipo.includes("tempo_executado") || tipo.includes("cronometro") || tipo.includes("cronômetro");
 
-            return pareceTempo && !veioDoTreinadorComoPedido;
+            return pareceTempo && oficial && !origem.includes("treinador");
         }
 
         function montarUrlEstado() {
@@ -657,27 +659,10 @@
         }
 
         async function carregarEstado(silencioso = false, forcar = false) {
-            const agora = agoraMs();
-            if (!forcar && agora - ultimaBuscaMs < 700) return;
-            ultimaBuscaMs = agora;
-
-            try {
-                const resp = await fetch(montarUrlEstado(), {
-                    method: "GET",
-                    cache: "no-store",
-                    credentials: "same-origin",
-                    headers: {
-                        "Cache-Control": "no-cache, no-store, must-revalidate",
-                        "Pragma": "no-cache",
-                        "Expires": "0",
-                        "X-Mobile-Arbitro": "1"
-                    }
-                });
-                if (!resp.ok) return;
-                const dados = await resp.json();
-                if (dados && dados.ok) aplicarEstado(dados, silencioso);
-                else if (dados && typeof dados === "object") aplicarEstado(dados, silencioso);
-            } catch (e) {}
+            // SOCKET-FIRST/OFFLINE-FIRST:
+            // durante a partida os árbitros não consultam /estado no banco,
+            // porque isso traz estado antigo e faz a rotação sumir/voltar.
+            return null;
         }
 
         function setSocketStatus(ok) {
@@ -736,14 +721,15 @@
             if (ehTempo && isEventoTempoOficial(dados) && (
                 origem === "apontador" ||
                 tipoRaw.includes("tempo_executado") ||
+                tipoRaw.includes("tempo_autorizado") ||
                 tipoRaw.includes("cronometro") ||
                 tipoRaw.includes("cronômetro") ||
-                ["iniciado", "inicio", "autorizado", "executado"].includes(status || "iniciado")
+                ["iniciado", "inicio", "autorizado", "executado"].includes(status)
             )) {
                 receberCronometroOficial(dados);
             }
 
-            carregarEstado(true, true);
+            // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
         }
 
         let cronInterval = null;
@@ -857,20 +843,20 @@
             socket.on("connect", () => {
                 setSocketStatus(true);
                 entrarNaSala();
-                carregarEstado(true, true);
+                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
             socket.on("disconnect", () => setSocketStatus(false));
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
-                carregarEstado(true, true);
+                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
             socket.on("reconnect", () => {
                 setSocketStatus(true);
                 entrarNaSala();
-                carregarEstado(true, true);
+                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
             [
@@ -945,7 +931,7 @@
         function acordarTelaMobile() {
             if (socket) socket.connect();
             setTimeout(entrarNaSala, 80);
-            carregarEstado(true, true);
+            // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
         }
 
         document.addEventListener("visibilitychange", () => {
