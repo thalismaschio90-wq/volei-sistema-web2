@@ -270,12 +270,13 @@
 
 .resumo-scout {
     display: grid;
-    grid-template-columns: repeat(3, minmax(170px, 1fr));
+    grid-template-columns: minmax(170px, .85fr) minmax(170px, .85fr) minmax(360px, 1.5fr);
     gap: 12px;
     margin-bottom: 14px;
+    align-items: stretch;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1020px) {
     .resumo-scout {
         grid-template-columns: 1fr;
     }
@@ -286,22 +287,48 @@
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 14px;
+    min-height: 98px;
+    overflow: hidden;
 }
 
 .box-resumo-faltas {
-    grid-column: span 1;
+    min-height: 98px;
+    max-height: 126px;
 }
 
 .lista-faltas-scout {
-    margin: 8px 0 0;
-    padding-left: 16px;
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(58px, 1fr));
+    gap: 8px;
     color: var(--muted);
-    font-size: 12px;
-    line-height: 1.35;
+    font-size: 11px;
+    line-height: 1.1;
 }
 
 .lista-faltas-scout li {
-    margin: 2px 0;
+    margin: 0;
+    min-width: 0;
+}
+
+.falta-mini-label {
+    display: block;
+    font-weight: 900;
+    color: var(--muted);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.falta-mini-valor {
+    display: block;
+    margin-top: 3px;
+    font-size: 16px;
+    font-weight: 1000;
+    color: var(--text);
 }
 
 .box-resumo .label {
@@ -956,8 +983,80 @@ function normalizarNomeFaltaScout(chave) {
     return mapa[texto] || (texto ? texto.charAt(0).toUpperCase() + texto.slice(1) : "Falta");
 }
 
-function montarLinhasFaltasScout(scout, equipe) {
-    const candidatos = [
+function chaveFaltaScout(label) {
+    const texto = String(label || "").trim().toLowerCase();
+    if (texto.includes("rede")) return "rede";
+    if (texto.includes("invas")) return "invasao";
+    if (texto.includes("rota")) return "rotacao";
+    if (texto.includes("condu")) return "conducao";
+    if (texto.includes("dois") || texto.includes("toque")) return "dois_toques";
+    return texto || "falta";
+}
+
+function criarMapaVazioFaltasScout() {
+    return {
+        rede: 0,
+        invasao: 0,
+        rotacao: 0,
+        conducao: 0,
+        dois_toques: 0
+    };
+}
+
+function preencherContagemFaltasDeObjeto(destino, origem) {
+    if (!origem || typeof origem !== "object" || Array.isArray(origem)) return false;
+
+    let encontrou = false;
+
+    Object.entries(origem).forEach(([chave, valor]) => {
+        const chaveNormal = chaveFaltaScout(chave);
+        if (!(chaveNormal in destino)) return;
+
+        const qtd = numeroSeguro(valor, 0);
+        if (qtd > 0) {
+            destino[chaveNormal] += qtd;
+            encontrou = true;
+        }
+    });
+
+    return encontrou;
+}
+
+function preencherContagemFaltasDeLista(destino, origem) {
+    if (!Array.isArray(origem)) return false;
+
+    let encontrou = false;
+
+    origem.forEach(item => {
+        let tipo = "";
+        let qtd = 1;
+
+        if (typeof item === "object" && item !== null) {
+            tipo = item.tipo || item.detalhe || item.falta || item.nome || item.label || "";
+            // Lista de eventos representa ação por ação. Cada item conta 1,
+            // para não dobrar quando vier também o resumo por tipo.
+            qtd = 1;
+        } else {
+            tipo = item;
+        }
+
+        const chaveNormal = chaveFaltaScout(tipo);
+        if (!(chaveNormal in destino)) return;
+
+        destino[chaveNormal] += qtd;
+        encontrou = true;
+    });
+
+    return encontrou;
+}
+
+function montarContagemFaltasScout(scout, equipe) {
+    scout = scout || {};
+    equipe = equipe || {};
+
+    // Regra principal: se existe resumo por tipo, usa SOMENTE ele.
+    // Não soma junto com faltas_lista, porque isso duplicava 1 falta para 2.
+    const fontesResumo = [
         equipe.tipos_falta,
         equipe.faltas_tipos,
         equipe.faltas_por_tipo,
@@ -965,64 +1064,60 @@ function montarLinhasFaltasScout(scout, equipe) {
         scout.tipos_falta,
         scout.faltas_tipos,
         scout.faltas_por_tipo,
-        scout.detalhes_faltas,
-        scout.faltas_lista,
-        equipe.faltas_lista
+        scout.detalhes_faltas
     ];
 
-    const acumulado = new Map();
-
-    candidatos.forEach(item => {
-        if (!item) return;
-
-        if (Array.isArray(item)) {
-            item.forEach(valor => {
-                let tipo = "";
-                let qtd = 1;
-
-                if (typeof valor === "object" && valor !== null) {
-                    tipo = valor.tipo || valor.detalhe || valor.falta || valor.nome || valor.label || "";
-                    qtd = numeroSeguro(valor.qtd ?? valor.quantidade ?? valor.total ?? valor.valor ?? 1, 1);
-                } else {
-                    tipo = valor;
-                }
-
-                tipo = normalizarNomeFaltaScout(tipo);
-                acumulado.set(tipo, numeroSeguro(acumulado.get(tipo), 0) + qtd);
-            });
-        } else if (typeof item === "object") {
-            Object.entries(item).forEach(([chave, valor]) => {
-                const tipo = normalizarNomeFaltaScout(chave);
-                const qtd = numeroSeguro(valor, 0);
-                if (qtd > 0) acumulado.set(tipo, numeroSeguro(acumulado.get(tipo), 0) + qtd);
-            });
+    for (const fonte of fontesResumo) {
+        const mapa = criarMapaVazioFaltasScout();
+        if (preencherContagemFaltasDeObjeto(mapa, fonte)) {
+            return mapa;
         }
-    });
+    }
 
-    return Array.from(acumulado.entries())
-        .filter(([, qtd]) => qtd > 0)
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    // Fallback: se não existe resumo, usa lista de faltas ação por ação.
+    const fontesLista = [
+        equipe.faltas_lista,
+        scout.faltas_lista
+    ];
+
+    for (const fonte of fontesLista) {
+        const mapa = criarMapaVazioFaltasScout();
+        if (preencherContagemFaltasDeLista(mapa, fonte)) {
+            return mapa;
+        }
+    }
+
+    return criarMapaVazioFaltasScout();
+}
+
+function totalFaltasScout(contagem, equipe) {
+    const totalPorTipo = Object.values(contagem || {}).reduce((soma, valor) => soma + numeroSeguro(valor, 0), 0);
+    if (totalPorTipo > 0) return totalPorTipo;
+    return numeroSeguro(equipe?.faltas ?? 0, 0);
 }
 
 function atualizarListaFaltasScout(scout, equipe) {
     const lista = document.getElementById("lista-faltas-scout");
-    if (!lista) return;
+    if (!lista) return 0;
 
-    const linhas = montarLinhasFaltasScout(scout, equipe);
+    const contagem = montarContagemFaltasScout(scout, equipe);
+    const faltasFixas = [
+        ["rede", "Rede"],
+        ["invasao", "Invasão"],
+        ["rotacao", "Rotação"],
+        ["conducao", "Condução"],
+        ["dois_toques", "Dois toques"]
+    ];
+
     lista.innerHTML = "";
 
-    if (!linhas.length) {
+    faltasFixas.forEach(([chave, label]) => {
         const li = document.createElement("li");
-        li.textContent = "Sem faltas registradas.";
-        lista.appendChild(li);
-        return;
-    }
-
-    linhas.slice(0, 5).forEach(([tipo, qtd]) => {
-        const li = document.createElement("li");
-        li.textContent = `${qtd} ${tipo}`;
+        li.innerHTML = `<span class="falta-mini-label">${label}</span><span class="falta-mini-valor">${numeroSeguro(contagem[chave], 0)}</span>`;
         lista.appendChild(li);
     });
+
+    return totalFaltasScout(contagem, equipe);
 }
 
 function atualizarScout(scout) {
@@ -1031,8 +1126,8 @@ function atualizarScout(scout) {
 
     setTextoTodos("[data-scout-pontos]", obterPontosTotaisEquipeScout(equipe));
     setTextoTodos("[data-scout-erros-saque]", equipe.erros_saque ?? 0);
-    setTextoTodos("[data-scout-faltas]", equipe.faltas ?? 0);
-    atualizarListaFaltasScout(scout, equipe);
+    const totalFaltasAtualizado = atualizarListaFaltasScout(scout, equipe);
+    setTextoTodos("[data-scout-faltas]", totalFaltasAtualizado);
 
     const corpo = document.getElementById("corpo-scout-atletas");
     const boxTabela = document.getElementById("box-tabela-scout");
