@@ -1154,6 +1154,12 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
 
     const modoOperacao = {{ modo_operacao_jogo | tojson }};
 
+    const REGRA_PONTOS_SET = Number({{ (estado.pontos_set if estado.pontos_set is defined and estado.pontos_set else partida.pontos_set if partida.pontos_set is defined and partida.pontos_set else partida.ponto_alvo_set if partida.ponto_alvo_set is defined and partida.ponto_alvo_set else partida.pontos_para_vencer_set if partida.pontos_para_vencer_set is defined and partida.pontos_para_vencer_set else 25) | tojson }}) || 25;
+    const REGRA_PONTOS_TIEBREAK = Number({{ (estado.pontos_tiebreak if estado.pontos_tiebreak is defined and estado.pontos_tiebreak else partida.pontos_tiebreak if partida.pontos_tiebreak is defined and partida.pontos_tiebreak else 15) | tojson }}) || 15;
+    const REGRA_DIFERENCA_MINIMA = Number({{ (estado.diferenca_minima if estado.diferenca_minima is defined and estado.diferenca_minima else partida.diferenca_minima if partida.diferenca_minima is defined and partida.diferenca_minima else 2) | tojson }}) || 2;
+    const REGRA_SETS_TIPO = String({{ (estado.sets_tipo if estado.sets_tipo is defined and estado.sets_tipo else partida.sets_tipo if partida.sets_tipo is defined and partida.sets_tipo else 'melhor_de_3') | tojson }} || "melhor_de_3").toLowerCase();
+    const REGRA_SETS_PARA_VENCER = Number({{ (estado.sets_para_vencer if estado.sets_para_vencer is defined and estado.sets_para_vencer else partida.sets_para_vencer if partida.sets_para_vencer is defined and partida.sets_para_vencer else 0) | tojson }}) || (REGRA_SETS_TIPO.includes("unico") || REGRA_SETS_TIPO.includes("único") ? 1 : 2);
+
     let partidaFinalizada = false;
     let observacoesAbrindo = false;
     let enviando = false;
@@ -1259,44 +1265,71 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
 
     function aplicarScoutLocal(equipePontuadora, scout) {
         scout = scout || {};
-        const ladoScout = String(scout.responsavel_lado || equipePontuadora || "").toUpperCase();
-        if (!scoutLocalPorLado[ladoScout]) return;
 
-        const equipe = scoutLocalPorLado[ladoScout].equipe;
+        const equipePontuadoraNorm = String(equipePontuadora || scout.equipe_pontuadora || "").toUpperCase();
+        const ladoResponsavel = String(scout.responsavel_lado || scout.equipe_responsavel || equipePontuadoraNorm || "").toUpperCase();
+
+        if (!scoutLocalPorLado[equipePontuadoraNorm]) return;
+
         const tipo = String(scout.tipo_lance || scout.resultado || "").toLowerCase();
-        const detalhe = String(scout.detalhe_lance || scout.fundamento || scout.tipo_erro || "").toLowerCase();
-        const equipePontuadoraNorm = String(equipePontuadora || "").toUpperCase();
-        const ehErro = tipo === "erro";
-        const ehFalta = tipo === "falta" || ["rede", "invasao", "invasão", "rotacao", "rotação", "conducao", "condução", "dois_toques", "dois toques"].includes(detalhe);
-        const ehPonto = tipo === "ponto" || (!ehErro && !ehFalta && ladoScout === equipePontuadoraNorm);
+        const detalhe = String(scout.detalhe_lance || scout.fundamento || scout.tipo_erro || scout.detalhe || "").toLowerCase();
 
-        if (ehPonto) equipe.pontos = numeroInteiro(equipe.pontos, 0) + 1;
-        if (detalhe.includes("ace")) equipe.aces = numeroInteiro(equipe.aces, 0) + 1;
-        if (detalhe.includes("bloque")) equipe.bloqueios = numeroInteiro(equipe.bloqueios, 0) + 1;
-        if (ehErro && detalhe.includes("saque")) equipe.erros_saque = numeroInteiro(equipe.erros_saque, 0) + 1;
+        const ehErro = tipo === "erro" || scout.resultado === "erro";
+        const ehFalta = tipo === "falta" || scout.resultado === "falta" || [
+            "rede", "invasao", "invasão", "rotacao", "rotação", "conducao", "condução", "dois_toques", "dois toques"
+        ].includes(detalhe);
+        const ehPontoDireto = tipo === "ponto" && !ehErro && !ehFalta;
+
+        // PONTOS TOTAIS: sempre vão para quem realmente ganhou o ponto.
+        const scoutPontuadora = scoutLocalPorLado[equipePontuadoraNorm];
+        const equipePontuadoraResumo = scoutPontuadora.equipe;
+        equipePontuadoraResumo.pontos = numeroInteiro(equipePontuadoraResumo.pontos, 0) + 1;
+
+        if (ehPontoDireto) {
+            if (detalhe.includes("ace")) equipePontuadoraResumo.aces = numeroInteiro(equipePontuadoraResumo.aces, 0) + 1;
+            if (detalhe.includes("bloque")) equipePontuadoraResumo.bloqueios = numeroInteiro(equipePontuadoraResumo.bloqueios, 0) + 1;
+
+            // Só credita ponto para atleta em ponto direto: ataque, bloqueio ou ace.
+            const atleta = garantirAtletaScoutLocal(equipePontuadoraNorm, scout.atleta_numero, scout.atleta_nome || scout.atleta_label);
+            if (atleta) {
+                atleta.pontos = numeroInteiro(atleta.pontos, 0) + 1;
+                if (detalhe.includes("ataque")) atleta.ataques = numeroInteiro(atleta.ataques, 0) + 1;
+                if (detalhe.includes("ace")) atleta.aces = numeroInteiro(atleta.aces, 0) + 1;
+                if (detalhe.includes("bloque")) atleta.bloqueios = numeroInteiro(atleta.bloqueios, 0) + 1;
+            }
+        }
+
+        // ERRO/FALTA: entram no scout NEGATIVO de quem cometeu.
+        // Ex.: Black comete falta -> Bah Guria ganha o ponto, mas a falta aparece para Black.
+        const scoutResponsavel = scoutLocalPorLado[ladoResponsavel];
+        if (!scoutResponsavel) return;
+
+        const equipeResponsavelResumo = scoutResponsavel.equipe;
+
+        if (ehErro && detalhe.includes("saque")) {
+            equipeResponsavelResumo.erros_saque = numeroInteiro(equipeResponsavelResumo.erros_saque, 0) + 1;
+        }
+
         if (ehFalta) {
-            equipe.faltas = numeroInteiro(equipe.faltas, 0) + 1;
-            if (!equipe.tipos_falta || typeof equipe.tipos_falta !== "object") equipe.tipos_falta = {};
+            equipeResponsavelResumo.faltas = numeroInteiro(equipeResponsavelResumo.faltas, 0) + 1;
+            if (!equipeResponsavelResumo.tipos_falta || typeof equipeResponsavelResumo.tipos_falta !== "object") {
+                equipeResponsavelResumo.tipos_falta = {};
+            }
+
             const chaveFalta = detalhe || "falta";
-            equipe.tipos_falta[chaveFalta] = numeroInteiro(equipe.tipos_falta[chaveFalta], 0) + 1;
-            if (!Array.isArray(equipe.faltas_lista)) equipe.faltas_lista = [];
-            equipe.faltas_lista.unshift({
+            equipeResponsavelResumo.tipos_falta[chaveFalta] = numeroInteiro(equipeResponsavelResumo.tipos_falta[chaveFalta], 0) + 1;
+
+            if (!Array.isArray(equipeResponsavelResumo.faltas_lista)) equipeResponsavelResumo.faltas_lista = [];
+            equipeResponsavelResumo.faltas_lista.unshift({
                 tipo: chaveFalta,
                 atleta_numero: scout.atleta_numero || "",
                 atleta_nome: scout.atleta_nome || scout.atleta_label || "",
-                equipe: ladoScout,
+                equipe: ladoResponsavel,
+                equipe_responsavel: ladoResponsavel,
                 equipe_pontuadora: equipePontuadoraNorm,
                 momento: Date.now()
             });
-            equipe.faltas_lista = equipe.faltas_lista.slice(0, 8);
-        }
-
-        const atleta = garantirAtletaScoutLocal(ladoScout, scout.atleta_numero, scout.atleta_nome || scout.atleta_label);
-        if (atleta && ehPonto) {
-            atleta.pontos = numeroInteiro(atleta.pontos, 0) + 1;
-            if (detalhe.includes("ataque")) atleta.ataques = numeroInteiro(atleta.ataques, 0) + 1;
-            if (detalhe.includes("ace")) atleta.aces = numeroInteiro(atleta.aces, 0) + 1;
-            if (detalhe.includes("bloque")) atleta.bloqueios = numeroInteiro(atleta.bloqueios, 0) + 1;
+            equipeResponsavelResumo.faltas_lista = equipeResponsavelResumo.faltas_lista.slice(0, 8);
         }
     }
 
@@ -1569,6 +1602,11 @@ function montarPayloadTempoReal(extra = {}) {
     estadoAtual.sets_a = numeroInteiro(estadoAtual.sets_a ?? {{ (estado.sets_a if estado.sets_a is defined else 0) | tojson }}, 0);
     estadoAtual.sets_b = numeroInteiro(estadoAtual.sets_b ?? {{ (estado.sets_b if estado.sets_b is defined else 0) | tojson }}, 0);
     estadoAtual.set_atual = numeroInteiro(estadoAtual.set_atual ?? {{ (estado.set_atual if estado.set_atual is defined else 1) | tojson }}, 1);
+    estadoAtual.pontos_set = numeroInteiro(estadoAtual.pontos_set ?? estadoAtual.ponto_alvo_set ?? estadoAtual.pontos_para_vencer_set ?? REGRA_PONTOS_SET, REGRA_PONTOS_SET);
+    estadoAtual.pontos_tiebreak = numeroInteiro(estadoAtual.pontos_tiebreak ?? REGRA_PONTOS_TIEBREAK, REGRA_PONTOS_TIEBREAK);
+    estadoAtual.diferenca_minima = numeroInteiro(estadoAtual.diferenca_minima ?? REGRA_DIFERENCA_MINIMA, REGRA_DIFERENCA_MINIMA);
+    estadoAtual.sets_tipo = estadoAtual.sets_tipo || REGRA_SETS_TIPO;
+    estadoAtual.sets_para_vencer = numeroInteiro(estadoAtual.sets_para_vencer ?? REGRA_SETS_PARA_VENCER, REGRA_SETS_PARA_VENCER);
     estadoAtual.rotacao_a = rotA;
     estadoAtual.rotacao_b = rotB;
     saqueAtual = ladoPorEquipeOuNome(saqueAtual) || ladoPorEquipeOuNome(estadoAtual.saque_atual) || "";
@@ -2324,15 +2362,15 @@ function inverterLadosVisual() {
     function ladoResponsavelScout() {
         if (!equipePontoTemp || !tipoLancePontoTemp) return "";
 
-        const equipePontuou = normalizarEquipe(equipePontoTemp);
+        const equipeSelecionada = normalizarEquipe(equipePontoTemp);
 
-        // Regra do scout:
-        // - Ponto direto: atleta da equipe que recebeu o ponto.
-        // - Erro/Falta: atleta da equipe adversária, pois o erro/falta é creditado a quem cometeu.
-        if (tipoLancePontoTemp === "ponto") return equipePontuou;
-        if (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta") return ladoOponente(equipePontuou);
+        // Regra do modal:
+        // - Ponto direto: equipe selecionada foi quem fez o ponto.
+        // - Erro/Falta: equipe selecionada foi quem cometeu o erro/falta.
+        if (tipoLancePontoTemp === "ponto") return equipeSelecionada;
+        if (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta") return equipeSelecionada;
 
-        return equipePontuou;
+        return equipeSelecionada;
     }
 
     function atletasEquipePorLado(lado) {
@@ -2349,7 +2387,17 @@ function inverterLadosVisual() {
         const detalheNome = detalheLancePontoTemp ? tituloBonitoScout(detalheLancePontoTemp) : "-";
         const atletaNome = atletaLabelPontoTemp || "-";
 
-        let html = `Equipe que pontua: <strong>${equipeNome}</strong>`;
+        const rotuloEquipe = (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta")
+            ? "Equipe que cometeu"
+            : "Equipe que pontua";
+        const equipePontuadoraNome = (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta")
+            ? nomeEquipePorLado(ladoOponente(equipePontoTemp))
+            : equipeNome;
+
+        let html = `${rotuloEquipe}: <strong>${equipeNome}</strong>`;
+        if (tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta") {
+            html += ` &nbsp;•&nbsp; Ponto para: <strong>${equipePontuadoraNome}</strong>`;
+        }
         if (tipoLancePontoTemp) html += ` &nbsp;•&nbsp; Tipo: <strong>${tipoNome}</strong>`;
         if (detalheLancePontoTemp) html += ` &nbsp;•&nbsp; Lance: <strong>${detalheNome}</strong>`;
         if (atletaLabelPontoTemp) html += ` &nbsp;•&nbsp; Atleta: <strong>${atletaNome}</strong>`;
@@ -3088,7 +3136,7 @@ function atualizarResumoSubEx() {
         atletaNumeroPontoTemp = "";
         atletaNomePontoTemp = "";
         atletaLabelPontoTemp = "";
-        pontoEquipeTexto.textContent = `Equipe que recebeu o ponto: ${nomeEquipePorLado(equipePontoTemp)}`;
+        pontoEquipeTexto.textContent = `Equipe selecionada: ${nomeEquipePorLado(equipePontoTemp)}`;
         renderFluxoPonto();
         modalPontoFundo.style.display = "flex";
     }
@@ -3302,6 +3350,115 @@ function rotacionarEquipeLocal(lado) {
     }
 }
 
+
+function regrasPartidaLocal() {
+    const setAtualLocal = numeroInteiro(estadoAtual?.set_atual ?? 1, 1);
+    const setsTipo = String(estadoAtual?.sets_tipo || REGRA_SETS_TIPO || "").toLowerCase();
+    const ehTiebreak =
+        (setsTipo === "melhor_de_3" && setAtualLocal === 3) ||
+        (setsTipo === "melhor_de_5" && setAtualLocal === 5);
+
+    return {
+        pontosSet: numeroInteiro(estadoAtual?.pontos_set ?? estadoAtual?.ponto_alvo_set ?? estadoAtual?.pontos_para_vencer_set ?? REGRA_PONTOS_SET, REGRA_PONTOS_SET),
+        pontosTiebreak: numeroInteiro(estadoAtual?.pontos_tiebreak ?? REGRA_PONTOS_TIEBREAK, REGRA_PONTOS_TIEBREAK),
+        diferencaMinima: Math.max(1, numeroInteiro(estadoAtual?.diferenca_minima ?? REGRA_DIFERENCA_MINIMA, REGRA_DIFERENCA_MINIMA)),
+        setsParaVencer: Math.max(1, numeroInteiro(estadoAtual?.sets_para_vencer ?? REGRA_SETS_PARA_VENCER, REGRA_SETS_PARA_VENCER)),
+        setsTipo,
+        ehTiebreak,
+        limite: ehTiebreak
+            ? numeroInteiro(estadoAtual?.pontos_tiebreak ?? REGRA_PONTOS_TIEBREAK, REGRA_PONTOS_TIEBREAK)
+            : numeroInteiro(estadoAtual?.pontos_set ?? estadoAtual?.ponto_alvo_set ?? estadoAtual?.pontos_para_vencer_set ?? REGRA_PONTOS_SET, REGRA_PONTOS_SET)
+    };
+}
+
+function verificarFinalizacaoLocalDepoisDoPonto(equipePontuadora) {
+    equipePontuadora = String(equipePontuadora || "").toUpperCase();
+    if (equipePontuadora !== "A" && equipePontuadora !== "B") return false;
+    if (!estadoAtual || estadoAtual.partida_finalizada || estadoAtual.fim_set || estadoAtual.set_finalizado) return false;
+
+    const regras = regrasPartidaLocal();
+    const pontosAAtual = numeroInteiro(estadoAtual.pontos_a ?? estadoAtual.placar_a ?? 0, 0);
+    const pontosBAtual = numeroInteiro(estadoAtual.pontos_b ?? estadoAtual.placar_b ?? 0, 0);
+
+    const pontosVencedor = equipePontuadora === "A" ? pontosAAtual : pontosBAtual;
+    const pontosPerdedor = equipePontuadora === "A" ? pontosBAtual : pontosAAtual;
+
+    if (pontosVencedor < regras.limite) return false;
+    if ((pontosVencedor - pontosPerdedor) < regras.diferencaMinima) return false;
+
+    const setsAAtual = numeroInteiro(estadoAtual.sets_a ?? 0, 0);
+    const setsBAtual = numeroInteiro(estadoAtual.sets_b ?? 0, 0);
+    const novosSetsA = equipePontuadora === "A" ? setsAAtual + 1 : setsAAtual;
+    const novosSetsB = equipePontuadora === "B" ? setsBAtual + 1 : setsBAtual;
+
+    const partidaAcabou =
+        novosSetsA >= regras.setsParaVencer ||
+        novosSetsB >= regras.setsParaVencer ||
+        regras.setsTipo.includes("unico") ||
+        regras.setsTipo.includes("único");
+
+    estadoAtual = {
+        ...(estadoAtual || {}),
+        sets_a: novosSetsA,
+        sets_b: novosSetsB,
+        vencedor_set: equipePontuadora,
+        fim_set: true,
+        set_finalizado: true,
+        partida_finalizada: partidaAcabou,
+        fim_jogo: partidaAcabou,
+        status_jogo: partidaAcabou ? "finalizada" : "set_finalizado",
+        fase_partida: partidaAcabou ? "finalizada" : "intervalo_set",
+        ultima_acao: partidaAcabou
+            ? `Partida finalizada - ${nomeEquipePorLado(equipePontuadora)}`
+            : `Set finalizado - ${nomeEquipePorLado(equipePontuadora)}`
+    };
+
+    partidaFinalizada = partidaAcabou;
+    atualizarUltimaAcao(estadoAtual.ultima_acao);
+    renderPainelVisual(estadoAtual);
+    atualizarAvisoPoint(estadoAtual);
+    atualizarTravasOperacionais(estadoAtual);
+
+    if (partidaAcabou) {
+        if (saqueInfo) {
+            saqueInfo.textContent = `Partida finalizada • Vencedor: ${nomeEquipePorLado(equipePontuadora)}`;
+        }
+        travarBotoes(true);
+        adicionarFilaOffline("fim_partida", {
+            vencedor: equipePontuadora,
+            estado_final: montarPayloadTempoReal({
+                tipo_evento: "fim_partida",
+                partida_finalizada: true,
+                vencedor_partida: equipePontuadora
+            })
+        });
+    } else {
+        travarBotoes(true);
+        adicionarFilaOffline("fim_set", {
+            vencedor_set: equipePontuadora,
+            estado_set: montarPayloadTempoReal({
+                tipo_evento: "fim_set",
+                fim_set: true,
+                set_finalizado: true,
+                vencedor_set: equipePontuadora
+            })
+        });
+    }
+
+    emitirEstadoTempoReal({
+        ultima_acao: estadoAtual.ultima_acao,
+        tipo_evento: partidaAcabou ? "fim_partida" : "fim_set",
+        fim_set: true,
+        set_finalizado: true,
+        partida_finalizada: partidaAcabou,
+        fim_jogo: partidaAcabou,
+        vencedor_set: equipePontuadora,
+        vencedor_partida: partidaAcabou ? equipePontuadora : ""
+    });
+
+    return true;
+}
+
 function aplicarPontoOtimista(equipe, scout) {
     equipe = String(equipe || "").toUpperCase();
     if (equipe !== "A" && equipe !== "B") return;
@@ -3335,8 +3492,15 @@ function aplicarPontoOtimista(equipe, scout) {
         placar_b: novoB,
         saque_atual: saqueAtual,
         rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+        pontos_set: numeroInteiro(estadoAtual?.pontos_set ?? REGRA_PONTOS_SET, REGRA_PONTOS_SET),
+        pontos_tiebreak: numeroInteiro(estadoAtual?.pontos_tiebreak ?? REGRA_PONTOS_TIEBREAK, REGRA_PONTOS_TIEBREAK),
+        diferenca_minima: numeroInteiro(estadoAtual?.diferenca_minima ?? REGRA_DIFERENCA_MINIMA, REGRA_DIFERENCA_MINIMA),
+        sets_tipo: estadoAtual?.sets_tipo || REGRA_SETS_TIPO,
+        sets_para_vencer: numeroInteiro(estadoAtual?.sets_para_vencer ?? REGRA_SETS_PARA_VENCER, REGRA_SETS_PARA_VENCER)
     };
+
+    const finalizouLocal = verificarFinalizacaoLocalDepoisDoPonto(equipe);
 
     // Correção principal: antes atualizava placar, mas a quadra do apontador não era
     // redesenhada. Árbitros/treinador recebiam certo pelo socket, e só o apontador ficava parado.
@@ -3348,19 +3512,21 @@ function aplicarPontoOtimista(equipe, scout) {
     rotacaoProtegidaAte = Date.now() + 2500;
     bloquearSyncAte = Date.now() + 2500;
 
-    const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
-    const msgTempoReal = `Registrando ${detalhe} para ${nomeEquipePorLado(equipe)}.`;
-    atualizarUltimaAcao(msgTempoReal);
-    estadoAtual.ultima_acao = msgTempoReal;
+    if (!finalizouLocal) {
+        const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
+        const msgTempoReal = `Registrando ${detalhe} para ${nomeEquipePorLado(equipe)}.`;
+        atualizarUltimaAcao(msgTempoReal);
+        estadoAtual.ultima_acao = msgTempoReal;
 
-    emitirEstadoTempoReal({
-        ultima_acao: msgTempoReal,
-        tipo_evento: "ponto",
-        equipe_pontuadora: equipe,
-        saque_atual: saqueAtual,
-        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : []
-    });
+        emitirEstadoTempoReal({
+            ultima_acao: msgTempoReal,
+            tipo_evento: "ponto",
+            equipe_pontuadora: equipe,
+            saque_atual: saqueAtual,
+            rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+            rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+        });
+    }
 }
 
 const FILA_OFFLINE_KEY = `fila_offline_jogo_{{ partida.id }}`;
@@ -3533,15 +3699,17 @@ async function registrarPonto(equipe, scout) {
             estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
         });
 
-        const msg = "Ponto registrado";
-        atualizarUltimaAcao(msg);
-        estadoAtual.ultima_acao = msg;
-        emitirEstadoTempoReal({
-            ultima_acao: msg,
-            tipo_evento: "ponto",
-            equipe_pontuadora: equipe,
-            scout_evento: scout || {}
-        });
+        if (!estadoAtual?.fim_set && !estadoAtual?.set_finalizado && !estadoAtual?.partida_finalizada) {
+            const msg = "Ponto registrado";
+            atualizarUltimaAcao(msg);
+            estadoAtual.ultima_acao = msg;
+            emitirEstadoTempoReal({
+                ultima_acao: msg,
+                tipo_evento: "ponto",
+                equipe_pontuadora: equipe,
+                scout_evento: scout || {}
+            });
+        }
     } catch (e) {
         mostrarErro("Erro local ao registrar ponto.");
         atualizarUltimaAcao("Erro local ao registrar ponto.");
@@ -3575,20 +3743,27 @@ async function registrarPonto(equipe, scout) {
             return;
         }
 
+        const equipeSelecionada = normalizarEquipe(equipePontoTemp);
+        const ehNegativo = tipoLancePontoTemp === "erro" || tipoLancePontoTemp === "falta";
+        const equipePontuadoraFinal = ehNegativo ? ladoOponente(equipeSelecionada) : equipeSelecionada;
+        const equipeResponsavelFinal = ehNegativo ? equipeSelecionada : equipePontuadoraFinal;
+
         const scout = {
             fundamento: detalheLancePontoTemp || null,
             resultado: tipoLancePontoTemp || null,
             tipo_erro: tipoLancePontoTemp === "erro" ? (detalheLancePontoTemp || null) : null,
             tipo_lance: tipoLancePontoTemp || null,
             detalhe_lance: detalheLancePontoTemp || null,
-            responsavel_lado: tipoLancePontoTemp === "ponto" ? equipePontoTemp : ladoOponente(equipePontoTemp),
+            equipe_pontuadora: equipePontuadoraFinal,
+            equipe_responsavel: equipeResponsavelFinal,
+            responsavel_lado: equipeResponsavelFinal,
+            equipe_selecionada: equipeSelecionada,
             atleta_numero: atletaNumeroPontoTemp || null,
             atleta_nome: atletaNomePontoTemp || null,
             atleta_label: atletaLabelPontoTemp || null
         };
 
-        const equipe = equipePontoTemp;
-        registrarPonto(equipe, scout);
+        registrarPonto(equipePontuadoraFinal, scout);
     }
 
     async function desfazerAcao() {

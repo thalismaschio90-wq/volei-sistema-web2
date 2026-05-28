@@ -782,6 +782,22 @@ function nomeEquipePorLado(lado, dados = {}) {
     return "-";
 }
 
+function normalizarNomeComparacao(valor) {
+    return String(valor || "").trim().toLowerCase();
+}
+
+function ladoTreinadorEfetivo(dados = null) {
+    dados = dados || ultimoEstadoTreinador || {};
+    const minhaEquipe = normalizarNomeComparacao(equipeNomeTreinador || dados.equipe_nome);
+    const nomeA = normalizarNomeComparacao(dados.equipe_a || equipeANome);
+    const nomeB = normalizarNomeComparacao(dados.equipe_b || equipeBNome);
+
+    if (minhaEquipe && nomeA && minhaEquipe === nomeA) return "A";
+    if (minhaEquipe && nomeB && minhaEquipe === nomeB) return "B";
+
+    return String(LADO_TREINADOR || "").toUpperCase() === "B" ? "B" : "A";
+}
+
 function rotacaoTemValor(rotacao) {
     return Array.isArray(rotacao) && rotacao.some(v => String(v || "").trim() !== "");
 }
@@ -911,16 +927,13 @@ function atualizarSolicitacoes(solicitacoes) {
 
 function obterPontosTotaisEquipeScout(equipeScout = {}) {
     const dados = ultimoEstadoTreinador || {};
+    const ladoEfetivo = ladoTreinadorEfetivo(dados);
 
-    if (numeroInformado(dados.placar_proprio)) {
-        return numeroSeguro(dados.placar_proprio);
-    }
-
-    if (LADO_TREINADOR === "A") {
+    if (ladoEfetivo === "A") {
         return numeroSeguro(dados.pontos_a ?? dados.placar_a ?? equipeScout.pontos ?? 0);
     }
 
-    if (LADO_TREINADOR === "B") {
+    if (ladoEfetivo === "B") {
         return numeroSeguro(dados.pontos_b ?? dados.placar_b ?? equipeScout.pontos ?? 0);
     }
 
@@ -1107,10 +1120,11 @@ function aplicarEstadoTreinador(dados, forcarRender = false) {
     setTextoTodos("[data-sets-a]", setsA);
     setTextoTodos("[data-sets-b]", setsB);
 
-    const placarProprio = dados.placar_proprio ?? (LADO_TREINADOR === "A" ? pontosA : pontosB);
-    const placarAdversario = dados.placar_adversario ?? (LADO_TREINADOR === "A" ? pontosB : pontosA);
-    const setsProprios = dados.sets_proprios ?? (LADO_TREINADOR === "A" ? setsA : setsB);
-    const setsAdversario = dados.sets_adversario ?? (LADO_TREINADOR === "A" ? setsB : setsA);
+    const ladoEfetivo = ladoTreinadorEfetivo(dados);
+    const placarProprio = ladoEfetivo === "A" ? pontosA : pontosB;
+    const placarAdversario = ladoEfetivo === "A" ? pontosB : pontosA;
+    const setsProprios = ladoEfetivo === "A" ? setsA : setsB;
+    const setsAdversario = ladoEfetivo === "A" ? setsB : setsA;
 
     setTextoTodos("[data-placar-proprio]", placarProprio);
     setTextoTodos("[data-placar-adversario]", placarAdversario);
@@ -1129,8 +1143,8 @@ function aplicarEstadoTreinador(dados, forcarRender = false) {
 
     // No estado vindo do apontador, tempos_a/tempos_b e subs_a/subs_b representam USADOS.
     // Na rota do treinador pode vir tempos_restantes/subs_restantes já calculado.
-    const temposUsados = LADO_TREINADOR === "A" ? numeroSeguro(dados.tempos_a) : numeroSeguro(dados.tempos_b);
-    const subsUsadas = LADO_TREINADOR === "A" ? numeroSeguro(dados.subs_a) : numeroSeguro(dados.subs_b);
+    const temposUsados = ladoEfetivo === "A" ? numeroSeguro(dados.tempos_a) : numeroSeguro(dados.tempos_b);
+    const subsUsadas = ladoEfetivo === "A" ? numeroSeguro(dados.subs_a) : numeroSeguro(dados.subs_b);
 
     const temposRestantesSocket = Math.max(0, temposLimite - temposUsados);
     const subsRestantesSocket = Math.max(0, subsLimite - subsUsadas);
@@ -1151,8 +1165,9 @@ function aplicarEstadoTreinador(dados, forcarRender = false) {
     }
 
     // Scout em tempo real vindo direto do apontador via Socket.IO.
-    if (dados.scout_por_lado && dados.scout_por_lado[LADO_TREINADOR]) {
-        atualizarScout(dados.scout_por_lado[LADO_TREINADOR]);
+    const ladoScoutEfetivo = ladoTreinadorEfetivo(dados);
+    if (dados.scout_por_lado && dados.scout_por_lado[ladoScoutEfetivo]) {
+        atualizarScout(dados.scout_por_lado[ladoScoutEfetivo]);
         scoutCarregado = true;
     } else if (dados.scout && Object.keys(dados.scout).length > 0) {
         atualizarScout(dados.scout);

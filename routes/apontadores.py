@@ -1713,7 +1713,10 @@ def ponto_view(competicao, partida_id):
         def _lado_oposto(lado):
             return "B" if lado == "A" else "A"
 
-        equipe_pontuadora = equipe
+        # REGRA CORRETA DO SCOUT:
+        # - Quando for ponto direto, o botão clicado é quem pontua.
+        # - Quando for erro/falta, o botão clicado é quem COMETEU o erro/falta,
+        #   então o ponto vai automaticamente para o lado adversário.
         responsavel_lado = (
             request.form.get("responsavel_lado")
             or corpo.get("responsavel_lado")
@@ -1721,8 +1724,10 @@ def ponto_view(competicao, partida_id):
         ).strip().upper()
 
         if tipo_lance in {"erro", "falta"}:
-            equipe_scout = responsavel_lado if responsavel_lado in {"A", "B"} else _lado_oposto(equipe_pontuadora)
+            equipe_scout = responsavel_lado if responsavel_lado in {"A", "B"} else equipe
+            equipe_pontuadora = _lado_oposto(equipe_scout)
         else:
+            equipe_pontuadora = equipe
             equipe_scout = equipe_pontuadora
 
         detalhes_evento = {
@@ -1742,7 +1747,7 @@ def ponto_view(competicao, partida_id):
         ok, retorno = registrar_ponto_partida(
             partida_id=partida_id,
             competicao=competicao,
-            equipe=equipe,
+            equipe=equipe_pontuadora,
             tipo="ponto",
             detalhes=detalhes_evento
         )
@@ -2675,6 +2680,25 @@ def _persistir_eventos_finais_partida(partida_id, competicao, eventos):
         equipe = str(payload.get("equipe") or payload.get("equipe_pontuadora") or "").strip().upper()
         try:
             if tipo == "ponto":
+                tipo_lance_payload = str(payload.get("tipo_lance") or payload.get("resultado") or "ponto").strip().lower()
+
+                # No modo offline-first, para erro/falta o campo "equipe" pode vir como
+                # a equipe que cometeu a ação. Por isso salvamos sempre separado:
+                # equipe_pontuadora = quem ganhou o ponto;
+                # equipe_scout/responsavel_lado = quem cometeu erro/falta.
+                if tipo_lance_payload in {"erro", "falta"}:
+                    equipe_scout = str(payload.get("equipe_scout") or payload.get("responsavel_lado") or equipe).strip().upper()
+                    if equipe_scout not in {"A", "B"}:
+                        equipe_scout = equipe
+                    equipe_pontuadora = str(payload.get("equipe_pontuadora") or "").strip().upper()
+                    if equipe_pontuadora not in {"A", "B"}:
+                        equipe_pontuadora = "B" if equipe_scout == "A" else "A"
+                else:
+                    equipe_pontuadora = str(payload.get("equipe_pontuadora") or equipe).strip().upper()
+                    if equipe_pontuadora not in {"A", "B"}:
+                        equipe_pontuadora = equipe
+                    equipe_scout = equipe_pontuadora
+
                 detalhes = {
                     "fundamento": payload.get("fundamento") or payload.get("detalhe_lance") or "",
                     "resultado": payload.get("resultado") or payload.get("tipo_lance") or "ponto",
@@ -2684,19 +2708,11 @@ def _persistir_eventos_finais_partida(partida_id, competicao, eventos):
                     "atleta_numero": payload.get("atleta_numero") or "",
                     "atleta_nome": payload.get("atleta_nome") or "",
                     "atleta_label": payload.get("atleta_label") or "",
-                    "equipe_pontuadora": equipe,
-                    "equipe_scout": payload.get("equipe_scout") or payload.get("responsavel_lado") or (
-                        ("B" if equipe == "A" else "A")
-                        if str(payload.get("tipo_lance") or payload.get("resultado") or "").strip().lower() in {"erro", "falta"}
-                        else equipe
-                    ),
-                    "responsavel_lado": payload.get("responsavel_lado") or payload.get("equipe_scout") or (
-                        ("B" if equipe == "A" else "A")
-                        if str(payload.get("tipo_lance") or payload.get("resultado") or "").strip().lower() in {"erro", "falta"}
-                        else equipe
-                    ),
+                    "equipe_pontuadora": equipe_pontuadora,
+                    "equipe_scout": equipe_scout,
+                    "responsavel_lado": equipe_scout,
                 }
-                ok, retorno = registrar_ponto_partida(partida_id, competicao, equipe, "ponto", detalhes)
+                ok, retorno = registrar_ponto_partida(partida_id, competicao, equipe_pontuadora, "ponto", detalhes)
 
             elif tipo == "tempo":
                 ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
