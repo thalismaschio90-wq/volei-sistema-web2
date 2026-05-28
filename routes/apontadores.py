@@ -1051,6 +1051,210 @@ def entrar_competicao_apontador(competicao):
     )
 
 
+
+
+# =========================================================
+# MODO OFFLINE DO APONTADOR
+# =========================================================
+def _offline_normalizar_json(valor):
+    import datetime
+    import decimal
+
+    if isinstance(valor, dict):
+        return {str(k): _offline_normalizar_json(v) for k, v in valor.items()}
+    if isinstance(valor, (list, tuple)):
+        return [_offline_normalizar_json(v) for v in valor]
+    if isinstance(valor, (datetime.datetime, datetime.date, datetime.time)):
+        return valor.isoformat()
+    if isinstance(valor, decimal.Decimal):
+        return float(valor)
+    return valor
+
+
+def _offline_partida_finalizada(partida):
+    status = str((partida or {}).get("status") or "").strip().lower()
+    return status in {"finalizada", "finalizado", "encerrada", "encerrado"}
+
+
+def _offline_url_operacao(competicao, partida):
+    partida = partida or {}
+    partida_id = partida.get("id")
+    status_op = str(partida.get("status_operacao") or "livre").lower()
+    status = str(partida.get("status") or "agendada").lower()
+    jogo_iniciado = (
+        status in {"em andamento", "em_andamento", "ao vivo", "ao_vivo", "iniciada", "iniciado"}
+        or status_op in {"em_andamento", "ao_vivo", "jogo", "iniciada", "iniciado"}
+    )
+
+    try:
+        if jogo_iniciado:
+            return url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id)
+        return url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id)
+    except Exception:
+        return f"/apontador/pre-jogo/{competicao}/{partida_id}"
+
+
+def _offline_coletar_equipes(partidas):
+    equipes = []
+    vistos = set()
+    for p in partidas or []:
+        for nome in (
+            p.get("equipe_a"),
+            p.get("equipe_b"),
+            p.get("equipe_a_operacional"),
+            p.get("equipe_b_operacional"),
+        ):
+            nome = str(nome or "").strip()
+            if nome and nome not in vistos and nome.lower() != "a definir":
+                vistos.add(nome)
+                equipes.append({"nome": nome})
+    return equipes
+
+
+def _offline_coletar_atletas(competicao, equipes):
+    atletas = []
+    vistos = set()
+    for eq in equipes or []:
+        nome_equipe = (eq.get("nome") or "").strip()
+        if not nome_equipe:
+            continue
+        try:
+            lista = listar_atletas_aprovados_da_equipe(nome_equipe, competicao) or []
+        except Exception as e:
+            print("ERRO offline atletas:", nome_equipe, e, flush=True)
+            lista = []
+
+        for atleta in lista:
+            item = dict(atleta or {})
+            item["equipe"] = nome_equipe
+            chave = (
+                str(item.get("id") or ""),
+                nome_equipe,
+                str(item.get("numero") or item.get("camisa") or item.get("nome") or ""),
+            )
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            atletas.append(item)
+    return atletas
+
+
+def _offline_coletar_papeletas(competicao, partidas):
+    papeletas = []
+    for p in partidas or []:
+        partida_id = p.get("id")
+        if not partida_id:
+            continue
+        equipes = [
+            p.get("equipe_a_operacional") or p.get("equipe_a"),
+            p.get("equipe_b_operacional") or p.get("equipe_b"),
+        ]
+        for equipe in equipes:
+            equipe = str(equipe or "").strip()
+            if not equipe or equipe.lower() == "a definir":
+                continue
+            for set_numero in range(1, 6):
+                try:
+                    dados = listar_papeleta(partida_id, competicao, equipe, set_numero) or []
+                except Exception:
+                    dados = []
+                if dados:
+                    papeletas.append({
+                        "partida_id": partida_id,
+                        "competicao": competicao,
+                        "equipe": equipe,
+                        "set_numero": set_numero,
+                        "jogadores": dados,
+                    })
+    return papeletas
+
+
+def _offline_coletar_estados_eventos(competicao, partidas):
+    estados = {}
+    eventos = {}
+    for p in partidas or []:
+        partida_id = p.get("id")
+        if not partida_id:
+            continue
+        try:
+            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        except Exception:
+            estado = {}
+        try:
+            evs = listar_eventos_partida(partida_id, competicao, limite=500) or []
+        except TypeError:
+            try:
+                evs = listar_eventos_partida(partida_id, competicao) or []
+            except Exception:
+                evs = []
+        except Exception:
+            evs = []
+
+        estados[str(partida_id)] = estado
+        eventos[str(partida_id)] = evs
+    return estados, eventos
+
+
+@apontadores_bp.route("/apontador/offline/pacote/<competicao>")
+@exigir_perfil("apontador")
+def pacote_offline_competicao_apontador(competicao):
+    """Pacote completo da competição para salvar no IndexedDB do dispositivo."""
+    try:
+        comp = buscar_competicao_por_nome(competicao) or {"competicao": competicao}
+        partidas_brutas = listar_partidas(competicao) or []
+        partidas_brutas = sorted(partidas_brutas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
+
+        partidas = []
+        for p in partidas_brutas:
+            item = dict(p or {})
+            item["id"] = str(item.get("id") or "")
+            item["competicao"] = competicao
+            item["finalizada"] = _offline_partida_finalizada(item)
+            item["url"] = _offline_url_operacao(competicao, item)
+            partidas.append(item)
+
+        equipes = _offline_coletar_equipes(partidas)
+        atletas = _offline_coletar_atletas(competicao, equipes)
+        papeletas = _offline_coletar_papeletas(competicao, partidas)
+        estados, eventos = _offline_coletar_estados_eventos(competicao, partidas)
+
+        payload = {
+            "ok": True,
+            "competicao": competicao,
+            "baixado_em": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "usuario": session.get("usuario") or "",
+            "nome_usuario": session.get("nome") or session.get("usuario_nome") or session.get("usuario") or "Apontador",
+            "configuracao": comp,
+            "partidas": partidas,
+            "equipes": equipes,
+            "atletas": atletas,
+            "papeletas": papeletas,
+            "estados": estados,
+            "eventos": eventos,
+            "resumo": {
+                "total_partidas": len(partidas),
+                "partidas_offline": len([p for p in partidas if not p.get("finalizada")]),
+                "total_equipes": len(equipes),
+                "total_atletas": len(atletas),
+                "total_papeletas": len(papeletas),
+            },
+        }
+
+        return _json_no_cache(_offline_normalizar_json(payload))
+    except Exception as e:
+        print("ERRO pacote_offline_competicao_apontador:", e, flush=True)
+        return _json_no_cache({
+            "ok": False,
+            "erro": "Erro ao montar pacote offline da competição.",
+        }, 500)
+
+
+@apontadores_bp.route("/offline-apontador")
+def offline_apontador_view():
+    # Página simples; os dados reais são lidos do IndexedDB/localStorage no navegador.
+    return render_template("offline_apontador.html")
+
+
 # =========================================================
 # PRÉ-JOGO
 # =========================================================

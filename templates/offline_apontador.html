@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block titulo %}Offline do Apontador{% endblock %}
+
+{% block conteudo %}
+<style>
+.offline-wrap { max-width:980px; margin:0 auto; }
+.offline-hero { background:linear-gradient(135deg,#123852,#071827); color:white; border-radius:24px; padding:22px; margin-bottom:16px; box-shadow:0 18px 45px rgba(18,56,82,.18); }
+.offline-hero h1 { margin:0; font-size:clamp(26px,4vw,42px); font-weight:1000; }
+.offline-hero p { margin:8px 0 0; color:rgba(255,255,255,.78); font-weight:800; }
+.offline-card { background:white; border:1px solid var(--border); border-radius:20px; padding:16px; box-shadow:var(--shadow); margin-bottom:12px; }
+.offline-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.offline-kpi { border:1px solid var(--border); border-radius:16px; padding:14px; background:#f8fbff; }
+.offline-kpi strong { display:block; font-size:28px; color:#d4a62a; line-height:1; }
+.offline-kpi span { display:block; margin-top:6px; color:var(--muted); font-weight:800; font-size:13px; }
+.offline-lista { display:grid; gap:10px; margin-top:12px; }
+.offline-partida { border:1px solid var(--border); border-radius:16px; padding:14px; background:#fff; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center; }
+.offline-partida strong { color:#0f2f4a; font-size:16px; }
+.offline-meta { color:var(--muted); font-weight:800; font-size:13px; margin-top:4px; }
+.offline-acoes { display:flex; gap:8px; flex-wrap:wrap; }
+.offline-btn { border:0; border-radius:12px; padding:10px 14px; font-weight:900; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+.offline-btn-primary { background:#0f766e; color:#fff; }
+.offline-btn-dark { background:#111827; color:#fff; }
+.offline-btn-gold { background:#d4a62a; color:#071827; }
+.offline-alerta { border:1px solid #fdba74; background:#fff7ed; color:#9a3412; border-radius:16px; padding:14px; font-weight:850; }
+.offline-ok { border:1px solid #86efac; background:#f0fdf4; color:#166534; border-radius:16px; padding:12px; font-weight:850; margin-top:12px; }
+@media (max-width:780px) { .offline-grid { grid-template-columns:1fr; } .offline-partida { align-items:flex-start; } .offline-acoes { width:100%; } .offline-btn { width:100%; } }
+</style>
+
+<div class="offline-wrap">
+    <div class="offline-hero">
+        <h1>📦 Modo Offline do Apontador</h1>
+        <p>Abra partidas baixadas neste dispositivo mesmo sem internet.</p>
+    </div>
+
+    <div id="offline-conteudo" class="offline-card">
+        Carregando dados offline deste dispositivo...
+    </div>
+</div>
+
+<script>
+(function () {
+    const DB_NOME = "voleitable_offline_db";
+    const DB_VERSAO = 4;
+    const STORE_PACOTES = "pacotes";
+    const STORE_PARTIDAS = "partidas";
+    const STORE_FILAS = "filas";
+    const STORE_META = "meta";
+    const SESSION_KEY = "voleitable_offline_sessao";
+    const LOCAL_PARTIDAS_KEY = "voleitable_offline_partidas";
+
+    function lerJson(chave, padrao) {
+        try {
+            const bruto = localStorage.getItem(chave);
+            if (!bruto) return padrao;
+            return JSON.parse(bruto) || padrao;
+        } catch (e) {
+            return padrao;
+        }
+    }
+
+    function abrirBancoOffline() {
+        return new Promise((resolve, reject) => {
+            if (!("indexedDB" in window)) {
+                reject(new Error("IndexedDB não disponível neste navegador."));
+                return;
+            }
+
+            const req = indexedDB.open(DB_NOME, DB_VERSAO);
+
+            req.onupgradeneeded = function (event) {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(STORE_PACOTES)) db.createObjectStore(STORE_PACOTES, { keyPath: "competicao" });
+                if (!db.objectStoreNames.contains(STORE_PARTIDAS)) db.createObjectStore(STORE_PARTIDAS, { keyPath: "id" });
+                if (!db.objectStoreNames.contains(STORE_FILAS)) db.createObjectStore(STORE_FILAS, { keyPath: "id" });
+                if (!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META, { keyPath: "chave" });
+            };
+
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error || new Error("Erro ao abrir banco offline."));
+            req.onblocked = () => reject(new Error("IndexedDB bloqueado. Feche outras abas do sistema e tente novamente."));
+        });
+    }
+
+    async function listarStore(storeName) {
+        const db = await abrirBancoOffline();
+        return new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(storeName)) {
+                db.close();
+                resolve([]);
+                return;
+            }
+            const tx = db.transaction(storeName, "readonly");
+            const req = tx.objectStore(storeName).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error || new Error("Erro ao ler offline."));
+            tx.oncomplete = () => db.close();
+            tx.onerror = () => {
+                db.close();
+                reject(tx.error || new Error("Erro na transação offline."));
+            };
+        });
+    }
+
+    function htmlSeguro(texto) {
+        return String(texto ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
+    }
+
+    function normalizarId(id) {
+        return String(id || "").trim();
+    }
+
+    function partidaFinalizada(p) {
+        if (!p) return true;
+        if (p.finalizada === true) return true;
+        const status = String(p.status || p.status_jogo || p.fase_partida || "").trim().toLowerCase();
+        return ["finalizada", "finalizado", "encerrada", "encerrado"].includes(status);
+    }
+
+    function ordenarPartidas(lista) {
+        return (lista || [])
+            .filter(p => p && !partidaFinalizada(p))
+            .map(p => Object.assign({}, p, { id: normalizarId(p.id) }))
+            .filter(p => p.id)
+            .sort((a,b) => (Number(a.ordem || 0) - Number(b.ordem || 0)) || (Number(a.id || 0) - Number(b.id || 0)));
+    }
+
+    function deduplicarPartidas(...listas) {
+        const mapa = new Map();
+        listas.flat().forEach(p => {
+            if (!p || partidaFinalizada(p)) return;
+            const id = normalizarId(p.id);
+            if (!id) return;
+            mapa.set(id, Object.assign({}, mapa.get(id) || {}, p, { id }));
+        });
+        return ordenarPartidas(Array.from(mapa.values()));
+    }
+
+    function renderPartida(p) {
+        const url = p.url || `/apontador/pre-jogo/${encodeURIComponent(p.competicao || "")}/${encodeURIComponent(p.id || "")}`;
+        return `
+            <div class="offline-partida">
+                <div>
+                    <strong>${htmlSeguro(p.equipe_a || p.equipe_a_operacional || "Equipe A")} x ${htmlSeguro(p.equipe_b || p.equipe_b_operacional || "Equipe B")}</strong>
+                    <div class="offline-meta">Jogo ${htmlSeguro(p.ordem || p.id || "-")}${p.quadra ? " • Quadra " + htmlSeguro(p.quadra) : ""}${p.grupo ? " • " + htmlSeguro(p.grupo) : ""}</div>
+                    <div class="offline-meta">${htmlSeguro(p.status_operacao || p.status || "offline")}</div>
+                </div>
+                <div class="offline-acoes">
+                    <a class="offline-btn offline-btn-primary" href="${htmlSeguro(url)}">Abrir</a>
+                </div>
+            </div>
+        `;
+    }
+
+    async function renderizar() {
+        const el = document.getElementById("offline-conteudo");
+        const sessao = lerJson(SESSION_KEY, null);
+
+        try {
+            const pacotes = await listarStore(STORE_PACOTES);
+            const partidasStore = await listarStore(STORE_PARTIDAS);
+            const partidasLocalObj = lerJson(LOCAL_PARTIDAS_KEY, {});
+            const partidasLocal = Object.values(partidasLocalObj || {});
+
+            if (!sessao && pacotes.length === 0 && partidasStore.length === 0 && partidasLocal.length === 0) {
+                el.innerHTML = `<div class="offline-alerta">Nenhuma competição foi baixada neste dispositivo. Entre online, abra o painel do apontador e clique em <strong>Baixar competição</strong>.</div>`;
+                return;
+            }
+
+            const pacotePreferido = pacotes.find(p => sessao && p.competicao === sessao.competicao) || pacotes[0] || {};
+            const partidasPacote = Array.isArray(pacotePreferido.partidas) ? pacotePreferido.partidas : [];
+            const listaPartidas = deduplicarPartidas(partidasStore, partidasPacote, partidasLocal);
+
+            const resumo = pacotePreferido.resumo || {};
+            const nome = (sessao && (sessao.nome || sessao.usuario)) || pacotePreferido.nome_usuario || "Apontador";
+            const competicao = (sessao && sessao.competicao) || pacotePreferido.competicao || (listaPartidas[0] && listaPartidas[0].competicao) || "Competição offline";
+            const equipes = Array.isArray(pacotePreferido.equipes) ? pacotePreferido.equipes : [];
+            const atletas = Array.isArray(pacotePreferido.atletas) ? pacotePreferido.atletas : [];
+
+            el.innerHTML = `
+                <h2 style="margin:0;color:#0f2f4a;">${htmlSeguro(competicao)}</h2>
+                <div class="offline-meta">Sessão offline ativa para ${htmlSeguro(nome)}${navigator.onLine ? " • Online agora" : " • Sem internet agora"}</div>
+                ${listaPartidas.length ? `<div class="offline-ok">✅ Competição disponível offline neste dispositivo.</div>` : ""}
+
+                <div class="offline-grid">
+                    <div class="offline-kpi"><strong>${listaPartidas.length}</strong><span>Partidas disponíveis</span></div>
+                    <div class="offline-kpi"><strong>${resumo.total_equipes || equipes.length || 0}</strong><span>Equipes baixadas</span></div>
+                    <div class="offline-kpi"><strong>${resumo.total_atletas || atletas.length || 0}</strong><span>Atletas baixados</span></div>
+                </div>
+
+                <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+                    <a class="offline-btn offline-btn-dark" href="/apontador">Voltar ao painel</a>
+                    <a class="offline-btn offline-btn-primary" href="${htmlSeguro((sessao && sessao.url_painel) || "/apontador")}">Abrir competição</a>
+                    <button type="button" class="offline-btn offline-btn-gold" onclick="location.reload()">Atualizar tela</button>
+                </div>
+
+                <h3 style="margin:18px 0 0;color:#0f2f4a;">Partidas baixadas</h3>
+                <div class="offline-lista">
+                    ${listaPartidas.length ? listaPartidas.map(renderPartida).join("") : `<div class="offline-alerta">Nenhuma partida foi encontrada no IndexedDB. Volte online e clique em <strong>Baixar competição</strong> novamente.</div>`}
+                </div>
+            `;
+        } catch (e) {
+            console.error("ERRO offline_apontador:", e);
+            el.innerHTML = `<div class="offline-alerta">Erro ao abrir os dados offline deste dispositivo: ${htmlSeguro(e.message || e)}</div>`;
+        }
+    }
+
+    renderizar();
+})();
+</script>
+{% endblock %}
