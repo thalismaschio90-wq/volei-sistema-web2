@@ -6,11 +6,21 @@ from banco import (
     atualizar_configuracao_avancada_competicao,
     inicializar_configuracao_avancada_competicao,
     competicao_esta_travada,
+    listar_quadras_competicao,
 )
 
 from routes.utils import exigir_perfil
 
 formato_competicao_bp = Blueprint("formato_competicao", __name__)
+
+
+def _to_int_ou_none(valor):
+    try:
+        numero = int(valor)
+        return numero if numero > 0 else None
+    except (TypeError, ValueError):
+        return None
+
 
 
 @formato_competicao_bp.route("/formato-competicao", methods=["GET", "POST"])
@@ -50,6 +60,12 @@ def formato_competicao_view():
         except ValueError:
             qtd_bye = 0
 
+        grupos_letras = ["A", "B", "C", "D", "E", "F", "G", "H"]
+        grupo_quadras = {
+            letra: _to_int_ou_none(request.form.get(f"grupo_{letra}_quadra_id"))
+            for letra in grupos_letras
+        }
+
         fases_config = {
             "tipo_confronto": tipo_confronto,
             "tipo_classificacao": tipo_classificacao,
@@ -66,6 +82,7 @@ def formato_competicao_view():
                 "C": {"tipo_jogo": request.form.get("grupo_C_tipo", "").strip(), "pontos": request.form.get("grupo_C_pontos", "").strip()},
                 "D": {"tipo_jogo": request.form.get("grupo_D_tipo", "").strip(), "pontos": request.form.get("grupo_D_pontos", "").strip()},
             },
+            "grupo_quadras": grupo_quadras,
             "quartas": {
                 "tipo_jogo": request.form.get("quartas_tipo_jogo", "melhor_de_3").strip(),
                 "pontos": int(request.form.get("quartas_pontos", 21) or 21),
@@ -110,10 +127,12 @@ def formato_competicao_view():
         return redirect(url_for("painel.inicio"))
 
     fases = config.get("fases_config") or {}
+    quadras = listar_quadras_competicao(competicao["nome"])
 
     return render_template(
         "formato_competicao.html",
         competicao=competicao,
         config=config,
         fases=fases,
+        quadras=quadras,
     )

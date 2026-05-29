@@ -5,6 +5,9 @@ from banco import (
     listar_equipes_da_competicao,
     equipe_existe_na_competicao,
     criar_equipe_com_credenciais,
+    listar_competicoes_da_equipe_por_login,
+    salvar_perfil_equipe_por_login,
+    perfil_equipe_incompleto_por_login,
     redefinir_senha_da_equipe,
     excluir_equipe,
     buscar_config_conferencia_atletas,
@@ -40,6 +43,21 @@ from banco import (
 from routes.utils import exigir_perfil
 
 equipes_bp = Blueprint("equipes", __name__)
+
+
+def _equipe_logada_com_competicao():
+    usuario = session.get("usuario")
+
+    if not usuario:
+        return None
+
+    competicao_atual = (session.get("competicao_equipe_atual") or "").strip()
+
+    if not competicao_atual:
+        return None
+
+    return buscar_equipe_por_login(usuario, competicao_atual)
+
 
 
 # =========================
@@ -82,10 +100,6 @@ def nova_equipe():
             flash("Informe o nome da equipe.", "erro")
             return render_template("nova_equipe.html", competicao=competicao)
 
-        if equipe_existe_na_competicao(nome, competicao["nome"]):
-            flash("Já existe uma equipe com esse nome nesta competição.", "erro")
-            return render_template("nova_equipe.html", competicao=competicao)
-
         if competicao_esta_travada(competicao["nome"]):
             flash("A competição está travada. Não é possível criar equipes.", "erro")
             return render_template("nova_equipe.html", competicao=competicao)
@@ -93,12 +107,19 @@ def nova_equipe():
         credenciais = criar_equipe_com_credenciais(nome, competicao["nome"])
 
         session["credenciais_nova_equipe"] = {
-            "nome": nome,
+            "nome": credenciais.get("nome") or nome,
             "login": credenciais["login"],
-            "senha": credenciais["senha"]
+            "senha": credenciais["senha"],
+            "ja_existia": credenciais.get("ja_existia", False),
+            "ja_vinculada": credenciais.get("ja_vinculada", False),
         }
 
-        flash("Equipe criada com sucesso.", "sucesso")
+        if credenciais.get("ja_vinculada"):
+            flash("Essa equipe já estava vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
+        elif credenciais.get("ja_existia"):
+            flash("Equipe já existia no sistema e foi vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
+        else:
+            flash("Equipe criada com sucesso.", "sucesso")
         return redirect(url_for("equipes.listar_equipes_view"))
 
     return render_template("nova_equipe.html", competicao=competicao)
@@ -273,17 +294,62 @@ def gerenciar_equipe_view(nome):
 
 
 # =========================
+# EQUIPE - PERFIL GLOBAL
+# =========================
+@equipes_bp.route("/perfil-equipe", methods=["GET", "POST"])
+@exigir_perfil("equipe")
+def perfil_equipe_view():
+    usuario = session.get("usuario")
+    equipe = buscar_equipe_por_login(usuario, None)
+
+    if not equipe:
+        flash("Equipe não encontrada. Faça login novamente.", "erro")
+        return redirect(url_for("auth.logout"))
+
+    if request.method == "POST":
+        cidade = request.form.get("cidade", "").strip()
+        responsavel = request.form.get("responsavel", "").strip()
+        telefone = request.form.get("telefone", "").strip()
+        email = request.form.get("email", "").strip()
+        instagram = request.form.get("instagram", "").strip()
+
+        if not cidade or not responsavel or not telefone:
+            flash("Preencha cidade, responsável e telefone para continuar.", "erro")
+            equipe = dict(equipe)
+            equipe["cidade"] = cidade
+            equipe["responsavel"] = responsavel
+            equipe["telefone"] = telefone
+            equipe["email"] = email
+            equipe["instagram"] = instagram
+            return render_template("perfil_equipe.html", equipe=equipe)
+
+        salvar_perfil_equipe_por_login(
+            usuario,
+            cidade,
+            responsavel,
+            telefone,
+            email,
+            instagram,
+        )
+
+        flash("Perfil da equipe atualizado com sucesso.", "sucesso")
+        return redirect(url_for("equipes.painel_equipe_inicio_view"))
+
+    return render_template("perfil_equipe.html", equipe=equipe)
+
+
+# =========================
 # EQUIPE - MINHA EQUIPE
 # =========================
 @equipes_bp.route("/minha-equipe", methods=["GET", "POST"])
 @exigir_perfil("equipe")
 def minha_equipe():
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
-        flash("Equipe não encontrada.", "erro")
-        return redirect(url_for("painel.inicio"))
+        flash("Equipe não encontrada ou sem competição selecionada.", "erro")
+        return redirect(url_for("auth.logout"))
 
     erro = None
     sucesso = None
@@ -302,7 +368,7 @@ def minha_equipe():
             request.form.get("medico", "").strip(),
             )
             sucesso = "Quadro técnico atualizado com sucesso."
-            equipe = buscar_equipe_por_login(usuario)
+            equipe = _equipe_logada_com_competicao()
 
     return render_template(
         "minha_equipe.html",
@@ -445,11 +511,46 @@ def _preparar_partidas_para_equipe(equipe):
     )
 
 
+@equipes_bp.route("/painel-equipe/selecionar-competicao", methods=["POST"])
+@exigir_perfil("equipe")
+def selecionar_competicao_equipe_view():
+    usuario = session.get("usuario")
+    competicao = request.form.get("competicao", "").strip()
+
+    competicoes = listar_competicoes_da_equipe_por_login(usuario) or []
+    nomes_liberados = {
+        (c.get("nome") or c.get("competicao") or c.get("nome_competicao") or "").strip()
+        for c in competicoes
+    }
+
+    if not competicao or competicao not in nomes_liberados:
+        flash("Competição inválida para esta equipe.", "erro")
+        return redirect(url_for("equipes.painel_equipe_inicio_view"))
+
+    session["competicao_equipe_atual"] = competicao
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE usuarios
+                    SET competicao_vinculada = %s
+                    WHERE login = %s
+                      AND perfil = 'equipe'
+                """, (competicao, usuario))
+            conn.commit()
+    except Exception as e:
+        print("AVISO selecionar_competicao_equipe:", e)
+
+    flash("Competição selecionada com sucesso.", "sucesso")
+    return redirect(url_for("equipes.painel_equipe_inicio_view"))
+
+
 @equipes_bp.route("/minhas-partidas")
 @exigir_perfil("equipe")
 def minhas_partidas_view():
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
@@ -482,20 +583,58 @@ def _proxima_partida_da_equipe(partidas):
 @exigir_perfil("equipe")
 def painel_equipe_inicio_view():
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+
+    if perfil_equipe_incompleto_por_login(usuario):
+        return redirect(url_for("equipes.perfil_equipe_view"))
+
+    competicoes_equipe = listar_competicoes_da_equipe_por_login(usuario) or []
+
+    if not competicoes_equipe:
+        equipe_global = buscar_equipe_por_login(usuario, None)
+
+        return render_template(
+            "painel_equipe_competicoes.html",
+            equipe=equipe_global or {
+                "nome": session.get("equipe") or session.get("nome") or usuario,
+                "login": usuario,
+            },
+            competicoes=[],
+            mensagem="Sua equipe ainda não está vinculada a nenhuma competição.",
+        )
+
+    if not session.get("competicao_equipe_atual"):
+        return render_template(
+            "painel_equipe_competicoes.html",
+            equipe=buscar_equipe_por_login(usuario, None),
+            competicoes=competicoes_equipe,
+            mensagem=None,
+        )
+
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
-        flash("Equipe não encontrada.", "erro")
-        return redirect(url_for("painel.inicio"))
+        session.pop("competicao_equipe_atual", None)
+        flash("Não foi possível carregar essa competição para a equipe. Escolha novamente.", "erro")
+        return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
     atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
     controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
     partidas = _preparar_partidas_para_equipe(equipe)
 
     total_atletas = len(atletas)
-    atletas_aprovados = [a for a in atletas if (a.get("status") or "").strip().lower() == "aprovado"]
-    atletas_pendentes = [a for a in atletas if (a.get("status") or "").strip().lower() in {"", "pendente", "aguardando", "em análise", "em_analise"}]
-    atletas_reprovados = [a for a in atletas if (a.get("status") or "").strip().lower() == "reprovado"]
+    atletas_aprovados = [
+        a for a in atletas
+        if (a.get("status") or "").strip().lower() == "aprovado"
+    ]
+    atletas_pendentes = [
+        a for a in atletas
+        if (a.get("status") or "").strip().lower()
+        in {"", "pendente", "aguardando", "em análise", "em analise", "em_analise"}
+    ]
+    atletas_reprovados = [
+        a for a in atletas
+        if (a.get("status") or "").strip().lower() == "reprovado"
+    ]
 
     limite_atletas = 12
     try:
@@ -527,6 +666,7 @@ def painel_equipe_inicio_view():
     return render_template(
         "painel_equipe_inicio.html",
         equipe=equipe,
+        competicoes_equipe=competicoes_equipe,
         atletas=atletas,
         total_atletas=total_atletas,
         limite_atletas=limite_atletas,
@@ -541,7 +681,6 @@ def painel_equipe_inicio_view():
         status_equipe=status_equipe,
         status_classe=status_classe,
     )
-
 
 # =========================
 # EQUIPE - ATLETAS
@@ -587,7 +726,7 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
 @exigir_perfil("equipe")
 def meus_atletas_view():
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
@@ -615,7 +754,7 @@ def meus_atletas_view():
 @exigir_perfil("equipe")
 def cadastrar_atleta_pagina_view():
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
@@ -703,7 +842,7 @@ def cadastrar_atleta_view():
 @exigir_perfil("equipe")
 def excluir_atleta_view(id_atleta):
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")
@@ -770,7 +909,7 @@ def conferencia_atletas():
     criar_campos_conferencia_atletas()
 
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario)
+    equipe = _equipe_logada_com_competicao()
 
     if not equipe:
         flash("Equipe não encontrada.", "erro")

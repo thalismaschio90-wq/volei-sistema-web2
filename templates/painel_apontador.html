@@ -73,6 +73,7 @@
 
 {% set nome_usuario_offline = session.get('nome') or session.get('usuario_nome') or session.get('usuario') or 'Apontador' %}
 {% set usuario_login_offline = session.get('usuario') or '' %}
+{% set offline_habilitado_tpl = offline_habilitado if offline_habilitado is defined else false %}
 
 <div class="ap-hero">
     <div>
@@ -88,14 +89,19 @@
         {% endif %}
         <button type="button" class="btn-padrao ap-btn-dark" onclick="abrirModalAtalhosApontador()">⚙️ Teclas de atalho</button>
         {% if modo_partidas %}
-            <button type="button" class="btn-padrao ap-btn-gold" onclick="abrirModalOfflineApontador()">📦 Modo Offline</button>
+            {% if offline_habilitado_tpl %}
+                <button type="button" class="btn-padrao ap-btn-gold" onclick="abrirModalOfflineApontador()">📦 Modo Offline</button>
+            {% endif %}
             <a class="btn-padrao ap-btn-green" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank">🖥️ Abrir Telão</a>
         {% elif competicao_unica %}
-            <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
+            {% if offline_habilitado_tpl %}
+                <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
+            {% endif %}
         {% endif %}
     </div>
 </div>
 
+{% if offline_habilitado_tpl %}
 <div id="ap-offline-panel" class="ap-offline-panel">
     <div>
         <strong>📦 Modo offline do apontador</strong><br>
@@ -105,6 +111,7 @@
         <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir tela offline</a>
     </div>
 </div>
+{% endif %}
 
 {% macro card_partida(p, competicao_nome) %}
     {% set status_op = (p.status_operacao or 'livre')|lower %}
@@ -135,7 +142,7 @@
             {% else %}
                 <a class="btn-padrao" href="{{ url_operacao }}">{% if p.operador_login == session.get('usuario') %}Continuar{% else %}Abrir pré-jogo{% endif %}</a>
             {% endif %}
-            {% if not jogo_finalizado %}
+            {% if offline_habilitado_tpl and not jogo_finalizado %}
                 <button type="button" id="btn-offline-partida-{{ p.id }}" class="btn-padrao ap-btn-offline-card" onclick="baixarPartidaOffline('{{ p.id }}')">⬇️ Offline</button>
             {% endif %}
         </div>
@@ -149,7 +156,7 @@
                 <div class="ap-section-title">{{ competicao_nome }}</div>
                 <div class="ap-section-hint">Partidas separadas por situação para facilitar a operação.</div>
             </div>
-            <button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>
+            {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>{% endif %}
         </div>
 
         {% set ns = namespace(live=0, pre=0, wait=0, done=0) %}
@@ -230,10 +237,12 @@
         <div class="ap-section-hint" style="margin:6px 0 14px;">Você está vinculado a uma competição ativa.</div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_unica.competicao) }}">Entrar na competição</a>
-            <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
-            <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir offline</a>
+            {% if offline_habilitado_tpl %}
+                <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
+                <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir offline</a>
+            {% endif %}
         </div>
-        <div class="ap-offline-small" id="status-competicao-unica-offline">Prepare aqui a sessão offline; depois entre na competição e use “Baixar competição inteira” para salvar as partidas.</div>
+        {% if offline_habilitado_tpl %}<div class="ap-offline-small" id="status-competicao-unica-offline">Prepare aqui a sessão offline; depois entre na competição e use “Baixar competição inteira” para salvar as partidas.</div>{% endif %}
     </div>
 {% elif competicoes %}
     <div class="card-painel">
@@ -246,7 +255,7 @@
                 <td>{{ c.status or '-' }}</td>
                 <td style="display:flex; gap:8px; flex-wrap:wrap;">
                     <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a>
-                    <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>
+                    {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>{% endif %}
                 </td>
             </tr>
         {% endfor %}
@@ -256,6 +265,7 @@
     <div class="card-painel">Nenhuma competição disponível no momento.</div>
 {% endif %}
 
+{% if offline_habilitado_tpl %}
 <div id="modal-offline-apontador" class="ap-modal-offline" aria-hidden="true">
     <div class="ap-modal-offline-card" role="dialog" aria-modal="true" aria-labelledby="modal-offline-titulo">
         <div class="ap-modal-offline-topo">
@@ -276,7 +286,7 @@
         <div id="offline-progresso" class="ap-offline-item" style="display:none;"></div>
 
         <div class="ap-offline-modal-actions">
-            <button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>
+            {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>{% endif %}
             <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir tela offline</a>
             <button type="button" class="btn-padrao" onclick="fecharModalOfflineApontador()">Fechar</button>
         </div>
@@ -290,14 +300,7 @@
     const OFFLINE_SESSION_KEY = "voleitable_offline_sessao";
     const OFFLINE_COMPETICOES_KEY = "voleitable_offline_competicoes";
     const OFFLINE_PARTIDAS_KEY = "voleitable_offline_partidas";
-    const OFFLINE_VERSION = "20260528-indexeddb-fix-v4";
-
-    const DB_NOME = "voleitable_offline_db";
-    const DB_VERSAO = 4;
-    const STORE_PACOTES = "pacotes";
-    const STORE_PARTIDAS = "partidas";
-    const STORE_FILAS = "filas";
-    const STORE_META = "meta";
+    const OFFLINE_VERSION = "20260528-painel-apontador-v2";
 
     const CONTEXTO = {
         usuario: {{ usuario_login_offline|tojson }},
@@ -305,7 +308,6 @@
         modoPartidas: {{ (modo_partidas if modo_partidas is defined else false)|tojson }},
         competicao: {% if modo_partidas %}{{ competicao_nome|tojson }}{% elif competicao_unica %}{{ competicao_unica.competicao|tojson }}{% else %}""{% endif %},
         urlAtual: window.location.pathname + window.location.search,
-        origem: window.location.origin,
         criadoEm: new Date().toISOString()
     };
 
@@ -353,20 +355,12 @@
         localStorage.setItem(chave, JSON.stringify(valor));
     }
 
-    function cloneSeguro(valor) {
-        return JSON.parse(JSON.stringify(valor || {}));
-    }
 
-    function normalizarId(id) {
-        return String(id || "").trim();
-    }
-
-    function partidaFinalizada(p) {
-        if (!p) return true;
-        if (p.finalizada === true) return true;
-        const status = String(p.status || p.status_jogo || p.fase_partida || "").trim().toLowerCase();
-        return ["finalizada", "finalizado", "encerrada", "encerrado"].includes(status);
-    }
+    const DB_NOME = "voleitable_offline_db";
+    const DB_VERSAO = 1;
+    const STORE_PACOTES = "pacotes";
+    const STORE_PARTIDAS = "partidas";
+    const STORE_FILAS = "filas";
 
     function abrirBancoOffline() {
         return new Promise((resolve, reject) => {
@@ -379,6 +373,7 @@
 
             req.onupgradeneeded = function (event) {
                 const db = event.target.result;
+
                 if (!db.objectStoreNames.contains(STORE_PACOTES)) {
                     db.createObjectStore(STORE_PACOTES, { keyPath: "competicao" });
                 }
@@ -388,124 +383,55 @@
                 if (!db.objectStoreNames.contains(STORE_FILAS)) {
                     db.createObjectStore(STORE_FILAS, { keyPath: "id" });
                 }
-                if (!db.objectStoreNames.contains(STORE_META)) {
-                    db.createObjectStore(STORE_META, { keyPath: "chave" });
-                }
             };
 
             req.onsuccess = () => resolve(req.result);
             req.onerror = () => reject(req.error || new Error("Erro ao abrir IndexedDB."));
-            req.onblocked = () => reject(new Error("IndexedDB bloqueado. Feche outras abas do sistema e tente de novo."));
         });
     }
 
-    async function listarStore(storeName) {
+    async function salvarEmStore(storeName, valor) {
         const db = await abrirBancoOffline();
         return new Promise((resolve, reject) => {
-            const tx = db.transaction(storeName, "readonly");
-            const req = tx.objectStore(storeName).getAll();
-            req.onsuccess = () => resolve(req.result || []);
-            req.onerror = () => reject(req.error || new Error("Erro ao ler dados offline."));
-            tx.oncomplete = () => db.close();
-            tx.onerror = () => {
-                db.close();
-                reject(tx.error || new Error("Erro na transação offline."));
-            };
-        });
-    }
-
-    async function salvarPacoteIndexedDB(pacoteOriginal) {
-        if (!pacoteOriginal || !pacoteOriginal.competicao) {
-            throw new Error("Pacote offline inválido ou sem competição.");
-        }
-
-        const agora = new Date().toISOString();
-        const pacote = cloneSeguro(Object.assign({}, pacoteOriginal, {
-            salva_em: agora,
-            origem_frontend: window.location.origin,
-            versao_frontend: OFFLINE_VERSION
-        }));
-
-        const partidas = Array.isArray(pacote.partidas) ? pacote.partidas : [];
-        const partidasValidas = partidas
-            .filter(p => p && !partidaFinalizada(p))
-            .map(p => cloneSeguro(Object.assign({}, p, {
-                id: normalizarId(p.id),
-                competicao: pacote.competicao,
-                finalizada: false,
-                baixada: true,
-                pacote_baixado: true,
-                salva_em: agora,
-                origem_frontend: window.location.origin,
-                versao_frontend: OFFLINE_VERSION,
-                url: p.url || `/apontador/pre-jogo/${encodeURIComponent(pacote.competicao)}/${p.id}`
-            })))
-            .filter(p => p.id);
-
-        pacote.partidas = partidas.map(p => cloneSeguro(Object.assign({}, p, {
-            id: normalizarId(p.id),
-            competicao: p.competicao || pacote.competicao,
-            url: p.url || `/apontador/pre-jogo/${encodeURIComponent(pacote.competicao)}/${p.id}`
-        })));
-        pacote.resumo = Object.assign({}, pacote.resumo || {}, {
-            partidas_offline: partidasValidas.length,
-            total_partidas: pacote.partidas.length,
-            total_equipes: Array.isArray(pacote.equipes) ? pacote.equipes.length : 0,
-            total_atletas: Array.isArray(pacote.atletas) ? pacote.atletas.length : 0,
-            salvo_indexeddb_em: agora
-        });
-
-        const db = await abrirBancoOffline();
-
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction([STORE_PACOTES, STORE_PARTIDAS, STORE_META], "readwrite");
-            const pacotesStore = tx.objectStore(STORE_PACOTES);
-            const partidasStore = tx.objectStore(STORE_PARTIDAS);
-            const metaStore = tx.objectStore(STORE_META);
-
-            pacotesStore.put(pacote);
-
-            partidasValidas.forEach(p => partidasStore.put(p));
-
-            metaStore.put({
-                chave: "ultima_competicao",
-                competicao: pacote.competicao,
-                usuario: CONTEXTO.usuario,
-                nome: CONTEXTO.nome,
-                origem: window.location.origin,
-                atualizado_em: agora,
-                total_partidas: partidasValidas.length,
-                total_equipes: pacote.resumo.total_equipes,
-                total_atletas: pacote.resumo.total_atletas
-            });
-
+            const tx = db.transaction(storeName, "readwrite");
+            tx.objectStore(storeName).put(valor);
             tx.oncomplete = () => {
                 db.close();
                 resolve(true);
             };
             tx.onerror = () => {
-                const erro = tx.error || new Error("Erro ao salvar pacote no IndexedDB.");
                 db.close();
-                reject(erro);
-            };
-            tx.onabort = () => {
-                const erro = tx.error || new Error("Salvamento offline abortado.");
-                db.close();
-                reject(erro);
+                reject(tx.error || new Error("Erro ao salvar offline."));
             };
         });
+    }
 
-        const conferidas = await listarStore(STORE_PARTIDAS);
-        console.log("PACOTE RECEBIDO:", pacoteOriginal);
-        console.log("PARTIDAS DO PACOTE:", partidas);
-        console.log("PARTIDAS SALVAS NO INDEXEDDB:", conferidas);
-        console.log("SALVOU NO INDEXEDDB");
+    async function salvarPacoteIndexedDB(pacote) {
+        if (!pacote || !pacote.competicao) {
+            throw new Error("Pacote offline inválido.");
+        }
 
-        return {
-            pacote,
-            partidas: partidasValidas,
-            conferidas
-        };
+        const agora = new Date().toISOString();
+        const pacoteCompleto = Object.assign({}, pacote, {
+            salva_em: agora,
+            versao_frontend: OFFLINE_VERSION
+        });
+
+        await salvarEmStore(STORE_PACOTES, pacoteCompleto);
+
+        const partidas = Array.isArray(pacote.partidas) ? pacote.partidas : [];
+        for (const p of partidas) {
+            if (!p || p.finalizada) continue;
+            await salvarEmStore(STORE_PARTIDAS, Object.assign({}, p, {
+                id: String(p.id),
+                competicao: pacote.competicao,
+                salva_em: agora,
+                pacote_baixado: true,
+                versao_frontend: OFFLINE_VERSION
+            }));
+        }
+
+        return true;
     }
 
     function mostrarToast(texto, tipo) {
@@ -515,7 +441,9 @@
         el.className = "ap-toast-offline" + (tipo ? " " + tipo : "");
         el.style.display = "block";
         clearTimeout(window.__apOfflineToastTimer);
-        window.__apOfflineToastTimer = setTimeout(() => { el.style.display = "none"; }, 4200);
+        window.__apOfflineToastTimer = setTimeout(() => {
+            el.style.display = "none";
+        }, 3600);
     }
 
     function atualizarProgresso(texto) {
@@ -525,6 +453,10 @@
         el.textContent = texto;
     }
 
+    function normalizarId(id) {
+        return String(id || "");
+    }
+
     function salvarSessaoOffline(competicao) {
         const sessao = {
             autorizado: true,
@@ -532,7 +464,6 @@
             nome: CONTEXTO.nome,
             competicao: competicao || CONTEXTO.competicao || "",
             url_painel: CONTEXTO.urlAtual,
-            origem: window.location.origin,
             criada_em: new Date().toISOString(),
             versao: OFFLINE_VERSION
         };
@@ -547,7 +478,6 @@
             usuario: CONTEXTO.usuario,
             nome: CONTEXTO.nome,
             url: CONTEXTO.urlAtual,
-            origem: window.location.origin,
             salva_em: new Date().toISOString(),
             versao: OFFLINE_VERSION
         }, dadosExtras || {});
@@ -555,17 +485,14 @@
         return mapa[competicao];
     }
 
-    function salvarPartidasOfflineLocalStorage(partidas) {
+    function salvarPartidasOffline(partidas) {
         const mapa = lerJson(OFFLINE_PARTIDAS_KEY, {});
-        (partidas || []).forEach(p => {
-            if (!p || partidaFinalizada(p)) return;
-            const id = normalizarId(p.id);
-            if (!id) return;
-            mapa[id] = Object.assign({}, p, {
-                id,
+        partidas.forEach(p => {
+            if (!p || p.finalizada) return;
+            mapa[normalizarId(p.id)] = Object.assign({}, p, {
+                id: normalizarId(p.id),
                 baixada: true,
                 salva_em: new Date().toISOString(),
-                origem: window.location.origin,
                 versao: OFFLINE_VERSION
             });
         });
@@ -601,44 +528,27 @@
         return PARTIDAS_RENDERIZADAS.find(p => normalizarId(p.id) === sid) || null;
     }
 
-    async function atualizarStatusVisualOffline() {
+    function atualizarStatusVisualOffline() {
+        const mapa = lerJson(OFFLINE_PARTIDAS_KEY, {});
         const sessao = lerJson(OFFLINE_SESSION_KEY, null);
-        const localPartidas = lerJson(OFFLINE_PARTIDAS_KEY, {});
-        let partidasIndexed = [];
-        let pacotesIndexed = [];
-
-        try {
-            partidasIndexed = await listarStore(STORE_PARTIDAS);
-            pacotesIndexed = await listarStore(STORE_PACOTES);
-        } catch (e) {
-            partidasIndexed = [];
-            pacotesIndexed = [];
-        }
-
-        const totalIndexed = partidasIndexed.filter(p => p && !partidaFinalizada(p)).length;
-        const totalLocal = Object.keys(localPartidas || {}).length;
-        const total = Math.max(totalIndexed, totalLocal);
         const panel = document.getElementById("ap-offline-panel");
         const texto = document.getElementById("ap-offline-panel-texto");
-        const pacoteAtual = pacotesIndexed.find(p => p && p.competicao === CONTEXTO.competicao) || pacotesIndexed[0];
-        const sessaoAtiva = sessao || pacoteAtual;
 
-        if (sessaoAtiva && panel) {
+        if (sessao && panel) {
             panel.classList.add("aparece");
             if (texto) {
-                const nome = (sessao && (sessao.nome || sessao.usuario)) || (pacoteAtual && pacoteAtual.nome_usuario) || "apontador";
+                const total = Object.keys(mapa).length;
                 texto.textContent = total > 0
-                    ? `${total} partida(s) preparada(s) neste dispositivo. Sessão offline ativa para ${nome}.`
-                    : `Sessão offline ativa para ${nome}. Entre na competição e baixe as partidas antes de sair da internet.`;
+                    ? `${total} partida(s) preparada(s) neste dispositivo. Sessão offline ativa para ${sessao.nome || sessao.usuario || "apontador"}.`
+                    : `Sessão offline ativa para ${sessao.nome || sessao.usuario || "apontador"}. Baixe as partidas antes de sair da internet.`;
             }
         }
 
-        const idsIndexados = new Set(partidasIndexed.map(p => normalizarId(p.id)));
         document.querySelectorAll("[data-partida-card='1']").forEach(card => {
             const id = normalizarId(card.dataset.partidaId);
             const btn = document.getElementById(`btn-offline-partida-${id}`);
             const badge = document.getElementById(`offline-status-${id}`);
-            const baixada = idsIndexados.has(id) || !!localPartidas[id];
+            const baixada = !!mapa[id];
 
             if (btn) {
                 btn.classList.toggle("baixado", baixada);
@@ -652,9 +562,8 @@
         });
 
         const statusUnica = document.getElementById("status-competicao-unica-offline");
-        if (statusUnica && sessaoAtiva) {
-            const nome = (sessao && (sessao.nome || sessao.usuario)) || (pacoteAtual && pacoteAtual.nome_usuario) || "apontador";
-            statusUnica.textContent = `Sessão offline ativa para ${nome}. Entre na competição e baixe as partidas.`;
+        if (statusUnica && sessao) {
+            statusUnica.textContent = `Sessão offline ativa para ${sessao.nome || sessao.usuario || "apontador"}. Entre na competição e baixe as partidas.`;
         }
     }
 
@@ -689,7 +598,7 @@
             document.querySelector("[data-competicao-unica] a.btn-padrao")?.getAttribute("href")
         ]);
 
-        await atualizarStatusVisualOffline();
+        atualizarStatusVisualOffline();
         mostrarToast("Sessão offline criada. Agora entre na competição e baixe todas as partidas.", "ok");
     };
 
@@ -697,7 +606,7 @@
         salvarSessaoOffline(competicao);
         salvarCompeticaoOffline(competicao, { url: url, somente_sessao: true });
         await cachearUrls([CONTEXTO.urlAtual, "/offline-apontador", url]);
-        await atualizarStatusVisualOffline();
+        atualizarStatusVisualOffline();
         mostrarToast("Sessão offline criada para essa competição. Entre nela e baixe as partidas.", "ok");
     };
 
@@ -717,36 +626,21 @@
         try {
             salvarSessaoOffline(partida.competicao);
             salvarCompeticaoOffline(partida.competicao, { url: CONTEXTO.urlAtual });
-            salvarPartidasOfflineLocalStorage([partida]);
-
-            const pacoteParcial = {
-                ok: true,
-                competicao: partida.competicao,
-                usuario: CONTEXTO.usuario,
-                nome_usuario: CONTEXTO.nome,
-                baixado_em: new Date().toISOString(),
-                partidas: [partida],
-                equipes: [],
-                atletas: [],
-                papeletas: [],
-                estados: {},
-                eventos: {},
-                resumo: { total_partidas: 1, partidas_offline: 1, total_equipes: 0, total_atletas: 0 }
-            };
-            await salvarPacoteIndexedDB(pacoteParcial);
+            salvarPartidasOffline([partida]);
             await cachearUrls([CONTEXTO.urlAtual, "/offline-apontador", partida.url]);
             mostrarToast("Partida disponível offline neste dispositivo.", "ok");
         } catch (e) {
             console.error(e);
-            mostrarToast("Erro ao preparar a partida offline: " + (e.message || e), "erro");
+            mostrarToast("Erro ao preparar a partida offline.", "erro");
         } finally {
             if (btn) btn.classList.remove("sincronizando");
-            await atualizarStatusVisualOffline();
+            atualizarStatusVisualOffline();
         }
     };
 
     window.baixarCompeticaoOffline = async function () {
         const competicao = CONTEXTO.competicao || "Competição";
+
         if (!competicao) {
             mostrarToast("Abra uma competição antes de preparar o modo offline.", "erro");
             return;
@@ -756,15 +650,13 @@
             abrirModalOfflineApontador();
             atualizarProgresso("Buscando pacote completo da competição no servidor...");
 
-            const urlPacote = `/apontador/offline/pacote/${encodeURIComponent(competicao)}`;
-            const resp = await fetch(urlPacote, {
+            const resp = await fetch(`/apontador/offline/pacote/${encodeURIComponent(competicao)}`, {
                 cache: "no-store",
-                credentials: "same-origin",
-                headers: { "Accept": "application/json" }
+                credentials: "same-origin"
             });
 
             if (!resp.ok) {
-                throw new Error(`Servidor não retornou o pacote offline. HTTP ${resp.status}`);
+                throw new Error("Servidor não retornou o pacote offline.");
             }
 
             const pacote = await resp.json();
@@ -773,8 +665,20 @@
             }
 
             atualizarProgresso("Salvando competição no IndexedDB deste dispositivo...");
-            const salvo = await salvarPacoteIndexedDB(pacote);
-            const partidasValidas = salvo.partidas || [];
+            await salvarPacoteIndexedDB(pacote);
+            console.log("PACOTE RECEBIDO:", pacote);
+            console.log("PARTIDAS DO PACOTE:", pacote.partidas);
+            console.log("SALVOU NO INDEXEDDB");
+
+            const partidasPacote = Array.isArray(pacote.partidas) ? pacote.partidas : [];
+            const partidasValidas = partidasPacote
+                .filter(p => !p.finalizada)
+                .map(p => Object.assign({}, p, {
+                    id: normalizarId(p.id),
+                    competicao: pacote.competicao,
+                    url: p.url || `/apontador/pre-jogo/${encodeURIComponent(pacote.competicao)}/${p.id}`,
+                    salva_em: new Date().toISOString()
+                }));
 
             salvarSessaoOffline(pacote.competicao);
             salvarCompeticaoOffline(pacote.competicao, {
@@ -785,7 +689,7 @@
                 pacote_completo: true,
                 partidas_ids: partidasValidas.map(p => normalizarId(p.id))
             });
-            salvarPartidasOfflineLocalStorage(partidasValidas);
+            salvarPartidasOffline(partidasValidas);
 
             const urls = [
                 CONTEXTO.urlAtual,
@@ -804,11 +708,11 @@
                 `Telas em cache: ${resultado.feitas}/${resultado.total}.`
             );
 
-            await atualizarStatusVisualOffline();
+            atualizarStatusVisualOffline();
             mostrarToast("Competição salva no IndexedDB para uso offline.", "ok");
         } catch (e) {
-            console.error("ERRO baixarCompeticaoOffline:", e);
-            await atualizarStatusVisualOffline();
+            console.error(e);
+            atualizarStatusVisualOffline();
             atualizarProgresso("Erro ao baixar pacote offline: " + (e.message || e));
             mostrarToast("Erro ao preparar a competição offline.", "erro");
         }
@@ -826,6 +730,6 @@
     atualizarStatusVisualOffline();
 })();
 </script>
-
+{% endif %}
 
 {% endblock %}

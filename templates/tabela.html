@@ -166,13 +166,32 @@
         {% for g in grupos %}
             <div style="padding: 14px 0; border-bottom: 1px solid var(--border);">
                 <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px;">
-                    <div style="font-size: 20px; font-weight: 900;">
-                        Grupo {{ g.grupo.nome }}
+                    <div>
+                        <div style="font-size: 20px; font-weight: 900;">
+                            Grupo {{ g.grupo.nome }}
+                        </div>
+                        <div style="color:var(--muted); font-weight:700; font-size:13px; margin-top:4px;">
+                            Quadra padrão: {{ g.quadra_label or 'Sem quadra' }}
+                        </div>
                     </div>
                     <form method="post" action="{{ url_for('tabela.excluir_grupo_view', grupo_id=g.grupo.id) }}" onsubmit="return confirm('Excluir este grupo vai remover também as equipes vinculadas e os jogos deste grupo. Deseja continuar?');">
                         <button class="tabela-danger-button" type="submit" {% if grupos_travados %}disabled{% endif %}>Excluir grupo</button>
                     </form>
                 </div>
+
+                <form method="post" action="{{ url_for('tabela.vincular_grupo_quadra_view') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
+                    <input type="hidden" name="grupo_nome" value="{{ g.grupo.nome }}">
+                    <div style="min-width:220px; flex:1;">
+                        <label>Quadra deste grupo/chave</label>
+                        <select name="quadra_id" {% if grupos_travados %}disabled{% endif %}>
+                            <option value="">Sem quadra definida</option>
+                            {% for q in quadras %}
+                                <option value="{{ q.id }}" {% if g.quadra_id and q.id == g.quadra_id %}selected{% endif %}>{{ q.nome }}{% if q.local %} — {{ q.local }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Salvar quadra</button>
+                </form>
 
                 {% if g.equipes %}
                     {% for e in g.equipes %}
@@ -250,7 +269,7 @@
                 <select id="grupo" name="grupo" required>
                     <option value="">Selecione</option>
                     {% for g in grupos %}
-                        <option value="{{ g.grupo.nome }}">{{ g.grupo.nome }}</option>
+                        <option value="{{ g.grupo.nome }}" data-quadra-id="{{ g.quadra_id or '' }}">{{ g.grupo.nome }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -261,6 +280,16 @@
                     <input type="text" value="{% if fase_ativa == 'quartas' %}Quartas de final{% elif fase_ativa == 'semifinais' %}Semifinal{% else %}Final{% endif %}" disabled>
                 </div>
             {% endif %}
+
+            <div style="min-width:220px; flex:1;">
+                <label for="quadra_id">Quadra</label>
+                <select id="quadra_id" name="quadra_id">
+                    <option value="">Herdar do grupo / sem quadra</option>
+                    {% for q in quadras %}
+                        <option value="{{ q.id }}">{{ q.nome }}{% if q.local %} — {{ q.local }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
             <div style="min-width:240px; flex:1;">
                 <label for="equipe_a">Equipe A</label>
@@ -309,6 +338,7 @@
             <tr>
                 <th>#</th>
                 <th>Grupo</th>
+                <th>Quadra</th>
                 <th>Jogo</th>
                 <th>Fase</th>
                 <th>Status</th>
@@ -326,6 +356,7 @@
             >
                 <td>{{ p.ordem }}</td>
                 <td>{% if p.fase_normalizada == 'grupos' %}{{ p.grupo }}{% else %}-{% endif %}</td>
+                <td>{{ p.quadra_label or '-' }}</td>
                 <td>{{ p.equipe_a }} x {{ p.equipe_b }}</td>
                 <td>{{ p.fase_normalizada or 'grupos' }}</td>
 
@@ -367,6 +398,12 @@
                                 <option value="">A definir</option>
                                 {% for e in equipes %}
                                     <option value="{{ e.nome }}" {% if e.nome == p.equipe_b %}selected{% endif %}>{{ e.nome }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="quadra_id" style="min-width:150px;">
+                                <option value="">Sem quadra</option>
+                                {% for q in quadras %}
+                                    <option value="{{ q.id }}" {% if p.quadra_id_normalizado and q.id == p.quadra_id_normalizado %}selected{% endif %}>{{ q.nome }}</option>
                                 {% endfor %}
                             </select>
                             <button class="btn-secundario" type="submit">Salvar</button>
@@ -524,5 +561,19 @@ async function atualizarPartidasAoVivoTabela() {
 
 setInterval(atualizarPartidasAoVivoTabela, 2000);
 document.addEventListener("DOMContentLoaded", atualizarPartidasAoVivoTabela);
+
+document.addEventListener("DOMContentLoaded", function sincronizarQuadraDoGrupo() {
+    const grupoSelect = document.getElementById('grupo');
+    const quadraSelect = document.getElementById('quadra_id');
+    if (!grupoSelect || !quadraSelect) return;
+
+    grupoSelect.addEventListener('change', function () {
+        const option = this.options[this.selectedIndex];
+        const quadraId = option ? option.getAttribute('data-quadra-id') : '';
+        if (quadraId) {
+            quadraSelect.value = quadraId;
+        }
+    });
+});
 </script>
 {% endblock %}

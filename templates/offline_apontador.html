@@ -22,15 +22,27 @@
 .offline-btn-primary { background:#0f766e; color:#fff; }
 .offline-btn-dark { background:#111827; color:#fff; }
 .offline-btn-gold { background:#d4a62a; color:#071827; }
+.offline-btn-danger { background:#991b1b; color:#fff; }
 .offline-alerta { border:1px solid #fdba74; background:#fff7ed; color:#9a3412; border-radius:16px; padding:14px; font-weight:850; }
-.offline-ok { border:1px solid #86efac; background:#f0fdf4; color:#166534; border-radius:16px; padding:12px; font-weight:850; margin-top:12px; }
-@media (max-width:780px) { .offline-grid { grid-template-columns:1fr; } .offline-partida { align-items:flex-start; } .offline-acoes { width:100%; } .offline-btn { width:100%; } }
+.offline-ok { border:1px solid #86efac; background:#ecfdf5; color:#166534; border-radius:16px; padding:14px; font-weight:900; }
+.offline-scoreboard { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:stretch; margin-top:14px; }
+.offline-team { border:1px solid var(--border); background:#f8fbff; border-radius:18px; padding:16px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; }
+.offline-team h2 { margin:0; color:#0f2f4a; font-size:clamp(18px,3vw,28px); }
+.offline-score { font-size:clamp(54px,12vw,110px); font-weight:1000; line-height:.9; color:#0f2f4a; text-align:center; }
+.offline-center { display:flex; align-items:center; justify-content:center; color:#64748b; font-weight:1000; font-size:22px; }
+.offline-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.offline-actions-bar { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.offline-mini-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:10px; }
+.offline-mini { border:1px solid var(--border); background:#fff; border-radius:14px; padding:10px; font-weight:850; color:#0f2f4a; }
+.offline-history { display:grid; gap:8px; margin-top:12px; max-height:260px; overflow:auto; }
+.offline-history-item { border:1px solid #dbe3ef; background:#f8fafc; border-radius:12px; padding:9px 10px; color:#183247; font-weight:800; font-size:13px; }
+@media (max-width:780px) { .offline-grid, .offline-controls, .offline-mini-grid { grid-template-columns:1fr; } .offline-scoreboard { grid-template-columns:1fr; } .offline-center { display:none; } .offline-partida { align-items:flex-start; } .offline-acoes, .offline-btn { width:100%; } }
 </style>
 
 <div class="offline-wrap">
     <div class="offline-hero">
         <h1>📦 Modo Offline do Apontador</h1>
-        <p>Abra partidas baixadas neste dispositivo mesmo sem internet.</p>
+        <p>Abra e opere partidas baixadas neste dispositivo mesmo sem internet.</p>
     </div>
 
     <div id="offline-conteudo" class="offline-card">
@@ -45,60 +57,55 @@
     const STORE_PACOTES = "pacotes";
     const STORE_PARTIDAS = "partidas";
     const STORE_FILAS = "filas";
-    const STORE_META = "meta";
     const SESSION_KEY = "voleitable_offline_sessao";
     const LOCAL_PARTIDAS_KEY = "voleitable_offline_partidas";
+    const LOCAL_FILA_KEY = "voleitable_offline_fila_acoes";
 
     function lerJson(chave, padrao) {
-        try {
-            const bruto = localStorage.getItem(chave);
-            if (!bruto) return padrao;
-            return JSON.parse(bruto) || padrao;
-        } catch (e) {
-            return padrao;
-        }
+        try { return JSON.parse(localStorage.getItem(chave) || "") || padrao; }
+        catch (e) { return padrao; }
+    }
+
+    function salvarJson(chave, valor) {
+        localStorage.setItem(chave, JSON.stringify(valor));
     }
 
     function abrirBancoOffline() {
         return new Promise((resolve, reject) => {
             if (!("indexedDB" in window)) {
-                reject(new Error("IndexedDB não disponível neste navegador."));
+                reject(new Error("IndexedDB não disponível."));
                 return;
             }
-
             const req = indexedDB.open(DB_NOME, DB_VERSAO);
-
             req.onupgradeneeded = function (event) {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(STORE_PACOTES)) db.createObjectStore(STORE_PACOTES, { keyPath: "competicao" });
                 if (!db.objectStoreNames.contains(STORE_PARTIDAS)) db.createObjectStore(STORE_PARTIDAS, { keyPath: "id" });
                 if (!db.objectStoreNames.contains(STORE_FILAS)) db.createObjectStore(STORE_FILAS, { keyPath: "id" });
-                if (!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META, { keyPath: "chave" });
             };
-
             req.onsuccess = () => resolve(req.result);
             req.onerror = () => reject(req.error || new Error("Erro ao abrir banco offline."));
-            req.onblocked = () => reject(new Error("IndexedDB bloqueado. Feche outras abas do sistema e tente novamente."));
         });
     }
 
     async function listarStore(storeName) {
         const db = await abrirBancoOffline();
         return new Promise((resolve, reject) => {
-            if (!db.objectStoreNames.contains(storeName)) {
-                db.close();
-                resolve([]);
-                return;
-            }
             const tx = db.transaction(storeName, "readonly");
             const req = tx.objectStore(storeName).getAll();
             req.onsuccess = () => resolve(req.result || []);
             req.onerror = () => reject(req.error || new Error("Erro ao ler offline."));
             tx.oncomplete = () => db.close();
-            tx.onerror = () => {
-                db.close();
-                reject(tx.error || new Error("Erro na transação offline."));
-            };
+        });
+    }
+
+    async function salvarStore(storeName, valor) {
+        const db = await abrirBancoOffline();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, "readwrite");
+            tx.objectStore(storeName).put(valor);
+            tx.oncomplete = () => { db.close(); resolve(true); };
+            tx.onerror = () => { db.close(); reject(tx.error || new Error("Erro ao salvar offline.")); };
         });
     }
 
@@ -106,14 +113,10 @@
         return String(texto ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
     }
 
-    function normalizarId(id) {
-        return String(id || "").trim();
-    }
+    function normalizarId(id) { return String(id || ""); }
 
     function partidaFinalizada(p) {
-        if (!p) return true;
-        if (p.finalizada === true) return true;
-        const status = String(p.status || p.status_jogo || p.fase_partida || "").trim().toLowerCase();
+        const status = String((p && (p.status_jogo || p.status)) || "").trim().toLowerCase();
         return ["finalizada", "finalizado", "encerrada", "encerrado"].includes(status);
     }
 
@@ -136,76 +139,269 @@
         return ordenarPartidas(Array.from(mapa.values()));
     }
 
-    function renderPartida(p) {
-        const url = p.url || `/apontador/pre-jogo/${encodeURIComponent(p.competicao || "")}/${encodeURIComponent(p.id || "")}`;
+    async function carregarBaseOffline() {
+        const sessao = lerJson(SESSION_KEY, null);
+        const pacotes = await listarStore(STORE_PACOTES).catch(() => []);
+        const partidasStore = await listarStore(STORE_PARTIDAS).catch(() => []);
+        const partidasLocalObj = lerJson(LOCAL_PARTIDAS_KEY, {});
+        const partidasLocal = Object.values(partidasLocalObj || {});
+        const pacotePreferido = pacotes.find(p => sessao && p.competicao === sessao.competicao) || pacotes[0] || {};
+        const partidasPacote = Array.isArray(pacotePreferido.partidas) ? pacotePreferido.partidas : [];
+        const partidas = deduplicarPartidas(partidasStore, partidasLocal, partidasPacote);
+        return { sessao, pacotes, pacote: pacotePreferido, partidas };
+    }
+
+    function chaveEstado(partidaId) {
+        return `voleitable_offline_estado_partida_${normalizarId(partidaId)}`;
+    }
+
+    function obterNomeA(p) {
+        return p.equipe_a_operacional || p.equipe_a || "Equipe A";
+    }
+
+    function obterNomeB(p) {
+        return p.equipe_b_operacional || p.equipe_b || "Equipe B";
+    }
+
+    function estadoInicialPartida(partida, pacote) {
+        const id = normalizarId(partida.id);
+        const salvo = lerJson(chaveEstado(id), null);
+        if (salvo) return salvo;
+
+        const estadoBanco = (pacote.estados && pacote.estados[id]) || {};
+        return {
+            partida_id: id,
+            competicao: partida.competicao || pacote.competicao || "",
+            equipe_a: estadoBanco.equipe_a_operacional || estadoBanco.equipe_a || obterNomeA(partida),
+            equipe_b: estadoBanco.equipe_b_operacional || estadoBanco.equipe_b || obterNomeB(partida),
+            pontos_a: Number(estadoBanco.pontos_a ?? partida.pontos_a ?? 0) || 0,
+            pontos_b: Number(estadoBanco.pontos_b ?? partida.pontos_b ?? 0) || 0,
+            sets_a: Number(estadoBanco.sets_a ?? partida.sets_a ?? 0) || 0,
+            sets_b: Number(estadoBanco.sets_b ?? partida.sets_b ?? 0) || 0,
+            set_atual: Number(estadoBanco.set_atual ?? partida.set_atual ?? 1) || 1,
+            status_offline: "em_operacao_offline",
+            historico: [],
+            atualizado_em: new Date().toISOString()
+        };
+    }
+
+    function salvarEstadoPartida(estado) {
+        estado.atualizado_em = new Date().toISOString();
+        salvarJson(chaveEstado(estado.partida_id), estado);
+    }
+
+    async function salvarAcaoFila(acao) {
+        const fila = lerJson(LOCAL_FILA_KEY, []);
+        fila.push(acao);
+        salvarJson(LOCAL_FILA_KEY, fila);
+        try { await salvarStore(STORE_FILAS, acao); } catch (e) { console.warn("Não salvou fila no IndexedDB", e); }
+    }
+
+    async function registrarPontoOffline(lado) {
+        const id = normalizarId(location.hash.replace("#partida=", ""));
+        if (!id) return;
+        const base = await carregarBaseOffline();
+        const partida = base.partidas.find(p => normalizarId(p.id) === id);
+        if (!partida) return;
+        const estado = estadoInicialPartida(partida, base.pacote);
+
+        const ladoNorm = String(lado || "").toUpperCase() === "B" ? "B" : "A";
+        if (ladoNorm === "A") estado.pontos_a = Number(estado.pontos_a || 0) + 1;
+        else estado.pontos_b = Number(estado.pontos_b || 0) + 1;
+
+        const acao = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            tipo: "ponto",
+            lado: ladoNorm,
+            partida_id: id,
+            competicao: estado.competicao,
+            pontos_a: estado.pontos_a,
+            pontos_b: estado.pontos_b,
+            criado_em: new Date().toISOString(),
+            sincronizado: false
+        };
+
+        estado.historico = Array.isArray(estado.historico) ? estado.historico : [];
+        estado.historico.unshift(acao);
+        estado.historico = estado.historico.slice(0, 80);
+        salvarEstadoPartida(estado);
+        await salvarAcaoFila(acao);
+        renderPartidaOffline(id);
+    }
+
+    async function desfazerOffline() {
+        const id = normalizarId(location.hash.replace("#partida=", ""));
+        if (!id) return;
+        const base = await carregarBaseOffline();
+        const partida = base.partidas.find(p => normalizarId(p.id) === id);
+        if (!partida) return;
+        const estado = estadoInicialPartida(partida, base.pacote);
+        estado.historico = Array.isArray(estado.historico) ? estado.historico : [];
+        const ultima = estado.historico.shift();
+        if (!ultima || ultima.tipo !== "ponto") {
+            salvarEstadoPartida(estado);
+            renderPartidaOffline(id);
+            return;
+        }
+
+        if (ultima.lado === "A") estado.pontos_a = Math.max(0, Number(estado.pontos_a || 0) - 1);
+        else estado.pontos_b = Math.max(0, Number(estado.pontos_b || 0) - 1);
+
+        const acao = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            tipo: "desfazer_ponto",
+            lado: ultima.lado,
+            partida_id: id,
+            competicao: estado.competicao,
+            pontos_a: estado.pontos_a,
+            pontos_b: estado.pontos_b,
+            criado_em: new Date().toISOString(),
+            sincronizado: false
+        };
+        estado.historico.unshift(acao);
+        salvarEstadoPartida(estado);
+        await salvarAcaoFila(acao);
+        renderPartidaOffline(id);
+    }
+
+    function filaPendentePartida(partidaId) {
+        const fila = lerJson(LOCAL_FILA_KEY, []);
+        return fila.filter(a => normalizarId(a.partida_id) === normalizarId(partidaId) && !a.sincronizado).length;
+    }
+
+    function renderPartidaCard(p) {
+        const urlOffline = `#partida=${encodeURIComponent(normalizarId(p.id))}`;
         return `
             <div class="offline-partida">
                 <div>
-                    <strong>${htmlSeguro(p.equipe_a || p.equipe_a_operacional || "Equipe A")} x ${htmlSeguro(p.equipe_b || p.equipe_b_operacional || "Equipe B")}</strong>
+                    <strong>${htmlSeguro(obterNomeA(p))} x ${htmlSeguro(obterNomeB(p))}</strong>
                     <div class="offline-meta">Jogo ${htmlSeguro(p.ordem || p.id || "-")}${p.quadra ? " • Quadra " + htmlSeguro(p.quadra) : ""}${p.grupo ? " • " + htmlSeguro(p.grupo) : ""}</div>
                     <div class="offline-meta">${htmlSeguro(p.status_operacao || p.status || "offline")}</div>
                 </div>
                 <div class="offline-acoes">
-                    <a class="offline-btn offline-btn-primary" href="${htmlSeguro(url)}">Abrir</a>
+                    <a class="offline-btn offline-btn-primary" href="${urlOffline}">Abrir offline</a>
                 </div>
             </div>
         `;
     }
 
-    async function renderizar() {
+    async function renderLista() {
         const el = document.getElementById("offline-conteudo");
-        const sessao = lerJson(SESSION_KEY, null);
+        const { sessao, pacotes, pacote, partidas } = await carregarBaseOffline();
 
-        try {
-            const pacotes = await listarStore(STORE_PACOTES);
-            const partidasStore = await listarStore(STORE_PARTIDAS);
-            const partidasLocalObj = lerJson(LOCAL_PARTIDAS_KEY, {});
-            const partidasLocal = Object.values(partidasLocalObj || {});
-
-            if (!sessao && pacotes.length === 0 && partidasStore.length === 0 && partidasLocal.length === 0) {
-                el.innerHTML = `<div class="offline-alerta">Nenhuma competição foi baixada neste dispositivo. Entre online, abra o painel do apontador e clique em <strong>Baixar competição</strong>.</div>`;
-                return;
-            }
-
-            const pacotePreferido = pacotes.find(p => sessao && p.competicao === sessao.competicao) || pacotes[0] || {};
-            const partidasPacote = Array.isArray(pacotePreferido.partidas) ? pacotePreferido.partidas : [];
-            const listaPartidas = deduplicarPartidas(partidasStore, partidasPacote, partidasLocal);
-
-            const resumo = pacotePreferido.resumo || {};
-            const nome = (sessao && (sessao.nome || sessao.usuario)) || pacotePreferido.nome_usuario || "Apontador";
-            const competicao = (sessao && sessao.competicao) || pacotePreferido.competicao || (listaPartidas[0] && listaPartidas[0].competicao) || "Competição offline";
-            const equipes = Array.isArray(pacotePreferido.equipes) ? pacotePreferido.equipes : [];
-            const atletas = Array.isArray(pacotePreferido.atletas) ? pacotePreferido.atletas : [];
-
-            el.innerHTML = `
-                <h2 style="margin:0;color:#0f2f4a;">${htmlSeguro(competicao)}</h2>
-                <div class="offline-meta">Sessão offline ativa para ${htmlSeguro(nome)}${navigator.onLine ? " • Online agora" : " • Sem internet agora"}</div>
-                ${listaPartidas.length ? `<div class="offline-ok">✅ Competição disponível offline neste dispositivo.</div>` : ""}
-
-                <div class="offline-grid">
-                    <div class="offline-kpi"><strong>${listaPartidas.length}</strong><span>Partidas disponíveis</span></div>
-                    <div class="offline-kpi"><strong>${resumo.total_equipes || equipes.length || 0}</strong><span>Equipes baixadas</span></div>
-                    <div class="offline-kpi"><strong>${resumo.total_atletas || atletas.length || 0}</strong><span>Atletas baixados</span></div>
-                </div>
-
-                <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
-                    <a class="offline-btn offline-btn-dark" href="/apontador">Voltar ao painel</a>
-                    <a class="offline-btn offline-btn-primary" href="${htmlSeguro((sessao && sessao.url_painel) || "/apontador")}">Abrir competição</a>
-                    <button type="button" class="offline-btn offline-btn-gold" onclick="location.reload()">Atualizar tela</button>
-                </div>
-
-                <h3 style="margin:18px 0 0;color:#0f2f4a;">Partidas baixadas</h3>
-                <div class="offline-lista">
-                    ${listaPartidas.length ? listaPartidas.map(renderPartida).join("") : `<div class="offline-alerta">Nenhuma partida foi encontrada no IndexedDB. Volte online e clique em <strong>Baixar competição</strong> novamente.</div>`}
-                </div>
-            `;
-        } catch (e) {
-            console.error("ERRO offline_apontador:", e);
-            el.innerHTML = `<div class="offline-alerta">Erro ao abrir os dados offline deste dispositivo: ${htmlSeguro(e.message || e)}</div>`;
+        if (!sessao && pacotes.length === 0 && partidas.length === 0) {
+            el.innerHTML = `<div class="offline-alerta">Nenhuma competição foi baixada neste dispositivo. Entre online, abra o painel do apontador e clique em <strong>Baixar competição</strong>.</div>`;
+            return;
         }
+
+        const resumo = pacote.resumo || {};
+        const nome = (sessao && (sessao.nome || sessao.usuario)) || pacote.nome_usuario || "Apontador";
+        const competicao = (sessao && sessao.competicao) || pacote.competicao || "Competição offline";
+
+        el.innerHTML = `
+            <h2 style="margin:0;color:#0f2f4a;">${htmlSeguro(competicao)}</h2>
+            <div class="offline-meta">Sessão offline ativa para ${htmlSeguro(nome)}${navigator.onLine ? " • Online agora" : " • Sem internet agora"}</div>
+
+            <div class="offline-ok" style="margin-top:14px;">✅ Competição disponível offline neste dispositivo.</div>
+
+            <div class="offline-grid">
+                <div class="offline-kpi"><strong>${partidas.length}</strong><span>Partidas disponíveis</span></div>
+                <div class="offline-kpi"><strong>${resumo.total_equipes || (pacote.equipes || []).length || 0}</strong><span>Equipes baixadas</span></div>
+                <div class="offline-kpi"><strong>${resumo.total_atletas || (pacote.atletas || []).length || 0}</strong><span>Atletas baixados</span></div>
+            </div>
+
+            <div class="offline-actions-bar">
+                <a class="offline-btn offline-btn-dark" href="/apontador">Voltar ao painel</a>
+                <a class="offline-btn offline-btn-primary" href="${htmlSeguro((sessao && sessao.url_painel) || "/apontador")}">Abrir competição online</a>
+                <button type="button" class="offline-btn offline-btn-gold" onclick="location.reload()">Atualizar tela</button>
+            </div>
+
+            <h3 style="margin:18px 0 0;color:#0f2f4a;">Partidas baixadas</h3>
+            <div class="offline-lista">
+                ${partidas.length ? partidas.map(renderPartidaCard).join("") : `<div class="offline-alerta">Nenhuma partida foi encontrada no pacote offline.</div>`}
+            </div>
+        `;
     }
 
-    renderizar();
+    async function renderPartidaOffline(partidaId) {
+        const el = document.getElementById("offline-conteudo");
+        const base = await carregarBaseOffline();
+        const partida = base.partidas.find(p => normalizarId(p.id) === normalizarId(partidaId));
+
+        if (!partida) {
+            el.innerHTML = `<div class="offline-alerta">Partida offline não encontrada neste dispositivo.</div><div class="offline-actions-bar"><a class="offline-btn offline-btn-dark" href="/offline-apontador">Voltar</a></div>`;
+            return;
+        }
+
+        const estado = estadoInicialPartida(partida, base.pacote);
+        salvarEstadoPartida(estado);
+        const pendentes = filaPendentePartida(partidaId);
+        const hist = Array.isArray(estado.historico) ? estado.historico : [];
+
+        el.innerHTML = `
+            <div class="offline-actions-bar" style="margin-top:0;">
+                <a class="offline-btn offline-btn-dark" href="#">← Voltar às partidas</a>
+                <span class="offline-btn offline-btn-gold" style="cursor:default;">${pendentes} ação(ões) pendente(s)</span>
+            </div>
+
+            <h2 style="margin:16px 0 4px;color:#0f2f4a;">${htmlSeguro(estado.equipe_a)} x ${htmlSeguro(estado.equipe_b)}</h2>
+            <div class="offline-meta">Jogo ${htmlSeguro(partida.ordem || partida.id || "-")}${partida.quadra ? " • Quadra " + htmlSeguro(partida.quadra) : ""}${partida.grupo ? " • " + htmlSeguro(partida.grupo) : ""} • Operação offline</div>
+
+            <div class="offline-scoreboard">
+                <div class="offline-team">
+                    <h2>${htmlSeguro(estado.equipe_a)}</h2>
+                    <div class="offline-score">${Number(estado.pontos_a || 0)}</div>
+                    <button type="button" class="offline-btn offline-btn-primary" onclick="registrarPontoOffline('A')">+ Ponto</button>
+                </div>
+                <div class="offline-center">X</div>
+                <div class="offline-team">
+                    <h2>${htmlSeguro(estado.equipe_b)}</h2>
+                    <div class="offline-score">${Number(estado.pontos_b || 0)}</div>
+                    <button type="button" class="offline-btn offline-btn-primary" onclick="registrarPontoOffline('B')">+ Ponto</button>
+                </div>
+            </div>
+
+            <div class="offline-mini-grid">
+                <div class="offline-mini">Set atual: ${htmlSeguro(estado.set_atual || 1)}</div>
+                <div class="offline-mini">Sets: ${htmlSeguro(estado.sets_a || 0)} x ${htmlSeguro(estado.sets_b || 0)}</div>
+            </div>
+
+            <div class="offline-actions-bar">
+                <button type="button" class="offline-btn offline-btn-gold" onclick="desfazerOffline()">↩ Desfazer último ponto</button>
+                <button type="button" class="offline-btn offline-btn-dark" onclick="alert('Sincronização será a próxima etapa. As ações já estão salvas localmente.')">🔄 Sincronizar depois</button>
+            </div>
+
+            <div class="offline-alerta" style="margin-top:14px;">⚠️ Esta é a primeira operação offline: pontos ficam salvos neste dispositivo e entram na fila para sincronizar depois.</div>
+
+            <h3 style="margin:18px 0 0;color:#0f2f4a;">Histórico offline</h3>
+            <div class="offline-history">
+                ${hist.length ? hist.slice(0, 30).map(a => `
+                    <div class="offline-history-item">
+                        ${htmlSeguro(a.tipo)} • ${htmlSeguro(a.lado || "")} • Placar ${htmlSeguro(a.pontos_a)} x ${htmlSeguro(a.pontos_b)} • ${htmlSeguro(new Date(a.criado_em).toLocaleTimeString())}
+                    </div>
+                `).join("") : `<div class="offline-alerta">Nenhuma ação offline registrada ainda.</div>`}
+            </div>
+        `;
+    }
+
+    async function roteador() {
+        const hash = location.hash || "";
+        if (hash.startsWith("#partida=")) {
+            const id = decodeURIComponent(hash.replace("#partida=", ""));
+            await renderPartidaOffline(id);
+            return;
+        }
+        await renderLista();
+    }
+
+    window.registrarPontoOffline = registrarPontoOffline;
+    window.desfazerOffline = desfazerOffline;
+    window.addEventListener("hashchange", roteador);
+    roteador().catch(e => {
+        console.error(e);
+        const el = document.getElementById("offline-conteudo");
+        if (el) el.innerHTML = `<div class="offline-alerta">Erro ao abrir os dados offline deste dispositivo: ${htmlSeguro(e.message || e)}</div>`;
+    });
 })();
 </script>
 {% endblock %}

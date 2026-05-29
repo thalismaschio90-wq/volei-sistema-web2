@@ -154,6 +154,66 @@
         line-height: 1.5;
     }
 
+    .quadras-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+
+    .quadras-lista {
+        display: grid;
+        gap: 14px;
+    }
+
+    .quadra-card {
+        background: #ffffff;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 8px 18px rgba(17, 41, 65, 0.05);
+    }
+
+    .quadra-card-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+    }
+
+    .quadra-card-title {
+        font-size: 18px;
+        font-weight: 900;
+        color: #183247;
+    }
+
+    .quadra-grid {
+        display: grid;
+        grid-template-columns: 90px 1fr 1fr;
+        gap: 12px;
+        align-items: end;
+    }
+
+    .quadra-ativa {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 800;
+        color: #183247;
+    }
+
+    .quadra-mini-hint {
+        color: #6b7c8c;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.45;
+    }
+
+
     @media (max-width: 860px) {
         .competicao-form-grid,
         .criterios-box {
@@ -167,6 +227,10 @@
         .competicao-actions .btn-padrao {
             width: 100%;
         }
+
+        .quadra-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
@@ -176,6 +240,7 @@
     <div class="competicao-tabs-header">
         <button type="button" class="competicao-tab-btn active" data-tab="tab-dados">Dados</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-estrutura">Estrutura</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-quadras">Quadras</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-regras">Regras do jogo</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-pontuacao">Pontuação e desempate</button>
     </div>
@@ -333,6 +398,106 @@
             </div>
         </form>
     </div>
+
+    <!-- ABA: QUADRAS -->
+    <div id="tab-quadras" class="competicao-tab-pane">
+        <div class="competicao-pane-title">Quadras da competição</div>
+        <div class="competicao-pane-subtitle">
+            Cadastre as quadras reais da competição. Depois essas quadras poderão ser vinculadas às chaves/grupos e cada partida poderá herdar automaticamente a quadra da sua chave.
+        </div>
+
+        <form method="post" action="{{ url_for('competicoes.salvar_quadras_view') }}">
+            <div class="competicao-section-box">
+                <div class="quadras-toolbar">
+                    <div>
+                        <div style="font-weight:900;color:#183247;">Quadras cadastradas</div>
+                        <div class="quadra-mini-hint">
+                            Use nomes claros, como “Quadra 1 - Lourenço Golin” ou “Quadra 2 - Ulisses Cabral”.
+                        </div>
+                    </div>
+                    <button type="button" class="btn-secundario" id="btn-adicionar-quadra">+ Adicionar quadra</button>
+                </div>
+
+                <div class="quadras-lista" id="quadras-lista">
+                    {% set quadras_lista = quadras if quadras is defined and quadras else [] %}
+
+                    {% for q in quadras_lista %}
+                    <div class="quadra-card" data-quadra-card>
+                        <input type="hidden" name="quadra_id[]" value="{{ q.id }}">
+
+                        <div class="quadra-card-head">
+                            <div class="quadra-card-title">Quadra {{ loop.index }}</div>
+                            <label class="quadra-ativa">
+                                <input type="checkbox" name="quadra_ativa_{{ q.id }}" style="width:auto;" {% if q.ativa is not defined or q.ativa %}checked{% endif %}>
+                                Ativa
+                            </label>
+                        </div>
+
+                        <div class="quadra-grid">
+                            <div class="competicao-form-field">
+                                <label>Ordem</label>
+                                <input type="number" name="quadra_ordem[]" min="1" value="{{ q.ordem or loop.index }}">
+                            </div>
+
+                            <div class="competicao-form-field">
+                                <label>Nome da quadra</label>
+                                <input type="text" name="quadra_nome[]" value="{{ q.nome or ('Quadra ' ~ loop.index) }}" placeholder="Ex.: Quadra 1 - Lourenço Golin">
+                            </div>
+
+                            <div class="competicao-form-field">
+                                <label>Local / observação</label>
+                                <input type="text" name="quadra_local[]" value="{{ q.local or '' }}" placeholder="Ex.: Ginásio principal, escola, bairro...">
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    {% if not quadras_lista %}
+                    {% set total_quadras = competicao.qtd_quadras or 1 %}
+                    {% for i in range(total_quadras) %}
+                    <div class="quadra-card" data-quadra-card>
+                        <input type="hidden" name="quadra_id[]" value="">
+
+                        <div class="quadra-card-head">
+                            <div class="quadra-card-title">Quadra {{ loop.index }}</div>
+                            <label class="quadra-ativa">
+                                <input type="checkbox" name="quadra_ativa_nova_{{ loop.index0 }}" style="width:auto;" checked>
+                                Ativa
+                            </label>
+                        </div>
+
+                        <div class="quadra-grid">
+                            <div class="competicao-form-field">
+                                <label>Ordem</label>
+                                <input type="number" name="quadra_ordem[]" min="1" value="{{ loop.index }}">
+                            </div>
+
+                            <div class="competicao-form-field">
+                                <label>Nome da quadra</label>
+                                <input type="text" name="quadra_nome[]" value="Quadra {{ loop.index }}" placeholder="Ex.: Quadra 1 - Lourenço Golin">
+                            </div>
+
+                            <div class="competicao-form-field">
+                                <label>Local / observação</label>
+                                <input type="text" name="quadra_local[]" value="" placeholder="Ex.: Ginásio principal, escola, bairro...">
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+
+                <div class="helper-text" style="margin-top:16px;">
+                    A quantidade de quadras da competição será sincronizada com o número de quadras salvas aqui. Na próxima etapa, as chaves serão vinculadas a essas quadras.
+                </div>
+
+                <div class="competicao-actions">
+                    <button class="btn-padrao" type="submit">Salvar quadras</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
 
     <!-- ABA: REGRAS -->
     <div id="tab-regras" class="competicao-tab-pane">
@@ -518,6 +683,58 @@
                 }
             });
         });
+
+        const listaQuadras = document.getElementById('quadras-lista');
+        const btnAdicionarQuadra = document.getElementById('btn-adicionar-quadra');
+
+        function totalQuadras() {
+            return listaQuadras ? listaQuadras.querySelectorAll('[data-quadra-card]').length : 0;
+        }
+
+        function criarCardQuadra() {
+            const indice = totalQuadras();
+            const numero = indice + 1;
+            const card = document.createElement('div');
+            card.className = 'quadra-card';
+            card.setAttribute('data-quadra-card', '1');
+
+            card.innerHTML = `
+                <input type="hidden" name="quadra_id[]" value="">
+
+                <div class="quadra-card-head">
+                    <div class="quadra-card-title">Quadra ${numero}</div>
+                    <label class="quadra-ativa">
+                        <input type="checkbox" name="quadra_ativa_nova_${indice}" style="width:auto;" checked>
+                        Ativa
+                    </label>
+                </div>
+
+                <div class="quadra-grid">
+                    <div class="competicao-form-field">
+                        <label>Ordem</label>
+                        <input type="number" name="quadra_ordem[]" min="1" value="${numero}">
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label>Nome da quadra</label>
+                        <input type="text" name="quadra_nome[]" value="Quadra ${numero}" placeholder="Ex.: Quadra 1 - Lourenço Golin">
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label>Local / observação</label>
+                        <input type="text" name="quadra_local[]" value="" placeholder="Ex.: Ginásio principal, escola, bairro...">
+                    </div>
+                </div>
+            `;
+
+            return card;
+        }
+
+        if (btnAdicionarQuadra && listaQuadras) {
+            btnAdicionarQuadra.addEventListener('click', function () {
+                listaQuadras.appendChild(criarCardQuadra());
+            });
+        }
     })();
 </script>
 {% endblock %}

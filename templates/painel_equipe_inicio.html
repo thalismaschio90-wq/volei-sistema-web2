@@ -172,6 +172,23 @@
     </div>
 </div>
 
+{% if competicoes_equipe and competicoes_equipe|length > 1 %}
+<div class="card-painel" style="margin-bottom:18px;">
+    <div style="font-weight:900; margin-bottom:8px;">Minhas competições</div>
+    <form method="post" action="{{ url_for('equipes.selecionar_competicao_equipe_view') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <select name="competicao" class="input-padrao" style="max-width:360px;">
+            {% for comp in competicoes_equipe %}
+                <option value="{{ comp.nome }}" {% if comp.nome == equipe.competicao %}selected{% endif %}>{{ comp.nome }}{% if comp.status %} — {{ comp.status }}{% endif %}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn-padrao">Abrir competição</button>
+    </form>
+    <div style="margin-top:8px; color:var(--muted); font-weight:700; font-size:13px;">
+        O login da equipe é único. Aqui você escolhe em qual competição quer operar agora.
+    </div>
+</div>
+{% endif %}
+
 <div class="equipe-home-grid">
     <div class="equipe-home-card">
         <div class="equipe-home-label">Atletas cadastrados</div>

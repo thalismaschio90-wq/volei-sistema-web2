@@ -1,6 +1,98 @@
 {% extends "base.html" %}
 
-{% block titulo %}Painel do Superadmin{% endblock %}
+{% block titulo %}Painel do Superadmin
+<div id="sa-toast" class="sa-toast"></div>
+
+<script>
+(function () {
+    const toggle = document.getElementById("offline-toggle");
+    const pill = document.getElementById("offline-status-pill");
+    const toast = document.getElementById("sa-toast");
+
+    function mostrarToast(texto, tipo) {
+        if (!toast) return;
+        toast.textContent = texto;
+        toast.className = "sa-toast" + (tipo ? " " + tipo : "");
+        toast.style.display = "block";
+
+        clearTimeout(window.__saToastTimer);
+        window.__saToastTimer = setTimeout(() => {
+            toast.style.display = "none";
+        }, 3500);
+    }
+
+    function pintarStatus(ativo) {
+        if (!pill || !toggle) return;
+
+        toggle.checked = !!ativo;
+        pill.className = "sa-status-pill " + (ativo ? "on" : "off");
+        pill.textContent = ativo ? "Offline liberado" : "Offline bloqueado";
+    }
+
+    async function carregarOfflineGlobalSuperadmin() {
+        try {
+            const resp = await fetch("/superadmin/config/offline", {
+                cache: "no-store",
+                credentials: "same-origin"
+            });
+
+            if (!resp.ok) {
+                throw new Error("Não foi possível consultar a configuração offline.");
+            }
+
+            const dados = await resp.json();
+            pintarStatus(!!dados.offline_habilitado);
+        } catch (e) {
+            console.error(e);
+            pintarStatus(false);
+            mostrarToast("Erro ao carregar configuração offline.", "erro");
+        }
+    }
+
+    window.salvarOfflineGlobalSuperadmin = async function () {
+        if (!toggle) return;
+
+        const valor = !!toggle.checked;
+        pintarStatus(valor);
+
+        try {
+            const resp = await fetch("/superadmin/config/offline", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    offline_habilitado: valor
+                })
+            });
+
+            const dados = await resp.json().catch(() => ({}));
+
+            if (!resp.ok || !dados.ok) {
+                throw new Error(dados.erro || "Erro ao salvar configuração.");
+            }
+
+            pintarStatus(!!dados.offline_habilitado);
+            mostrarToast(
+                dados.offline_habilitado
+                    ? "Modo offline liberado para o sistema."
+                    : "Modo offline bloqueado para o sistema.",
+                "ok"
+            );
+        } catch (e) {
+            console.error(e);
+            mostrarToast("Erro ao salvar configuração offline.", "erro");
+            carregarOfflineGlobalSuperadmin();
+        }
+    };
+
+    document.addEventListener("DOMContentLoaded", carregarOfflineGlobalSuperadmin);
+    carregarOfflineGlobalSuperadmin();
+})();
+</script>
+
+{% endblock %}
 
 {% block conteudo %}
 <style>
@@ -112,6 +204,147 @@
         color: #123852;
     }
 
+
+    .sa-offline-box {
+        margin-top: 18px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+    }
+
+    .sa-offline-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+    }
+
+    .sa-offline-title {
+        font-size: 20px;
+        font-weight: 1000;
+        color: var(--text);
+    }
+
+    .sa-offline-desc {
+        color: var(--muted);
+        font-weight: 700;
+        font-size: 13px;
+        line-height: 1.45;
+        max-width: 760px;
+    }
+
+    .sa-switch-wrap {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .sa-switch {
+        position: relative;
+        display: inline-flex;
+        width: 62px;
+        height: 34px;
+    }
+
+    .sa-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .sa-slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #cbd5e1;
+        border-radius: 999px;
+        transition: .2s ease;
+    }
+
+    .sa-slider:before {
+        content: "";
+        position: absolute;
+        height: 26px;
+        width: 26px;
+        left: 4px;
+        top: 4px;
+        background: white;
+        border-radius: 999px;
+        transition: .2s ease;
+        box-shadow: 0 4px 10px rgba(15,23,42,.22);
+    }
+
+    .sa-switch input:checked + .sa-slider {
+        background: #0f766e;
+    }
+
+    .sa-switch input:checked + .sa-slider:before {
+        transform: translateX(28px);
+    }
+
+    .sa-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 1000;
+        text-transform: uppercase;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        color: #475569;
+    }
+
+    .sa-status-pill.on {
+        border-color: #86efac;
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .sa-status-pill.off {
+        border-color: #fdba74;
+        background: #fff7ed;
+        color: #9a3412;
+    }
+
+    .sa-offline-warning {
+        margin-top: 12px;
+        border: 1px solid #fdba74;
+        background: #fff7ed;
+        color: #9a3412;
+        border-radius: 16px;
+        padding: 12px;
+        font-weight: 850;
+        font-size: 13px;
+        line-height: 1.45;
+    }
+
+    .sa-toast {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        transform: translateX(-50%);
+        z-index: 99999;
+        min-width: min(520px, calc(100vw - 28px));
+        background: #0f2f4a;
+        color: #fff;
+        border-radius: 16px;
+        padding: 13px 16px;
+        box-shadow: 0 18px 45px rgba(15,47,74,.28);
+        display: none;
+        font-weight: 900;
+        text-align: center;
+    }
+
+    .sa-toast.ok { background: #166534; }
+    .sa-toast.erro { background: #991b1b; }
+
     @media (max-width: 1100px) {
         .sa-module-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -149,6 +382,34 @@
         <div class="numero-valor">{{ total_partidas or 0 }}</div>
     </div>
 </div>
+
+
+<div class="sa-offline-box">
+    <div class="sa-offline-head">
+        <div>
+            <div class="sa-offline-title">📦 Modo Offline do sistema</div>
+            <div class="sa-offline-desc">
+                Controle global para liberar ou bloquear todas as funções offline do VolleyTable Pro.
+                Quando estiver desativado, o apontador não verá botões de offline e as rotas offline ficam bloqueadas.
+            </div>
+        </div>
+
+        <div class="sa-switch-wrap">
+            <span id="offline-status-pill" class="sa-status-pill off">Carregando...</span>
+
+            <label class="sa-switch" title="Habilitar ou desabilitar modo offline global">
+                <input id="offline-toggle" type="checkbox" onchange="salvarOfflineGlobalSuperadmin()">
+                <span class="sa-slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <div class="sa-offline-warning">
+        Use esta trava enquanto o modo offline ainda estiver em teste.
+        Se desativar aqui, o recurso some do painel do apontador e o acesso direto ao offline também é bloqueado.
+    </div>
+</div>
+
 
 <div class="card-painel">
     <div style="font-size:20px;font-weight:1000;margin-bottom:6px;">
@@ -208,4 +469,96 @@
 
     </div>
 </div>
+
+<div id="sa-toast" class="sa-toast"></div>
+
+<script>
+(function () {
+    const toggle = document.getElementById("offline-toggle");
+    const pill = document.getElementById("offline-status-pill");
+    const toast = document.getElementById("sa-toast");
+
+    function mostrarToast(texto, tipo) {
+        if (!toast) return;
+        toast.textContent = texto;
+        toast.className = "sa-toast" + (tipo ? " " + tipo : "");
+        toast.style.display = "block";
+
+        clearTimeout(window.__saToastTimer);
+        window.__saToastTimer = setTimeout(() => {
+            toast.style.display = "none";
+        }, 3500);
+    }
+
+    function pintarStatus(ativo) {
+        if (!pill || !toggle) return;
+
+        toggle.checked = !!ativo;
+        pill.className = "sa-status-pill " + (ativo ? "on" : "off");
+        pill.textContent = ativo ? "Offline liberado" : "Offline bloqueado";
+    }
+
+    async function carregarOfflineGlobalSuperadmin() {
+        try {
+            const resp = await fetch("/superadmin/config/offline", {
+                cache: "no-store",
+                credentials: "same-origin"
+            });
+
+            if (!resp.ok) {
+                throw new Error("Não foi possível consultar a configuração offline.");
+            }
+
+            const dados = await resp.json();
+            pintarStatus(!!dados.offline_habilitado);
+        } catch (e) {
+            console.error(e);
+            pintarStatus(false);
+            mostrarToast("Erro ao carregar configuração offline.", "erro");
+        }
+    }
+
+    window.salvarOfflineGlobalSuperadmin = async function () {
+        if (!toggle) return;
+
+        const valor = !!toggle.checked;
+        pintarStatus(valor);
+
+        try {
+            const resp = await fetch("/superadmin/config/offline", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    offline_habilitado: valor
+                })
+            });
+
+            const dados = await resp.json().catch(() => ({}));
+
+            if (!resp.ok || !dados.ok) {
+                throw new Error(dados.erro || "Erro ao salvar configuração.");
+            }
+
+            pintarStatus(!!dados.offline_habilitado);
+            mostrarToast(
+                dados.offline_habilitado
+                    ? "Modo offline liberado para o sistema."
+                    : "Modo offline bloqueado para o sistema.",
+                "ok"
+            );
+        } catch (e) {
+            console.error(e);
+            mostrarToast("Erro ao salvar configuração offline.", "erro");
+            carregarOfflineGlobalSuperadmin();
+        }
+    };
+
+    document.addEventListener("DOMContentLoaded", carregarOfflineGlobalSuperadmin);
+    carregarOfflineGlobalSuperadmin();
+})();
+</script>
+
 {% endblock %}

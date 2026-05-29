@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="hero-box">
+    <div class="hero-titulo">Painel da Equipe</div>
+    <p class="hero-texto">
+        Escolha em qual competição deseja entrar.
+    </p>
+</div>
+
+<div class="cards-competicoes">
+    {% for comp in competicoes %}
+        <div class="competicao-card card-painel">
+            <div class="competicao-nome">
+                {{ comp.nome or comp.competicao }}
+            </div>
+
+            <div class="competicao-info">
+                Você está vinculada a esta competição.
+            </div>
+
+            <form method="post" action="{{ url_for('equipes.selecionar_competicao_equipe_view') }}">
+                <input type="hidden" name="competicao" value="{{ comp.nome or comp.competicao }}">
+                <button type="submit" class="btn-padrao">
+                    Entrar na competição
+                </button>
+            </form>
+        </div>
+    {% else %}
+        <div class="card-painel">
+            Sua equipe ainda não está vinculada a nenhuma competição.
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

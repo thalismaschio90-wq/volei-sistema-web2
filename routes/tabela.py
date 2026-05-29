@@ -21,6 +21,11 @@ from banco import (
     fase_grupos_esta_travada_por_jogo,
     fase_partidas_pode_ser_alterada,
     fase_tem_partida_iniciada,
+    listar_quadras_competicao,
+    garantir_quadras_competicao,
+    buscar_quadra_competicao_por_id,
+    vincular_grupo_a_quadra,
+    aplicar_quadra_em_partida,
     conectar,
 )
 
@@ -95,6 +100,48 @@ def _nome_fase_mata_mata(fase_subaba):
         "finais": "Final",
     }
     return mapa.get(fase_subaba, "")
+
+
+def _to_int_or_none(valor):
+    try:
+        if valor in (None, ""):
+            return None
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _quadra_label(item):
+    if not item:
+        return "Sem quadra"
+    return (
+        item.get("quadra_nome")
+        or item.get("quadra")
+        or item.get("nome")
+        or "Sem quadra"
+    )
+
+
+def _quadra_id_do_grupo(grupo):
+    return _to_int_or_none((grupo or {}).get("quadra_id"))
+
+
+def _quadra_padrao_do_grupo(grupos_raw, grupo_nome):
+    grupo_nome = (grupo_nome or "").strip().upper()
+    for g in grupos_raw or []:
+        if (g.get("nome") or "").strip().upper() == grupo_nome:
+            return _quadra_id_do_grupo(g)
+    return None
+
+
+def _dados_quadra(nome_competicao, quadra_id):
+    quadra_id = _to_int_or_none(quadra_id)
+    if not quadra_id:
+        return None, ""
+    quadra = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
+    if not quadra:
+        return None, ""
+    return int(quadra["id"]), (quadra.get("nome") or f"Quadra {quadra.get('ordem') or ''}").strip()
 
 
 def _status_tabela_para_trava(partida):
@@ -183,7 +230,7 @@ def _fase_pode_ser_alterada_sem_travar_mata_mata(competicao_nome, fase_banco):
 
 
 
-def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem, fase_banco, origem="manual"):
+def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem, fase_banco, origem="manual", quadra_id=None):
     """
     Cria partida pela tela da tabela.
 
@@ -193,6 +240,8 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
     Também grava status_jogo='agendada', porque no banco antigo status_jogo tem DEFAULT 'pre_jogo'
     e isso fazia a tela achar que a partida já tinha iniciado logo depois de criar.
     """
+    quadra_id, quadra_nome = _dados_quadra(competicao_nome, quadra_id)
+
     if fase_banco == "grupos":
         retorno = criar_partida(
             competicao_nome,
@@ -200,8 +249,11 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
             equipe_a,
             equipe_b,
             ordem,
+            quadra=quadra_nome or None,
             fase=fase_banco,
             origem=origem,
+            quadra_id=quadra_id,
+            quadra_nome=quadra_nome,
         )
         return retorno is not False
 
@@ -209,10 +261,11 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO partidas (
-                    competicao, grupo, equipe_a, equipe_b, fase, ordem, origem, status
+                    competicao, grupo, equipe_a, equipe_b, fase, ordem,
+                    quadra, quadra_id, quadra_nome, origem, status
                 )
-                VALUES (%s, NULL, %s, %s, %s, %s, %s, 'agendada')
-            """, (competicao_nome, equipe_a, equipe_b, fase_banco, ordem, origem))
+                VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, 'agendada')
+            """, (competicao_nome, equipe_a, equipe_b, fase_banco, ordem, quadra_nome or None, quadra_id, quadra_nome or '', origem))
         conn.commit()
 
     return True
@@ -329,6 +382,9 @@ def _preparar_partidas(partidas):
             or partida.get("placar_b")
             or 0
         )
+
+        partida["quadra_label"] = _quadra_label(partida)
+        partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
 
         partidas_preparadas.append(partida)
 
@@ -705,7 +761,9 @@ def visualizador_publico(competicao_nome):
         equipes_grupo = listar_equipes_por_grupo(g["id"])
         grupos.append({
             "grupo": g,
-            "equipes": equipes_grupo
+            "equipes": equipes_grupo,
+            "quadra_label": _quadra_label(g),
+            "quadra_id": _quadra_id_do_grupo(g),
         })
 
     competicao_fake = {
@@ -750,6 +808,7 @@ def tabela_view():
     if fase_subaba not in {"classificatorias", "quartas", "semifinais", "finais"}:
         fase_subaba = "classificatorias"
 
+    quadras = garantir_quadras_competicao(competicao["nome"], competicao.get("qtd_quadras") or 1)
     grupos_raw = listar_grupos(competicao["nome"])
     equipes = listar_equipes_da_competicao(competicao["nome"])
     partidas = listar_partidas(competicao["nome"])
@@ -759,7 +818,9 @@ def tabela_view():
         equipes_grupo = listar_equipes_por_grupo(g["id"])
         grupos.append({
             "grupo": g,
-            "equipes": equipes_grupo
+            "equipes": equipes_grupo,
+            "quadra_label": _quadra_label(g),
+            "quadra_id": _quadra_id_do_grupo(g),
         })
 
     partidas_preparadas = _preparar_partidas(partidas)
@@ -773,6 +834,7 @@ def tabela_view():
         competicao=competicao,
         grupos=grupos,
         equipes=equipes,
+        quadras=quadras,
         partidas=partidas_preparadas,
         partidas_fase=partidas_fase,
         classificacao=classificacao,
@@ -810,6 +872,40 @@ def criar_grupo_view():
     criar_grupo(nome, competicao["nome"])
 
     flash("Grupo criado com sucesso.", "sucesso")
+    return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+
+# =========================================================
+# VINCULAR GRUPO À QUADRA
+# =========================================================
+@tabela_bp.route("/tabela/grupo-quadra", methods=["POST"])
+@exigir_organizador_da_competicao
+def vincular_grupo_quadra_view():
+    grupo_nome = (request.form.get("grupo_nome") or "").strip().upper()
+    quadra_id = _to_int_or_none(request.form.get("quadra_id"))
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if not grupo_nome:
+        flash("Grupo inválido.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
+        flash("A fase classificatória já iniciou. Não é possível trocar a quadra padrão do grupo.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+    if not quadra_id:
+        flash("Selecione uma quadra válida.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+    if vincular_grupo_a_quadra(competicao["nome"], grupo_nome, quadra_id):
+        flash(f"Grupo {grupo_nome} vinculado à quadra.", "sucesso")
+    else:
+        flash("Não foi possível vincular a quadra ao grupo.", "erro")
+
     return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
 
@@ -952,6 +1048,7 @@ def nova_partida():
     equipe_a = (request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante") or "").strip()
     equipe_b = (request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante") or "").strip()
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
+    quadra_id = _to_int_or_none(request.form.get("quadra_id"))
 
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
 
@@ -963,6 +1060,8 @@ def nova_partida():
 
     # O mata-mata NÃO usa grupo. Grupo só é obrigatório nas classificatórias.
     grupo = (grupo or "").strip().upper() if fase_banco == "grupos" else None
+    if fase_banco == "grupos" and not quadra_id:
+        quadra_id = _quadra_padrao_do_grupo(listar_grupos(competicao["nome"]), grupo)
 
     if fase_banco == "grupos" and not grupo:
         flash("Informe o grupo para jogo classificatório.", "erro")
@@ -1010,6 +1109,7 @@ def nova_partida():
         ordem,
         fase_banco,
         origem="manual",
+        quadra_id=quadra_id,
     )
 
     if not ok_criacao:
@@ -1035,6 +1135,7 @@ def atualizar_partida_view(partida_id):
 
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
     fase_banco = _fase_subaba_para_banco(fase_subaba)
+    quadra_id = _to_int_or_none(request.form.get("quadra_id"))
 
     if fase_banco == "grupos":
         flash("Jogos classificatórios não podem ser editados por aqui depois da geração. Use excluir e recriar antes do início.", "erro")
@@ -1054,6 +1155,8 @@ def atualizar_partida_view(partida_id):
         flash("Esta fase já iniciou. Não é possível alterar partidas dela.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
+    quadra_id, quadra_nome = _dados_quadra(competicao["nome"], quadra_id)
+
     ok = atualizar_partida(
         partida_id,
         competicao["nome"],
@@ -1061,6 +1164,9 @@ def atualizar_partida_view(partida_id):
         fase_banco,
         equipe_a,
         equipe_b,
+        quadra=quadra_nome or None,
+        quadra_id=quadra_id,
+        quadra_nome=quadra_nome,
         status="agendada",
     )
 
@@ -1191,7 +1297,7 @@ def gerar_automatico():
         limpar_partidas_por_fase(competicao["nome"], fase_banco)
         ordem = len(listar_partidas(competicao["nome"])) + 1
         for equipe_a, equipe_b in confrontos:
-            _criar_partida_para_tabela(competicao["nome"], None, equipe_a, equipe_b, ordem, fase_banco, origem="automatica")
+            _criar_partida_para_tabela(competicao["nome"], None, equipe_a, equipe_b, ordem, fase_banco, origem="automatica", quadra_id=_to_int_or_none(request.form.get("quadra_id")))
             ordem += 1
 
         flash("Jogos do mata-mata gerados automaticamente. Você ainda pode excluir e recriar enquanto a fase não iniciar.", "sucesso")
@@ -1272,14 +1378,19 @@ def gerar_automatico():
             jogos_da_rodada.remove(melhor_jogo)
 
         for grupo_nome, (t1, t2) in jogos_ordenados:
+            quadra_id = _quadra_padrao_do_grupo(grupos_raw, grupo_nome)
+            _, quadra_nome = _dados_quadra(competicao["nome"], quadra_id)
             criar_partida(
                 competicao["nome"],
                 grupo_nome,
                 t1,
                 t2,
                 ordem,
+                quadra=quadra_nome or None,
                 fase="grupos",
                 origem="automatica",
+                quadra_id=quadra_id,
+                quadra_nome=quadra_nome,
             )
             ordem += 1
 

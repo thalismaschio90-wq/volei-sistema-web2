@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block titulo %}Completar perfil da equipe{% endblock %}
+
+{% block conteudo %}
+<div class="topo-secao">
+    <div class="titulo-secao">Complete o perfil da equipe</div>
+</div>
+
+<div class="hero-box">
+    <div class="hero-titulo">{{ equipe.nome }}</div>
+    <p class="hero-texto">
+        Antes de acessar as competições, informe os dados principais da equipe.
+        Cidade, responsável e telefone são obrigatórios para identificar corretamente a equipe no sistema.
+    </p>
+</div>
+
+<div class="card-painel" style="max-width: 760px;">
+    <form method="post">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+            <div>
+                <label for="cidade">Cidade *</label>
+                <input type="text" id="cidade" name="cidade" value="{{ equipe.cidade or '' }}" required placeholder="Ex: Antônio Prado">
+            </div>
+
+            <div>
+                <label for="responsavel">Responsável *</label>
+                <input type="text" id="responsavel" name="responsavel" value="{{ equipe.responsavel or '' }}" required placeholder="Nome do responsável">
+            </div>
+
+            <div>
+                <label for="telefone">Telefone/WhatsApp *</label>
+                <input type="text" id="telefone" name="telefone" value="{{ equipe.telefone or '' }}" required placeholder="(54) 99999-9999">
+            </div>
+
+            <div>
+                <label for="email">E-mail</label>
+                <input type="text" id="email" name="email" value="{{ equipe.email or '' }}" placeholder="email@exemplo.com">
+            </div>
+
+            <div style="grid-column:1 / -1;">
+                <label for="instagram">Instagram</label>
+                <input type="text" id="instagram" name="instagram" value="{{ equipe.instagram or '' }}" placeholder="@suaequipe">
+            </div>
+        </div>
+
+        <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao">Salvar e continuar</button>
+            <a href="{{ url_for('auth.logout') }}" class="btn-secundario">Sair</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

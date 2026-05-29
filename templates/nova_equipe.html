@@ -1,9 +1,20 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+<style>
+    .form-card-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    .radio-card { border:1px solid var(--border); background:var(--surface-soft); border-radius:16px; padding:16px; }
+    .sugestoes-grid { display:grid; gap:12px; margin-top:14px; }
+    .sugestao-equipe { border:1px solid var(--border); background:#fff; border-radius:16px; padding:16px; box-shadow:var(--shadow); }
+    .sugestao-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .sugestao-nome { font-size:20px; font-weight:900; color:var(--text); }
+    .sugestao-info { color:var(--muted); font-size:14px; margin-top:4px; line-height:1.45; }
+    .aviso-identidade { background:#fff8e7; border:1px solid #f0dfb0; color:#74530c; border-radius:14px; padding:14px; font-weight:700; line-height:1.45; }
+    @media (max-width: 760px) { .form-card-grid { grid-template-columns:1fr; } }
+</style>
 
 <div class="topo-secao">
-    <div class="titulo-secao">Nova equipe</div>
+    <div class="titulo-secao">Adicionar equipe</div>
     <a href="{{ url_for('equipes.listar_equipes_view') }}" class="btn-secundario">Voltar</a>
 </div>
 
@@ -12,41 +23,97 @@
     <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
 </div>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        <div class="flash-box">
-            {% for categoria, mensagem in messages %}
-                {% if categoria == "erro" %}
-                    <div class="flash-erro">{{ mensagem }}</div>
-                {% else %}
-                    <div class="flash-sucesso">{{ mensagem }}</div>
-                {% endif %}
-            {% endfor %}
-        </div>
-    {% endif %}
-{% endwith %}
+<div class="aviso-identidade" style="margin-bottom:15px;">
+    Primeiro busque se a equipe já existe. Se ela aparecer com cidade/responsável corretos, clique em <strong>Vincular</strong>. Se não for a mesma equipe, crie um novo cadastro com identificação própria.
+</div>
 
-<div class="card-painel" style="max-width: 700px;">
+<div class="card-painel" style="max-width: 900px;">
     <form method="post">
-        <div style="margin-bottom: 15px;">
-            <label for="nome" style="display:block; margin-bottom:8px; font-weight:bold; color:#12344d;">
-                Nome da equipe
-            </label>
-            <input
-                type="text"
-                id="nome"
-                name="nome"
-                required
-                style="width:100%; padding:12px 14px; border:1px solid #cfd8e3; border-radius:8px; font-size:16px;"
-            >
+        <input type="hidden" name="acao" value="buscar">
+        <label for="nome">Buscar equipe existente</label>
+        <input
+            type="text"
+            id="nome"
+            name="nome"
+            value="{{ nome_busca or '' }}"
+            placeholder="Digite nome, cidade, responsável, telefone ou e-mail"
+            autocomplete="off"
+        >
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao">Buscar equipe</button>
+        </div>
+    </form>
+
+    {% if sugestoes %}
+    <div class="sugestoes-grid">
+        {% for equipe in sugestoes %}
+        <div class="sugestao-equipe">
+            <div class="sugestao-top">
+                <div>
+                    <div class="sugestao-nome">{{ equipe.nome }}</div>
+                    <div class="sugestao-info">
+                        <strong>Cidade:</strong> {{ equipe.cidade or 'Não informada' }}<br>
+                        <strong>Responsável:</strong> {{ equipe.responsavel or 'Não informado' }}<br>
+                        <strong>Telefone:</strong> {{ equipe.telefone or 'Não informado' }}<br>
+                        <strong>E-mail:</strong> {{ equipe.email or 'Não informado' }}<br>
+                        <strong>Última competição:</strong> {{ equipe.ultima_competicao or 'Nenhuma registrada' }}
+                    </div>
+                </div>
+                <form method="post">
+                    <input type="hidden" name="acao" value="vincular">
+                    <input type="hidden" name="login_equipe" value="{{ equipe.login }}">
+                    <button type="submit" class="btn-padrao">Vincular esta equipe</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="card-painel" style="max-width: 900px;">
+    <div style="font-size:20px; font-weight:900; margin-bottom:8px; color:var(--text);">Criar nova equipe</div>
+    <div style="color:var(--muted); font-weight:700; line-height:1.45; margin-bottom:14px;">
+        Use esta opção apenas quando nenhuma equipe encontrada for a correta. Cidade, responsável e telefone ajudam a diferenciar equipes com o mesmo nome.
+    </div>
+
+    <form method="post">
+        <input type="hidden" name="acao" value="criar">
+
+        <div style="margin-bottom:14px;">
+            <label for="nome_criar">Nome da equipe</label>
+            <input id="nome_criar" name="nome" type="text" value="{{ nome_busca or '' }}" required>
         </div>
 
-        <div class="card-painel" style="background:#f8fbff; margin-bottom: 15px;">
-            O sistema vai gerar automaticamente o <strong>login</strong> e a <strong>senha</strong> da equipe.
+        <div class="form-card-grid">
+            <div>
+                <label for="cidade">Cidade *</label>
+                <input id="cidade" name="cidade" type="text" placeholder="Ex.: Antônio Prado" required>
+            </div>
+            <div>
+                <label for="responsavel">Responsável *</label>
+                <input id="responsavel" name="responsavel" type="text" placeholder="Nome do responsável" required>
+            </div>
+            <div>
+                <label for="telefone">Telefone/WhatsApp *</label>
+                <input id="telefone" name="telefone" type="text" placeholder="(54) 99999-9999" required>
+            </div>
+            <div>
+                <label for="email">E-mail</label>
+                <input id="email" name="email" type="text" placeholder="email@exemplo.com">
+            </div>
+            <div>
+                <label for="instagram">Instagram</label>
+                <input id="instagram" name="instagram" type="text" placeholder="@equipe">
+            </div>
+        </div>
+
+        <div class="card-painel" style="background:#f8fbff; margin-top:15px; margin-bottom:15px;">
+            O sistema vai gerar automaticamente o <strong>login</strong> e a <strong>senha</strong> da nova equipe.
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao">Salvar equipe</button>
+            <button type="submit" class="btn-padrao">Criar nova equipe</button>
             <a href="{{ url_for('equipes.listar_equipes_view') }}" class="btn-secundario">Cancelar</a>
         </div>
     </form>

@@ -13,6 +13,9 @@ from banco import (
     redefinir_senha_organizador,
     competicao_esta_travada,
     destravar_competicao,
+    listar_quadras_competicao,
+    garantir_quadras_competicao,
+    salvar_quadras_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -39,6 +42,50 @@ def _to_int(valor, padrao=0, minimo=None):
     return numero
 
 
+def _to_int_ou_none(valor):
+    try:
+        numero = int(valor)
+        return numero if numero > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _coletar_quadras_form():
+    ids = request.form.getlist("quadra_id[]")
+    nomes = request.form.getlist("quadra_nome[]")
+    locais = request.form.getlist("quadra_local[]")
+    ordens = request.form.getlist("quadra_ordem[]")
+
+    quadras = []
+    total = max(len(nomes), len(locais), len(ordens), len(ids))
+
+    for idx in range(total):
+        quadra_id = _to_int_ou_none(ids[idx] if idx < len(ids) else None)
+        nome = (nomes[idx] if idx < len(nomes) else "").strip()
+        local = (locais[idx] if idx < len(locais) else "").strip()
+        ordem = _to_int(ordens[idx] if idx < len(ordens) else None, padrao=idx + 1, minimo=1)
+
+        # Uma linha totalmente vazia não entra. Isso permite remover quadras novas sem salvar sujeira.
+        if not nome and not local and not quadra_id:
+            continue
+
+        if not nome:
+            nome = f"Quadra {ordem}"
+
+        chave_ativa = f"quadra_ativa_{quadra_id}" if quadra_id else f"quadra_ativa_nova_{idx}"
+        ativa = request.form.get(chave_ativa) == "on"
+
+        quadras.append({
+            "id": quadra_id,
+            "nome": nome,
+            "local": local,
+            "ordem": ordem,
+            "ativa": ativa,
+        })
+
+    return sorted(quadras, key=lambda q: q.get("ordem") or 9999)
+
+
 @competicoes_bp.route("/competicoes")
 @exigir_perfil("superadmin", "organizador")
 def listar_competicoes_view():
@@ -63,9 +110,15 @@ def listar_competicoes_view():
             flash("Nenhuma competição vinculada a este organizador.", "erro")
             return redirect(url_for("painel.inicio"))
 
+        quadras = garantir_quadras_competicao(
+            competicao["nome"],
+            _to_int(competicao.get("qtd_quadras"), padrao=1, minimo=1),
+        )
+
         return render_template(
             "editar_competicao.html",
             competicao=competicao,
+            quadras=quadras,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
         )
 
@@ -266,8 +319,36 @@ def salvar_estrutura_view():
     }
 
     atualizar_estrutura_competicao(comp["nome"], dados)
+    garantir_quadras_competicao(comp["nome"], dados["qtd_quadras"])
 
-    flash("Estrutura da competição salva.", "sucesso")
+    flash("Estrutura da competição salva. As quadras foram ajustadas conforme a quantidade informada.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view"))
+
+
+@competicoes_bp.route("/competicoes/quadras", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_quadras_view():
+    comp = _competicao_do_organizador_logado()
+
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if competicao_esta_travada(comp["nome"]):
+        flash("A competição está travada. As quadras não podem mais ser alteradas.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view"))
+
+    quadras = _coletar_quadras_form()
+
+    if not quadras:
+        flash("Cadastre pelo menos uma quadra ativa para a competição.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view"))
+
+    qtd_quadras = len(quadras)
+    salvar_quadras_competicao(comp["nome"], quadras)
+    atualizar_estrutura_competicao(comp["nome"], {"qtd_quadras": qtd_quadras})
+
+    flash("Quadras da competição salvas com sucesso.", "sucesso")
     return redirect(url_for("competicoes.listar_competicoes_view"))
 
 

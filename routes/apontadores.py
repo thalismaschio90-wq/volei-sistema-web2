@@ -65,6 +65,13 @@ from socket_events import (
     emitir_substituicao_executada,
 )
 
+
+try:
+    from routes.offline_config import offline_global_habilitado
+except Exception:
+    def offline_global_habilitado():
+        return False
+
 apontadores_bp = Blueprint("apontadores", __name__)
 
 _CACHE_ARBITROS_COMPETICAO = {}
@@ -1005,32 +1012,47 @@ def painel_apontador():
 
     cpf = session.get("usuario")
     pode_jogo_avulso = apontador_pode_criar_jogo_avulso(cpf) if cpf else False
+    offline_habilitado = offline_global_habilitado()
 
     if not cpf:
         flash("CPF do apontador não encontrado na sessão.", "erro")
-        return render_template("painel_apontador.html", pode_jogo_avulso=pode_jogo_avulso)
+        return render_template(
+            "painel_apontador.html",
+            pode_jogo_avulso=pode_jogo_avulso,
+            offline_habilitado=offline_habilitado,
+        )
 
     oficial = buscar_oficial_por_cpf(cpf)
     if not oficial:
         flash("Não foi possível localizar o apontador pelo CPF informado.", "erro")
-        return render_template("painel_apontador.html", pode_jogo_avulso=pode_jogo_avulso)
+        return render_template(
+            "painel_apontador.html",
+            pode_jogo_avulso=pode_jogo_avulso,
+            offline_habilitado=offline_habilitado,
+        )
 
     competicoes = listar_competicoes_apontador(cpf)
 
     if not competicoes:
-        return render_template("painel_apontador.html", pode_jogo_avulso=pode_jogo_avulso)
+        return render_template(
+            "painel_apontador.html",
+            pode_jogo_avulso=pode_jogo_avulso,
+            offline_habilitado=offline_habilitado,
+        )
 
     if len(competicoes) == 1:
         return render_template(
             "painel_apontador.html",
             competicao_unica=competicoes[0],
-            pode_jogo_avulso=pode_jogo_avulso
+            pode_jogo_avulso=pode_jogo_avulso,
+            offline_habilitado=offline_habilitado,
         )
 
     return render_template(
         "painel_apontador.html",
         competicoes=competicoes,
-        pode_jogo_avulso=pode_jogo_avulso
+        pode_jogo_avulso=pode_jogo_avulso,
+        offline_habilitado=offline_habilitado,
     )
 
 
@@ -1047,7 +1069,8 @@ def entrar_competicao_apontador(competicao):
         modo_partidas=True,
         competicao_nome=competicao,
         partidas=partidas,
-        pode_jogo_avulso=apontador_pode_criar_jogo_avulso(session.get("usuario"))
+        pode_jogo_avulso=apontador_pode_criar_jogo_avulso(session.get("usuario")),
+        offline_habilitado=offline_global_habilitado(),
     )
 
 
@@ -1195,10 +1218,16 @@ def _offline_coletar_estados_eventos(competicao, partidas):
     return estados, eventos
 
 
-@apontadores_bp.route("/apontador/offline/pacote/<competicao>")
+@apontadores_bp.route("/apontador/offline/pacote/<path:competicao>")
 @exigir_perfil("apontador")
 def pacote_offline_competicao_apontador(competicao):
     """Pacote completo da competição para salvar no IndexedDB do dispositivo."""
+    if not offline_global_habilitado():
+        return _json_no_cache({
+            "ok": False,
+            "erro": "Modo offline bloqueado pelo Super ADM.",
+        }, 403)
+
     try:
         comp = buscar_competicao_por_nome(competicao) or {"competicao": competicao}
         partidas_brutas = listar_partidas(competicao) or []
@@ -1252,6 +1281,10 @@ def pacote_offline_competicao_apontador(competicao):
 @apontadores_bp.route("/offline-apontador")
 def offline_apontador_view():
     # Página simples; os dados reais são lidos do IndexedDB/localStorage no navegador.
+    if not offline_global_habilitado():
+        flash("Modo offline bloqueado pelo Super ADM.", "erro")
+        return redirect(url_for("apontadores.painel_apontador"))
+
     return render_template("offline_apontador.html")
 
 

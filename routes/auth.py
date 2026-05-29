@@ -4,6 +4,7 @@ from banco import (
     buscar_usuario_por_login,
     autenticar_apontador,
     definir_senha_apontador,
+    perfil_equipe_incompleto_por_login,
 )
 
 try:
@@ -102,6 +103,15 @@ def login():
         if session.get("perfil") == "apontador":
             return redirect(url_for("apontadores.painel_apontador"))
 
+        if session.get("perfil") == "equipe":
+            try:
+                if perfil_equipe_incompleto_por_login(session.get("usuario")):
+                    return redirect(url_for("equipes.perfil_equipe_view"))
+            except Exception as e:
+                print("AVISO PERFIL EQUIPE INCOMPLETO:", repr(e))
+
+            return redirect(url_for("equipes.painel_equipe_inicio_view"))
+
         return redirect(url_for("painel.inicio"))
 
     if request.method == "POST":
@@ -138,6 +148,16 @@ def login():
             session["perfil"] = usuario.get("perfil") or ""
             session["equipe"] = usuario.get("equipe")
             session["competicao_vinculada"] = usuario.get("competicao_vinculada")
+
+            if session.get("perfil") == "equipe":
+                try:
+                    if perfil_equipe_incompleto_por_login(usuario["login"]):
+                        return redirect(url_for("equipes.perfil_equipe_view"))
+                except Exception as e:
+                    print("AVISO PERFIL EQUIPE INCOMPLETO:", repr(e))
+
+                session.pop("competicao_equipe_atual", None)
+                return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
             if session.get("perfil") == "apontador":
                 return redirect(url_for("apontadores.painel_apontador"))

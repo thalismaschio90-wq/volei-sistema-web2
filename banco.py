@@ -35,6 +35,7 @@ _SCHEMA_FLAGS = {
     "campos_liberacao_extra_equipes": False,
     "campos_controle_inscricao_competicoes": False,
     "tabela_atletas": False,
+    "tabela_competicao_quadras": False,
 }
 _SCHEMA_LOCK = Lock()
 _POOL_LOCK = Lock()
@@ -725,6 +726,11 @@ def criar_competicao_com_organizador(nome, data, status, modo_operacao="simples"
 
         conn.commit()
 
+    try:
+        garantir_quadras_competicao(nome, 1)
+    except Exception as e:
+        print("AVISO: não foi possível criar quadra padrão da competição:", e)
+
     return {
         "login": login_organizador,
         "senha": senha_organizador
@@ -1082,6 +1088,7 @@ def excluir_competicao(nome):
         return False
 
     tabelas_por_competicao = [
+        "competicao_quadras",
         "competicao_oficiais",
         "equipe_conferencia",
         "eventos",
@@ -1093,7 +1100,7 @@ def excluir_competicao(nome):
         "sancoes_partida",
         "solicitacoes_treinador",
         "atletas",
-        "equipes",
+        "equipes_competicoes",
         "grupos",
         "partidas",
     ]
@@ -1118,9 +1125,16 @@ def excluir_competicao(nome):
                 """, (nome,))
 
                 cur.execute("""
+                    UPDATE usuarios
+                    SET competicao_vinculada = NULL
+                    WHERE competicao_vinculada = %s
+                      AND perfil = 'equipe'
+                """, (nome,))
+
+                cur.execute("""
                     DELETE FROM usuarios
                     WHERE competicao_vinculada = %s
-                      AND perfil NOT IN ('superadmin', 'apontador')
+                      AND perfil NOT IN ('superadmin', 'apontador', 'equipe')
                 """, (nome,))
 
                 for tabela in tabelas_por_competicao:
@@ -1324,6 +1338,7 @@ def limpar_demo_por_competicao(competicao, motivo="expirada"):
         return False
 
     tabelas_por_competicao = [
+        "competicao_quadras",
         "competicao_oficiais",
         "equipe_conferencia",
         "eventos",
@@ -1335,7 +1350,7 @@ def limpar_demo_por_competicao(competicao, motivo="expirada"):
         "sancoes_partida",
         "solicitacoes_treinador",
         "atletas",
-        "equipes",
+        "equipes_competicoes",
         "grupos",
         "partidas",
     ]
@@ -1600,6 +1615,11 @@ def criar_demo_temporaria(nome="", cpf="", whatsapp=""):
             demo = cur.fetchone()
 
         conn.commit()
+
+    try:
+        garantir_quadras_competicao(competicao, 1)
+    except Exception as e:
+        print("AVISO: não foi possível criar quadra padrão da demo:", e)
 
     return demo
 
@@ -2107,28 +2127,192 @@ def criar_campos_quadro_tecnico_equipes(force=False):
 
     _marcar_schema_pronto(chave)
 
-def listar_equipes_da_competicao(nome_competicao):
+
+def criar_tabela_equipes_competicoes(force=False):
+    """
+    Cria a tabela de vínculo entre equipe global e competição.
+
+    Mantém compatibilidade com o modelo antigo, onde equipes.competicao
+    guardava uma única competição. Depois da criação, migra os vínculos
+    antigos para equipes_competicoes sem apagar login/senha da equipe.
+    """
+    chave = "tabela_equipes_competicoes"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS equipes_competicoes (
+                    id SERIAL PRIMARY KEY,
+                    equipe_id INTEGER,
+                    equipe_login TEXT,
+                    equipe_nome TEXT NOT NULL,
+                    competicao TEXT NOT NULL,
+                    status TEXT DEFAULT 'ativa',
+                    grupo TEXT,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (equipe_nome, competicao)
+                )
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_competicao
+                ON equipes_competicoes (competicao)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_login
+                ON equipes_competicoes (equipe_login)
+            """)
+
+            colunas_equipes = _buscar_colunas_tabela("equipes")
+            if "competicao" in colunas_equipes:
+                cur.execute("""
+                    INSERT INTO equipes_competicoes (equipe_id, equipe_login, equipe_nome, competicao, status)
+                    SELECT
+                        NULL,
+                        e.login,
+                        e.nome,
+                        e.competicao,
+                        'ativa'
+                    FROM equipes e
+                    WHERE COALESCE(e.competicao, '') <> ''
+                    ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                    SET equipe_id = EXCLUDED.equipe_id,
+                        equipe_login = EXCLUDED.equipe_login,
+                        status = 'ativa'
+                """)
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("equipes_competicoes", None)
+    _marcar_schema_pronto(chave)
+
+
+def buscar_equipe_global_por_nome(nome_equipe, conn=None):
     criar_campos_quadro_tecnico_equipes()
-    criar_campos_liberacao_extra_equipes()
+
+    sql = """
+        SELECT
+            nome, login, senha,
+            treinador, auxiliar_tecnico, preparador_fisico, medico
+        FROM equipes
+        WHERE LOWER(nome) = LOWER(%s)
+        ORDER BY nome ASC
+        LIMIT 1
+    """
+
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, (nome_equipe,))
+            return cur.fetchone()
+
+    with conectar() as conn2:
+        return buscar_equipe_global_por_nome(nome_equipe, conn2)
+
+
+def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
+    criar_tabela_equipes_competicoes()
+
+    def _executar(cnx):
+        equipe = buscar_equipe_global_por_nome(nome_equipe, cnx)
+        if not equipe:
+            return None
+
+        with cnx.cursor() as cur:
+            cur.execute("""
+                SELECT id
+                FROM equipes_competicoes
+                WHERE LOWER(equipe_nome) = LOWER(%s)
+                  AND competicao = %s
+                LIMIT 1
+            """, (equipe["nome"], nome_competicao))
+            ja_vinculada = cur.fetchone() is not None
+
+            cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
+                VALUES (%s, %s, %s, 'ativa')
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login,
+                    status = 'ativa'
+            """, (equipe["login"], equipe["nome"], nome_competicao))
+
+            colunas_equipes = _buscar_colunas_tabela("equipes")
+            if "competicao" in colunas_equipes and not (equipe.get("competicao") if isinstance(equipe, dict) else None):
+                cur.execute("""
+                    UPDATE equipes
+                    SET competicao = COALESCE(NULLIF(competicao, ''), %s)
+                    WHERE login = %s
+                """, (nome_competicao, equipe["login"]))
+
+            cur.execute("""
+                UPDATE usuarios
+                SET competicao_vinculada = COALESCE(NULLIF(competicao_vinculada, ''), %s),
+                    equipe = %s
+                WHERE login = %s
+                  AND perfil = 'equipe'
+            """, (nome_competicao, equipe["nome"], equipe["login"]))
+
+        return {
+            "login": equipe["login"],
+            "senha": equipe["senha"],
+            "nome": equipe["nome"],
+            "ja_vinculada": ja_vinculada,
+            "vinculada": True,
+        }
+
+    if conn is not None:
+        return _executar(conn)
+
+    with conectar() as conn2:
+        resultado = _executar(conn2)
+        conn2.commit()
+        return resultado
+
+
+def listar_competicoes_da_equipe_por_login(login):
+    criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
-                    nome,
-                    login,
-                    senha,
-                    competicao,
-                    treinador,
-                    auxiliar_tecnico,
-                    preparador_fisico,
-                    medico,
-                    liberacao_extra_inscricao,
-                    liberacao_extra_data,
-                    liberacao_extra_hora
-                FROM equipes
-                WHERE competicao = %s
-                ORDER BY nome
+                    ec.competicao AS nome,
+                    COALESCE(c.status, '') AS status,
+                    COALESCE(c.data, '') AS data
+                FROM equipes_competicoes ec
+                LEFT JOIN competicoes c ON c.nome = ec.competicao
+                WHERE ec.equipe_login = %s
+                   OR LOWER(ec.equipe_nome) = LOWER((SELECT equipe FROM usuarios WHERE login = %s LIMIT 1))
+                ORDER BY c.data DESC NULLS LAST, ec.competicao
+            """, (login, login))
+            return cur.fetchall()
+
+def listar_equipes_da_competicao(nome_competicao):
+    criar_campos_quadro_tecnico_equipes()
+    criar_campos_liberacao_extra_equipes()
+    criar_tabela_equipes_competicoes()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    e.nome,
+                    e.login,
+                    e.senha,
+                    ec.competicao,
+                    e.treinador,
+                    e.auxiliar_tecnico,
+                    e.preparador_fisico,
+                    e.medico,
+                    e.liberacao_extra_inscricao,
+                    e.liberacao_extra_data,
+                    e.liberacao_extra_hora,
+                    ec.status AS status_vinculo
+                FROM equipes_competicoes ec
+                JOIN equipes e
+                  ON e.login = ec.equipe_login
+                  OR LOWER(e.nome) = LOWER(ec.equipe_nome)
+                WHERE ec.competicao = %s
+                ORDER BY e.nome
             """, (nome_competicao,))
             return cur.fetchall()
 
@@ -2136,9 +2320,38 @@ def listar_equipes_da_competicao(nome_competicao):
 def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
+    criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    e.nome,
+                    e.login,
+                    e.senha,
+                    ec.competicao,
+                    e.treinador,
+                    e.auxiliar_tecnico,
+                    e.preparador_fisico,
+                    e.medico,
+                    e.liberacao_extra_inscricao,
+                    e.liberacao_extra_data,
+                    e.liberacao_extra_hora,
+                    ec.status AS status_vinculo
+                FROM equipes_competicoes ec
+                JOIN equipes e
+                  ON e.login = ec.equipe_login
+                  OR LOWER(e.nome) = LOWER(ec.equipe_nome)
+                WHERE LOWER(ec.equipe_nome) = LOWER(%s)
+                  AND ec.competicao = %s
+                LIMIT 1
+            """, (nome_equipe, nome_competicao))
+            equipe = cur.fetchone()
+
+            if equipe:
+                return equipe
+
+            # Compatibilidade com registros antigos ainda não migrados.
             cur.execute("""
                 SELECT
                     nome,
@@ -2153,36 +2366,96 @@ def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
                     liberacao_extra_data,
                     liberacao_extra_hora
                 FROM equipes
-                WHERE nome = %s
+                WHERE LOWER(nome) = LOWER(%s)
                   AND competicao = %s
                 LIMIT 1
             """, (nome_equipe, nome_competicao))
             return cur.fetchone()
 
 
-def buscar_equipe_por_login(login):
+def buscar_equipe_por_login(login, competicao_atual=None):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
+    criar_tabela_equipes_competicoes()
+
+    login = (login or "").strip()
+    competicao_atual = (competicao_atual or "").strip()
+
+    if not login:
+        return None
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            if competicao_atual:
+                cur.execute("""
+                    SELECT
+                        e.nome,
+                        e.login,
+                        e.senha,
+
+                        e.cidade,
+                        e.responsavel,
+                        e.telefone,
+                        e.email,
+                        e.instagram,
+                        COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
+
+                        ec.competicao,
+                        ec.grupo,
+                        ec.status AS status_vinculo,
+
+                        e.treinador,
+                        e.auxiliar_tecnico,
+                        e.preparador_fisico,
+                        e.medico,
+                        e.liberacao_extra_inscricao,
+                        e.liberacao_extra_data,
+                        e.liberacao_extra_hora
+                    FROM equipes e
+                    JOIN equipes_competicoes ec
+                      ON ec.equipe_login = e.login
+                    WHERE e.login = %s
+                      AND ec.competicao = %s
+                    LIMIT 1
+                """, (login, competicao_atual))
+
+                equipe = cur.fetchone()
+
+                if equipe:
+                    return equipe
+
+                return None
+
             cur.execute("""
                 SELECT
-                    nome,
-                    login,
-                    senha,
-                    competicao,
-                    treinador,
-                    auxiliar_tecnico,
-                    preparador_fisico,
-                    medico,
-                    liberacao_extra_inscricao,
-                    liberacao_extra_data,
-                    liberacao_extra_hora
-                FROM equipes
-                WHERE login = %s
+                    e.nome,
+                    e.login,
+                    e.senha,
+
+                    e.cidade,
+                    e.responsavel,
+                    e.telefone,
+                    e.email,
+                    e.instagram,
+                    COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
+
+                    NULL::text AS competicao,
+                    NULL::text AS grupo,
+                    NULL::text AS status_vinculo,
+
+                    e.treinador,
+                    e.auxiliar_tecnico,
+                    e.preparador_fisico,
+                    e.medico,
+                    e.liberacao_extra_inscricao,
+                    e.liberacao_extra_data,
+                    e.liberacao_extra_hora
+                FROM equipes e
+                WHERE e.login = %s
                 LIMIT 1
             """, (login,))
+
             return cur.fetchone()
 
 
@@ -2215,8 +2488,20 @@ def atualizar_quadro_tecnico_equipe(nome_equipe, competicao, treinador, auxiliar
 
 
 def equipe_existe_na_competicao(nome_equipe, nome_competicao):
+    criar_tabela_equipes_competicoes()
+
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id
+                FROM equipes_competicoes
+                WHERE LOWER(equipe_nome) = LOWER(%s)
+                  AND competicao = %s
+                LIMIT 1
+            """, (nome_equipe, nome_competicao))
+            if cur.fetchone() is not None:
+                return True
+
             cur.execute("""
                 SELECT nome
                 FROM equipes
@@ -2230,12 +2515,27 @@ def equipe_existe_na_competicao(nome_equipe, nome_competicao):
 def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
-
-    login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
-    senha_equipe = _gerar_senha_aleatoria(8)
+    criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            equipe_existente = buscar_equipe_global_por_nome(nome_equipe, conn)
+
+            if equipe_existente:
+                resultado = vincular_equipe_a_competicao(equipe_existente["nome"], nome_competicao, conn)
+                conn.commit()
+                return {
+                    "login": resultado["login"],
+                    "senha": resultado["senha"],
+                    "nome": resultado["nome"],
+                    "vinculada": True,
+                    "ja_existia": True,
+                    "ja_vinculada": resultado.get("ja_vinculada", False),
+                }
+
+            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
+            senha_equipe = _gerar_senha_aleatoria(8)
+
             cur.execute("""
                 INSERT INTO equipes (
                     nome, login, senha, competicao,
@@ -2258,6 +2558,14 @@ def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
             ))
 
             cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
+                VALUES (%s, %s, %s, 'ativa')
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login,
+                    status = 'ativa'
+            """, (login_equipe, nome_equipe, nome_competicao))
+
+            cur.execute("""
                 INSERT INTO usuarios (
                     login, nome, senha, perfil, ativo, equipe, competicao_vinculada
                 )
@@ -2276,7 +2584,11 @@ def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
 
     return {
         "login": login_equipe,
-        "senha": senha_equipe
+        "senha": senha_equipe,
+        "nome": nome_equipe,
+        "vinculada": True,
+        "ja_existia": False,
+        "ja_vinculada": False,
     }
 
 
@@ -2288,10 +2600,13 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT login
-                FROM equipes
-                WHERE nome = %s
-                  AND competicao = %s
+                SELECT e.login
+                FROM equipes_competicoes ec
+                JOIN equipes e
+                  ON e.login = ec.equipe_login
+                  OR LOWER(e.nome) = LOWER(ec.equipe_nome)
+                WHERE LOWER(ec.equipe_nome) = LOWER(%s)
+                  AND ec.competicao = %s
                 LIMIT 1
             """, (nome_atual, nome_competicao))
             equipe = cur.fetchone()
@@ -2304,9 +2619,14 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
             cur.execute("""
                 UPDATE equipes
                 SET nome = %s
-                WHERE nome = %s
-                  AND competicao = %s
-            """, (novo_nome, nome_atual, nome_competicao))
+                WHERE login = %s
+            """, (novo_nome, login_equipe))
+
+            cur.execute("""
+                UPDATE equipes_competicoes
+                SET equipe_nome = %s
+                WHERE equipe_login = %s
+            """, (novo_nome, login_equipe))
 
             cur.execute("""
                 UPDATE usuarios
@@ -2314,8 +2634,7 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
                     equipe = %s
                 WHERE login = %s
                   AND perfil = 'equipe'
-                  AND competicao_vinculada = %s
-            """, (novo_nome, novo_nome, login_equipe, nome_competicao))
+            """, (novo_nome, novo_nome, login_equipe))
 
             cur.execute("""
                 UPDATE atletas
@@ -2327,8 +2646,6 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
         conn.commit()
 
     return True, "Atualizado com sucesso!"
-    # ou
-    return False, "Erro ao atualizar."
 
 
 def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
@@ -2336,14 +2653,7 @@ def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT login
-                FROM equipes
-                WHERE nome = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (nome_equipe, nome_competicao))
-            equipe = cur.fetchone()
+            equipe = buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao)
 
             if not equipe:
                 return None
@@ -2353,17 +2663,15 @@ def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
             cur.execute("""
                 UPDATE equipes
                 SET senha = %s
-                WHERE nome = %s
-                  AND competicao = %s
-            """, (nova_senha, nome_equipe, nome_competicao))
+                WHERE login = %s
+            """, (nova_senha, login_equipe))
 
             cur.execute("""
                 UPDATE usuarios
                 SET senha = %s
                 WHERE login = %s
                   AND perfil = 'equipe'
-                  AND competicao_vinculada = %s
-            """, (nova_senha, login_equipe, nome_competicao))
+            """, (nova_senha, login_equipe))
 
         conn.commit()
 
@@ -2374,38 +2682,31 @@ def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
 
 
 def excluir_equipe(nome_equipe, nome_competicao):
+    """
+    No modelo novo, excluir equipe dentro da competição significa DESVINCULAR.
+    O cadastro global, login e senha permanecem salvos e funcionais.
+    """
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
     if not ok_edicao:
         return False
 
+    criar_tabela_equipes_competicoes()
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT login
-                FROM equipes
-                WHERE nome = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (nome_equipe, nome_competicao))
-            equipe = cur.fetchone()
-
-            if not equipe:
-                return False
-
-            login_equipe = equipe["login"]
-
-            cur.execute("""
-                DELETE FROM equipes
-                WHERE nome = %s
+                DELETE FROM equipes_competicoes
+                WHERE LOWER(equipe_nome) = LOWER(%s)
                   AND competicao = %s
             """, (nome_equipe, nome_competicao))
 
             cur.execute("""
-                DELETE FROM usuarios
-                WHERE login = %s
-                  AND perfil = 'equipe'
+                UPDATE usuarios
+                SET competicao_vinculada = NULL
+                WHERE perfil = 'equipe'
+                  AND LOWER(equipe) = LOWER(%s)
                   AND competicao_vinculada = %s
-            """, (login_equipe, nome_competicao))
+            """, (nome_equipe, nome_competicao))
 
             cur.execute("""
                 DELETE FROM atletas
@@ -2909,7 +3210,12 @@ def criar_tabelas_grupos():
                 )
             """)
 
+            cur.execute("ALTER TABLE grupos ADD COLUMN IF NOT EXISTS quadra_id INTEGER")
+            cur.execute("ALTER TABLE grupos ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''")
+
         conn.commit()
+
+    _CACHE_COLUNAS.pop("grupos", None)
 
 
 def listar_grupos(competicao):
@@ -3112,6 +3418,8 @@ def criar_tabela_partidas():
 
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rodada INTEGER")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS quadra TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS quadra_id INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS data_hora TEXT")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'manual'")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS sets_a INTEGER DEFAULT 0")
@@ -3267,7 +3575,7 @@ def fase_partidas_pode_ser_alterada(nome_competicao, fase):
         return not fase_grupos_esta_travada_por_jogo(nome_competicao)
     return not fase_tem_partida_iniciada(nome_competicao, fase)
 
-def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fase='grupos', data_hora=None, rodada=None, origem='manual'):
+def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fase='grupos', data_hora=None, rodada=None, origem='manual', quadra_id=None, quadra_nome=None):
     fase = _normalizar_fase_partida(fase)
     grupo = grupo if fase == "grupos" else None
 
@@ -3278,15 +3586,16 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO partidas (
-                    competicao, grupo, equipe_a, equipe_b, fase, ordem, quadra, data_hora, rodada, origem, status,
+                    competicao, grupo, equipe_a, equipe_b, fase, ordem,
+                    quadra, quadra_id, quadra_nome, data_hora, rodada, origem, status,
                     sets_a, sets_b, set1_a, set1_b, set2_a, set2_b, set3_a, set3_b
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'agendada', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)
-            """, (competicao, grupo, equipe_a, equipe_b, fase, ordem, quadra, data_hora, rodada, origem))
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'agendada', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)
+            """, (competicao, grupo, equipe_a, equipe_b, fase, ordem, quadra, quadra_id, quadra_nome or quadra or '', data_hora, rodada, origem))
         conn.commit()
 
 
-def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='agendada', rodada=None):
+def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='agendada', rodada=None, quadra_id=None, quadra_nome=None):
     fase = _normalizar_fase_partida(fase)
     grupo = grupo if fase == "grupos" else None
 
@@ -3305,12 +3614,14 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
                     equipe_a = %s,
                     equipe_b = %s,
                     quadra = %s,
+                    quadra_id = %s,
+                    quadra_nome = %s,
                     data_hora = %s,
                     status = %s,
                     rodada = %s
                 WHERE id = %s
                   AND competicao = %s
-            """, (grupo, fase, equipe_a, equipe_b, quadra, data_hora, status, rodada, partida_id, competicao))
+            """, (grupo, fase, equipe_a, equipe_b, quadra, quadra_id, quadra_nome or quadra or '', data_hora, status, rodada, partida_id, competicao))
         conn.commit()
     return True
 
@@ -9017,3 +9328,562 @@ def definir_permissao_jogo_avulso_apontador(cpf, liberado):
             atualizado = cur.rowcount
         conn.commit()
     return atualizado > 0
+
+
+# =========================================================
+# QUADRAS DA COMPETIÇÃO
+# =========================================================
+def _tabela_existe_cur(cur, nome_tabela):
+    cur.execute("""
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        LIMIT 1
+    """, (nome_tabela,))
+    return cur.fetchone() is not None
+
+
+def criar_tabela_competicao_quadras(force=False):
+    """
+    Cria a estrutura real de quadras da competição.
+
+    Essa tabela substitui a lógica antiga de usar apenas qtd_quadras como número solto.
+    A competição continua mantendo qtd_quadras para compatibilidade, mas cada quadra
+    passa a ter nome, local, ordem e status ativo/inativo.
+    """
+    try:
+        if _schema_ja_pronto("tabela_competicao_quadras", force=force):
+            return
+    except Exception:
+        pass
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS competicao_quadras (
+                    id SERIAL PRIMARY KEY,
+                    competicao TEXT NOT NULL,
+                    nome TEXT NOT NULL,
+                    local TEXT DEFAULT '',
+                    ordem INTEGER DEFAULT 1,
+                    ativa BOOLEAN DEFAULT TRUE,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    atualizado_em TIMESTAMP DEFAULT NOW()
+                )
+            """)
+
+            cur.execute("""
+                ALTER TABLE competicao_quadras
+                ADD COLUMN IF NOT EXISTS competicao TEXT NOT NULL,
+                ADD COLUMN IF NOT EXISTS nome TEXT NOT NULL DEFAULT 'Quadra',
+                ADD COLUMN IF NOT EXISTS local TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS ordem INTEGER DEFAULT 1,
+                ADD COLUMN IF NOT EXISTS ativa BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competicao_quadras_competicao
+                ON competicao_quadras (competicao)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competicao_quadras_ordem
+                ON competicao_quadras (competicao, ordem)
+            """)
+
+            if _tabela_existe_cur(cur, "partidas"):
+                cur.execute("""
+                    ALTER TABLE partidas
+                    ADD COLUMN IF NOT EXISTS quadra_id INTEGER
+                """)
+                cur.execute("""
+                    ALTER TABLE partidas
+                    ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_partidas_competicao_quadra
+                    ON partidas (competicao, quadra_id)
+                """)
+
+            if _tabela_existe_cur(cur, "grupos"):
+                cur.execute("""
+                    ALTER TABLE grupos
+                    ADD COLUMN IF NOT EXISTS quadra_id INTEGER
+                """)
+                cur.execute("""
+                    ALTER TABLE grupos
+                    ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''
+                """)
+
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("competicao_quadras", None)
+    _CACHE_COLUNAS.pop("partidas", None)
+    _CACHE_COLUNAS.pop("grupos", None)
+
+    try:
+        _marcar_schema_pronto("tabela_competicao_quadras")
+    except Exception:
+        pass
+
+
+def listar_quadras_competicao(nome_competicao, somente_ativas=False):
+    criar_tabela_competicao_quadras()
+
+    sql = """
+        SELECT id, competicao, nome, local, ordem, ativa
+        FROM competicao_quadras
+        WHERE competicao = %s
+    """
+    params = [nome_competicao]
+
+    if somente_ativas:
+        sql += " AND COALESCE(ativa, TRUE) = TRUE"
+
+    sql += " ORDER BY COALESCE(ordem, 9999), id"
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            return cur.fetchall()
+
+
+def garantir_quadras_competicao(nome_competicao, qtd_quadras=1):
+    """
+    Garante que a competição tenha pelo menos qtd_quadras cadastradas.
+    Não apaga quadras existentes; apenas completa as que faltarem.
+    """
+    criar_tabela_competicao_quadras()
+
+    nome_competicao = (nome_competicao or "").strip()
+    if not nome_competicao:
+        return []
+
+    try:
+        qtd_quadras = int(qtd_quadras or 1)
+    except (TypeError, ValueError):
+        qtd_quadras = 1
+    qtd_quadras = max(1, qtd_quadras)
+
+    existentes = listar_quadras_competicao(nome_competicao)
+    if len(existentes) >= qtd_quadras:
+        return existentes
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            for ordem in range(len(existentes) + 1, qtd_quadras + 1):
+                cur.execute("""
+                    INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
+                    VALUES (%s, %s, %s, %s, TRUE)
+                """, (nome_competicao, f"Quadra {ordem}", "", ordem))
+        conn.commit()
+
+    return listar_quadras_competicao(nome_competicao)
+
+
+def salvar_quadras_competicao(nome_competicao, quadras):
+    """
+    Salva quadras mantendo IDs existentes e criando novas quando id vier vazio.
+    Não exclui fisicamente para não quebrar partidas antigas; quadras removidas do formulário ficam inativas.
+    """
+    criar_tabela_competicao_quadras()
+
+    nome_competicao = (nome_competicao or "").strip()
+    if not nome_competicao:
+        return []
+
+    quadras_normalizadas = []
+    for idx, q in enumerate(quadras or [], start=1):
+        q = q or {}
+        nome = (q.get("nome") or f"Quadra {idx}").strip()
+        local = (q.get("local") or "").strip()
+
+        try:
+            ordem = int(q.get("ordem") or idx)
+        except (TypeError, ValueError):
+            ordem = idx
+
+        quadras_normalizadas.append({
+            "id": q.get("id") or None,
+            "nome": nome,
+            "local": local,
+            "ordem": max(1, ordem),
+            "ativa": bool(q.get("ativa", True)),
+        })
+
+    if not quadras_normalizadas:
+        quadras_normalizadas = [{"id": None, "nome": "Quadra 1", "local": "", "ordem": 1, "ativa": True}]
+
+    ids_recebidos = []
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            for idx, q in enumerate(quadras_normalizadas, start=1):
+                quadra_id = q.get("id")
+                nome = q.get("nome") or f"Quadra {idx}"
+                local = q.get("local") or ""
+                ordem = q.get("ordem") or idx
+                ativa = bool(q.get("ativa", True))
+
+                if quadra_id:
+                    cur.execute("""
+                        UPDATE competicao_quadras
+                        SET nome = %s,
+                            local = %s,
+                            ordem = %s,
+                            ativa = %s,
+                            atualizado_em = NOW()
+                        WHERE id = %s
+                          AND competicao = %s
+                        RETURNING id
+                    """, (nome, local, ordem, ativa, int(quadra_id), nome_competicao))
+                    atualizada = cur.fetchone()
+                    if atualizada:
+                        ids_recebidos.append(int(atualizada["id"]))
+                    else:
+                        cur.execute("""
+                            INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
+                            VALUES (%s, %s, %s, %s, %s)
+                            RETURNING id
+                        """, (nome_competicao, nome, local, ordem, ativa))
+                        nova = cur.fetchone()
+                        if nova:
+                            ids_recebidos.append(int(nova["id"]))
+                else:
+                    cur.execute("""
+                        INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
+                        VALUES (%s, %s, %s, %s, %s)
+                        RETURNING id
+                    """, (nome_competicao, nome, local, ordem, ativa))
+                    nova = cur.fetchone()
+                    if nova:
+                        ids_recebidos.append(int(nova["id"]))
+
+            if ids_recebidos:
+                cur.execute("""
+                    UPDATE competicao_quadras
+                    SET ativa = FALSE,
+                        atualizado_em = NOW()
+                    WHERE competicao = %s
+                      AND NOT (id = ANY(%s))
+                """, (nome_competicao, ids_recebidos))
+
+            colunas_comp = _buscar_colunas_tabela("competicoes")
+            if "qtd_quadras" in colunas_comp:
+                cur.execute("""
+                    UPDATE competicoes
+                    SET qtd_quadras = %s
+                    WHERE nome = %s
+                """, (len(quadras_normalizadas), nome_competicao))
+
+        conn.commit()
+
+    return listar_quadras_competicao(nome_competicao)
+
+
+def buscar_quadra_competicao_por_id(nome_competicao, quadra_id):
+    criar_tabela_competicao_quadras()
+
+    if not quadra_id:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, competicao, nome, local, ordem, ativa
+                FROM competicao_quadras
+                WHERE competicao = %s
+                  AND id = %s
+                LIMIT 1
+            """, (nome_competicao, int(quadra_id)))
+            return cur.fetchone()
+
+
+def vincular_grupo_a_quadra(nome_competicao, grupo_nome, quadra_id):
+    """
+    Preparação para a próxima etapa: permite gravar a quadra padrão do grupo/chave
+    quando existir tabela grupos com coluna quadra_id.
+    """
+    criar_tabela_competicao_quadras()
+
+    quadra = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
+    if not quadra:
+        return False
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            if not _tabela_existe_cur(cur, "grupos"):
+                return False
+
+            colunas = _buscar_colunas_cur(cur, "grupos")
+            if "quadra_id" not in colunas:
+                return False
+
+            campo_nome = "nome" if "nome" in colunas else ("grupo" if "grupo" in colunas else None)
+            if not campo_nome:
+                return False
+
+            sets = ["quadra_id = %s"]
+            valores = [quadra["id"]]
+
+            if "quadra_nome" in colunas:
+                sets.append("quadra_nome = %s")
+                valores.append(quadra["nome"])
+
+            valores.extend([nome_competicao, grupo_nome])
+            cur.execute(f"""
+                UPDATE grupos
+                SET {', '.join(sets)}
+                WHERE competicao = %s
+                  AND {campo_nome} = %s
+            """, tuple(valores))
+
+        conn.commit()
+
+    return True
+
+
+def aplicar_quadra_em_partida(nome_competicao, partida_id, quadra_id):
+    """
+    Permite sobrescrever a quadra de uma partida específica sem mudar a quadra padrão do grupo.
+    """
+    criar_tabela_competicao_quadras()
+
+    quadra = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
+    if not quadra:
+        return False
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            if not _tabela_existe_cur(cur, "partidas"):
+                return False
+
+            colunas = _buscar_colunas_cur(cur, "partidas")
+            if "quadra_id" not in colunas:
+                return False
+
+            sets = ["quadra_id = %s"]
+            valores = [quadra["id"]]
+
+            if "quadra_nome" in colunas:
+                sets.append("quadra_nome = %s")
+                valores.append(quadra["nome"])
+
+            valores.extend([nome_competicao, int(partida_id)])
+            cur.execute(f"""
+                UPDATE partidas
+                SET {', '.join(sets)}
+                WHERE competicao = %s
+                  AND id = %s
+            """, tuple(valores))
+
+        conn.commit()
+
+    return True
+
+# =========================================================
+# PERFIL GLOBAL DA EQUIPE
+# =========================================================
+def criar_campos_perfil_equipe(force=False):
+    """
+    Garante os campos de perfil global da equipe.
+
+    Esses campos são opcionais para manter compatibilidade com equipes antigas.
+    A própria equipe pode completar depois pelo painel/perfil.
+    """
+    chave = "campos_perfil_equipe"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE equipes
+                ADD COLUMN IF NOT EXISTS cidade TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS responsavel TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS telefone TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS instagram TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS escudo TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS perfil_completo BOOLEAN DEFAULT FALSE
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_equipes_nome_lower
+                ON equipes (LOWER(TRIM(nome)))
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_equipes_login
+                ON equipes (login)
+            """)
+
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("equipes", None)
+    _marcar_schema_pronto(chave)
+
+
+def perfil_equipe_incompleto_por_login(login, conn=None):
+    """
+    Retorna True quando a equipe ainda não completou os dados mínimos do perfil.
+
+    Campos mínimos:
+    - cidade
+    - responsavel
+    - telefone
+
+    Mantém compatibilidade: se a equipe não existir, não bloqueia o login.
+    """
+    login = (login or "").strip()
+    if not login:
+        return False
+
+    criar_campos_perfil_equipe()
+
+    sql = """
+        SELECT
+            nome,
+            cidade,
+            responsavel,
+            telefone,
+            email,
+            instagram,
+            COALESCE(perfil_completo, FALSE) AS perfil_completo
+        FROM equipes
+        WHERE login = %s
+        LIMIT 1
+    """
+
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, (login,))
+            equipe = cur.fetchone()
+    else:
+        with conectar() as conn2:
+            return perfil_equipe_incompleto_por_login(login, conn2)
+
+    if not equipe:
+        return False
+
+    cidade = str(equipe.get("cidade") or "").strip()
+    responsavel = str(equipe.get("responsavel") or "").strip()
+    telefone = str(equipe.get("telefone") or "").strip()
+
+    return not cidade or not responsavel or not telefone
+
+
+def buscar_perfil_equipe_por_login(login, conn=None):
+    """
+    Busca o perfil global da equipe pelo login.
+    Usado para preencher a tela /perfil-equipe.
+    """
+    login = (login or "").strip()
+    if not login:
+        return None
+
+    criar_campos_perfil_equipe()
+
+    colunas = _buscar_colunas_tabela("equipes")
+    campos = [
+        "nome",
+        "login",
+        "senha",
+        "cidade",
+        "responsavel",
+        "telefone",
+        "email",
+        "instagram",
+        "escudo",
+        "COALESCE(perfil_completo, FALSE) AS perfil_completo",
+    ]
+
+    if "competicao" in colunas:
+        campos.insert(3, "competicao")
+    else:
+        campos.insert(3, "'' AS competicao")
+
+    sql = f"""
+        SELECT {", ".join(campos)}
+        FROM equipes
+        WHERE login = %s
+        LIMIT 1
+    """
+
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, (login,))
+            return cur.fetchone()
+
+    with conectar() as conn:
+        return buscar_perfil_equipe_por_login(login, conn)
+
+
+def salvar_perfil_equipe_por_login(
+    login,
+    cidade="",
+    responsavel="",
+    telefone="",
+    email="",
+    instagram="",
+    escudo=None,
+):
+    """
+    Atualiza o perfil global da equipe sem mexer no vínculo com competições.
+    """
+    login = (login or "").strip()
+    if not login:
+        return False
+
+    criar_campos_perfil_equipe()
+
+    cidade = (cidade or "").strip()
+    responsavel = (responsavel or "").strip()
+    telefone = (telefone or "").strip()
+    email = (email or "").strip()
+    instagram = (instagram or "").strip()
+
+    perfil_completo = bool(cidade and responsavel and telefone)
+
+    sets = [
+        "cidade = %s",
+        "responsavel = %s",
+        "telefone = %s",
+        "email = %s",
+        "instagram = %s",
+        "perfil_completo = %s",
+    ]
+    valores = [
+        cidade,
+        responsavel,
+        telefone,
+        email,
+        instagram,
+        perfil_completo,
+    ]
+
+    if escudo is not None:
+        sets.append("escudo = %s")
+        valores.append((escudo or "").strip())
+
+    valores.append(login)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE equipes
+                SET {", ".join(sets)}
+                WHERE login = %s
+                """,
+                tuple(valores)
+            )
+
+            alteradas = cur.rowcount
+
+        conn.commit()
+
+    return alteradas > 0
+

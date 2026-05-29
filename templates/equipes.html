@@ -3,7 +3,7 @@
 {% block conteudo %}
 <div class="topo-secao">
     <div class="titulo-secao" style="margin-bottom: 0;">Equipes</div>
-    <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Nova equipe</a>
+    <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Adicionar equipe</a>
 </div>
 
 <div class="card-painel">
@@ -11,23 +11,17 @@
     <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
 </div>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        <div class="flash-box">
-            {% for categoria, mensagem in messages %}
-                {% if categoria == "erro" %}
-                    <div class="flash-erro">{{ mensagem }}</div>
-                {% else %}
-                    <div class="flash-sucesso">{{ mensagem }}</div>
-                {% endif %}
-            {% endfor %}
-        </div>
-    {% endif %}
-{% endwith %}
-
 {% if credenciais %}
 <div class="card-painel" style="background:#f4fff5;">
-    <div style="font-weight: 900; margin-bottom: 10px;">Equipe criada com sucesso</div>
+    <div style="font-weight: 900; margin-bottom: 10px;">
+        {% if credenciais.ja_vinculada %}
+            Equipe já vinculada
+        {% elif credenciais.ja_existia %}
+            Equipe existente vinculada
+        {% else %}
+            Equipe criada com sucesso
+        {% endif %}
+    </div>
     <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ credenciais.nome }}</div>
     <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ credenciais.login }}</div>
     <div><strong>Senha:</strong> {{ credenciais.senha }}</div>
@@ -53,6 +47,22 @@
 
         <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
 
+        <div class="competicao-info"><strong>Cidade:</strong> {{ equipe.cidade or "Não informada" }}</div>
+        <div class="competicao-info"><strong>Responsável:</strong> {{ equipe.responsavel or "Não informado" }}</div>
+        <div class="competicao-info"><strong>Telefone:</strong> {{ equipe.telefone or "Não informado" }}</div>
+        <div class="competicao-info"><strong>E-mail:</strong> {{ equipe.email or "Não informado" }}</div>
+        <div class="competicao-info"><strong>Instagram:</strong> {{ equipe.instagram or "-" }}</div>
+        <div class="competicao-info">
+            <strong>Perfil:</strong>
+            {% if equipe.perfil_completo %}
+                <span class="tag tag-aprovado">Completo</span>
+            {% else %}
+                <span class="tag tag-pendente">Incompleto</span>
+            {% endif %}
+        </div>
+
+        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
+
         <div class="competicao-info"><strong>Treinador:</strong> {{ equipe.treinador or "-" }}</div>
         <div class="competicao-info"><strong>Auxiliar técnico:</strong> {{ equipe.auxiliar_tecnico or "-" }}</div>
         <div class="competicao-info"><strong>Preparador físico:</strong> {{ equipe.preparador_fisico or "-" }}</div>
@@ -67,14 +77,14 @@
                 <button type="submit" class="btn-secundario">Redefinir senha</button>
             </form>
 
-            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja excluir esta equipe?');">
-                <button type="submit" class="btn-secundario">Excluir</button>
+            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja desvincular esta equipe desta competição? O login e senha continuarão existindo.');">
+                <button type="submit" class="btn-secundario">Desvincular</button>
             </form>
         </div>
     </div>
     {% else %}
     <div class="card-painel">
-        Nenhuma equipe cadastrada para esta competição.
+        Nenhuma equipe vinculada a esta competição.
     </div>
     {% endfor %}
 </div>
