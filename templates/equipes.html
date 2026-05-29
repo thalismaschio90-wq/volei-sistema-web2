@@ -81,6 +81,27 @@
 
         <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
 
+        <div class="competicao-info"><strong>Cidade:</strong> {{ equipe.cidade or "Não informada" }}</div>
+        <div class="competicao-info"><strong>Responsável:</strong> {{ equipe.responsavel or "Não informado" }}</div>
+        <div class="competicao-info"><strong>Telefone:</strong> {{ equipe.telefone or "Não informado" }}</div>
+        <div class="competicao-info"><strong>E-mail:</strong> {{ equipe.email or "Não informado" }}</div>
+        <div class="competicao-info"><strong>Instagram:</strong> {{ equipe.instagram or "-" }}</div>
+
+        <div class="competicao-info" style="margin-top: 8px;">
+            <strong>Perfil:</strong>
+            {% if equipe.perfil_completo %}
+                <span style="display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; background:#dcfce7; color:#166534; font-size:12px; font-weight:900;">
+                    Completo
+                </span>
+            {% else %}
+                <span style="display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:900;">
+                    Incompleto
+                </span>
+            {% endif %}
+        </div>
+
+        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
+
         <div class="competicao-info"><strong>Treinador:</strong> {{ equipe.treinador or "-" }}</div>
         <div class="competicao-info"><strong>Auxiliar técnico:</strong> {{ equipe.auxiliar_tecnico or "-" }}</div>
         <div class="competicao-info"><strong>Preparador físico:</strong> {{ equipe.preparador_fisico or "-" }}</div>
