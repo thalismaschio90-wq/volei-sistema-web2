@@ -3,7 +3,7 @@
 {% block conteudo %}
 <div class="topo-secao">
     <div class="titulo-secao" style="margin-bottom: 0;">Equipes</div>
-    <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Adicionar equipe</a>
+    <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Nova equipe</a>
 </div>
 
 <div class="card-painel">
@@ -11,29 +11,63 @@
     <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
 </div>
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}
+                    <div class="flash-erro">{{ mensagem }}</div>
+                {% else %}
+                    <div class="flash-sucesso">{{ mensagem }}</div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
 {% if credenciais %}
-<div class="card-painel" style="background:#f4fff5;">
+<div class="card-painel" style="background:#f4fff5; border-color:#bbf7d0;">
     <div style="font-weight: 900; margin-bottom: 10px;">
         {% if credenciais.ja_vinculada %}
-            Equipe já vinculada
+            Equipe já estava vinculada
         {% elif credenciais.ja_existia %}
-            Equipe existente vinculada
+            Equipe vinculada com sucesso
         {% else %}
             Equipe criada com sucesso
         {% endif %}
     </div>
-    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ credenciais.nome }}</div>
-    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ credenciais.login }}</div>
-    <div><strong>Senha:</strong> {{ credenciais.senha }}</div>
+
+    <div id="texto-acesso-equipe" style="margin-bottom: 12px; line-height: 1.7;">
+        <div><strong>Site:</strong> {{ credenciais.url or 'https://volleytablepro.com.br/login' }}</div>
+        <div><strong>Equipe:</strong> {{ credenciais.nome }}</div>
+        <div><strong>Login:</strong> {{ credenciais.login }}</div>
+        <div><strong>Senha:</strong> {{ credenciais.senha }}</div>
+    </div>
+
+    <textarea id="texto-acesso-equipe-copia" style="position:absolute; left:-9999px;">{{ credenciais.texto_copia or ('Acesso VolleyTable Pro\nSite: ' ~ (credenciais.url or 'https://volleytablepro.com.br/login') ~ '\nEquipe: ' ~ credenciais.nome ~ '\nLogin: ' ~ credenciais.login ~ '\nSenha: ' ~ credenciais.senha) }}</textarea>
+
+    <button type="button" class="btn-padrao" onclick="copiarTextoAcesso('texto-acesso-equipe-copia', this)">
+        Copiar acesso
+    </button>
 </div>
 {% endif %}
 
 {% if senha_redefinida %}
-<div class="card-painel" style="background:#eef7ff;">
+<div class="card-painel" style="background:#eef7ff; border-color:#bfdbfe;">
     <div style="font-weight: 900; margin-bottom: 10px;">Senha redefinida</div>
-    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ senha_redefinida.nome }}</div>
-    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ senha_redefinida.login }}</div>
-    <div><strong>Nova senha:</strong> {{ senha_redefinida.senha }}</div>
+
+    <div style="margin-bottom: 12px; line-height: 1.7;">
+        <div><strong>Site:</strong> {{ senha_redefinida.url or 'https://volleytablepro.com.br/login' }}</div>
+        <div><strong>Equipe:</strong> {{ senha_redefinida.nome }}</div>
+        <div><strong>Login:</strong> {{ senha_redefinida.login }}</div>
+        <div><strong>Nova senha:</strong> {{ senha_redefinida.senha }}</div>
+    </div>
+
+    <textarea id="texto-senha-equipe-copia" style="position:absolute; left:-9999px;">{{ senha_redefinida.texto_copia or ('Acesso VolleyTable Pro\nSite: ' ~ (senha_redefinida.url or 'https://volleytablepro.com.br/login') ~ '\nEquipe: ' ~ senha_redefinida.nome ~ '\nLogin: ' ~ senha_redefinida.login ~ '\nSenha: ' ~ senha_redefinida.senha) }}</textarea>
+
+    <button type="button" class="btn-padrao" onclick="copiarTextoAcesso('texto-senha-equipe-copia', this)">
+        Copiar acesso
+    </button>
 </div>
 {% endif %}
 
@@ -44,22 +78,6 @@
         <div class="competicao-info"><strong>Login:</strong> {{ equipe.login }}</div>
         <div class="competicao-info"><strong>Senha atual:</strong> {{ equipe.senha }}</div>
         <div class="competicao-info"><strong>Competição:</strong> {{ equipe.competicao }}</div>
-
-        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
-
-        <div class="competicao-info"><strong>Cidade:</strong> {{ equipe.cidade or "Não informada" }}</div>
-        <div class="competicao-info"><strong>Responsável:</strong> {{ equipe.responsavel or "Não informado" }}</div>
-        <div class="competicao-info"><strong>Telefone:</strong> {{ equipe.telefone or "Não informado" }}</div>
-        <div class="competicao-info"><strong>E-mail:</strong> {{ equipe.email or "Não informado" }}</div>
-        <div class="competicao-info"><strong>Instagram:</strong> {{ equipe.instagram or "-" }}</div>
-        <div class="competicao-info">
-            <strong>Perfil:</strong>
-            {% if equipe.perfil_completo %}
-                <span class="tag tag-aprovado">Completo</span>
-            {% else %}
-                <span class="tag tag-pendente">Incompleto</span>
-            {% endif %}
-        </div>
 
         <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
 
@@ -77,15 +95,54 @@
                 <button type="submit" class="btn-secundario">Redefinir senha</button>
             </form>
 
-            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja desvincular esta equipe desta competição? O login e senha continuarão existindo.');">
-                <button type="submit" class="btn-secundario">Desvincular</button>
+            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja excluir esta equipe?');">
+                <button type="submit" class="btn-secundario">Excluir</button>
             </form>
         </div>
     </div>
     {% else %}
     <div class="card-painel">
-        Nenhuma equipe vinculada a esta competição.
+        Nenhuma equipe cadastrada para esta competição.
     </div>
     {% endfor %}
 </div>
+
+<script>
+function copiarTextoAcesso(idCampo, botao) {
+    const campo = document.getElementById(idCampo);
+    if (!campo) {
+        alert("Não foi possível encontrar o texto de acesso.");
+        return;
+    }
+
+    const texto = campo.value || campo.innerText || "";
+
+    function confirmarCopiado() {
+        const textoOriginal = botao ? botao.innerText : "";
+        if (botao) {
+            botao.innerText = "Copiado!";
+            setTimeout(() => {
+                botao.innerText = textoOriginal || "Copiar acesso";
+            }, 1800);
+        } else {
+            alert("Acesso copiado!");
+        }
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(texto).then(confirmarCopiado).catch(() => {
+            campo.focus();
+            campo.select();
+            document.execCommand("copy");
+            confirmarCopiado();
+        });
+        return;
+    }
+
+    campo.focus();
+    campo.select();
+    document.execCommand("copy");
+    confirmarCopiado();
+}
+</script>
 {% endblock %}

@@ -48,6 +48,31 @@ from routes.utils import exigir_perfil
 equipes_bp = Blueprint("equipes", __name__)
 
 
+URL_LOGIN_EQUIPE = "https://volleytablepro.com.br/login"
+
+
+def _montar_credenciais_equipe(nome, login, senha, ja_existia=False, ja_vinculada=False):
+    nome = nome or ""
+    login = login or ""
+    senha = senha or ""
+
+    return {
+        "nome": nome,
+        "login": login,
+        "senha": senha,
+        "ja_existia": bool(ja_existia),
+        "ja_vinculada": bool(ja_vinculada),
+        "url": URL_LOGIN_EQUIPE,
+        "texto_copia": (
+            "Acesso VolleyTable Pro\n"
+            f"Site: {URL_LOGIN_EQUIPE}\n"
+            f"Equipe: {nome}\n"
+            f"Login: {login}\n"
+            f"Senha: {senha}"
+        ),
+    }
+
+
 def _equipe_logada_com_competicao():
     usuario = session.get("usuario")
 
@@ -124,13 +149,13 @@ def nova_equipe():
                 flash("Não foi possível encontrar essa equipe no cadastro global.", "erro")
                 return redirect(url_for("equipes.nova_equipe"))
 
-            session["credenciais_nova_equipe"] = {
-                "nome": resultado.get("nome"),
-                "login": resultado.get("login"),
-                "senha": resultado.get("senha"),
-                "ja_existia": True,
-                "ja_vinculada": resultado.get("ja_vinculada", False),
-            }
+            session["credenciais_nova_equipe"] = _montar_credenciais_equipe(
+                resultado.get("nome"),
+                resultado.get("login"),
+                resultado.get("senha"),
+                ja_existia=True,
+                ja_vinculada=resultado.get("ja_vinculada", False),
+            )
 
             if resultado.get("ja_vinculada"):
                 flash("Essa equipe já estava vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
@@ -173,13 +198,13 @@ def nova_equipe():
                     equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca),
                 )
 
-            session["credenciais_nova_equipe"] = {
-                "nome": credenciais.get("nome") or nome_busca,
-                "login": credenciais["login"],
-                "senha": credenciais["senha"],
-                "ja_existia": False,
-                "ja_vinculada": False,
-            }
+            session["credenciais_nova_equipe"] = _montar_credenciais_equipe(
+                credenciais.get("nome") or nome_busca,
+                credenciais["login"],
+                credenciais["senha"],
+                ja_existia=False,
+                ja_vinculada=False,
+            )
 
             flash("Nova equipe criada com sucesso. A equipe completará cidade, responsável e telefone no primeiro login.", "sucesso")
             return redirect(url_for("equipes.listar_equipes_view"))
@@ -215,7 +240,15 @@ def redefinir_senha_equipe_view(nome):
     session["senha_redefinida_equipe"] = {
         "nome": nome,
         "login": resultado["login"],
-        "senha": resultado["senha"]
+        "senha": resultado["senha"],
+        "url": URL_LOGIN_EQUIPE,
+        "texto_copia": (
+            "Acesso VolleyTable Pro\n"
+            f"Site: {URL_LOGIN_EQUIPE}\n"
+            f"Equipe: {nome}\n"
+            f"Login: {resultado['login']}\n"
+            f"Senha: {resultado['senha']}"
+        ),
     }
 
     flash("Senha da equipe redefinida com sucesso.", "sucesso")
