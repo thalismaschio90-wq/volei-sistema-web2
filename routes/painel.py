@@ -9,7 +9,11 @@ from banco import (
     buscar_usuario_por_login,
     atualizar_senha_usuario,
     buscar_apontador,
-    definir_senha_apontador
+    definir_senha_apontador,
+    buscar_perfil_equipe_por_login,
+    salvar_perfil_equipe_por_login,
+    atualizar_dados_conta_usuario,
+    atualizar_dados_conta_apontador
 )
 from routes.utils import login_obrigatorio
 
@@ -369,6 +373,9 @@ def minha_conta():
     login = session.get("usuario")
     perfil = _perfil_normalizado()
 
+    dados_equipe = None
+    perfil_exibicao = perfil
+
     if perfil == "apontador":
         apontador = buscar_apontador(login)
 
@@ -380,7 +387,9 @@ def minha_conta():
             "minha_conta.html",
             usuario=apontador.get("cpf"),
             nome=apontador.get("nome") or session.get("nome") or apontador.get("cpf"),
-            perfil="apontador"
+            perfil="apontador",
+            perfil_exibicao="apontador",
+            dados_equipe=None
         )
 
     usuario_db = buscar_usuario_por_login(login)
@@ -389,12 +398,65 @@ def minha_conta():
         flash("Usuário não encontrado.", "erro")
         return redirect(url_for("painel.inicio"))
 
+    if perfil == "equipe":
+        try:
+            dados_equipe = buscar_perfil_equipe_por_login(login)
+        except Exception as e:
+            print("AVISO buscar dados equipe minha conta:", repr(e))
+            dados_equipe = None
+
+    if perfil in ["mesario", "arbitro"]:
+        perfil_exibicao = "árbitro"
+    else:
+        perfil_exibicao = usuario_db.get("perfil") or perfil
+
     return render_template(
         "minha_conta.html",
         usuario=usuario_db.get("login"),
-        nome=usuario_db.get("nome"),
-        perfil="árbitro" if perfil in ["mesario", "arbitro"] else usuario_db.get("perfil")
+        nome=usuario_db.get("nome") or usuario_db.get("login"),
+        perfil=usuario_db.get("perfil") or perfil,
+        perfil_exibicao=perfil_exibicao,
+        dados_equipe=dados_equipe
     )
+
+
+@painel_bp.route("/minha-conta/salvar-dados", methods=["POST"])
+@login_obrigatorio
+def salvar_dados_minha_conta():
+    login_atual = session.get("usuario")
+    perfil = _perfil_normalizado()
+
+    nome = (request.form.get("nome") or "").strip()
+    novo_login = (request.form.get("login") or "").strip()
+
+    if not nome or not novo_login:
+        flash("Preencha nome e login.", "erro")
+        return redirect(url_for("painel.minha_conta"))
+
+    if perfil == "apontador":
+        resultado = atualizar_dados_conta_apontador(login_atual, novo_login, nome)
+    else:
+        resultado = atualizar_dados_conta_usuario(login_atual, novo_login, nome)
+
+    if not resultado.get("ok"):
+        flash(resultado.get("erro") or "Não foi possível atualizar sua conta.", "erro")
+        return redirect(url_for("painel.minha_conta"))
+
+    session["usuario"] = resultado.get("login") or novo_login
+    session["nome"] = resultado.get("nome") or nome
+
+    if perfil == "equipe":
+        salvar_perfil_equipe_por_login(
+            session.get("usuario"),
+            request.form.get("cidade", "").strip(),
+            request.form.get("responsavel", "").strip(),
+            request.form.get("telefone", "").strip(),
+            request.form.get("email", "").strip(),
+            request.form.get("instagram", "").strip(),
+        )
+
+    flash("Dados da conta atualizados com sucesso.", "sucesso")
+    return redirect(url_for("painel.minha_conta"))
 
 
 @painel_bp.route("/minha-conta/alterar-senha", methods=["POST"])

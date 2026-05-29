@@ -524,6 +524,168 @@ def atualizar_senha_usuario(login, nova_senha):
 
     return True
 
+
+
+# =========================================================
+# MINHA CONTA - DADOS DO USUÁRIO
+# =========================================================
+def _normalizar_login_conta(login):
+    login = (login or "").strip()
+    login = re.sub(r"\s+", "_", login)
+    login = re.sub(r"[^A-Za-z0-9_.@-]", "", login)
+    return login[:80]
+
+
+def atualizar_dados_conta_usuario(login_atual, novo_login, nome):
+    """
+    Atualiza dados básicos da conta sem permitir alteração de perfil.
+
+    Também mantém os vínculos principais quando o login muda:
+    - usuarios.login
+    - equipes.login
+    - competicoes.organizador_login
+    """
+    login_atual = (login_atual or "").strip()
+    novo_login = _normalizar_login_conta(novo_login)
+    nome = (nome or "").strip()
+
+    if not login_atual or not novo_login or not nome:
+        return {"ok": False, "erro": "Preencha nome e login."}
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT login, perfil
+                FROM usuarios
+                WHERE login = %s
+                LIMIT 1
+            """, (login_atual,))
+            usuario = cur.fetchone()
+
+            if not usuario:
+                return {"ok": False, "erro": "Usuário não encontrado."}
+
+            if novo_login.lower() != login_atual.lower():
+                cur.execute("""
+                    SELECT login
+                    FROM usuarios
+                    WHERE LOWER(login) = LOWER(%s)
+                      AND login <> %s
+                    LIMIT 1
+                """, (novo_login, login_atual))
+                if cur.fetchone():
+                    return {"ok": False, "erro": "Este login já está em uso."}
+
+            cur.execute("""
+                UPDATE usuarios
+                SET login = %s,
+                    nome = %s
+                WHERE login = %s
+            """, (novo_login, nome, login_atual))
+
+            # Se for equipe, o login da tabela equipes também precisa acompanhar.
+            try:
+                cur.execute("""
+                    UPDATE equipes
+                    SET login = %s
+                    WHERE login = %s
+                """, (novo_login, login_atual))
+            except Exception as e:
+                print("AVISO atualizar_dados_conta_usuario/equipes:", repr(e))
+
+            # Se for organizador, as competições precisam continuar vinculadas.
+            try:
+                cur.execute("""
+                    UPDATE competicoes
+                    SET organizador_login = %s
+                    WHERE organizador_login = %s
+                """, (novo_login, login_atual))
+            except Exception as e:
+                print("AVISO atualizar_dados_conta_usuario/competicoes:", repr(e))
+
+        conn.commit()
+
+    return {"ok": True, "login": novo_login, "nome": nome}
+
+
+def atualizar_dados_conta_apontador(cpf_atual, novo_login, nome):
+    """
+    Atualiza a conta do apontador sem alterar perfil/função.
+
+    No cadastro atual do sistema, o login do apontador é o CPF/login salvo
+    em apontadores_acesso.cpf. Por isso, ao trocar o login, atualizamos também
+    os vínculos com oficiais/competicao_oficiais quando existirem.
+    """
+    cpf_atual = (cpf_atual or "").strip()
+    novo_login = _normalizar_login_conta(novo_login)
+    nome = (nome or "").strip()
+
+    if not cpf_atual or not novo_login or not nome:
+        return {"ok": False, "erro": "Preencha nome e login."}
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT cpf
+                FROM apontadores_acesso
+                WHERE cpf = %s
+                LIMIT 1
+            """, (cpf_atual,))
+            apontador = cur.fetchone()
+
+            if not apontador:
+                return {"ok": False, "erro": "Apontador não encontrado."}
+
+            if novo_login.lower() != cpf_atual.lower():
+                cur.execute("""
+                    SELECT cpf
+                    FROM apontadores_acesso
+                    WHERE LOWER(cpf) = LOWER(%s)
+                      AND cpf <> %s
+                    LIMIT 1
+                """, (novo_login, cpf_atual))
+                if cur.fetchone():
+                    return {"ok": False, "erro": "Este login já está em uso para outro apontador."}
+
+                cur.execute("""
+                    SELECT login
+                    FROM usuarios
+                    WHERE LOWER(login) = LOWER(%s)
+                    LIMIT 1
+                """, (novo_login,))
+                if cur.fetchone():
+                    return {"ok": False, "erro": "Este login já está em uso por outro usuário."}
+
+            cur.execute("""
+                UPDATE apontadores_acesso
+                SET cpf = %s
+                WHERE cpf = %s
+            """, (novo_login, cpf_atual))
+
+            try:
+                cur.execute("""
+                    UPDATE oficiais
+                    SET cpf = %s,
+                        nome = %s
+                    WHERE cpf = %s
+                """, (novo_login, nome, cpf_atual))
+            except Exception as e:
+                print("AVISO atualizar_dados_conta_apontador/oficiais:", repr(e))
+
+            try:
+                cur.execute("""
+                    UPDATE competicao_oficiais
+                    SET cpf = %s
+                    WHERE cpf = %s
+                """, (novo_login, cpf_atual))
+            except Exception as e:
+                print("AVISO atualizar_dados_conta_apontador/competicao_oficiais:", repr(e))
+
+        conn.commit()
+
+    return {"ok": True, "login": novo_login, "nome": nome}
+
+
 # =========================================================
 # COMPETIÇÕES
 # =========================================================
@@ -2189,13 +2351,31 @@ def criar_tabela_equipes_competicoes(force=False):
 
 def buscar_equipe_global_por_nome(nome_equipe, conn=None):
     criar_campos_quadro_tecnico_equipes()
+    criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
 
     sql = """
         SELECT
-            nome, login, senha,
-            treinador, auxiliar_tecnico, preparador_fisico, medico
+            nome,
+            login,
+            senha,
+            competicao,
+            treinador,
+            auxiliar_tecnico,
+            preparador_fisico,
+            medico,
+            liberacao_extra_inscricao,
+            liberacao_extra_data,
+            liberacao_extra_hora,
+            cidade,
+            responsavel,
+            telefone,
+            email,
+            instagram,
+            escudo,
+            COALESCE(perfil_completo, FALSE) AS perfil_completo
         FROM equipes
-        WHERE LOWER(nome) = LOWER(%s)
+        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
         ORDER BY nome ASC
         LIMIT 1
     """
@@ -2209,6 +2389,53 @@ def buscar_equipe_global_por_nome(nome_equipe, conn=None):
         return buscar_equipe_global_por_nome(nome_equipe, conn2)
 
 
+def buscar_equipes_globais_por_nome(termo, limite=20):
+    """
+    Busca no cadastro GLOBAL de equipes, sem limitar pela competição atual.
+    Usado pelo organizador ao adicionar equipe: digita um nome e o sistema
+    mostra possíveis equipes já cadastradas, com cidade/responsável/telefone
+    para conferência antes de vincular.
+    """
+    termo = (termo or "").strip()
+    if not termo:
+        return []
+
+    criar_campos_quadro_tecnico_equipes()
+    criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    nome,
+                    login,
+                    senha,
+                    competicao,
+                    treinador,
+                    auxiliar_tecnico,
+                    preparador_fisico,
+                    medico,
+                    liberacao_extra_inscricao,
+                    liberacao_extra_data,
+                    liberacao_extra_hora,
+                    cidade,
+                    responsavel,
+                    telefone,
+                    email,
+                    instagram,
+                    escudo,
+                    COALESCE(perfil_completo, FALSE) AS perfil_completo
+                FROM equipes
+                WHERE LOWER(TRIM(nome)) LIKE LOWER(TRIM(%s))
+                ORDER BY
+                    CASE WHEN LOWER(TRIM(nome)) = LOWER(TRIM(%s)) THEN 0 ELSE 1 END,
+                    nome ASC,
+                    login ASC
+                LIMIT %s
+            """, (f"%{termo}%", termo, limite))
+            return cur.fetchall()
+
 def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
     criar_tabela_equipes_competicoes()
 
@@ -2221,10 +2448,10 @@ def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
             cur.execute("""
                 SELECT id
                 FROM equipes_competicoes
-                WHERE LOWER(equipe_nome) = LOWER(%s)
+                WHERE equipe_login = %s
                   AND competicao = %s
                 LIMIT 1
-            """, (equipe["nome"], nome_competicao))
+            """, (equipe["login"], nome_competicao))
             ja_vinculada = cur.fetchone() is not None
 
             cur.execute("""
@@ -2268,6 +2495,96 @@ def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
         return resultado
 
 
+def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=None):
+    """
+    Vincula uma equipe global existente à competição atual pelo LOGIN.
+    Isso evita erro quando existem equipes com nomes parecidos ou duplicados.
+    """
+    login_equipe = (login_equipe or "").strip()
+    nome_competicao = (nome_competicao or "").strip()
+
+    if not login_equipe or not nome_competicao:
+        return None
+
+    criar_campos_quadro_tecnico_equipes()
+    criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
+    criar_tabela_equipes_competicoes()
+
+    def _executar(cnx):
+        with cnx.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    nome,
+                    login,
+                    senha,
+                    competicao,
+                    cidade,
+                    responsavel,
+                    telefone,
+                    email,
+                    instagram,
+                    COALESCE(perfil_completo, FALSE) AS perfil_completo
+                FROM equipes
+                WHERE login = %s
+                LIMIT 1
+            """, (login_equipe,))
+            equipe = cur.fetchone()
+
+            if not equipe:
+                return None
+
+            cur.execute("""
+                SELECT id
+                FROM equipes_competicoes
+                WHERE equipe_login = %s
+                  AND competicao = %s
+                LIMIT 1
+            """, (equipe["login"], nome_competicao))
+            ja_vinculada = cur.fetchone() is not None
+
+            cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
+                VALUES (%s, %s, %s, 'ativa')
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login,
+                    equipe_nome = EXCLUDED.equipe_nome,
+                    status = 'ativa'
+            """, (equipe["login"], equipe["nome"], nome_competicao))
+
+            colunas_equipes = _buscar_colunas_tabela("equipes")
+            if "competicao" in colunas_equipes:
+                cur.execute("""
+                    UPDATE equipes
+                    SET competicao = COALESCE(NULLIF(competicao, ''), %s)
+                    WHERE login = %s
+                """, (nome_competicao, equipe["login"]))
+
+            cur.execute("""
+                UPDATE usuarios
+                SET equipe = %s,
+                    competicao_vinculada = COALESCE(NULLIF(competicao_vinculada, ''), %s)
+                WHERE login = %s
+                  AND perfil = 'equipe'
+            """, (equipe["nome"], nome_competicao, equipe["login"]))
+
+            return {
+                "login": equipe["login"],
+                "senha": equipe["senha"],
+                "nome": equipe["nome"],
+                "ja_existia": True,
+                "ja_vinculada": ja_vinculada,
+                "vinculada": True,
+            }
+
+    if conn is not None:
+        return _executar(conn)
+
+    with conectar() as conn2:
+        resultado = _executar(conn2)
+        conn2.commit()
+        return resultado
+
 def listar_competicoes_da_equipe_por_login(login):
     criar_tabela_equipes_competicoes()
 
@@ -2289,12 +2606,13 @@ def listar_competicoes_da_equipe_por_login(login):
 def listar_equipes_da_competicao(nome_competicao):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
     criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT
+                SELECT DISTINCT ON (e.login, ec.competicao)
                     e.nome,
                     e.login,
                     e.senha,
@@ -2306,13 +2624,19 @@ def listar_equipes_da_competicao(nome_competicao):
                     e.liberacao_extra_inscricao,
                     e.liberacao_extra_data,
                     e.liberacao_extra_hora,
+                    e.cidade,
+                    e.responsavel,
+                    e.telefone,
+                    e.email,
+                    e.instagram,
+                    e.escudo,
+                    COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
                     ec.status AS status_vinculo
                 FROM equipes_competicoes ec
                 JOIN equipes e
                   ON e.login = ec.equipe_login
-                  OR LOWER(e.nome) = LOWER(ec.equipe_nome)
                 WHERE ec.competicao = %s
-                ORDER BY e.nome
+                ORDER BY e.login, ec.competicao, e.nome
             """, (nome_competicao,))
             return cur.fetchall()
 
@@ -2320,6 +2644,7 @@ def listar_equipes_da_competicao(nome_competicao):
 def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
     criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
@@ -2337,11 +2662,17 @@ def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
                     e.liberacao_extra_inscricao,
                     e.liberacao_extra_data,
                     e.liberacao_extra_hora,
+                    e.cidade,
+                    e.responsavel,
+                    e.telefone,
+                    e.email,
+                    e.instagram,
+                    e.escudo,
+                    COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
                     ec.status AS status_vinculo
                 FROM equipes_competicoes ec
                 JOIN equipes e
                   ON e.login = ec.equipe_login
-                  OR LOWER(e.nome) = LOWER(ec.equipe_nome)
                 WHERE LOWER(ec.equipe_nome) = LOWER(%s)
                   AND ec.competicao = %s
                 LIMIT 1
@@ -2364,7 +2695,15 @@ def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
                     medico,
                     liberacao_extra_inscricao,
                     liberacao_extra_data,
-                    liberacao_extra_hora
+                    liberacao_extra_hora,
+                    cidade,
+                    responsavel,
+                    telefone,
+                    email,
+                    instagram,
+                    escudo,
+                    COALESCE(perfil_completo, FALSE) AS perfil_completo,
+                    'ativa' AS status_vinculo
                 FROM equipes
                 WHERE LOWER(nome) = LOWER(%s)
                   AND competicao = %s
@@ -2591,6 +2930,90 @@ def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
         "ja_vinculada": False,
     }
 
+
+
+def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
+    """
+    Cria uma NOVA equipe global mesmo que já exista outra com nome parecido.
+    Usado quando o organizador conferiu os resultados e escolheu criar uma nova.
+    """
+    criar_campos_quadro_tecnico_equipes()
+    criar_campos_liberacao_extra_equipes()
+    criar_campos_perfil_equipe()
+    criar_tabela_equipes_competicoes()
+
+    nome_equipe = (nome_equipe or "").strip()
+    nome_competicao = (nome_competicao or "").strip()
+
+    if not nome_equipe or not nome_competicao:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
+            senha_equipe = _gerar_senha_aleatoria(8)
+
+            cur.execute("""
+                INSERT INTO equipes (
+                    nome, login, senha, competicao,
+                    treinador, auxiliar_tecnico, preparador_fisico, medico,
+                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora,
+                    cidade, responsavel, telefone, email, instagram, escudo, perfil_completo
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)
+            """, (
+                nome_equipe,
+                login_equipe,
+                senha_equipe,
+                nome_competicao,
+                "",
+                "",
+                "",
+                "",
+                False,
+                None,
+                None,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ))
+
+            cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
+                VALUES (%s, %s, %s, 'ativa')
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login,
+                    status = 'ativa'
+            """, (login_equipe, nome_equipe, nome_competicao))
+
+            cur.execute("""
+                INSERT INTO usuarios (
+                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                login_equipe,
+                nome_equipe,
+                senha_equipe,
+                "equipe",
+                True,
+                nome_equipe,
+                nome_competicao,
+            ))
+
+        conn.commit()
+
+    return {
+        "login": login_equipe,
+        "senha": senha_equipe,
+        "nome": nome_equipe,
+        "vinculada": True,
+        "ja_existia": False,
+        "ja_vinculada": False,
+    }
 
 def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")

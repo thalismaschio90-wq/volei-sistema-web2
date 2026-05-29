@@ -5,6 +5,9 @@ from banco import (
     listar_equipes_da_competicao,
     equipe_existe_na_competicao,
     criar_equipe_com_credenciais,
+    criar_nova_equipe_com_credenciais,
+    buscar_equipes_globais_por_nome,
+    vincular_equipe_existente_competicao,
     listar_competicoes_da_equipe_por_login,
     salvar_perfil_equipe_por_login,
     perfil_equipe_incompleto_por_login,
@@ -93,36 +96,109 @@ def nova_equipe():
         flash("Nenhuma competição vinculada ao organizador.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if request.method == "POST":
-        nome = request.form.get("nome", "").strip()
+    equipes_encontradas = []
+    nome_busca = ""
 
-        if not nome:
-            flash("Informe o nome da equipe.", "erro")
-            return render_template("nova_equipe.html", competicao=competicao)
+    if request.method == "POST":
+        acao = request.form.get("acao", "").strip()
+        nome_busca = request.form.get("nome", "").strip()
+        login_equipe = request.form.get("login_equipe", "").strip()
 
         if competicao_esta_travada(competicao["nome"]):
-            flash("A competição está travada. Não é possível criar equipes.", "erro")
-            return render_template("nova_equipe.html", competicao=competicao)
+            flash("A competição está travada. Não é possível adicionar ou vincular equipes.", "erro")
+            return render_template(
+                "nova_equipe.html",
+                competicao=competicao,
+                nome_busca=nome_busca,
+                equipes_encontradas=[],
+            )
 
-        credenciais = criar_equipe_com_credenciais(nome, competicao["nome"])
+        if acao == "vincular":
+            if not login_equipe:
+                flash("Equipe inválida para vínculo.", "erro")
+                return redirect(url_for("equipes.nova_equipe"))
 
-        session["credenciais_nova_equipe"] = {
-            "nome": credenciais.get("nome") or nome,
-            "login": credenciais["login"],
-            "senha": credenciais["senha"],
-            "ja_existia": credenciais.get("ja_existia", False),
-            "ja_vinculada": credenciais.get("ja_vinculada", False),
-        }
+            resultado = vincular_equipe_existente_competicao(login_equipe, competicao["nome"])
 
-        if credenciais.get("ja_vinculada"):
-            flash("Essa equipe já estava vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
-        elif credenciais.get("ja_existia"):
-            flash("Equipe já existia no sistema e foi vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
-        else:
-            flash("Equipe criada com sucesso.", "sucesso")
-        return redirect(url_for("equipes.listar_equipes_view"))
+            if not resultado:
+                flash("Não foi possível encontrar essa equipe no cadastro global.", "erro")
+                return redirect(url_for("equipes.nova_equipe"))
 
-    return render_template("nova_equipe.html", competicao=competicao)
+            session["credenciais_nova_equipe"] = {
+                "nome": resultado.get("nome"),
+                "login": resultado.get("login"),
+                "senha": resultado.get("senha"),
+                "ja_existia": True,
+                "ja_vinculada": resultado.get("ja_vinculada", False),
+            }
+
+            if resultado.get("ja_vinculada"):
+                flash("Essa equipe já estava vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
+            else:
+                flash("Equipe existente vinculada à competição com sucesso. O login e senha foram mantidos.", "sucesso")
+
+            return redirect(url_for("equipes.listar_equipes_view"))
+
+        if not nome_busca:
+            flash("Informe o nome da equipe.", "erro")
+            return render_template(
+                "nova_equipe.html",
+                competicao=competicao,
+                nome_busca=nome_busca,
+                equipes_encontradas=[],
+            )
+
+        if acao == "buscar":
+            equipes_encontradas = buscar_equipes_globais_por_nome(nome_busca)
+
+            if not equipes_encontradas:
+                flash("Nenhuma equipe encontrada com esse nome. Você pode criar uma nova equipe.", "aviso")
+
+            return render_template(
+                "nova_equipe.html",
+                competicao=competicao,
+                nome_busca=nome_busca,
+                equipes_encontradas=equipes_encontradas,
+            )
+
+        if acao == "criar":
+            credenciais = criar_nova_equipe_com_credenciais(nome_busca, competicao["nome"])
+
+            if not credenciais:
+                flash("Não foi possível criar a equipe.", "erro")
+                return render_template(
+                    "nova_equipe.html",
+                    competicao=competicao,
+                    nome_busca=nome_busca,
+                    equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca),
+                )
+
+            session["credenciais_nova_equipe"] = {
+                "nome": credenciais.get("nome") or nome_busca,
+                "login": credenciais["login"],
+                "senha": credenciais["senha"],
+                "ja_existia": False,
+                "ja_vinculada": False,
+            }
+
+            flash("Nova equipe criada com sucesso. A equipe completará cidade, responsável e telefone no primeiro login.", "sucesso")
+            return redirect(url_for("equipes.listar_equipes_view"))
+
+        # Compatibilidade: se algum botão antigo postar sem acao, faz busca.
+        equipes_encontradas = buscar_equipes_globais_por_nome(nome_busca)
+        return render_template(
+            "nova_equipe.html",
+            competicao=competicao,
+            nome_busca=nome_busca,
+            equipes_encontradas=equipes_encontradas,
+        )
+
+    return render_template(
+        "nova_equipe.html",
+        competicao=competicao,
+        nome_busca=nome_busca,
+        equipes_encontradas=equipes_encontradas,
+    )
 
 
 @equipes_bp.route("/equipes/<nome>/redefinir-senha", methods=["POST"])

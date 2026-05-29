@@ -1,122 +1,265 @@
 {% extends "base.html" %}
 
+{% block titulo %}Nova equipe{% endblock %}
+
 {% block conteudo %}
 <style>
-    .form-card-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-    .radio-card { border:1px solid var(--border); background:var(--surface-soft); border-radius:16px; padding:16px; }
-    .sugestoes-grid { display:grid; gap:12px; margin-top:14px; }
-    .sugestao-equipe { border:1px solid var(--border); background:#fff; border-radius:16px; padding:16px; box-shadow:var(--shadow); }
-    .sugestao-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-    .sugestao-nome { font-size:20px; font-weight:900; color:var(--text); }
-    .sugestao-info { color:var(--muted); font-size:14px; margin-top:4px; line-height:1.45; }
-    .aviso-identidade { background:#fff8e7; border:1px solid #f0dfb0; color:#74530c; border-radius:14px; padding:14px; font-weight:700; line-height:1.45; }
-    @media (max-width: 760px) { .form-card-grid { grid-template-columns:1fr; } }
+    .nova-equipe-wrap {
+        display: grid;
+        gap: 16px;
+    }
+
+    .nova-equipe-topo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .nova-equipe-card {
+        background: var(--surface, #fff);
+        border: 1px solid var(--border, #d9e2ec);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: var(--shadow, 0 12px 30px rgba(15, 23, 42, .08));
+    }
+
+    .nova-equipe-info {
+        display: grid;
+        gap: 4px;
+        color: var(--text, #0b2740);
+    }
+
+    .nova-equipe-form {
+        max-width: 780px;
+        display: grid;
+        gap: 12px;
+    }
+
+    .nova-equipe-form label {
+        font-weight: 900;
+        color: var(--text, #0b2740);
+    }
+
+    .nova-equipe-form input[type="text"] {
+        width: 100%;
+        min-height: 48px;
+        border: 1px solid var(--border, #d0dbe7);
+        border-radius: 14px;
+        padding: 0 14px;
+        font-size: 16px;
+        outline: none;
+        background: #fff;
+    }
+
+    .nova-equipe-form input[type="text"]:focus {
+        border-color: var(--primary, #0b3a5b);
+        box-shadow: 0 0 0 3px rgba(11, 58, 91, .12);
+    }
+
+    .nova-equipe-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .nova-equipe-help {
+        color: var(--muted, #607286);
+        font-weight: 700;
+        line-height: 1.45;
+        margin: 0;
+    }
+
+    .equipes-encontradas {
+        display: grid;
+        gap: 12px;
+    }
+
+    .resultado-equipe {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: center;
+        border: 1px solid var(--border, #d9e2ec);
+        border-radius: 18px;
+        padding: 16px;
+        background: #fff;
+    }
+
+    .resultado-nome {
+        font-size: 20px;
+        font-weight: 1000;
+        color: var(--text, #0b2740);
+        margin-bottom: 4px;
+    }
+
+    .resultado-login {
+        color: var(--muted, #607286);
+        font-weight: 800;
+        margin-bottom: 10px;
+    }
+
+    .resultado-dados {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 16px;
+        color: var(--text, #0b2740);
+    }
+
+    .resultado-dados span {
+        color: var(--muted, #607286);
+        font-weight: 800;
+    }
+
+    .perfil-tag {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 1000;
+        margin-top: 10px;
+    }
+
+    .perfil-ok {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .perfil-pendente {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .criar-nova-box {
+        border: 1px dashed var(--border, #cbd7e3);
+        border-radius: 18px;
+        padding: 16px;
+        background: #f8fbff;
+        display: grid;
+        gap: 10px;
+    }
+
+    @media (max-width: 780px) {
+        .resultado-equipe {
+            grid-template-columns: 1fr;
+        }
+
+        .resultado-dados {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 
-<div class="topo-secao">
-    <div class="titulo-secao">Adicionar equipe</div>
-    <a href="{{ url_for('equipes.listar_equipes_view') }}" class="btn-secundario">Voltar</a>
-</div>
-
-<div class="card-painel" style="margin-bottom: 15px;">
-    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ competicao.nome }}</div>
-    <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
-</div>
-
-<div class="aviso-identidade" style="margin-bottom:15px;">
-    Primeiro busque se a equipe já existe. Se ela aparecer com cidade/responsável corretos, clique em <strong>Vincular</strong>. Se não for a mesma equipe, crie um novo cadastro com identificação própria.
-</div>
-
-<div class="card-painel" style="max-width: 900px;">
-    <form method="post">
-        <input type="hidden" name="acao" value="buscar">
-        <label for="nome">Buscar equipe existente</label>
-        <input
-            type="text"
-            id="nome"
-            name="nome"
-            value="{{ nome_busca or '' }}"
-            placeholder="Digite nome, cidade, responsável, telefone ou e-mail"
-            autocomplete="off"
-        >
-        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao">Buscar equipe</button>
+<div class="nova-equipe-wrap">
+    <div class="nova-equipe-topo">
+        <div>
+            <h1 style="margin:0;">Adicionar equipe</h1>
+            <p class="nova-equipe-help">
+                Busque primeiro no cadastro geral. Se a equipe já existir, confira os dados e vincule à competição atual.
+            </p>
         </div>
-    </form>
+        <a href="{{ url_for('equipes.listar_equipes_view') }}" class="btn-secundario">Voltar</a>
+    </div>
 
-    {% if sugestoes %}
-    <div class="sugestoes-grid">
-        {% for equipe in sugestoes %}
-        <div class="sugestao-equipe">
-            <div class="sugestao-top">
-                <div>
-                    <div class="sugestao-nome">{{ equipe.nome }}</div>
-                    <div class="sugestao-info">
-                        <strong>Cidade:</strong> {{ equipe.cidade or 'Não informada' }}<br>
-                        <strong>Responsável:</strong> {{ equipe.responsavel or 'Não informado' }}<br>
-                        <strong>Telefone:</strong> {{ equipe.telefone or 'Não informado' }}<br>
-                        <strong>E-mail:</strong> {{ equipe.email or 'Não informado' }}<br>
-                        <strong>Última competição:</strong> {{ equipe.ultima_competicao or 'Nenhuma registrada' }}
+    <div class="nova-equipe-card nova-equipe-info">
+        <div><strong>Competição:</strong> {{ competicao.nome }}</div>
+        <div><strong>Status:</strong> {{ competicao.status }}</div>
+    </div>
+
+    <div class="nova-equipe-card">
+        <form method="post" class="nova-equipe-form">
+            <div>
+                <label for="nome">Nome da equipe</label>
+                <input
+                    type="text"
+                    id="nome"
+                    name="nome"
+                    value="{{ nome_busca or '' }}"
+                    placeholder="Digite o nome da equipe"
+                    required
+                    autofocus
+                >
+            </div>
+
+            <p class="nova-equipe-help">
+                O organizador informa apenas o nome. Cidade, responsável e telefone serão preenchidos pela própria equipe no primeiro login.
+            </p>
+
+            <div class="nova-equipe-actions">
+                <button type="submit" name="acao" value="buscar" class="btn-padrao">
+                    Buscar equipe existente
+                </button>
+
+                {% if nome_busca %}
+                    <button type="submit" name="acao" value="criar" class="btn-secundario">
+                        Criar nova equipe com este nome
+                    </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    {% if equipes_encontradas is defined and equipes_encontradas %}
+        <div class="nova-equipe-card">
+            <h2 style="margin-top:0;">Equipes encontradas</h2>
+            <p class="nova-equipe-help">
+                Confira se é a equipe correta antes de vincular. A busca considera maiúsculas e minúsculas como iguais.
+            </p>
+
+            <div class="equipes-encontradas">
+                {% for equipe in equipes_encontradas %}
+                    <div class="resultado-equipe">
+                        <div>
+                            <div class="resultado-nome">{{ equipe.nome }}</div>
+                            <div class="resultado-login">Login: {{ equipe.login }}</div>
+
+                            <div class="resultado-dados">
+                                <div><span>Cidade:</span> {{ equipe.cidade or 'Não informada' }}</div>
+                                <div><span>Responsável:</span> {{ equipe.responsavel or 'Não informado' }}</div>
+                                <div><span>Telefone:</span> {{ equipe.telefone or 'Não informado' }}</div>
+                                <div><span>E-mail:</span> {{ equipe.email or 'Não informado' }}</div>
+                                <div><span>Instagram:</span> {{ equipe.instagram or '-' }}</div>
+                                <div><span>Cadastro:</span> {{ 'Completo' if equipe.perfil_completo else 'Incompleto' }}</div>
+                            </div>
+
+                            {% if equipe.perfil_completo %}
+                                <div class="perfil-tag perfil-ok">Perfil completo</div>
+                            {% else %}
+                                <div class="perfil-tag perfil-pendente">Perfil incompleto</div>
+                            {% endif %}
+                        </div>
+
+                        <form method="post">
+                            <input type="hidden" name="acao" value="vincular">
+                            <input type="hidden" name="login_equipe" value="{{ equipe.login }}">
+                            <input type="hidden" name="nome" value="{{ nome_busca or equipe.nome }}">
+                            <button type="submit" class="btn-padrao">
+                                Vincular esta equipe
+                            </button>
+                        </form>
                     </div>
-                </div>
-                <form method="post">
-                    <input type="hidden" name="acao" value="vincular">
-                    <input type="hidden" name="login_equipe" value="{{ equipe.login }}">
-                    <button type="submit" class="btn-padrao">Vincular esta equipe</button>
-                </form>
+                {% endfor %}
             </div>
         </div>
-        {% endfor %}
-    </div>
+    {% endif %}
+
+    {% if nome_busca %}
+        <div class="criar-nova-box">
+            <strong>Não é nenhuma dessas equipes?</strong>
+            <span class="nova-equipe-help">
+                Crie uma nova equipe chamada <strong>{{ nome_busca }}</strong>. O sistema gerará login e senha, e a própria equipe completará o perfil depois.
+            </span>
+            <form method="post">
+                <input type="hidden" name="nome" value="{{ nome_busca }}">
+                <button type="submit" name="acao" value="criar" class="btn-secundario">
+                    Criar nova equipe mesmo assim
+                </button>
+            </form>
+        </div>
     {% endif %}
 </div>
-
-<div class="card-painel" style="max-width: 900px;">
-    <div style="font-size:20px; font-weight:900; margin-bottom:8px; color:var(--text);">Criar nova equipe</div>
-    <div style="color:var(--muted); font-weight:700; line-height:1.45; margin-bottom:14px;">
-        Use esta opção apenas quando nenhuma equipe encontrada for a correta. Cidade, responsável e telefone ajudam a diferenciar equipes com o mesmo nome.
-    </div>
-
-    <form method="post">
-        <input type="hidden" name="acao" value="criar">
-
-        <div style="margin-bottom:14px;">
-            <label for="nome_criar">Nome da equipe</label>
-            <input id="nome_criar" name="nome" type="text" value="{{ nome_busca or '' }}" required>
-        </div>
-
-        <div class="form-card-grid">
-            <div>
-                <label for="cidade">Cidade *</label>
-                <input id="cidade" name="cidade" type="text" placeholder="Ex.: Antônio Prado" required>
-            </div>
-            <div>
-                <label for="responsavel">Responsável *</label>
-                <input id="responsavel" name="responsavel" type="text" placeholder="Nome do responsável" required>
-            </div>
-            <div>
-                <label for="telefone">Telefone/WhatsApp *</label>
-                <input id="telefone" name="telefone" type="text" placeholder="(54) 99999-9999" required>
-            </div>
-            <div>
-                <label for="email">E-mail</label>
-                <input id="email" name="email" type="text" placeholder="email@exemplo.com">
-            </div>
-            <div>
-                <label for="instagram">Instagram</label>
-                <input id="instagram" name="instagram" type="text" placeholder="@equipe">
-            </div>
-        </div>
-
-        <div class="card-painel" style="background:#f8fbff; margin-top:15px; margin-bottom:15px;">
-            O sistema vai gerar automaticamente o <strong>login</strong> e a <strong>senha</strong> da nova equipe.
-        </div>
-
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao">Criar nova equipe</button>
-            <a href="{{ url_for('equipes.listar_equipes_view') }}" class="btn-secundario">Cancelar</a>
-        </div>
-    </form>
-</div>
-
 {% endblock %}
