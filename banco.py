@@ -2596,11 +2596,26 @@ def listar_competicoes_da_equipe_por_login(login):
                     COALESCE(c.status, '') AS status,
                     COALESCE(c.data, '') AS data
                 FROM equipes_competicoes ec
-                LEFT JOIN competicoes c ON c.nome = ec.competicao
-                WHERE ec.equipe_login = %s
-                   OR LOWER(ec.equipe_nome) = LOWER((SELECT equipe FROM usuarios WHERE login = %s LIMIT 1))
-                ORDER BY c.data DESC NULLS LAST, ec.competicao
+                LEFT JOIN competicoes c
+                    ON c.nome = ec.competicao
+                WHERE (
+                    ec.equipe_login = %s
+                    OR LOWER(ec.equipe_nome) = LOWER(
+                        COALESCE(
+                            (SELECT equipe
+                             FROM usuarios
+                             WHERE login = %s
+                             LIMIT 1),
+                            ''
+                        )
+                    )
+                )
+                AND COALESCE(ec.status, 'ativa') = 'ativa'
+                ORDER BY
+                    c.data DESC NULLS LAST,
+                    ec.competicao
             """, (login, login))
+
             return cur.fetchall()
 
 def listar_equipes_da_competicao(nome_competicao):
