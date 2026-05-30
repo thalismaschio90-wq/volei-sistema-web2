@@ -109,37 +109,34 @@ def _normalizar_lista(valor):
     return []
 
 
+def _normalizar_dict(valor):
+    return valor if isinstance(valor, dict) else {}
+
+
 def _numero_rotacao_seguro(valor):
-    """
-    Mantém a rotação no Socket.IO como número/string simples.
-    Alguns fluxos passaram a enviar {numero, nome}; quando isso chegava no
-    front, virava [object Object] no apontador/treinador/árbitro.
+    """Converte qualquer item de rotação para número/string simples.
+
+    Evita que objetos {numero,nome} cheguem ao HTML como [object Object].
     """
     if valor is None:
         return ""
-
     if isinstance(valor, dict):
         for chave in ("numero", "camisa", "numero_camisa", "atleta_numero", "n", "id"):
             if valor.get(chave) not in (None, ""):
                 return _numero_rotacao_seguro(valor.get(chave))
         return ""
-
     texto = str(valor or "").strip()
-    if texto == "[object Object]":
-        return ""
-    return texto
+    return "" if texto == "[object Object]" else texto
 
 
-def _normalizar_rotacao_numeros(valor):
-    lista = _normalizar_lista(valor)
-    saida = [_numero_rotacao_seguro(item) for item in lista[:6]]
+def _normalizar_rotacao_payload(valor):
+    if not isinstance(valor, (list, tuple)):
+        return []
+    saida = [_numero_rotacao_seguro(item) for item in list(valor)[:6]]
     while len(saida) < 6:
         saida.append("")
     return saida[:6]
 
-
-def _normalizar_dict(valor):
-    return valor if isinstance(valor, dict) else {}
 
 
 def _primeiro_valor(dados, chaves, padrao=None):
@@ -229,10 +226,8 @@ def _normalizar_payload(partida_id, dados=None):
         "sacador_nome": dados.get("sacador_nome") or dados.get("nome_sacador") or "",
         "sacador_numero": dados.get("sacador_numero") or dados.get("numero_sacador") or "",
 
-        "rotacao_a": _normalizar_rotacao_numeros(dados.get("rotacao_a")),
-        "rotacao_b": _normalizar_rotacao_numeros(dados.get("rotacao_b")),
-        "rotacao_a_detalhada": _normalizar_lista(dados.get("rotacao_a")),
-        "rotacao_b_detalhada": _normalizar_lista(dados.get("rotacao_b")),
+        "rotacao_a": _normalizar_rotacao_payload(dados.get("rotacao_a")),
+        "rotacao_b": _normalizar_rotacao_payload(dados.get("rotacao_b")),
 
         "tempos_a": _to_int(dados.get("tempos_a"), 0),
         "tempos_b": _to_int(dados.get("tempos_b"), 0),
@@ -585,35 +580,6 @@ def emitir_placar_apontador(apontador, partida_id, dados=None):
     socketio.emit("placar_apontador_atualizado", payload, room=sala)
 
 
-def _publicar_payload_placares(payload, partida_id):
-    """Publica o mesmo estado no telão por PIN e no placar geral.
-    O telão por PIN escuta placar_apontador_atualizado; antes, o modo rápido
-    só emitia estado_partida_local e o telão ficava travado.
-    """
-    global _ULTIMO_PLACAR_GERAL
-
-    payload = _json_safe(dict(payload or {}))
-    _ULTIMO_PLACAR_GERAL = payload
-
-    try:
-        socketio.emit("placar_geral_atualizado", payload, room=PLACAR_GERAL_ROOM)
-    except Exception as e:
-        print("ERRO publicar placar geral:", e, flush=True)
-
-    apontador = _normalizar_apontador(
-        payload.get("apontador")
-        or payload.get("apontador_login")
-        or payload.get("operador_login")
-    )
-    if apontador:
-        sala = _room_placar_apontador(apontador)
-        _ULTIMO_PLACAR_APONTADOR[apontador] = payload
-        try:
-            socketio.emit("placar_apontador_atualizado", payload, room=sala)
-        except Exception as e:
-            print("ERRO publicar placar apontador:", e, flush=True)
-
-
 # =========================
 # SOCKET EVENTS
 # =========================
@@ -837,7 +803,18 @@ def estado_partida_local_socket(data):
     for evento in eventos:
         _emitir_salas(evento, payload, partida_id, include_self=False)
 
-    _publicar_payload_placares(payload, partida_id)
+    # Telão/placar profissional por PIN escuta especificamente esta sala.
+    # O modo rápido/offline-first precisa alimentar também esse canal,
+    # senão árbitro/treinador recebem estado e o telão fica atrasado/travado.
+    apontador = _normalizar_apontador(
+        payload.get("apontador")
+        or payload.get("apontador_login")
+        or payload.get("operador_login")
+    )
+    sala_placar = _room_placar_apontador(apontador)
+    if sala_placar:
+        _ULTIMO_PLACAR_APONTADOR[apontador] = payload
+        socketio.emit("placar_apontador_atualizado", payload, room=sala_placar)
 
     ultima_acao = str(payload.get("ultima_acao") or "").strip()
     if ultima_acao and ultima_acao != "-":
@@ -950,14 +927,6 @@ def entrar_placar_apontador(data=None):
     join_room(sala)
 
     ultimo = _ULTIMO_PLACAR_APONTADOR.get(apontador)
-
-    if not ultimo:
-        # Fallback: se o telão entrou depois do estado local, procura no cache vivo.
-        for estado in list(_ESTADO_PARTIDAS.values()):
-            if isinstance(estado, dict) and _normalizar_apontador(estado.get("apontador") or estado.get("apontador_login")) == apontador:
-                ultimo = estado
-                _ULTIMO_PLACAR_APONTADOR[apontador] = estado
-                break
 
     if ultimo:
         socketio.emit("placar_apontador_atualizado", ultimo, room=request.sid)

@@ -695,8 +695,9 @@
 
             socket.on("saque_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;
-                // Só aplica o que veio pelo socket. Nada de refresh/fetch aqui.
-                aplicarEstado(dados, false);
+                // O popup principal já vem pelo estado completo. Este evento parcial
+                // apenas sincroniza o texto do sacador sem gerar aviso duplicado/diferente.
+                aplicarEstado(dados, true);
             });
 
             socket.on("ultima_acao_arbitros", dados => {

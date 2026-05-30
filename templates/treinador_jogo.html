@@ -513,8 +513,7 @@
 
         <div class="quadra">
             {% for i in ordem_quadra %}
-            {% set numero_pos_raw = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
-            {% set numero_pos = (numero_pos_raw.numero if numero_pos_raw is mapping and numero_pos_raw.numero is defined else (numero_pos_raw.camisa if numero_pos_raw is mapping and numero_pos_raw.camisa is defined else numero_pos_raw)) %}
+            {% set numero_pos = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
             <div class="posicao {% if not papeleta_editavel %}sem-clique{% endif %}"
                  {% if papeleta_editavel %}onclick="abrirModal({{ i }})"{% endif %}>
                 <span id="num_{{ i }}">
@@ -570,8 +569,7 @@
 
         <div class="quadra">
             {% for pos in ordem_quadra %}
-            {% set numero_raw = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
-            {% set numero = (numero_raw.numero if numero_raw is mapping and numero_raw.numero is defined else (numero_raw.camisa if numero_raw is mapping and numero_raw.camisa is defined else numero_raw)) %}
+            {% set numero = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
             <div class="posicao sem-clique">
                 <span id="rotacao_pos_{{ loop.index0 }}">{{ numero or '-' }}</span>
                 <small>{{ ['IV','III','II','V','VI','I'][loop.index0] }}</small>
@@ -1656,6 +1654,14 @@ if (socket) {
     });
 
     socket.on("estado_partida", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
+    socket.on("estado_partida_tempo_real", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
+    socket.on("ponto_registrado", (dados) => {
         aplicarEstadoTreinador(dados);
     });
 
