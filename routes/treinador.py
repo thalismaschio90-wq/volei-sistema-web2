@@ -58,25 +58,12 @@ def _buscar_equipe_sessao():
     if not login:
         return None
 
-    # Correção mobile/treinador:
-    # buscar_equipe_por_login(login) retorna competicao = NULL quando não recebe
-    # a competição atual. O modo treinador usava esse valor NULL e não encontrava
-    # partida, mesmo com jogo aberto. Usamos a competição escolhida pela equipe
-    # no painel e, como fallback, a competição vinculada do login.
-    competicao = (
-        session.get("competicao_equipe_atual")
-        or session.get("competicao_vinculada")
-        or ""
-    )
-    competicao = str(competicao or "").strip()
-
-    chave = f"{str(login).strip()}::{competicao}"
+    chave = str(login).strip()
     equipe = _cache_get(_CACHE_EQUIPE_LOGIN, chave)
     if equipe is not None:
         return equipe
 
-    encontrada = buscar_equipe_por_login(login, competicao) if competicao else buscar_equipe_por_login(login)
-    return _cache_set(_CACHE_EQUIPE_LOGIN, chave, encontrada)
+    return _cache_set(_CACHE_EQUIPE_LOGIN, chave, buscar_equipe_por_login(login))
 
 
 def _listar_atletas_cache(equipe_nome, competicao):

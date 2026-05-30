@@ -912,7 +912,12 @@ function rotacaoTemValor(rotacao) {
 
 function normalizarRotacao(rotacao) {
     rotacao = Array.isArray(rotacao) ? rotacao : [];
-    rotacao = rotacao.map(v => String(v || "").trim());
+    rotacao = rotacao.map(v => {
+        if (v && typeof v === "object") {
+            return String(v.numero || v.camisa || v.numero_camisa || "").trim();
+        }
+        return String(v || "").trim();
+    });
     while (rotacao.length < 6) rotacao.push("");
     return rotacao.slice(0, 6);
 }
@@ -1614,12 +1619,23 @@ document.addEventListener("click", function (ev) {
 });
 
 if (socket) {
-    socket.on("connect", () => {
-        socket.emit("entrar_partida", {
+    function entrarSalaTreinador() {
+        const payload = {
             competicao: {{ competicao_nome | tojson }},
             partida_id: {{ partida.id }},
-            equipe_nome: equipeNomeTreinador
-        });
+            equipe_nome: equipeNomeTreinador,
+            perfil: "treinador"
+        };
+        socket.emit("entrar_partida", payload);
+        socket.emit("entrar_partida_tempo_real", payload);
+        socket.emit("join_partida", payload);
+        socket.emit("join", { ...payload, room: String({{ partida.id }}) });
+        socket.emit("join", { ...payload, room: `partida:${String({{ partida.id }})}` });
+        socket.emit("join", { ...payload, room: `partida_${String({{ partida.id }})}` });
+    }
+
+    socket.on("connect", () => {
+        entrarSalaTreinador();
         buscarEstadoTreinadorSeguro(true);
     });
 
@@ -1637,6 +1653,14 @@ if (socket) {
         aplicarEstadoTreinador(dados);
     });
 
+    socket.on("estado_partida_tempo_real", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
+    socket.on("estado_arbitros", (dados) => {
+        aplicarEstadoTreinador(dados);
+    });
+
     socket.on("resposta_solicitacao", (dados) => {
         if (!dados || String(dados.partida_id) !== String({{ partida.id }})) return;
         mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
@@ -1647,6 +1671,9 @@ if (socket) {
         mostrarRetorno(dados.mensagem || "Nova notificação recebida.", dados.status !== "recusada");
     });
 }
+
+window.addEventListener("focus", () => { if (socket && socket.connected) { try { entrarSalaTreinador(); } catch(e){} } buscarEstadoTreinadorSeguro(true); });
+window.addEventListener("pageshow", () => { if (socket && socket.connected) { try { entrarSalaTreinador(); } catch(e){} } buscarEstadoTreinadorSeguro(true); });
 
 // Carrega o complemento pesado (scout/banco/solicitações) depois que a tela já abriu.
 // Primeira carga rápida

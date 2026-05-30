@@ -9003,48 +9003,53 @@ def criar_tabela_solicitacoes_treinador():
 def buscar_partida_treinador_por_equipe(competicao, equipe_nome):
     """
     Encontra a partida correta para o modo treinador.
-    Regra importante:
-    - nunca retorna partida finalizada/encerrada;
-    - prioriza a partida que o apontador colocou em operação agora;
-    - se existir mais de uma partida da mesma equipe, pega a mais recente em operação
-      em vez de pegar a primeira da tabela por ordem.
+    Corrigido para não depender de status perfeito nem de nome operacional preenchido.
+    Prioriza partida em andamento/aberta e nunca retorna finalizada.
     """
-    if not competicao or not equipe_nome:
+    if not equipe_nome:
         return None
 
     equipe_nome = str(equipe_nome or "").strip()
+    competicao = str(competicao or "").strip()
+
+    finalizados = ("finalizada", "finalizado", "encerrado", "encerrada")
+    ativos_fortes = ("em_andamento", "andamento", "ao_vivo", "ao vivo", "jogo", "iniciada", "iniciado")
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            filtros_comp = "AND competicao = %s" if competicao else ""
+            params = []
+            if competicao:
+                params.append(competicao)
+            params.extend([equipe_nome, equipe_nome, equipe_nome, equipe_nome])
+            cur.execute(f"""
                 SELECT *
                 FROM partidas
-                WHERE competicao = %s
+                WHERE {filtros_comp}
                   AND (
-                        LOWER(COALESCE(equipe_a_operacional, equipe_a, '')) = LOWER(%s)
-                     OR LOWER(COALESCE(equipe_b_operacional, equipe_b, '')) = LOWER(%s)
-                     OR LOWER(COALESCE(equipe_a, '')) = LOWER(%s)
-                     OR LOWER(COALESCE(equipe_b, '')) = LOWER(%s)
+                        LOWER(TRIM(COALESCE(equipe_a_operacional, equipe_a, ''))) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(COALESCE(equipe_b_operacional, equipe_b, ''))) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(COALESCE(equipe_a, ''))) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(COALESCE(equipe_b, ''))) = LOWER(TRIM(%s))
                   )
-                  AND LOWER(COALESCE(status_jogo, 'pre_jogo')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
+                  AND LOWER(COALESCE(status_jogo, '')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
                   AND LOWER(COALESCE(status, '')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
-                  AND LOWER(COALESCE(fase_partida, 'pre_jogo')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
-                  AND LOWER(COALESCE(status_operacao, 'livre')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
+                  AND LOWER(COALESCE(fase_partida, '')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
+                  AND LOWER(COALESCE(status_operacao, '')) NOT IN ('finalizada', 'finalizado', 'encerrado', 'encerrada')
                 ORDER BY
                     CASE
-                        WHEN LOWER(COALESCE(status_jogo, '')) = 'em_andamento' THEN 1
-                        WHEN LOWER(COALESCE(status_operacao, '')) = 'em_andamento' THEN 1
+                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo','iniciada','iniciado') THEN 1
+                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo','operacao','operação') THEN 1
                         WHEN COALESCE(pontos_a, 0) > 0 OR COALESCE(pontos_b, 0) > 0 THEN 2
-                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('entre_sets', 'tiebreak_sorteio') THEN 3
-                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('pre_jogo', 'em_papeleta', 'papeleta', 'reservado') THEN 4
-                        WHEN LOWER(COALESCE(fase_partida, '')) IN ('papeleta', 'papeleta_pronta', 'intervalo_set', 'jogo') THEN 5
+                        WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 3
+                        WHEN LOWER(COALESCE(fase_partida, '')) IN ('papeleta','papeleta_pronta','intervalo_set','jogo','pre_jogo') THEN 4
+                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('pre_jogo','em_papeleta','papeleta','reservado','livre') THEN 5
                         ELSE 9
                     END ASC,
-                    CASE WHEN COALESCE(operador_login, '') <> '' THEN 0 ELSE 1 END ASC,
                     COALESCE(pre_jogo_iniciado_em, reservado_em, TIMESTAMP '1970-01-01') DESC,
                     id DESC
                 LIMIT 1
-            """, (competicao, equipe_nome, equipe_nome, equipe_nome, equipe_nome))
+            """, tuple(params))
             return cur.fetchone()
 
 def _lado_treinador_da_partida(partida, equipe_nome):

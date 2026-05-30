@@ -36,11 +36,10 @@ STATUS_FINALIZADOS_ARBITRO = (
 )
 
 
-# SQL literal seguro para evitar erro do psycopg/Postgres:
-# "malformed array literal: (finalizada,finalizado,...)"
-# O erro acontecia porque tuplas Python estavam sendo enviadas para ANY/ALL.
-STATUS_ATIVOS_ARBITRO_SQL = "('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio','aberta','aberto','aguardando','aguardando_jogo','operacao','operação','ao vivo')"
-STATUS_FINALIZADOS_ARBITRO_SQL = "('finalizada','finalizado','encerrada','encerrado')"
+
+def _sql_lista_constantes(valores):
+    # Constantes internas; evita erro psycopg com tupla em ANY/ALL.
+    return "(" + ", ".join("'" + str(v).replace("'", "''").lower() + "'" for v in valores) + ")"
 
 
 def _pin_limpo(valor):
@@ -204,6 +203,8 @@ def _buscar_partida_ativa_por_pin(vinculo):
         "ao vivo",
     )
     finalizados = tuple(STATUS_FINALIZADOS_ARBITRO)
+    finalizados_sql = _sql_lista_constantes(finalizados)
+    ativos_sql = _sql_lista_constantes(ativos)
 
     colunas = """
         id,
@@ -263,15 +264,15 @@ def _buscar_partida_ativa_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
-                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
-                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND LOWER(COALESCE(status, '')) NOT IN {finalizados_sql}
+                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {finalizados_sql}
+                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {finalizados_sql}
                       AND (
                             COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                         OR LOWER(COALESCE(status, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
-                         OR LOWER(COALESCE(status_operacao, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
-                         OR LOWER(COALESCE(status_jogo, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
-                         OR LOWER(COALESCE(fase_partida, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                         OR LOWER(COALESCE(status, '')) IN {ativos_sql}
+                         OR LOWER(COALESCE(status_operacao, '')) IN {ativos_sql}
+                         OR LOWER(COALESCE(status_jogo, '')) IN {ativos_sql}
+                         OR LOWER(COALESCE(fase_partida, '')) IN {ativos_sql}
                          OR COALESCE(pontos_a, 0) > 0
                          OR COALESCE(pontos_b, 0) > 0
                          OR COALESCE(set_atual, 1) > 1
@@ -326,6 +327,7 @@ def _buscar_partida_aberta_por_pin(vinculo):
         return None
 
     finalizados = tuple(STATUS_FINALIZADOS_ARBITRO)
+    finalizados_sql = _sql_lista_constantes(finalizados)
 
     colunas = """
         id,
@@ -396,9 +398,9 @@ def _buscar_partida_aberta_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
-                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
-                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND LOWER(COALESCE(status, '')) NOT IN {finalizados_sql}
+                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {finalizados_sql}
+                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {finalizados_sql}
                     ORDER BY
                         CASE
                             WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo') THEN 1
