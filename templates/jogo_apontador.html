@@ -1208,14 +1208,6 @@
         .mobile-footer-acoes .salvar { background: #0f766e; }
         .mobile-footer-acoes .sair { background: #9a3412; }
 
-        #mobile-inverter-lados {
-            background: #2563eb;
-        }
-
-        .mobile-lados-invertidos #mobile-inverter-lados {
-            background: #f97316;
-        }
-
         .mobile-cronometro {
             display: none;
             padding: 9px 12px;
@@ -1723,6 +1715,7 @@ const btnSubExcepcional = document.getElementById("btn-sub-excepcional");
 const btnFullscreen = document.getElementById("btn-fullscreen");
 const btnAbrirPlacar = document.getElementById("btn-abrir-placar");
 const btnInverterLados = document.getElementById("btn-inverter-lados");
+const btnMobileInverterLados = document.getElementById("mobile-inverter-lados");
 const btnWoA = document.getElementById("btn-wo-a");
 const btnWoB = document.getElementById("btn-wo-b");
 const alertaPointEl = document.getElementById("alerta-point");
@@ -1735,6 +1728,9 @@ const popupJogoNomeEl = document.getElementById("popup-jogo-nome");
 const popupJogoEquipeEl = document.getElementById("popup-jogo-equipe");
 const popupJogoTempoEl = document.getElementById("popup-jogo-tempo");
 let popupSaqueTimer = null;
+let ultimoPopupSaqueChave = "";
+let ultimoPopupSaqueEm = 0;
+let popupSaqueBloqueadoAte = 0;
 
 const ultimaAcaoEl = document.getElementById("ultima-acao");
 const historicoAcoesEl = document.getElementById("historico-acoes");
@@ -1799,8 +1795,7 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         ultimaAcao: document.getElementById("mobile-ultima-acao"),
         cronometro: document.getElementById("mobile-cronometro"),
         menuEsq: document.getElementById("mobile-menu-esq"),
-        menuDir: document.getElementById("mobile-menu-dir"),
-        inverterLados: document.getElementById("mobile-inverter-lados")
+        menuDir: document.getElementById("mobile-menu-dir")
     };
 
     const PARTIDA_ID = {{ partida.id | tojson }};
@@ -2379,13 +2374,30 @@ function montarPayloadTempoReal(extra = {}) {
         };
     }
 
-    function mostrarPopupNovoSaque(lado) {
-        const info = infoSacadorDoLado(lado);
+    function mostrarPopupNovoSaque(lado, origem = "local") {
+        const equipe = ladoPorEquipeOuNome(lado);
+        if (equipe !== "A" && equipe !== "B") return;
+
+        const agora = Date.now();
+        if (origem !== "local") return;
+        if (agora < popupSaqueBloqueadoAte) return;
+
+        const info = infoSacadorDoLado(equipe);
+        const chave = `${equipe}:${info.numero || "?"}:${info.nome || ""}`;
+
+        // Trava anti-popup louco: evita o mesmo aviso repetir por socket/autosave/render.
+        if (chave === ultimoPopupSaqueChave && (agora - ultimoPopupSaqueEm) < 5500) return;
+
+        ultimoPopupSaqueChave = chave;
+        ultimoPopupSaqueEm = agora;
+        popupSaqueBloqueadoAte = agora + 1200;
+
         const nome = info.nome || `Atleta nº ${info.numero}`;
         abrirPopupJogoGrande("saque", {
             numero: info.numero,
             nome: nome,
-            equipe: info.equipeNome
+            equipe: info.equipeNome,
+            duracao: 2600
         });
     }
 
@@ -2433,7 +2445,7 @@ function montarPayloadTempoReal(extra = {}) {
         marcarBotaoComEquipe(btnWoB, equipeDir, `WO ${nomeDir}`);
 
         if (btnInverterLados) btnInverterLados.textContent = ladosInvertidos ? "Desfazer inversão dos lados" : "Inverter lados";
-        if (mobileEls.inverterLados) mobileEls.inverterLados.textContent = ladosInvertidos ? "⇄ Normal" : "⇄ Inverter";
+        if (btnMobileInverterLados) btnMobileInverterLados.textContent = ladosInvertidos ? "⇄ Desfazer" : "⇄ Inverter";
     }
 
     function renderPainelVisual(dados = estadoAtual) {
@@ -2511,33 +2523,27 @@ function montarPayloadTempoReal(extra = {}) {
         mobileEls.subDir.textContent = `Tempos ${tempoRestanteDoLado(equipeDir, dados)} • Subs ${valorEquipe(dados, equipeDir, "subs_a", "subs_b", 0)}`;
     }
 
-    const POSICOES_VISUAIS_QUADRA = [4, 3, 2, 5, 6, 1];
-    const INDICE_ROTACAO_POR_POSICAO = { 4: 0, 3: 1, 2: 2, 5: 3, 6: 4, 1: 5 };
-
-    function numeroDaPosicaoVisual(rotacao, posicaoRegra) {
-        if (!Array.isArray(rotacao)) return "";
-        const idx = INDICE_ROTACAO_POR_POSICAO[posicaoRegra];
-        return rotacao[idx] || "";
-    }
-
     function renderMobileQuadraContainer(container, rotacao, lado) {
         if (!container) return;
         container.innerHTML = "";
 
-        // IMPORTANTE: o mobile desenha pela posição OFICIAL da quadra,
-        // não pela ordem em que os botões aparecem na tela.
-        // Isso evita o bug em que a equipe da direita parece não girar,
-        // principalmente quando os lados estão invertidos ou espelhados no celular.
-        POSICOES_VISUAIS_QUADRA.forEach((posicaoRegra) => {
-            const numero = numeroDaPosicaoVisual(rotacao, posicaoRegra);
+        // A quadra mobile usa a MESMA ordem lógica do desktop: IV, III, II / V, VI, I.
+        // Não espelha nem inverte por equipe. A inversão de lados troca apenas qual equipe aparece
+        // em cada card, sem mudar a regra da rotação.
+        const lista = normalizarRotacao(Array.isArray(rotacao) ? rotacao : [], lado === "A" ? fallbackRotA : fallbackRotB, rotacao || []);
+        const posicoesOficiais = [4, 3, 2, 5, 6, 1];
+
+        lista.forEach((numero, idx) => {
+            const posicao = posicoesOficiais[idx] || (idx + 1);
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className = "mobile-pos" + classePosicao(numero, lado);
-            btn.dataset.posicao = String(posicaoRegra);
-            btn.title = numero ? `P${posicaoRegra} • #${numero} ${nomeCurtoAtleta(lado, numero)}` : `P${posicaoRegra} vazia`;
+            btn.dataset.equipe = lado;
+            btn.dataset.posicao = String(posicao);
+            btn.title = numero ? `P${posicao} • #${numero} ${nomeCurtoAtleta(lado, numero)}` : `P${posicao} vazia`;
             btn.innerHTML = `
                 <span class="mobile-pos-numero">${numero || "-"}</span>
-                <span class="mobile-pos-nome">${nomeCurtoAtleta(lado, numero) || `P${posicaoRegra}`}</span>
+                <span class="mobile-pos-nome">${nomeCurtoAtleta(lado, numero) || `P${posicao}`}</span>
             `;
             btn.addEventListener("click", function () {
                 abrirModalSubstituicao(lado);
@@ -2633,17 +2639,14 @@ function avisarPlacarAoVivoSobreInversao() {
     }
 }
 
-function aplicarClasseInversaoMobile() {
-    const ui = document.getElementById("mobile-apontador-ui");
-    if (ui) ui.classList.toggle("mobile-lados-invertidos", !!ladosInvertidos);
-}
-
 function inverterLadosVisual() {
     ladosInvertidos = !ladosInvertidos;
-    aplicarClasseInversaoMobile();
+    renderAnteriorA = [];
+    renderAnteriorB = [];
     avisarPlacarAoVivoSobreInversao();
     renderPainelVisual(estadoAtual);
     renderQuadra();
+    renderMobileQuadra();
 }
 
     function numeroInteiro(valor, padrao = 0) {
@@ -3161,10 +3164,8 @@ function inverterLadosVisual() {
                 saqueAtual = saqueNovo;
                 estadoAtual.saque_atual = saqueAtual;
 
-                if ((saqueAnterior === "A" || saqueAnterior === "B") &&
-                    saqueAnterior !== saqueNovo) {
-                    mostrarPopupNovoSaque(saqueNovo);
-                }
+                // Não mostra popup vindo de sincronização/socket/autosave.
+                // O aviso de novo saque deve aparecer apenas uma vez, no clique local do ponto.
             }
         }
         if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
@@ -4237,7 +4238,7 @@ function aplicarPontoOtimista(equipe, scout) {
         rotacionarEquipeLocal(equipe);
         saqueAtual = equipe;
         if (estadoAtual) estadoAtual.saque_atual = equipe;
-        try { mostrarPopupNovoSaque(equipe); } catch (e) {}
+        try { mostrarPopupNovoSaque(equipe, "local"); } catch (e) {}
     } else if (!saqueAnteriorLocal) {
         // Segurança: se o saque não estava definido, define sem girar.
         saqueAtual = equipe;
@@ -5134,7 +5135,7 @@ btnSubExcepcional.addEventListener("click", function () {
 });
 btnFullscreen.addEventListener("click", alternarTelaCheia);
 if (btnAbrirPlacar) btnAbrirPlacar.addEventListener("click", abrirPlacarAoVivo);
-btnInverterLados.addEventListener("click", inverterLadosVisual);
+if (btnInverterLados) btnInverterLados.addEventListener("click", inverterLadosVisual);
 
 const mobileHeadEsq = document.getElementById("mobile-head-esq");
 const mobileHeadDir = document.getElementById("mobile-head-dir");
@@ -5144,7 +5145,6 @@ const mobileMenuEsqBtn = document.getElementById("mobile-menu-esq-btn");
 const mobileMenuDirBtn = document.getElementById("mobile-menu-dir-btn");
 const mobileDesfazer = document.getElementById("mobile-desfazer");
 const mobileFullscreen = document.getElementById("mobile-fullscreen");
-const mobileInverterLados = document.getElementById("mobile-inverter-lados");
 const mobileSalvar = document.getElementById("mobile-salvar");
 const mobileSalvarSair = document.getElementById("mobile-salvar-sair");
 
@@ -5156,7 +5156,7 @@ if (mobileMenuEsqBtn) mobileMenuEsqBtn.addEventListener("click", () => { if (mob
 if (mobileMenuDirBtn) mobileMenuDirBtn.addEventListener("click", () => { if (mobileEls.menuEsq) mobileEls.menuEsq.classList.remove("aberto"); if (mobileEls.menuDir) mobileEls.menuDir.classList.toggle("aberto"); });
 if (mobileDesfazer) mobileDesfazer.addEventListener("click", desfazerAcao);
 if (mobileFullscreen) mobileFullscreen.addEventListener("click", alternarTelaCheia);
-if (mobileInverterLados) mobileInverterLados.addEventListener("click", inverterLadosVisual);
+if (btnMobileInverterLados) btnMobileInverterLados.addEventListener("click", inverterLadosVisual);
 if (mobileSalvar) mobileSalvar.addEventListener("click", () => salvarPartidaManual(false));
 if (mobileSalvarSair) mobileSalvarSair.addEventListener("click", () => salvarPartidaManual(true));
 
@@ -5177,7 +5177,6 @@ document.querySelectorAll("[data-mobile-action]").forEach((btn) => {
     });
 });
 
-aplicarClasseInversaoMobile();
 renderPainelVisual(estadoAtual);
 renderQuadra();
 renderMobileQuadra();

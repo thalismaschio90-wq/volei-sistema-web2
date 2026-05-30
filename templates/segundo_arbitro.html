@@ -659,10 +659,36 @@
         }
 
         async function carregarEstado(silencioso = false, forcar = false) {
-            // SOCKET-FIRST/OFFLINE-FIRST:
-            // durante a partida os árbitros não consultam /estado no banco,
-            // porque isso traz estado antigo e faz a rotação sumir/voltar.
-            return null;
+            try {
+                const agora = Date.now();
+
+                if (!forcar && (agora - ultimaBuscaMs) < 1500) {
+                    return;
+                }
+
+                ultimaBuscaMs = agora;
+
+                const resp = await fetch(montarUrlEstado(), {
+                    cache: "no-store",
+                    credentials: "same-origin"
+                });
+
+                if (!resp.ok) {
+                    throw new Error(`HTTP ${resp.status}`);
+                }
+
+                const dados = await resp.json();
+
+                if (!dados) return;
+
+                aplicarEstado(dados, silencioso);
+
+                return dados;
+
+            } catch (erro) {
+                console.error("Erro carregando estado árbitro:", erro);
+                return null;
+            }
         }
 
         function setSocketStatus(ok) {
@@ -840,10 +866,10 @@
                 autoConnect: true
             });
 
-            socket.on("connect", () => {
+            socket.on("connect", async () => {
                 setSocketStatus(true);
                 entrarNaSala();
-                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
+                await carregarEstado(true, true);
             });
 
             socket.on("disconnect", () => setSocketStatus(false));
@@ -853,10 +879,10 @@
                 // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
             });
 
-            socket.on("reconnect", () => {
+            socket.on("reconnect", async () => {
                 setSocketStatus(true);
                 entrarNaSala();
-                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
+                await carregarEstado(true, true);
             });
 
             [
@@ -925,7 +951,7 @@
                 if (document.visibilityState === "visible" && (!socket || !socket.connected)) {
                     carregarEstado(true, false);
                 }
-            }, 30000);
+            }, 5000);
         }
 
         function acordarTelaMobile() {
