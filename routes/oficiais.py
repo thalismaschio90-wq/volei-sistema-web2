@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, render_template, request, redirect, session, url_for, flash, make_response
+from flask import Blueprint, jsonify, render_template, request, redirect, session, url_for, flash
 from banco import (
     criar_tabelas_oficiais,
     buscar_oficial_por_cpf,
@@ -17,18 +17,10 @@ from banco import (
     listar_atletas_aprovados_da_equipe,
 )
 from routes.utils import exigir_perfil, login_obrigatorio
-from socket_events import obter_estado_cache
+from socket_events import obter_estado_cache, obter_ultimo_placar_apontador, emitir_estado_partida
 
 oficiais_bp = Blueprint("oficiais", __name__)
 
-
-
-def _resposta_sem_cache(html):
-    resp = make_response(html)
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
 
 
 def _arbitro_tem_pin_competicao(competicao):
@@ -110,9 +102,28 @@ def _normalizar_rotacao(rotacao, mapa_atletas):
 
 
 def _montar_estado_arbitro(competicao, partida_id):
-    partida = buscar_partida_operacional(partida_id, competicao) or {}
-    cache_estado = obter_estado_cache(partida_id)
-    estado = dict(cache_estado) if isinstance(cache_estado, dict) else {}
+    try:
+        partida = buscar_partida_operacional(partida_id, competicao) or {}
+    except Exception as e:
+        print("ERRO buscar_partida_operacional árbitro:", e, flush=True)
+        partida = {}
+
+    cache = obter_estado_cache(partida_id)
+    estado = dict(cache) if isinstance(cache, dict) else {}
+
+    # Mesmo canal usado pelo telão/placar ao vivo. Quando o apontador está em
+    # modo rápido/mobile, esse cache costuma chegar antes do banco.
+    try:
+        apontador_pin = (session.get("arbitro_apontador_cpf") or "").strip()
+        if apontador_pin:
+            ultimo = obter_ultimo_placar_apontador(apontador_pin) or {}
+            if isinstance(ultimo, dict):
+                pid_ultimo = str(ultimo.get("partida_id") or ultimo.get("id") or "").strip()
+                comp_ultimo = str(ultimo.get("competicao") or competicao or "").strip()
+                if pid_ultimo == str(partida_id) and (not comp_ultimo or comp_ultimo == str(competicao)):
+                    estado = {**estado, **ultimo}
+    except Exception as e:
+        print("ERRO fallback estado árbitro cache apontador:", e, flush=True)
 
     if not estado:
         try:
@@ -203,6 +214,30 @@ def _montar_estado_arbitro(competicao, partida_id):
         "historico": estado.get("historico") or [],
         "ultima_acao": estado.get("ultima_acao") or "-",
         "partida_finalizada": bool(estado.get("partida_finalizada")) or str(partida.get("status") or "").lower() in {"finalizada", "finalizado", "encerrada", "encerrado"},
+    }
+
+
+def _estado_arbitro_vazio(competicao, partida_id, mensagem="Aguardando dados do jogo"):
+    return {
+        "ok": True,
+        "competicao": competicao,
+        "partida_id": partida_id,
+        "equipe_a": "Equipe A",
+        "equipe_b": "Equipe B",
+        "pontos_a": 0,
+        "pontos_b": 0,
+        "sets_a": 0,
+        "sets_b": 0,
+        "set_atual": 1,
+        "saque_atual": "",
+        "equipe_sacadora": "",
+        "numero_sacador": "-",
+        "nome_sacador": "Aguardando",
+        "rotacao_a": [{"numero": "", "nome": ""} for _ in range(6)],
+        "rotacao_b": [{"numero": "", "nome": ""} for _ in range(6)],
+        "historico": [],
+        "ultima_acao": mensagem,
+        "partida_finalizada": False,
     }
 
 
@@ -319,31 +354,47 @@ def transferir_pin_operacional_view():
 @oficiais_bp.route("/oficiais/primeiro-arbitro/<competicao>/<int:partida_id>")
 def primeiro_arbitro_view(competicao, partida_id):
     if not _arbitro_tem_pin_competicao(competicao):
-        flash("Digite o PIN da quadra no Painel dos Árbitros antes de abrir esta tela.", "erro")
-        return redirect(url_for("painel.painel_arbitros"))
-    estado = _montar_estado_arbitro(competicao, partida_id)
-    return _resposta_sem_cache(render_template(
+        flash("Digite o PIN antes de abrir a tela do árbitro.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+    try:
+        estado = _montar_estado_arbitro(competicao, partida_id)
+        try:
+            emitir_estado_partida(partida_id, estado)
+        except Exception as e:
+            print("AVISO emitir estado inicial 1º árbitro:", e, flush=True)
+    except Exception as e:
+        print("ERRO primeiro_arbitro_view:", e, flush=True)
+        estado = _estado_arbitro_vazio(competicao, partida_id, f"Erro ao carregar estado: {e}")
+    return render_template(
         "primeiro_arbitro.html",
         competicao=competicao,
         partida_id=partida_id,
         estado=estado,
         tipo_arbitro="primeiro",
-    ))
+    )
 
 
 @oficiais_bp.route("/oficiais/segundo-arbitro/<competicao>/<int:partida_id>")
 def segundo_arbitro_view(competicao, partida_id):
     if not _arbitro_tem_pin_competicao(competicao):
-        flash("Digite o PIN da quadra no Painel dos Árbitros antes de abrir esta tela.", "erro")
-        return redirect(url_for("painel.painel_arbitros"))
-    estado = _montar_estado_arbitro(competicao, partida_id)
-    return _resposta_sem_cache(render_template(
+        flash("Digite o PIN antes de abrir a tela do árbitro.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+    try:
+        estado = _montar_estado_arbitro(competicao, partida_id)
+        try:
+            emitir_estado_partida(partida_id, estado)
+        except Exception as e:
+            print("AVISO emitir estado inicial 2º árbitro:", e, flush=True)
+    except Exception as e:
+        print("ERRO segundo_arbitro_view:", e, flush=True)
+        estado = _estado_arbitro_vazio(competicao, partida_id, f"Erro ao carregar estado: {e}")
+    return render_template(
         "segundo_arbitro.html",
         competicao=competicao,
         partida_id=partida_id,
         estado=estado,
         tipo_arbitro="segundo",
-    ))
+    )
 
 
 @oficiais_bp.route("/oficiais/arbitro/estado/<competicao>/<int:partida_id>")

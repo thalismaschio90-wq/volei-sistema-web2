@@ -49,14 +49,14 @@ async function verificarPartidaArbitro(manual = false) {
     const preview = document.getElementById("arbitro-partida-preview");
     if (manual && statusBox) statusBox.textContent = "Verificando agora...";
     try {
-        const resp = await fetch("{{ endpoint_status }}", { method: "GET", headers: {"Accept": "application/json"}, cache: "no-store" });
+        const resp = await fetch("{{ endpoint_status }}", { method: "GET", headers: {"Accept": "application/json"}, cache: "no-store", credentials: "same-origin" });
         const json = await resp.json();
         if (!json.ok) { if (statusBox) statusBox.textContent = json.erro || "Não foi possível verificar a próxima partida."; return; }
         if (!json.tem_partida) { if (statusBox) statusBox.textContent = json.mensagem || "Nenhuma partida ativa no momento."; if (preview) { preview.style.display = "none"; preview.textContent = ""; } return; }
         redirecionandoArbitro = true;
         if (statusBox) statusBox.textContent = "Partida encontrada. Abrindo painel...";
         if (preview && json.partida) { const p = json.partida; preview.style.display = "block"; preview.innerHTML = `Jogo ${p.ordem || "-"}${p.quadra ? " • Quadra " + p.quadra : ""}<br>${p.equipe_a || "Equipe A"} x ${p.equipe_b || "Equipe B"}`; }
-        setTimeout(function() { window.location.href = json.url; }, 900);
+        window.location.replace(json.url);
     } catch (e) {
         if (statusBox) statusBox.textContent = "Falha de conexão. Tentando novamente automaticamente...";
     } finally {
@@ -64,6 +64,6 @@ async function verificarPartidaArbitro(manual = false) {
     }
 }
 verificarPartidaArbitro(false);
-setInterval(function() { verificarPartidaArbitro(false); }, 3000);
+setInterval(function() { verificarPartidaArbitro(false); }, 1200);
 </script>
 {% endblock %}

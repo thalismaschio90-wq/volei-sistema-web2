@@ -6,6 +6,11 @@ from banco import (
     buscar_vinculo_arbitragem_por_pin,
 )
 
+try:
+    from socket_events import obter_ultimo_placar_apontador
+except Exception:
+    obter_ultimo_placar_apontador = None
+
 acessos_pin_bp = Blueprint("acessos_pin", __name__)
 
 
@@ -29,6 +34,13 @@ STATUS_FINALIZADOS_ARBITRO = (
     "encerrada",
     "encerrado",
 )
+
+
+# SQL literal seguro para evitar erro do psycopg/Postgres:
+# "malformed array literal: (finalizada,finalizado,...)"
+# O erro acontecia porque tuplas Python estavam sendo enviadas para ANY/ALL.
+STATUS_ATIVOS_ARBITRO_SQL = "('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio','aberta','aberto','aguardando','aguardando_jogo','operacao','operação','ao vivo')"
+STATUS_FINALIZADOS_ARBITRO_SQL = "('finalizada','finalizado','encerrada','encerrado')"
 
 
 def _pin_limpo(valor):
@@ -95,7 +107,86 @@ def _vinculo_arbitro_sessao():
     return None
 
 
+
+def _partida_ativa_por_cache_apontador(vinculo):
+    """
+    Tenta descobrir a partida aberta pelo mesmo canal do telão/apontador.
+
+    Esse é o ajuste principal para o acesso por PIN: o telão já sabe qual é a
+    partida porque o apontador publica o último placar por apontador. O árbitro
+    deve usar o mesmo sinal antes de depender do status salvo na tabela partidas,
+    que pode demorar ou vir diferente do painel antigo.
+    """
+    if not vinculo or vinculo.get("tipo") != "operacional" or obter_ultimo_placar_apontador is None:
+        return None
+
+    apontador = (vinculo.get("apontador_cpf") or "").strip()
+    competicao_pin = (vinculo.get("competicao") or "").strip()
+    if not apontador:
+        return None
+
+    try:
+        estado = obter_ultimo_placar_apontador(apontador) or {}
+    except Exception as e:
+        print("ERRO cache placar apontador árbitro:", e, flush=True)
+        return None
+
+    if not isinstance(estado, dict):
+        return None
+
+    partida_id = estado.get("partida_id") or estado.get("id") or estado.get("partida")
+    competicao_estado = (estado.get("competicao") or competicao_pin or "").strip()
+
+    if not partida_id:
+        return None
+    if competicao_pin and competicao_estado and competicao_pin != competicao_estado:
+        return None
+
+    try:
+        partida_id_int = int(partida_id)
+    except Exception:
+        return None
+
+    return {
+        "id": partida_id_int,
+        "competicao": competicao_estado or competicao_pin,
+        "ordem": estado.get("ordem") or estado.get("partida_ordem"),
+        "quadra": estado.get("quadra") or estado.get("quadra_nome"),
+        "quadra_id": estado.get("quadra_id"),
+        "quadra_nome": estado.get("quadra_nome") or estado.get("quadra"),
+        "grupo": estado.get("grupo"),
+        "equipe_a": estado.get("equipe_a") or estado.get("nome_a") or "Equipe A",
+        "equipe_b": estado.get("equipe_b") or estado.get("nome_b") or "Equipe B",
+        "equipe_a_operacional": estado.get("equipe_a") or estado.get("nome_a") or "Equipe A",
+        "equipe_b_operacional": estado.get("equipe_b") or estado.get("nome_b") or "Equipe B",
+        "status": estado.get("status") or "ao_vivo",
+        "status_operacao": estado.get("status_operacao") or "ao_vivo",
+        "status_jogo": estado.get("status_jogo") or "em_andamento",
+        "fase_partida": estado.get("fase_partida") or "jogo",
+        "set_atual": estado.get("set_atual") or 1,
+        "pontos_a": estado.get("pontos_a") or estado.get("placar_a") or 0,
+        "pontos_b": estado.get("pontos_b") or estado.get("placar_b") or 0,
+        "sets_a": estado.get("sets_a") or 0,
+        "sets_b": estado.get("sets_b") or 0,
+        "pre_jogo_finalizado": True,
+        "arbitro_1_nome": "",
+        "arbitro_2_nome": "",
+        "operador_nome": vinculo.get("apontador_nome") or "",
+        "operador_login": apontador,
+        "_origem": "cache_placar_apontador",
+    }
+
 def _buscar_partida_ativa_por_pin(vinculo):
+    """
+    Busca a partida que deve abrir no tablet do árbitro.
+
+    Correções importantes:
+    - tenta primeiro respeitando o apontador/quadra do PIN;
+    - se não achar, faz fallback por competição, porque em algumas partidas
+      antigas o operador_login/quadra_id pode estar vazio;
+    - aceita status de pré-jogo, papeleta e jogo em andamento;
+    - nunca pega partida finalizada.
+    """
     if not vinculo:
         return None
 
@@ -103,86 +194,253 @@ def _buscar_partida_ativa_por_pin(vinculo):
     if not competicao:
         return None
 
-    filtros = ["competicao = %s"]
-    params = [competicao]
+    ativos = tuple(STATUS_ATIVOS_ARBITRO) + (
+        "aberta",
+        "aberto",
+        "aguardando",
+        "aguardando_jogo",
+        "operacao",
+        "operação",
+        "ao vivo",
+    )
+    finalizados = tuple(STATUS_FINALIZADOS_ARBITRO)
 
-    if vinculo.get("tipo") == "operacional":
-        apontador = (vinculo.get("apontador_cpf") or "").strip()
-        if apontador:
-            filtros.append("COALESCE(operador_login, '') = %s")
-            params.append(apontador)
-    elif vinculo.get("tipo") == "competicao":
-        quadra_id = vinculo.get("quadra_id")
-        quadra_nome = (vinculo.get("quadra_nome") or "").strip()
-        quadra_ordem = vinculo.get("quadra_ordem")
-        if quadra_id:
-            filtros.append("(quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s)")
-            params.extend([quadra_id, quadra_nome, quadra_nome, str(quadra_ordem or "")])
-        elif quadra_nome:
-            filtros.append("(quadra_nome = %s OR quadra = %s)")
-            params.extend([quadra_nome, quadra_nome])
+    colunas = """
+        id,
+        competicao,
+        ordem,
+        quadra,
+        quadra_id,
+        quadra_nome,
+        grupo,
+        equipe_a,
+        equipe_b,
+        equipe_a_operacional,
+        equipe_b_operacional,
+        status,
+        status_operacao,
+        status_jogo,
+        fase_partida,
+        set_atual,
+        pontos_a,
+        pontos_b,
+        sets_a,
+        sets_b,
+        pre_jogo_finalizado,
+        arbitro_1_nome,
+        arbitro_2_nome,
+        operador_nome,
+        operador_login
+    """
 
-    ativos = list(STATUS_ATIVOS_ARBITRO)
-    finalizados = list(STATUS_FINALIZADOS_ARBITRO)
+    def consultar(com_filtro_operacional=True):
+        filtros = ["competicao = %s"]
+        params = [competicao]
 
-    where = " AND ".join(filtros)
+        if com_filtro_operacional and vinculo.get("tipo") == "operacional":
+            apontador = (vinculo.get("apontador_cpf") or "").strip()
+            if apontador:
+                filtros.append("(COALESCE(operador_login, '') = %s OR COALESCE(operador_nome, '') = %s OR COALESCE(operador_login, '') = '')")
+                params.extend([apontador, apontador])
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT
-                    id,
-                    competicao,
-                    ordem,
-                    quadra,
-                    quadra_id,
-                    quadra_nome,
-                    grupo,
-                    equipe_a,
-                    equipe_b,
-                    equipe_a_operacional,
-                    equipe_b_operacional,
-                    status,
-                    status_operacao,
-                    status_jogo,
-                    fase_partida,
-                    set_atual,
-                    pontos_a,
-                    pontos_b,
-                    sets_a,
-                    sets_b,
-                    pre_jogo_finalizado,
-                    arbitro_1_nome,
-                    arbitro_2_nome,
-                    operador_nome,
-                    operador_login
-                FROM partidas
-                WHERE {where}
-                  AND LOWER(COALESCE(status, '')) <> ALL(%s)
-                  AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
-                  AND (
-                        COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                     OR LOWER(COALESCE(status, '')) = ANY(%s)
-                     OR LOWER(COALESCE(status_operacao, '')) = ANY(%s)
-                     OR LOWER(COALESCE(status_jogo, '')) = ANY(%s)
-                     OR LOWER(COALESCE(fase_partida, '')) = ANY(%s)
-                  )
-                ORDER BY
-                    CASE
-                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo') THEN 1
-                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo') THEN 2
-                        WHEN LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo', 'iniciada', 'iniciado') THEN 3
-                        WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 4
-                        ELSE 9
-                    END,
-                    COALESCE(ordem, 999999),
-                    id
-                LIMIT 1
-                """,
-                tuple(params + [finalizados, finalizados, ativos, ativos, ativos, ativos]),
-            )
-            return cur.fetchone()
+        if com_filtro_operacional and vinculo.get("tipo") == "competicao":
+            quadra_id = vinculo.get("quadra_id")
+            quadra_nome = (vinculo.get("quadra_nome") or "").strip()
+            quadra_ordem = vinculo.get("quadra_ordem")
+            if quadra_id:
+                filtros.append("(quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s OR quadra_id IS NULL)")
+                params.extend([quadra_id, quadra_nome, quadra_nome, str(quadra_ordem or "")])
+            elif quadra_nome:
+                filtros.append("(quadra_nome = %s OR quadra = %s OR COALESCE(quadra_nome, '') = '')")
+                params.extend([quadra_nome, quadra_nome])
+
+        where = " AND ".join(filtros)
+
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT {colunas}
+                    FROM partidas
+                    WHERE {where}
+                      AND LOWER(COALESCE(status, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND (
+                            COALESCE(pre_jogo_finalizado, FALSE) = TRUE
+                         OR LOWER(COALESCE(status, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                         OR LOWER(COALESCE(status_operacao, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                         OR LOWER(COALESCE(status_jogo, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                         OR LOWER(COALESCE(fase_partida, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                         OR COALESCE(pontos_a, 0) > 0
+                         OR COALESCE(pontos_b, 0) > 0
+                         OR COALESCE(set_atual, 1) > 1
+                      )
+                    ORDER BY
+                        CASE
+                            WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'ao vivo', 'jogo') THEN 1
+                            WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'ao vivo', 'jogo', 'operacao', 'operação') THEN 2
+                            WHEN LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'ao vivo', 'jogo', 'iniciada', 'iniciado') THEN 3
+                            WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 4
+                            ELSE 9
+                        END,
+                        COALESCE(ordem, 999999),
+                        id DESC
+                    LIMIT 1
+                    """,
+                    tuple(params),
+                )
+                return cur.fetchone()
+
+    try:
+        partida = consultar(com_filtro_operacional=True)
+        if partida:
+            return partida
+    except Exception as e:
+        print("ERRO buscar partida árbitro com filtro:", e, flush=True)
+
+    try:
+        return consultar(com_filtro_operacional=False)
+    except Exception as e:
+        print("ERRO buscar partida árbitro fallback:", e, flush=True)
+        return None
+
+
+def _buscar_partida_aberta_por_pin(vinculo):
+    """
+    Fallback mais aberto para o acesso por PIN.
+
+    Esse é o ponto que corrige o problema relatado: o login antigo do árbitro
+    abria /painel-arbitro-1 e encontrava a partida mesmo quando ela ainda não
+    estava marcada como pre_jogo_finalizado/status ativo. O acesso por PIN
+    ficava preso em /arbitro/1 ou /arbitro/2 porque a busca era restritiva.
+
+    Aqui pegamos a melhor partida NÃO finalizada da competição/quadra/apontador,
+    mesmo que o status ainda esteja como aguardando/aberta/pendente.
+    """
+    if not vinculo:
+        return None
+
+    competicao = (vinculo.get("competicao") or "").strip()
+    if not competicao:
+        return None
+
+    finalizados = tuple(STATUS_FINALIZADOS_ARBITRO)
+
+    colunas = """
+        id,
+        competicao,
+        ordem,
+        quadra,
+        quadra_id,
+        quadra_nome,
+        grupo,
+        equipe_a,
+        equipe_b,
+        equipe_a_operacional,
+        equipe_b_operacional,
+        status,
+        status_operacao,
+        status_jogo,
+        fase_partida,
+        set_atual,
+        pontos_a,
+        pontos_b,
+        sets_a,
+        sets_b,
+        pre_jogo_finalizado,
+        arbitro_1_nome,
+        arbitro_2_nome,
+        operador_nome,
+        operador_login
+    """
+
+    def consultar(com_filtro=True):
+        filtros = ["competicao = %s"]
+        params = [competicao]
+
+        if com_filtro and vinculo.get("tipo") == "operacional":
+            apontador = (vinculo.get("apontador_cpf") or "").strip()
+            if apontador:
+                filtros.append("(COALESCE(operador_login, '') = %s OR COALESCE(operador_login, '') = '' OR operador_login IS NULL)")
+                params.append(apontador)
+
+        if com_filtro and vinculo.get("tipo") == "competicao":
+            quadra_id = vinculo.get("quadra_id")
+            quadra_nome = (vinculo.get("quadra_nome") or "").strip()
+            quadra_ordem = str(vinculo.get("quadra_ordem") or "").strip()
+            conds = []
+            if quadra_id:
+                conds.append("quadra_id = %s")
+                params.append(quadra_id)
+            if quadra_nome:
+                conds.append("quadra_nome = %s")
+                params.append(quadra_nome)
+                conds.append("quadra = %s")
+                params.append(quadra_nome)
+            if quadra_ordem:
+                conds.append("quadra = %s")
+                params.append(quadra_ordem)
+            # Se a partida antiga não tiver quadra vinculada, ainda permite achar.
+            conds.append("quadra_id IS NULL")
+            conds.append("COALESCE(quadra_nome, '') = ''")
+            if conds:
+                filtros.append("(" + " OR ".join(conds) + ")")
+
+        where = " AND ".join(filtros)
+
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT {colunas}
+                    FROM partidas
+                    WHERE {where}
+                      AND LOWER(COALESCE(status, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                    ORDER BY
+                        CASE
+                            WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo') THEN 1
+                            WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo','operacao','operação') THEN 2
+                            WHEN LOWER(COALESCE(status, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo','iniciada','iniciado') THEN 3
+                            WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 4
+                            WHEN LOWER(COALESCE(status, '')) IN ('pre_jogo','papeleta','papeleta_pronta','aberta','aberto','aguardando','pendente') THEN 5
+                            ELSE 9
+                        END,
+                        COALESCE(ordem, 999999),
+                        id DESC
+                    LIMIT 1
+                    """,
+                    tuple(params),
+                )
+                return cur.fetchone()
+
+    try:
+        partida = consultar(com_filtro=True)
+        if partida:
+            return partida
+    except Exception as e:
+        print("ERRO buscar partida aberta árbitro com filtro:", e, flush=True)
+
+    try:
+        return consultar(com_filtro=False)
+    except Exception as e:
+        print("ERRO buscar partida aberta árbitro fallback:", e, flush=True)
+        return None
+
+
+def _resolver_partida_para_arbitro(vinculo):
+    """Busca a partida do árbitro com prioridade no estado vivo do apontador."""
+    partida = _partida_ativa_por_cache_apontador(vinculo)
+    if partida:
+        return partida
+
+    partida = _buscar_partida_ativa_por_pin(vinculo)
+    if partida:
+        return partida
+
+    return _buscar_partida_aberta_por_pin(vinculo)
 
 
 @acessos_pin_bp.route("/arbitro", methods=["GET", "POST"])
@@ -244,12 +502,23 @@ def arbitro_publico_pin():
     return render_template("pin_arbitro.html")
 
 
+
 @acessos_pin_bp.route("/arbitro/1")
 def arbitro_automatico_primeiro():
     vinculo = _vinculo_arbitro_sessao()
     if not vinculo:
         flash("Digite o PIN antes de abrir o painel do árbitro.", "erro")
         return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+    # CORREÇÃO: se já existe partida ativa, não fica preso na tela intermediária.
+    # Vai direto para a tela final do 1º árbitro.
+    partida = _resolver_partida_para_arbitro(vinculo)
+    if partida:
+        return redirect(url_for(
+            "oficiais.primeiro_arbitro_view",
+            competicao=partida["competicao"],
+            partida_id=partida["id"],
+        ))
 
     return render_template(
         "painel_arbitro_automatico.html",
@@ -268,6 +537,16 @@ def arbitro_automatico_segundo():
         flash("Digite o PIN antes de abrir o painel do árbitro.", "erro")
         return redirect(url_for("acessos_pin.arbitro_publico_pin"))
 
+    # CORREÇÃO: se já existe partida ativa, não fica preso na tela intermediária.
+    # Vai direto para a tela final do 2º árbitro.
+    partida = _resolver_partida_para_arbitro(vinculo)
+    if partida:
+        return redirect(url_for(
+            "oficiais.segundo_arbitro_view",
+            competicao=partida["competicao"],
+            partida_id=partida["id"],
+        ))
+
     return render_template(
         "painel_arbitro_automatico.html",
         tipo="segundo",
@@ -283,7 +562,7 @@ def _resposta_proxima_partida(tipo):
     if not vinculo:
         return jsonify({"ok": False, "erro": "PIN não validado."}), 403
 
-    partida = _buscar_partida_ativa_por_pin(vinculo)
+    partida = _resolver_partida_para_arbitro(vinculo)
 
     if not partida:
         return jsonify({

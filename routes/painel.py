@@ -44,6 +44,12 @@ STATUS_FINALIZADOS_ARBITRO = (
 )
 
 
+# SQL literal seguro para evitar erro do psycopg/Postgres:
+# "malformed array literal: (finalizada,finalizado,...)"
+STATUS_ATIVOS_ARBITRO_SQL = "('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio')"
+STATUS_FINALIZADOS_ARBITRO_SQL = "('finalizada','finalizado','encerrada','encerrado')"
+
+
 def _perfil_normalizado():
     return (session.get("perfil") or "").strip().lower()
 
@@ -192,14 +198,14 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao, quadra_id=None, quadra
                 WHERE competicao = %s
                   {filtro_quadra}
                   {filtro_operador}
-                  AND LOWER(COALESCE(status, '')) <> ALL(%s)
-                  AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
+                  AND LOWER(COALESCE(status, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
+                  AND LOWER(COALESCE(status_operacao, '')) NOT IN {STATUS_FINALIZADOS_ARBITRO_SQL}
                   AND (
                         COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                     OR LOWER(COALESCE(status, '')) = ANY(%s)
-                     OR LOWER(COALESCE(status_operacao, '')) = ANY(%s)
-                     OR LOWER(COALESCE(status_jogo, '')) = ANY(%s)
-                     OR LOWER(COALESCE(fase_partida, '')) = ANY(%s)
+                     OR LOWER(COALESCE(status, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                     OR LOWER(COALESCE(status_operacao, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                     OR LOWER(COALESCE(status_jogo, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
+                     OR LOWER(COALESCE(fase_partida, '')) IN {STATUS_ATIVOS_ARBITRO_SQL}
                   )
                 ORDER BY
                     CASE
@@ -213,7 +219,7 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao, quadra_id=None, quadra
                     id
                 LIMIT 1
                 """,
-                tuple([competicao] + params_quadra + params_operador + [finalizados, finalizados, ativos, ativos, ativos, ativos]),
+                tuple([competicao] + params_quadra + params_operador),
             )
             return cur.fetchone()
 
@@ -424,10 +430,8 @@ def painel_arbitro_1():
         return redirect(url_for("painel.inicio"))
 
     vinculo = _vinculo_arbitro_sessao()
-    if not vinculo:
-        flash("Digite o PIN da quadra ou do jogo rápido antes de abrir o painel.", "erro")
-        return redirect(url_for("painel.painel_arbitros"))
-    if vinculo.get("tipo") == "avulso":
+    # Login antigo de árbitro pode abrir sem PIN; PIN continua sendo usado quando existir.
+    if vinculo and vinculo.get("tipo") == "avulso":
         return redirect(url_for("jogo_avulso.arbitro1_jogo_avulso", codigo=vinculo.get("codigo")))
 
     return render_template(
@@ -447,10 +451,8 @@ def painel_arbitro_2():
         return redirect(url_for("painel.inicio"))
 
     vinculo = _vinculo_arbitro_sessao()
-    if not vinculo:
-        flash("Digite o PIN da quadra ou do jogo rápido antes de abrir o painel.", "erro")
-        return redirect(url_for("painel.painel_arbitros"))
-    if vinculo.get("tipo") == "avulso":
+    # Login antigo de árbitro pode abrir sem PIN; PIN continua sendo usado quando existir.
+    if vinculo and vinculo.get("tipo") == "avulso":
         return redirect(url_for("jogo_avulso.arbitro2_jogo_avulso", codigo=vinculo.get("codigo")))
 
     return render_template(
@@ -468,16 +470,25 @@ def _resposta_proxima_partida_arbitro(tipo):
         return jsonify({"ok": False, "erro": "sem_permissao"}), 403
 
     vinculo = _vinculo_arbitro_sessao()
-    if not vinculo or vinculo.get("tipo") != "competicao":
-        return jsonify({"ok": False, "erro": "PIN da quadra não validado."}), 403
-
     competicao = _competicao_arbitro_logado()
+
+    # Correção: o painel antigo por login e o painel novo por PIN precisam usar a
+    # mesma busca. Antes só aceitava PIN do tipo "competicao"; PIN operacional e
+    # árbitro logado sem PIN retornavam 403, por isso ficava aguardando para sempre.
+    if vinculo and vinculo.get("tipo") == "avulso":
+        return jsonify({"ok": False, "erro": "Jogo rápido não usa esta rota."}), 403
+
+    quadra_id = vinculo.get("quadra_id") if vinculo and vinculo.get("tipo") == "competicao" else None
+    quadra_nome = vinculo.get("quadra_nome") if vinculo and vinculo.get("tipo") == "competicao" else None
+    quadra_ordem = vinculo.get("quadra_ordem") if vinculo and vinculo.get("tipo") == "competicao" else None
+    operador_login = vinculo.get("apontador_cpf") if vinculo and vinculo.get("tipo") == "operacional" else None
+
     partida = _buscar_partida_ativa_para_painel_arbitro(
         competicao,
-        quadra_id=vinculo.get("quadra_id"),
-        quadra_nome=vinculo.get("quadra_nome"),
-        quadra_ordem=vinculo.get("quadra_ordem"),
-        operador_login=vinculo.get("apontador_cpf") if vinculo.get("tipo") == "operacional" else None,
+        quadra_id=quadra_id,
+        quadra_nome=quadra_nome,
+        quadra_ordem=quadra_ordem,
+        operador_login=operador_login,
     )
 
     if not partida:
