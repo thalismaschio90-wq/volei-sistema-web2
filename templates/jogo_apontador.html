@@ -1282,6 +1282,79 @@
     }
 }
 
+
+/* =========================================================
+   AJUSTE MOBILE: justificativa do ponto compacta
+   ========================================================= */
+@media (max-width: 1024px) and (orientation: landscape) {
+    .ponto-modal-fundo {
+        align-items: center !important;
+        padding: 6px !important;
+    }
+
+    .ponto-modal {
+        width: min(760px, 96vw) !important;
+        max-height: 94vh !important;
+        padding: 10px !important;
+        border-radius: 12px !important;
+        overflow: auto !important;
+    }
+
+    .ponto-modal > div:first-child {
+        font-size: 15px !important;
+        line-height: 1.05 !important;
+    }
+
+    #ponto-equipe-texto {
+        margin-top: 3px !important;
+        font-size: 11px !important;
+        line-height: 1.15 !important;
+    }
+
+    .ponto-bloco {
+        margin-top: 7px !important;
+    }
+
+    .ponto-label {
+        font-size: 11px !important;
+        margin-bottom: 4px !important;
+        line-height: 1.05 !important;
+    }
+
+    .ponto-lista {
+        gap: 4px !important;
+    }
+
+    .ponto-card {
+        min-width: 88px !important;
+        padding: 6px 7px !important;
+        border-radius: 8px !important;
+        font-size: 11px !important;
+        line-height: 1.1 !important;
+    }
+
+    .ponto-resumo {
+        margin-top: 7px !important;
+        font-size: 11px !important;
+        line-height: 1.2 !important;
+    }
+
+    .ponto-atalhos {
+        display: none !important;
+    }
+
+    .ponto-acoes {
+        margin-top: 8px !important;
+        gap: 6px !important;
+    }
+
+    .ponto-acoes button {
+        padding: 8px 12px !important;
+        border-radius: 10px !important;
+        font-size: 12px !important;
+    }
+}
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -1731,6 +1804,9 @@ let popupSaqueTimer = null;
 let ultimoPopupSaqueChave = "";
 let ultimoPopupSaqueEm = 0;
 let popupSaqueBloqueadoAte = 0;
+let sequenciaPontoLocal = 0;
+let ultimoSideoutAplicado = "";
+let ultimoCliquePontoEm = 0;
 
 const ultimaAcaoEl = document.getElementById("ultima-acao");
 const historicoAcoesEl = document.getElementById("historico-acoes");
@@ -2231,12 +2307,8 @@ function montarPayloadTempoReal(extra = {}) {
     }
 
     function girarRotacaoLocal(lado) {
-        if (lado === "A") {
-            if (!Array.isArray(rotA) || rotA.length !== 6) return;
-            rotA = [rotA[3], rotA[0], rotA[1], rotA[4], rotA[5], rotA[2]];
-        } else {
-            if (!Array.isArray(rotB) || rotB.length !== 6) return;
-            rotB = [rotB[3], rotB[0], rotB[1], rotB[4], rotB[5], rotB[2]];
+        if (typeof rotacionarEquipeLocal === "function") {
+            rotacionarEquipeLocal(lado);
         }
     }
 
@@ -2319,7 +2391,7 @@ function montarPayloadTempoReal(extra = {}) {
             popupSaqueTimer = null;
         }
 
-        if (popupJogoTituloEl) popupJogoTituloEl.textContent = tipo === "tempo" ? "TEMPO" : "NOVO SAQUE";
+        if (popupJogoTituloEl) popupJogoTituloEl.textContent = tipo === "tempo" ? "TEMPO" : (dados.titulo || "ORDEM DO SAQUE");
         if (popupJogoNumeroEl) {
             popupJogoNumeroEl.style.display = tipo === "tempo" ? "none" : "block";
             popupJogoNumeroEl.textContent = dados.numero || "?";
@@ -3148,8 +3220,15 @@ function inverterLadosVisual() {
             if (fezPontoB && typeof animarNumero === "function") animarNumero(posicaoVisualDaEquipe("B") === "esquerda" ? pontosA : pontosB);
             if (fezPontoA) mostrarAnimacaoPonto("A");
             if (fezPontoB) mostrarAnimacaoPonto("B");
-            if (Array.isArray(dados.rotacao_a) && dados.rotacao_a.length === 6) rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA, rotA);
-            if (Array.isArray(dados.rotacao_b) && dados.rotacao_b.length === 6) rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB, rotB);
+
+            const veioDePonto = String(dados.tipo_evento || dados.evento || "").toLowerCase().includes("ponto") || dados.equipe_pontuadora !== undefined;
+            const rotacaoProtegida = Date.now() < rotacaoProtegidaAte;
+            const podeAceitarRotacaoExterna = !veioDePonto && !rotacaoProtegida;
+
+            // Ponto é decidido localmente pelo apontador. Socket/autosave não pode sobrescrever rotação,
+            // senão a quadra fica uma hora travando, outra hora girando duas vezes.
+            if (podeAceitarRotacaoExterna && Array.isArray(dados.rotacao_a) && dados.rotacao_a.length === 6) rotA = normalizarRotacao(dados.rotacao_a, fallbackRotA, rotA);
+            if (podeAceitarRotacaoExterna && Array.isArray(dados.rotacao_b) && dados.rotacao_b.length === 6) rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB, rotB);
         }
 
         estadoAtual.rotacao_a = rotA;
@@ -4213,15 +4292,79 @@ function atualizarResumoSubEx() {
 }
 
 
+function copiaRotacaoSegura(rotacao, fallback) {
+    return normalizarRotacao(rotacao, fallback, rotacao).map((n) => String(n || ""));
+}
+
+function assinaturaRotacao(rotacao) {
+    return Array.isArray(rotacao) ? rotacao.map((n) => String(n || "")).join("|") : "";
+}
+
+function rotacionarArrayOficial(rotacao) {
+    // A lista da tela é sempre: [P4, P3, P2, P5, P6, P1].
+    // Pela regra oficial, quando a equipe GANHA o saque:
+    // P1 -> P6, P6 -> P5, P5 -> P4, P4 -> P3, P3 -> P2, P2 -> P1.
+    if (!Array.isArray(rotacao) || rotacao.length !== 6) return rotacao;
+    const atual = rotacao.map((n) => String(n || ""));
+    return [atual[3], atual[0], atual[1], atual[4], atual[5], atual[2]];
+}
+
 function rotacionarEquipeLocal(lado) {
     lado = String(lado || "").toUpperCase();
-    // Ordem compatível com a grade usada no apontador: IV, III, II, V, VI, I.
-    // Quando ganha o direito de saque, a equipe gira uma posição.
-    if (lado === "A" && Array.isArray(rotA) && rotA.length === 6) {
-        rotA = [rotA[3], rotA[0], rotA[1], rotA[4], rotA[5], rotA[2]];
+    if (lado === "A") {
+        rotA = rotacionarArrayOficial(copiaRotacaoSegura(rotA, fallbackRotA));
+        estadoAtual.rotacao_a = [...rotA];
+        return true;
     }
-    if (lado === "B" && Array.isArray(rotB) && rotB.length === 6) {
-        rotB = [rotB[3], rotB[0], rotB[1], rotB[4], rotB[5], rotB[2]];
+    if (lado === "B") {
+        rotB = rotacionarArrayOficial(copiaRotacaoSegura(rotB, fallbackRotB));
+        estadoAtual.rotacao_b = [...rotB];
+        return true;
+    }
+    return false;
+}
+
+function aplicarRegraSaqueERotacao(equipePontuadora) {
+    const equipe = ladoPorEquipeOuNome(equipePontuadora);
+    if (equipe !== "A" && equipe !== "B") return { girou: false, saqueAnterior: "", saqueNovo: "" };
+
+    const saqueAnterior = ladoPorEquipeOuNome(saqueAtual || estadoAtual?.saque_atual || "");
+    const assinaturaAntes = `${sequenciaPontoLocal}:${equipe}:${saqueAnterior || "sem-saque"}:${assinaturaRotacao(rotA)}:${assinaturaRotacao(rotB)}`;
+
+    // Sem saque definido: apenas define o primeiro saque. Não roda.
+    if (!saqueAnterior) {
+        atualizarSaqueLocal(equipe, true);
+        return { girou: false, saqueAnterior: "", saqueNovo: equipe };
+    }
+
+    // Mesma equipe manteve o saque: ponto normal, sem rotação.
+    if (saqueAnterior === equipe) {
+        atualizarSaqueLocal(equipe, false);
+        return { girou: false, saqueAnterior, saqueNovo: equipe };
+    }
+
+    // Side-out: a equipe que ganhou o ponto recuperou o saque. Roda exatamente uma vez.
+    if (ultimoSideoutAplicado !== assinaturaAntes) {
+        rotacionarEquipeLocal(equipe);
+        ultimoSideoutAplicado = assinaturaAntes;
+    }
+
+    atualizarSaqueLocal(equipe, true);
+    return { girou: true, saqueAnterior, saqueNovo: equipe };
+}
+
+function atualizarSaqueLocal(novoSaque, deveMostrarAviso) {
+    const equipe = ladoPorEquipeOuNome(novoSaque);
+    if (equipe !== "A" && equipe !== "B") return;
+
+    saqueAtual = equipe;
+    if (estadoAtual) estadoAtual.saque_atual = equipe;
+
+    if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
+    if (mobileEls && mobileEls.saque) mobileEls.saque.textContent = textoSaqueAtual();
+
+    if (deveMostrarAviso) {
+        try { mostrarPopupNovoSaque(equipe, "local"); } catch (e) {}
     }
 }
 
@@ -4229,21 +4372,13 @@ function aplicarPontoOtimista(equipe, scout) {
     equipe = String(equipe || "").toUpperCase();
     if (equipe !== "A" && equipe !== "B") return;
 
-    const saqueAnteriorLocal = ladoPorEquipeOuNome(saqueAtual || estadoAtual?.saque_atual);
-    const mudouSaque = saqueAnteriorLocal && saqueAnteriorLocal !== equipe;
+    const agoraClique = Date.now();
+    // Trava curta apenas contra duplo toque real. Não bloqueia a regra da rotação.
+    if ((agoraClique - ultimoCliquePontoEm) < 280) return;
+    ultimoCliquePontoEm = agoraClique;
+    sequenciaPontoLocal += 1;
 
-    // Se houve side-out, a equipe que ganhou o ponto passa a sacar e DEVE girar.
-    // A rotação do apontador usa a ordem visual: [IV, III, II, V, VI, I].
-    if (mudouSaque) {
-        rotacionarEquipeLocal(equipe);
-        saqueAtual = equipe;
-        if (estadoAtual) estadoAtual.saque_atual = equipe;
-        try { mostrarPopupNovoSaque(equipe, "local"); } catch (e) {}
-    } else if (!saqueAnteriorLocal) {
-        // Segurança: se o saque não estava definido, define sem girar.
-        saqueAtual = equipe;
-        if (estadoAtual) estadoAtual.saque_atual = equipe;
-    }
+    const resultadoRotacao = aplicarRegraSaqueERotacao(equipe);
 
     const atualA = numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0);
     const atualB = numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0);
@@ -4258,7 +4393,9 @@ function aplicarPontoOtimista(equipe, scout) {
         placar_b: novoB,
         saque_atual: saqueAtual,
         rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+        ultimo_sideout_girou: !!resultadoRotacao.girou,
+        saque_anterior: resultadoRotacao.saqueAnterior || ""
     };
 
     const vencedorSetLocal = ladoVencedorSetLocal(estadoAtual);
@@ -4267,15 +4404,14 @@ function aplicarPontoOtimista(equipe, scout) {
         return;
     }
 
-    // Correção principal: antes atualizava placar, mas a quadra do apontador não era
-    // redesenhada. Árbitros/treinador recebiam certo pelo socket, e só o apontador ficava parado.
     renderPainelVisual(estadoAtual);
     renderQuadra();
+    renderMobileQuadra();
 
     ultimoTokenSync++;
-    placarProtegidoAte = Date.now() + 2500;
-    rotacaoProtegidaAte = Date.now() + 2500;
-    bloquearSyncAte = Date.now() + 2500;
+    placarProtegidoAte = Date.now() + 4500;
+    rotacaoProtegidaAte = Date.now() + 9000;
+    bloquearSyncAte = Date.now() + 4500;
 
     const detalhe = scout && scout.detalhe_lance ? tituloBonitoScout(scout.detalhe_lance) : "ponto";
     const msgTempoReal = `Registrando ${detalhe} para ${nomeEquipePorLado(equipe)}.`;
@@ -4286,6 +4422,8 @@ function aplicarPontoOtimista(equipe, scout) {
         ultima_acao: msgTempoReal,
         tipo_evento: "ponto",
         equipe_pontuadora: equipe,
+        sideout_girou: !!resultadoRotacao.girou,
+        saque_anterior: resultadoRotacao.saqueAnterior || "",
         saque_atual: saqueAtual,
         rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
         rotacao_b: Array.isArray(rotB) ? [...rotB] : []
