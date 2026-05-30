@@ -5188,6 +5188,18 @@ modalSubExFundo.addEventListener("click", function (event) {
     atualizarTravasOperacionais();
     agendarSincronizacao(120, true);
 })();
+
+try{
+const _mpE=document.getElementById('mobile-ponto-esq');
+const _mpD=document.getElementById('mobile-ponto-dir');
+const _mhE=document.getElementById('mobile-head-esq');
+const _mhD=document.getElementById('mobile-head-dir');
+if(_mpE){_mpE.onclick=()=>document.getElementById('btn-ponto-a')?.click();}
+if(_mpD){_mpD.onclick=()=>document.getElementById('btn-ponto-b')?.click();}
+if(_mhE){_mhE.onclick=()=>document.getElementById('btn-ponto-a')?.click();}
+if(_mhD){_mhD.onclick=()=>document.getElementById('btn-ponto-b')?.click();}
+}catch(e){console.log(e);}
+
 </script>
 
 <script>
