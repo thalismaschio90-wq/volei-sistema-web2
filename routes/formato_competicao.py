@@ -1,138 +1,20 @@
-from flask import Blueprint, render_template, request, redirect, session, url_for, flash
-
-from banco import (
-    buscar_competicao_por_organizador,
-    buscar_configuracao_avancada_competicao,
-    atualizar_configuracao_avancada_competicao,
-    inicializar_configuracao_avancada_competicao,
-    competicao_esta_travada,
-    listar_quadras_competicao,
-)
+from flask import Blueprint, redirect, url_for, request, flash
 
 from routes.utils import exigir_perfil
 
 formato_competicao_bp = Blueprint("formato_competicao", __name__)
 
 
-def _to_int_ou_none(valor):
-    try:
-        numero = int(valor)
-        return numero if numero > 0 else None
-    except (TypeError, ValueError):
-        return None
-
-
-
 @formato_competicao_bp.route("/formato-competicao", methods=["GET", "POST"])
 @exigir_perfil("organizador")
 def formato_competicao_view():
-    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    """
+    Compatibilidade com links antigos.
 
-    if not competicao:
-        flash("Nenhuma competição vinculada ao organizador.", "erro")
-        return redirect(url_for("painel.inicio"))
-
-    inicializar_configuracao_avancada_competicao(competicao["nome"])
-
+    O formato/fases da competição agora fica dentro de Minha competição,
+    na aba "Fases da competição".
+    """
     if request.method == "POST":
-        if competicao_esta_travada(competicao["nome"]):
-            flash("A competição está travada. O formato não pode mais ser alterado.", "erro")
-            return redirect(url_for("formato_competicao.formato_competicao_view"))
+        flash("O formato da competição agora é salvo dentro de Minha competição, na aba Fases da competição.", "erro")
 
-        tipo_confronto = request.form.get("tipo_confronto", "grupo_interno").strip()
-        tipo_classificacao = request.form.get("tipo_classificacao", "grupo").strip()
-        cruzamentos_grupos = request.form.get("cruzamentos_grupos", "").strip()
-        qtd_classificados = request.form.get("qtd_classificados", "0").strip()
-        formato_finais = request.form.get("formato_finais", "quartas").strip()
-        possui_bye = request.form.get("possui_bye", "nao").strip() == "sim"
-        qtd_bye = request.form.get("qtd_bye", "0").strip()
-        data_limite_inscricao = request.form.get("data_limite_inscricao") or None
-        hora_limite_inscricao = request.form.get("hora_limite_inscricao") or None
-        bloquear_apos_inicio_jogos = request.form.get("bloquear_apos_inicio_jogos", "nao").strip() == "sim"
-
-        try:
-            qtd_classificados = int(qtd_classificados)
-        except ValueError:
-            qtd_classificados = 0
-
-        try:
-            qtd_bye = int(qtd_bye)
-        except ValueError:
-            qtd_bye = 0
-
-        grupos_letras = ["A", "B", "C", "D", "E", "F", "G", "H"]
-        grupo_quadras = {
-            letra: _to_int_ou_none(request.form.get(f"grupo_{letra}_quadra_id"))
-            for letra in grupos_letras
-        }
-
-        fases_config = {
-            "tipo_confronto": tipo_confronto,
-            "tipo_classificacao": tipo_classificacao,
-            "cruzamentos_grupos": cruzamentos_grupos,
-            "grupos": {
-                "tipo_jogo": request.form.get("grupos_tipo_jogo", "set_unico").strip(),
-                "pontos": int(request.form.get("grupos_pontos", 25) or 25),
-                "tem_tiebreak": request.form.get("grupos_tem_tiebreak", "nao").strip() == "sim",
-                "pontos_tiebreak": int(request.form.get("grupos_pontos_tiebreak", 15) or 15),
-            },
-            "grupos_especificos": {
-                "A": {"tipo_jogo": request.form.get("grupo_A_tipo", "").strip(), "pontos": request.form.get("grupo_A_pontos", "").strip()},
-                "B": {"tipo_jogo": request.form.get("grupo_B_tipo", "").strip(), "pontos": request.form.get("grupo_B_pontos", "").strip()},
-                "C": {"tipo_jogo": request.form.get("grupo_C_tipo", "").strip(), "pontos": request.form.get("grupo_C_pontos", "").strip()},
-                "D": {"tipo_jogo": request.form.get("grupo_D_tipo", "").strip(), "pontos": request.form.get("grupo_D_pontos", "").strip()},
-            },
-            "grupo_quadras": grupo_quadras,
-            "quartas": {
-                "tipo_jogo": request.form.get("quartas_tipo_jogo", "melhor_de_3").strip(),
-                "pontos": int(request.form.get("quartas_pontos", 21) or 21),
-                "tem_tiebreak": request.form.get("quartas_tem_tiebreak", "sim").strip() == "sim",
-                "pontos_tiebreak": int(request.form.get("quartas_pontos_tiebreak", 15) or 15),
-            },
-            "semifinal": {
-                "tipo_jogo": request.form.get("semifinal_tipo_jogo", "melhor_de_3").strip(),
-                "pontos": int(request.form.get("semifinal_pontos", 21) or 21),
-                "tem_tiebreak": request.form.get("semifinal_tem_tiebreak", "sim").strip() == "sim",
-                "pontos_tiebreak": int(request.form.get("semifinal_pontos_tiebreak", 15) or 15),
-            },
-            "final": {
-                "tipo_jogo": request.form.get("final_tipo_jogo", "melhor_de_3").strip(),
-                "pontos": int(request.form.get("final_pontos", 25) or 25),
-                "tem_tiebreak": request.form.get("final_tem_tiebreak", "sim").strip() == "sim",
-                "pontos_tiebreak": int(request.form.get("final_pontos_tiebreak", 15) or 15),
-            },
-        }
-
-        atualizar_configuracao_avancada_competicao(
-            nome_competicao=competicao["nome"],
-            tipo_classificacao=tipo_classificacao,
-            qtd_classificados=qtd_classificados,
-            formato_finais=formato_finais,
-            possui_bye=possui_bye,
-            qtd_bye=qtd_bye,
-            fases_config=fases_config,
-            tipo_confronto=tipo_confronto,
-            cruzamentos_grupos=cruzamentos_grupos,
-            data_limite_inscricao=data_limite_inscricao,
-            hora_limite_inscricao=hora_limite_inscricao,
-            bloquear_apos_inicio=bloquear_apos_inicio_jogos,
-        )
-
-        flash("Formato da competição salvo com sucesso.", "sucesso")
-        return redirect(url_for("formato_competicao.formato_competicao_view"))
-
-    config = buscar_configuracao_avancada_competicao(competicao["nome"])
-    if not config:
-        flash("Não foi possível carregar a configuração avançada.", "erro")
-        return redirect(url_for("painel.inicio"))
-
-    fases = config.get("fases_config") or {}
-    quadras = listar_quadras_competicao(competicao["nome"])
-
-    return render_template(
-        "formato_competicao.html",
-        competicao=competicao,
-        config=config,
-        fases=fases,
-        quadras=quadras,
-    )
+    return redirect(url_for("competicoes.listar_competicoes_view"))

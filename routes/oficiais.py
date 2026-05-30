@@ -5,6 +5,9 @@ from banco import (
     cadastrar_oficial,
     vincular_oficial_competicao,
     listar_oficiais_competicao,
+    listar_pins_operacionais_competicao,
+    regenerar_pin_operacional_apontador,
+    transferir_pin_operacional,
     criar_apontador,
     buscar_competicao_por_organizador,
     remover_apontador_da_competicao,
@@ -13,10 +16,22 @@ from banco import (
     listar_papeleta,
     listar_atletas_aprovados_da_equipe,
 )
-from routes.utils import exigir_perfil
+from routes.utils import exigir_perfil, login_obrigatorio
 from socket_events import obter_estado_cache
 
 oficiais_bp = Blueprint("oficiais", __name__)
+
+
+
+def _arbitro_tem_pin_competicao(competicao):
+    if not session.get("arbitro_pin_validado"):
+        return False
+
+    tipo = (session.get("arbitro_pin_tipo") or "").strip().lower()
+    if tipo not in {"competicao", "operacional"}:
+        return False
+
+    return (session.get("arbitro_competicao") or "").strip() == (competicao or "").strip()
 
 
 def _int_seguro(valor, padrao=0):
@@ -226,11 +241,14 @@ def oficiais():
         return redirect(url_for("oficiais.oficiais"))
 
     oficiais_competicao = listar_oficiais_competicao(nome_competicao)
+    pins_operacionais = listar_pins_operacionais_competicao(nome_competicao)
 
     return render_template(
         "oficiais.html",
         oficiais=oficiais_competicao,
-        competicao=competicao
+        pins_operacionais=pins_operacionais,
+        competicao=competicao,
+        aba_ativa=request.args.get("aba", "oficiais")
     )
 
 
@@ -249,8 +267,51 @@ def remover_apontador_competicao_view(cpf):
     return redirect(url_for("oficiais.oficiais"))
 
 
+
+
+@oficiais_bp.route("/oficiais/pin/<cpf>/regenerar", methods=["POST"])
+@exigir_perfil("organizador")
+def regenerar_pin_operacional_view(cpf):
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    regenerar_pin_operacional_apontador(competicao["nome"], cpf)
+    flash("PIN operacional regenerado com sucesso.", "sucesso")
+    return redirect(url_for("oficiais.oficiais", aba="pins"))
+
+
+@oficiais_bp.route("/oficiais/pin/transferir", methods=["POST"])
+@exigir_perfil("organizador")
+def transferir_pin_operacional_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    pin = request.form.get("pin", "").strip()
+    novo_cpf = request.form.get("novo_cpf", "").strip()
+
+    if not pin or not novo_cpf:
+        flash("Informe o PIN e o CPF do novo apontador.", "erro")
+        return redirect(url_for("oficiais.oficiais", aba="pins"))
+
+    if transferir_pin_operacional(competicao["nome"], pin, novo_cpf):
+        flash("PIN transferido para outro apontador com sucesso.", "sucesso")
+    else:
+        flash("Não foi possível transferir este PIN.", "erro")
+
+    return redirect(url_for("oficiais.oficiais", aba="pins"))
+
+
 @oficiais_bp.route("/oficiais/primeiro-arbitro/<competicao>/<int:partida_id>")
 def primeiro_arbitro_view(competicao, partida_id):
+    if not _arbitro_tem_pin_competicao(competicao):
+        flash("Digite o PIN da quadra no Painel dos Árbitros antes de abrir esta tela.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
     estado = _montar_estado_arbitro(competicao, partida_id)
     return render_template(
         "primeiro_arbitro.html",
@@ -263,6 +324,9 @@ def primeiro_arbitro_view(competicao, partida_id):
 
 @oficiais_bp.route("/oficiais/segundo-arbitro/<competicao>/<int:partida_id>")
 def segundo_arbitro_view(competicao, partida_id):
+    if not _arbitro_tem_pin_competicao(competicao):
+        flash("Digite o PIN da quadra no Painel dos Árbitros antes de abrir esta tela.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
     estado = _montar_estado_arbitro(competicao, partida_id)
     return render_template(
         "segundo_arbitro.html",

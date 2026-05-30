@@ -54,6 +54,11 @@ from banco import (
     garantir_coluna_jogo_avulso_apontador,
     apontador_pode_criar_jogo_avulso,
     definir_permissao_jogo_avulso_apontador,
+    garantir_pins_arbitragem_quadras,
+    buscar_vinculo_operacional_por_pin,
+    garantir_pin_operacional_apontador,
+    normalizar_status_partidas_apontador,
+    salvar_estado_manual_partida,
 )
 from routes.utils import exigir_perfil
 from socket_events import (
@@ -1062,13 +1067,21 @@ def entrar_competicao_apontador(competicao):
     session["competicao_apontador"] = competicao
 
     partidas = listar_partidas(competicao)
+    partidas = normalizar_status_partidas_apontador(partidas, competicao)
     partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
+
+    try:
+        pin_operacional = garantir_pin_operacional_apontador(competicao, session.get("usuario"))
+    except Exception as e:
+        print("ERRO garantir_pin_operacional_apontador:", e, flush=True)
+        pin_operacional = None
 
     return render_template(
         "painel_apontador.html",
         modo_partidas=True,
         competicao_nome=competicao,
         partidas=partidas,
+        pin_operacional=pin_operacional,
         pode_jogo_avulso=apontador_pode_criar_jogo_avulso(session.get("usuario")),
         offline_habilitado=offline_global_habilitado(),
     )
@@ -2495,6 +2508,50 @@ def registrar_cartao_verde_view(competicao, partida_id):
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar cartão verde: {e}"}, 500)
 
 
+@apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/salvar-estado", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_estado_manual_view(competicao, partida_id):
+    try:
+        corpo = request.get_json(silent=True) or {}
+        estado_recebido = corpo.get("estado") if isinstance(corpo.get("estado"), dict) else corpo
+        pausar = bool(corpo.get("pausar") or corpo.get("salvar_e_sair"))
+
+        estado_atual = obter_estado_cache(partida_id) or {}
+        estado = {**estado_atual, **(estado_recebido or {})}
+        estado["competicao"] = competicao
+        estado["partida_id"] = partida_id
+
+        estado_salvo = salvar_estado_manual_partida(
+            partida_id=partida_id,
+            competicao=competicao,
+            estado=estado,
+            operador=session.get("usuario") or session.get("usuario_login") or session.get("login"),
+            pausar=pausar,
+        ) or estado
+
+        atualizar_estado_cache(partida_id, estado_salvo)
+        estado_salvo = _emitir_estado_e_placar(
+            partida_id,
+            competicao,
+            estado=estado_salvo,
+            origem="SALVAR_MANUAL_APONTADOR",
+        )
+
+        return _json_no_cache({
+            "ok": True,
+            "mensagem": "Partida pausada e salva." if pausar else "Partida salva no banco.",
+            "pausada": pausar,
+            **estado_salvo,
+        })
+
+    except Exception as e:
+        print("ERRO salvar_estado_manual_view:", e, flush=True)
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao salvar partida: {e}",
+        }, 500)
+
+
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/sincronizar", methods=["POST"])
 @exigir_perfil("apontador")
 def sincronizar_acao_view(competicao, partida_id):
@@ -3103,6 +3160,55 @@ def inverter_lados(partida_id):
         "ok": True,
         "invertido": estado["invertido"]
     })
+
+
+
+@apontadores_bp.route("/telao", methods=["GET", "POST"])
+def telao_por_pin():
+    """
+    Entrada pública do telão por PIN operacional.
+    O telão exibido continua sendo o placar profissional já existente.
+    """
+    if request.method == "POST":
+        pin = (request.form.get("pin") or "").strip()
+        pin_limpo = "".join(ch for ch in pin if ch.isdigit())
+
+        if len(pin_limpo) != 4:
+            flash("Digite um PIN de 4 números.", "erro")
+            return redirect(url_for("apontadores.telao_por_pin"))
+
+        vinculo = buscar_vinculo_operacional_por_pin(pin_limpo)
+        if not vinculo:
+            flash("PIN não encontrado ou inativo.", "erro")
+            return redirect(url_for("apontadores.telao_por_pin"))
+
+        session["telao_pin_validado"] = True
+        session["telao_pin"] = pin_limpo
+        session["telao_competicao"] = vinculo.get("competicao") or ""
+        session["telao_apontador"] = vinculo.get("apontador_cpf") or ""
+        session["telao_apontador_nome"] = vinculo.get("apontador_nome") or ""
+        return redirect(url_for("apontadores.telao_por_pin"))
+
+    if request.args.get("trocar") == "1":
+        for chave in ["telao_pin_validado", "telao_pin", "telao_competicao", "telao_apontador", "telao_apontador_nome"]:
+            session.pop(chave, None)
+        return redirect(url_for("apontadores.telao_por_pin"))
+
+    if session.get("telao_pin_validado") and session.get("telao_apontador"):
+        from socket_events import obter_ultimo_placar_apontador
+        apontador = session.get("telao_apontador") or ""
+        estado = obter_ultimo_placar_apontador(apontador) or {}
+        return render_template(
+            "placar_profissional.html",
+            estado=estado,
+            partida=estado,
+            apontador=apontador,
+            pin=session.get("telao_pin") or "",
+            competicao=session.get("telao_competicao") or "",
+        )
+
+    return render_template("pin_telao.html")
+
 
 @apontadores_bp.route("/placar-ao-vivo")
 def placar_ao_vivo_redirect():

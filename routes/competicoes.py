@@ -16,6 +16,9 @@ from banco import (
     listar_quadras_competicao,
     garantir_quadras_competicao,
     salvar_quadras_competicao,
+    buscar_configuracao_avancada_competicao,
+    atualizar_configuracao_avancada_competicao,
+    inicializar_configuracao_avancada_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -48,6 +51,61 @@ def _to_int_ou_none(valor):
         return numero if numero > 0 else None
     except (TypeError, ValueError):
         return None
+
+
+CRITERIOS_CLASSIFICACAO_PADRAO = [
+    "pontos",
+    "vitorias",
+    "saldo_sets",
+    "sets_average",
+    "saldo_pontos",
+    "pontos_average",
+    "confronto_direto",
+    "sorteio",
+]
+
+CRITERIOS_CLASSIFICACAO_PERMITIDOS = {
+    "pontos",
+    "vitorias",
+    "sets_average",
+    "pontos_average",
+    "saldo_sets",
+    "saldo_pontos",
+    "sets_pro",
+    "sets_contra",
+    "pontos_pro",
+    "pontos_contra",
+    "confronto_direto",
+    "coef_sets",
+    "coef_pontos",
+    "fair_play",
+    "menor_wo",
+    "sorteio",
+}
+
+
+def _normalizar_criterios_classificacao_form(valor):
+    criterios = []
+    vistos = set()
+
+    for item in str(valor or "").split(","):
+        criterio = item.strip().lower().replace("-", "_").replace(" ", "_")
+        if criterio in CRITERIOS_CLASSIFICACAO_PERMITIDOS and criterio not in vistos:
+            criterios.append(criterio)
+            vistos.add(criterio)
+
+    if not criterios:
+        criterios = list(CRITERIOS_CLASSIFICACAO_PADRAO)
+
+    # REGRA OFICIAL:
+    # Sorteio é sempre o último critério efetivo.
+    # Se o organizador colocar qualquer critério abaixo dele na tela,
+    # esses critérios são ignorados/removidos no salvamento.
+    if "sorteio" in criterios:
+        indice_sorteio = criterios.index("sorteio")
+        criterios = criterios[:indice_sorteio + 1]
+
+    return ",".join(criterios)
 
 
 def _coletar_quadras_form():
@@ -115,10 +173,16 @@ def listar_competicoes_view():
             _to_int(competicao.get("qtd_quadras"), padrao=1, minimo=1),
         )
 
+        inicializar_configuracao_avancada_competicao(competicao["nome"])
+        config = buscar_configuracao_avancada_competicao(competicao["nome"]) or {}
+        fases = config.get("fases_config") or {}
+
         return render_template(
             "editar_competicao.html",
             competicao=competicao,
             quadras=quadras,
+            config=config,
+            fases=fases,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
         )
 
@@ -306,11 +370,8 @@ def salvar_estrutura_view():
 
     dados = {
         "qtd_equipes": _to_int(request.form.get("qtd_equipes"), padrao=0, minimo=0),
-        "formato": request.form.get("formato", "").strip(),
         "tem_grupos": request.form.get("tem_grupos") == "on",
         "qtd_grupos": _to_int(request.form.get("qtd_grupos"), padrao=0, minimo=0),
-        "qtd_quadras": _to_int(request.form.get("qtd_quadras"), padrao=1, minimo=1),
-        "modo_operacao": request.form.get("modo_operacao", "simples").strip() or "simples",
         "data_limite_inscricao": data_limite_inscricao,
         "hora_limite_inscricao": hora_limite_inscricao,
         "limite_atletas": _to_int(request.form.get("limite_atletas"), padrao=0, minimo=0),
@@ -319,10 +380,10 @@ def salvar_estrutura_view():
     }
 
     atualizar_estrutura_competicao(comp["nome"], dados)
-    garantir_quadras_competicao(comp["nome"], dados["qtd_quadras"])
 
-    flash("Estrutura da competição salva. As quadras foram ajustadas conforme a quantidade informada.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view"))
+    flash("Estrutura da competição salva com sucesso.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="estrutura"))
+
 
 
 @competicoes_bp.route("/competicoes/quadras", methods=["POST"])
@@ -362,7 +423,7 @@ def salvar_pontuacao_desempate_view():
         return redirect(url_for("painel.inicio"))
 
     if competicao_esta_travada(comp["nome"]):
-        flash("A competição está travada. A pontuação e os critérios de desempate não podem mais ser alterados.", "erro")
+        flash("A competição está travada. A pontuação e os critérios de classificação não podem mais ser alterados.", "erro")
         return redirect(url_for("competicoes.listar_competicoes_view"))
 
     sets_tipo = comp.get("sets_tipo", "melhor_de_3")
@@ -386,20 +447,230 @@ def salvar_pontuacao_desempate_view():
         dados["derrota_1x3"] = _to_int(request.form.get("derrota_1x3"), padrao=0)
         dados["derrota_0x3"] = _to_int(request.form.get("derrota_0x3"), padrao=0)
 
-    criterios_ordenados = request.form.get("criterios_ordenados", "").strip()
-    if not criterios_ordenados:
-        criterios_ordenados = (
-            "vitorias,pontos,saldo_sets,sets_pro,sets_contra,"
-            "saldo_pontos,pontos_pro,pontos_contra,confronto_direto,"
-            "coef_sets,coef_pontos,fair_play,sorteio"
-        )
-
+    criterios_ordenados = _normalizar_criterios_classificacao_form(
+        request.form.get("criterios_ordenados", "")
+    )
     dados["criterios_desempate"] = criterios_ordenados
 
     atualizar_pontuacao_desempate(comp["nome"], dados)
 
-    flash("Pontuação e critérios de desempate salvos.", "sucesso")
+    flash("Pontuação e critérios de classificação salvos.", "sucesso")
     return redirect(url_for("competicoes.listar_competicoes_view"))
+
+
+
+@competicoes_bp.route("/competicoes/fases", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_fases_competicao_view():
+    comp = _competicao_do_organizador_logado()
+
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if competicao_esta_travada(comp["nome"]):
+        flash("A competição está travada. As fases não podem mais ser alteradas.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view", tab="fases"))
+
+    tipo_confronto = request.form.get("tipo_confronto", "grupo_interno").strip() or "grupo_interno"
+    tipo_classificacao = request.form.get("tipo_classificacao", "grupo").strip() or "grupo"
+    cruzamentos_grupos = request.form.get("cruzamentos_grupos", "").strip()
+    formato_finais = request.form.get("formato_finais", "quartas").strip() or "quartas"
+    possui_bye = request.form.get("possui_bye", "nao").strip() == "sim"
+
+    qtd_classificados = _to_int(request.form.get("qtd_classificados"), padrao=0, minimo=0)
+    qtd_bye = _to_int(request.form.get("qtd_bye"), padrao=0, minimo=0)
+
+    fase_nomes = request.form.getlist("fase_nome[]")
+    fase_series = request.form.getlist("fase_serie[]")
+    fase_tipos = request.form.getlist("fase_tipo[]")
+    fase_origens = request.form.getlist("fase_origem[]")
+
+    fases_personalizadas = []
+    total = max(len(fase_nomes), len(fase_series), len(fase_tipos), len(fase_origens))
+
+    for idx in range(total):
+        nome = (fase_nomes[idx] if idx < len(fase_nomes) else "").strip()
+        serie = (fase_series[idx] if idx < len(fase_series) else "geral").strip() or "geral"
+        tipo = (fase_tipos[idx] if idx < len(fase_tipos) else "mata_mata").strip() or "mata_mata"
+        origem = (fase_origens[idx] if idx < len(fase_origens) else "").strip()
+
+        if not nome and not origem:
+            continue
+
+        fases_personalizadas.append({
+            "nome": nome or f"Fase {idx + 1}",
+            "serie": serie,
+            "tipo": tipo,
+            "origem": origem,
+            "ordem": idx + 1,
+        })
+
+    config_atual = buscar_configuracao_avancada_competicao(comp["nome"]) or {}
+    fases_config = config_atual.get("fases_config") or {}
+
+    fases_config.update({
+        "tipo_confronto": tipo_confronto,
+        "tipo_classificacao": tipo_classificacao,
+        "cruzamentos_grupos": cruzamentos_grupos,
+        "formato_finais": formato_finais,
+        "fases_personalizadas": fases_personalizadas,
+    })
+
+    atualizar_configuracao_avancada_competicao(
+        nome_competicao=comp["nome"],
+        tipo_classificacao=tipo_classificacao,
+        qtd_classificados=qtd_classificados,
+        formato_finais=formato_finais,
+        possui_bye=possui_bye,
+        qtd_bye=qtd_bye,
+        fases_config=fases_config,
+        tipo_confronto=tipo_confronto,
+        cruzamentos_grupos=cruzamentos_grupos,
+        data_limite_inscricao=comp.get("data_limite_inscricao"),
+        hora_limite_inscricao=comp.get("hora_limite_inscricao"),
+        bloquear_apos_inicio=comp.get("bloquear_apos_inicio", False),
+    )
+
+    flash("Classificação e avanço salvos com sucesso.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="fases"))
+
+
+
+def _bool_select_regras_avancadas(valor):
+    valor = (valor or "padrao").strip().lower()
+    if valor == "sim":
+        return True
+    if valor == "nao":
+        return False
+    return None
+
+
+@competicoes_bp.route("/competicoes/regras-avancadas", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_regras_avancadas_view():
+    comp = _competicao_do_organizador_logado()
+
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if competicao_esta_travada(comp["nome"]):
+        flash("A competição está travada. As regras avançadas não podem mais ser alteradas.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view", tab="regras-avancadas"))
+
+    config_atual = buscar_configuracao_avancada_competicao(comp["nome"]) or {}
+    fases_config = config_atual.get("fases_config") or {}
+
+    regras_grupos = {}
+    for grupo in ["A", "B", "C", "D", "E", "F", "G", "H"]:
+        ativo = request.form.get(f"grupo_{grupo}_ativo") == "on"
+        sets_tipo = request.form.get(f"grupo_{grupo}_sets_tipo", "set_unico").strip() or "set_unico"
+        pontos_set = _to_int(request.form.get(f"grupo_{grupo}_pontos_set"), padrao=0, minimo=0)
+        tem_tiebreak = _bool_select_regras_avancadas(request.form.get(f"grupo_{grupo}_tem_tiebreak"))
+        pontos_tiebreak = _to_int(request.form.get(f"grupo_{grupo}_pontos_tiebreak"), padrao=0, minimo=0)
+
+        if ativo or pontos_set or pontos_tiebreak or tem_tiebreak is not None:
+            item = {
+                "ativo": ativo,
+                "sets_tipo": sets_tipo,
+            }
+            if pontos_set:
+                item["pontos_set"] = pontos_set
+            if tem_tiebreak is not None:
+                item["tem_tiebreak"] = tem_tiebreak
+            if pontos_tiebreak:
+                item["pontos_tiebreak"] = pontos_tiebreak
+            regras_grupos[grupo] = item
+
+    regras_fases = {}
+    for fase_id in ["oitavas", "quartas", "semifinal", "final"]:
+        ativo = request.form.get(f"fase_{fase_id}_ativo") == "on"
+        sets_tipo = request.form.get(f"fase_{fase_id}_sets_tipo", "set_unico").strip() or "set_unico"
+        pontos_set = _to_int(request.form.get(f"fase_{fase_id}_pontos_set"), padrao=0, minimo=0)
+        tem_tiebreak = _bool_select_regras_avancadas(request.form.get(f"fase_{fase_id}_tem_tiebreak"))
+        pontos_tiebreak = _to_int(request.form.get(f"fase_{fase_id}_pontos_tiebreak"), padrao=0, minimo=0)
+
+        if ativo or pontos_set or pontos_tiebreak or tem_tiebreak is not None:
+            item = {
+                "ativo": ativo,
+                "sets_tipo": sets_tipo,
+            }
+            if pontos_set:
+                item["pontos_set"] = pontos_set
+            if tem_tiebreak is not None:
+                item["tem_tiebreak"] = tem_tiebreak
+            if pontos_tiebreak:
+                item["pontos_tiebreak"] = pontos_tiebreak
+            regras_fases[fase_id] = item
+
+    series = {}
+    for serie_id in ["ouro", "prata", "bronze"]:
+        ativa = request.form.get(f"serie_{serie_id}_ativa") == "on"
+        faixa = request.form.get(f"serie_{serie_id}_faixa", "").strip()
+        if ativa or faixa:
+            series[serie_id] = {
+                "ativa": ativa,
+                "faixa": faixa,
+            }
+
+    repescagem = {
+        "ativa": request.form.get("repescagem_ativa") == "on",
+        "descricao": request.form.get("repescagem_descricao", "").strip(),
+    }
+
+    fase_nomes = request.form.getlist("fase_avancada_nome[]")
+    fase_series = request.form.getlist("fase_avancada_serie[]")
+    fase_tipos = request.form.getlist("fase_avancada_tipo[]")
+    fase_origens = request.form.getlist("fase_avancada_origem[]")
+
+    fases_personalizadas = []
+    total = max(len(fase_nomes), len(fase_series), len(fase_tipos), len(fase_origens))
+
+    for idx in range(total):
+        nome = (fase_nomes[idx] if idx < len(fase_nomes) else "").strip()
+        serie = (fase_series[idx] if idx < len(fase_series) else "geral").strip() or "geral"
+        tipo = (fase_tipos[idx] if idx < len(fase_tipos) else "mata_mata").strip() or "mata_mata"
+        origem = (fase_origens[idx] if idx < len(fase_origens) else "").strip()
+
+        if not nome and not origem:
+            continue
+
+        fases_personalizadas.append({
+            "nome": nome or f"Fase avançada {idx + 1}",
+            "serie": serie,
+            "tipo": tipo,
+            "origem": origem,
+            "ordem": idx + 1,
+        })
+
+    fases_config["regras_avancadas"] = {
+        "grupos": regras_grupos,
+        "fases": regras_fases,
+        "series": series,
+        "repescagem": repescagem,
+        "fases_personalizadas": fases_personalizadas,
+    }
+
+    atualizar_configuracao_avancada_competicao(
+        nome_competicao=comp["nome"],
+        tipo_classificacao=config_atual.get("tipo_classificacao") or comp.get("tipo_classificacao") or "grupo",
+        qtd_classificados=config_atual.get("qtd_classificados") or comp.get("qtd_classificados") or 0,
+        formato_finais=config_atual.get("formato_finais") or comp.get("formato_finais") or "quartas",
+        possui_bye=config_atual.get("possui_bye") if config_atual.get("possui_bye") is not None else comp.get("possui_bye", False),
+        qtd_bye=config_atual.get("qtd_bye") or comp.get("qtd_bye") or 0,
+        fases_config=fases_config,
+        tipo_confronto=config_atual.get("tipo_confronto") or comp.get("tipo_confronto") or "grupo_interno",
+        cruzamentos_grupos=config_atual.get("cruzamentos_grupos") or comp.get("cruzamentos_grupos") or "",
+        data_limite_inscricao=comp.get("data_limite_inscricao"),
+        hora_limite_inscricao=comp.get("hora_limite_inscricao"),
+        bloquear_apos_inicio=comp.get("bloquear_apos_inicio", False),
+    )
+
+    flash("Regras avançadas salvas com sucesso.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="regras-avancadas"))
+
+
 
 
 @competicoes_bp.route("/competicoes/destravar", methods=["POST"])

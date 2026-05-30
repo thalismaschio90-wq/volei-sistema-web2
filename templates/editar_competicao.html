@@ -128,7 +128,6 @@
 
     .criterios-box {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
         margin-top: 10px;
     }
@@ -138,15 +137,91 @@
         border: 1px solid #d7dee7;
         border-radius: 12px;
         padding: 12px 14px;
-    }
-
-    .criterio-item label {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin: 0;
-        font-weight: 700;
+        justify-content: space-between;
+        gap: 12px;
+        cursor: grab;
+        user-select: none;
+        transition: 0.16s ease;
+    }
+
+    .criterio-item:active {
+        cursor: grabbing;
+    }
+
+    .criterio-item.dragging {
+        opacity: 0.55;
+        transform: scale(0.99);
+    }
+
+    .criterio-main {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+
+    .criterio-handle {
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #f1f5f9;
+        color: #425466;
+        font-weight: 900;
+        flex: 0 0 auto;
+    }
+
+    .criterio-titulo {
+        font-weight: 900;
         color: #183247;
+    }
+
+    .criterio-desc {
+        color: #6b7c8c;
+        font-size: 13px;
+        margin-top: 2px;
+        line-height: 1.35;
+    }
+
+    .criterio-ordem {
+        min-width: 34px;
+        height: 28px;
+        border-radius: 999px;
+        background: #123852;
+        color: white;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 900;
+        flex: 0 0 auto;
+    }
+
+    .criterios-preview {
+        margin-top: 12px;
+        background: #f8fbff;
+        border: 1px dashed #cbd8e4;
+        border-radius: 14px;
+        padding: 12px 14px;
+        color: #425466;
+        font-size: 14px;
+        line-height: 1.45;
+    }
+
+    .criterio-item.criterio-ignorado {
+        opacity: 0.48;
+        background: #fff8e7;
+        border-style: dashed;
+    }
+
+    .criterio-item.criterio-ignorado .criterio-desc::after {
+        content: " Critério ignorado porque está abaixo do sorteio.";
+        color: #8a6512;
+        font-weight: 800;
     }
 
     .helper-text {
@@ -213,10 +288,73 @@
         line-height: 1.45;
     }
 
+    .fase-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .fase-card {
+        background: #ffffff;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 8px 18px rgba(17, 41, 65, 0.05);
+    }
+
+    .fase-card-title {
+        font-size: 17px;
+        font-weight: 900;
+        color: #183247;
+        margin-bottom: 12px;
+    }
+
+    .avancado-alerta {
+        background: #fff8e7;
+        border: 1px solid #f0dfb0;
+        color: #6b4a00;
+        border-radius: 14px;
+        padding: 14px 16px;
+        line-height: 1.5;
+        margin-bottom: 18px;
+        font-weight: 700;
+    }
+
+    .avancado-subtitle {
+        font-size: 18px;
+        font-weight: 900;
+        color: #183247;
+        margin: 0 0 10px;
+    }
+
+    .avancado-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .avancado-card {
+        background: #ffffff;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 8px 18px rgba(17, 41, 65, 0.05);
+    }
+
+    .avancado-card-title {
+        font-size: 16px;
+        font-weight: 900;
+        color: #183247;
+        margin-bottom: 12px;
+    }
+
+
 
     @media (max-width: 860px) {
         .competicao-form-grid,
-        .criterios-box {
+        .criterios-box,
+        .fase-grid,
+        .avancado-grid {
             grid-template-columns: 1fr;
         }
 
@@ -234,15 +372,17 @@
     }
 </style>
 
-{% set criterios_salvos = (competicao.criterios_desempate or 'pontos,sets_average,pontos_average,confronto_direto,sorteio').split(',') %}
+{% set criterios_salvos = (competicao.criterios_desempate or 'pontos,vitorias,saldo_sets,sets_average,saldo_pontos,pontos_average,confronto_direto,sorteio').split(',') %}
 
 <div class="competicao-tabs-wrap">
     <div class="competicao-tabs-header">
         <button type="button" class="competicao-tab-btn active" data-tab="tab-dados">Dados</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-estrutura">Estrutura</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-quadras">Quadras</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-estrutura">Estrutura</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-regras">Regras do jogo</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-pontuacao">Pontuação e desempate</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-pontuacao">Pontuação e classificação</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-fases">Classificação e avanço</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-regras-avancadas">Regras Avançadas</button>
     </div>
 
     <!-- ABA: DADOS -->
@@ -292,109 +432,6 @@
 
             <div class="competicao-actions">
                 <button class="btn-padrao" type="submit">Salvar dados</button>
-            </div>
-        </form>
-    </div>
-
-    <!-- ABA: ESTRUTURA -->
-    <div id="tab-estrutura" class="competicao-tab-pane">
-        <div class="competicao-pane-title">Estrutura da competição</div>
-        <div class="competicao-pane-subtitle">
-            Configuração base da competição. A parte de grupos, distribuição e geração da tabela fica para a aba Tabela depois.
-        </div>
-
-        <form method="post" action="{{ url_for('competicoes.salvar_estrutura_view') }}">
-            <div class="competicao-section-box">
-                <div class="competicao-form-grid">
-                    <div class="competicao-form-field">
-                        <label for="qtd_equipes">Quantidade de equipes</label>
-                        <input type="number" id="qtd_equipes" name="qtd_equipes" value="{{ competicao.qtd_equipes or 0 }}">
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="formato">Formato</label>
-                        <select id="formato" name="formato">
-                            <option value="grupos" {% if competicao.formato == 'grupos' %}selected{% endif %}>Grupos</option>
-                            <option value="todos_contra_todos" {% if competicao.formato == 'todos_contra_todos' %}selected{% endif %}>Todos contra todos</option>
-                            <option value="mata_mata" {% if competicao.formato == 'mata_mata' %}selected{% endif %}>Mata-mata</option>
-                        </select>
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="qtd_quadras">Quantidade de quadras</label>
-                        <input type="number" id="qtd_quadras" name="qtd_quadras" value="{{ competicao.qtd_quadras or 1 }}">
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="modo_operacao">Modo de operação da competição</label>
-                        <select id="modo_operacao" name="modo_operacao">
-                            <option value="simples" {% if competicao.modo_operacao == 'simples' %}selected{% endif %}>Simples</option>
-                            <option value="avancado" {% if competicao.modo_operacao == 'avancado' %}selected{% endif %}>Avançado</option>
-                        </select>
-                    </div>
-
-                    <div class="full">
-                        <div class="competicao-check-card">
-                            <label class="competicao-check-inline" for="tem_grupos">
-                                <input type="checkbox" id="tem_grupos" name="tem_grupos" style="width:auto;" {% if competicao.tem_grupos %}checked{% endif %}>
-                                Tem grupos
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="qtd_grupos">Quantidade de grupos</label>
-                        <input type="number" id="qtd_grupos" name="qtd_grupos" value="{{ competicao.qtd_grupos or 0 }}">
-                    </div>
-                </div>
-
-                <div class="competicao-section-box" style="margin-top: 20px;">
-                    <div class="competicao-pane-title" style="font-size: 20px;">Datas e limitações</div>
-                    <div class="helper-text" style="margin-bottom: 18px;">
-                        Controla prazos e restrições operacionais da inscrição. Se a data limite ficar em branco,
-                        o bloqueio deverá acontecer automaticamente no início do primeiro jogo ou pré-jogo.
-                    </div>
-
-                    <div class="competicao-form-grid">
-                        <div class="competicao-form-field">
-                            <label for="data_limite_inscricao">Data limite de inscrição</label>
-                            <input type="date" id="data_limite_inscricao" name="data_limite_inscricao" value="{{ competicao.data_limite_inscricao or '' }}">
-                        </div>
-
-                        <div class="competicao-form-field">
-                            <label for="hora_limite_inscricao">Hora limite</label>
-                            <input type="time" id="hora_limite_inscricao" name="hora_limite_inscricao" value="{{ competicao.hora_limite_inscricao or '' }}">
-                        </div>
-
-                        <div class="competicao-form-field">
-                            <label for="limite_atletas">Limite de atletas por equipe</label>
-                            <input type="number" id="limite_atletas" name="limite_atletas" value="{{ competicao.limite_atletas or 0 }}">
-                        </div>
-
-                        <div class="full">
-                            <div class="competicao-check-card">
-                                <label class="competicao-check-inline" for="permitir_edicao_pos_prazo">
-                                    <input
-                                        type="checkbox"
-                                        id="permitir_edicao_pos_prazo"
-                                        name="permitir_edicao_pos_prazo"
-                                        style="width:auto;"
-                                        {% if competicao.permitir_edicao_pos_prazo %}checked{% endif %}
-                                    >
-                                    Permitir edição após o prazo
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="helper-text">
-                        Se nenhuma data for informada, o sistema deve considerar o bloqueio automático quando o primeiro jogo ou pré-jogo começar.
-                    </div>
-                </div>
-
-                <div class="competicao-actions">
-                    <button class="btn-padrao" type="submit">Salvar estrutura</button>
-                </div>
             </div>
         </form>
     </div>
@@ -499,6 +536,79 @@
     </div>
 
 
+    <!-- ABA: ESTRUTURA -->
+    <div id="tab-estrutura" class="competicao-tab-pane">
+        <div class="competicao-pane-title">Estrutura da competição</div>
+        <div class="competicao-pane-subtitle">
+            Configuração base da competição. A parte de grupos, distribuição e geração da tabela fica para a aba Tabela depois.
+        </div>
+
+        <form method="post" action="{{ url_for('competicoes.salvar_estrutura_view') }}">
+            <div class="competicao-section-box">
+                <div class="competicao-form-grid">
+                    <div class="competicao-form-field">
+                        <label for="qtd_equipes">Quantidade de equipes</label>
+                        <input type="number" id="qtd_equipes" name="qtd_equipes" value="{{ competicao.qtd_equipes or 0 }}">
+                    </div>
+
+
+                    <div class="competicao-form-field">
+                        <label for="qtd_grupos">Quantidade de grupos</label>
+                        <input type="number" id="qtd_grupos" name="qtd_grupos" value="{{ competicao.qtd_grupos or 0 }}">
+                    </div>
+                </div>
+
+                <div class="competicao-section-box" style="margin-top: 20px;">
+                    <div class="competicao-pane-title" style="font-size: 20px;">Datas e limitações</div>
+                    <div class="helper-text" style="margin-bottom: 18px;">
+                        Controla prazos e restrições operacionais da inscrição. Se a data limite ficar em branco,
+                        o bloqueio deverá acontecer automaticamente no início do primeiro jogo ou pré-jogo.
+                    </div>
+
+                    <div class="competicao-form-grid">
+                        <div class="competicao-form-field">
+                            <label for="data_limite_inscricao">Data limite de inscrição</label>
+                            <input type="date" id="data_limite_inscricao" name="data_limite_inscricao" value="{{ competicao.data_limite_inscricao or '' }}">
+                        </div>
+
+                        <div class="competicao-form-field">
+                            <label for="hora_limite_inscricao">Hora limite</label>
+                            <input type="time" id="hora_limite_inscricao" name="hora_limite_inscricao" value="{{ competicao.hora_limite_inscricao or '' }}">
+                        </div>
+
+                        <div class="competicao-form-field">
+                            <label for="limite_atletas">Limite de atletas por equipe</label>
+                            <input type="number" id="limite_atletas" name="limite_atletas" value="{{ competicao.limite_atletas or 0 }}">
+                        </div>
+
+                        <div class="full">
+                            <div class="competicao-check-card">
+                                <label class="competicao-check-inline" for="permitir_edicao_pos_prazo">
+                                    <input
+                                        type="checkbox"
+                                        id="permitir_edicao_pos_prazo"
+                                        name="permitir_edicao_pos_prazo"
+                                        style="width:auto;"
+                                        {% if competicao.permitir_edicao_pos_prazo %}checked{% endif %}
+                                    >
+                                    Permitir edição após o prazo
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="helper-text">
+                        Se nenhuma data for informada, o sistema deve considerar o bloqueio automático quando o primeiro jogo ou pré-jogo começar.
+                    </div>
+                </div>
+
+                <div class="competicao-actions">
+                    <button class="btn-padrao" type="submit">Salvar estrutura</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
     <!-- ABA: REGRAS -->
     <div id="tab-regras" class="competicao-tab-pane">
         <div class="competicao-pane-title">Regras do jogo</div>
@@ -566,9 +676,9 @@
 
     <!-- ABA: PONTUAÇÃO -->
     <div id="tab-pontuacao" class="competicao-tab-pane">
-        <div class="competicao-pane-title">Pontuação e critérios de desempate</div>
+        <div class="competicao-pane-title">Pontuação e critérios de classificação</div>
         <div class="competicao-pane-subtitle">
-            Define a pontuação da classificação e a ordem dos critérios de desempate da competição.
+            Define a pontuação da tabela e a ordem oficial dos critérios de classificação. Arraste para alterar conforme o regulamento.
         </div>
 
         <form method="post" action="{{ url_for('competicoes.salvar_pontuacao_desempate_view') }}">
@@ -595,74 +705,420 @@
                     </div>
 
                     <div class="full">
-                        <label>Critérios de desempate</label>
-                        <div class="criterios-box">
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="pontos" style="width:auto;"
-                                    {% if 'pontos' in criterios_salvos %}checked{% endif %}>
-                                    Pontos
-                                </label>
-                            </div>
-
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="sets_average" style="width:auto;"
-                                    {% if 'sets_average' in criterios_salvos %}checked{% endif %}>
-                                    Sets average
-                                </label>
-                            </div>
-
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="pontos_average" style="width:auto;"
-                                    {% if 'pontos_average' in criterios_salvos %}checked{% endif %}>
-                                    Pontos average
-                                </label>
-                            </div>
-
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="confronto_direto" style="width:auto;"
-                                    {% if 'confronto_direto' in criterios_salvos %}checked{% endif %}>
-                                    Confronto direto
-                                </label>
-                            </div>
-
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="saldo_sets" style="width:auto;"
-                                    {% if 'saldo_sets' in criterios_salvos %}checked{% endif %}>
-                                    Saldo de sets
-                                </label>
-                            </div>
-
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="saldo_pontos" style="width:auto;"
-                                    {% if 'saldo_pontos' in criterios_salvos %}checked{% endif %}>
-                                    Saldo de pontos
-                                </label>
-                            </div>
-
-                            <div class="criterio-item">
-                                <label>
-                                    <input type="checkbox" name="criterios_desempate" value="sorteio" style="width:auto;"
-                                    {% if 'sorteio' in criterios_salvos %}checked{% endif %}>
-                                    Sorteio
-                                </label>
-                            </div>
+                        <label>Critérios de classificação</label>
+                        <div class="helper-text" style="margin-bottom: 10px;">
+                            A tabela será ordenada exatamente nessa sequência. Arraste os itens para mudar a prioridade dos critérios.
                         </div>
+
+                        {% set criterios_labels = {
+                            'pontos': 'Pontos',
+                            'vitorias': 'Vitórias',
+                            'saldo_sets': 'Saldo de sets',
+                            'sets_average': 'Sets average',
+                            'saldo_pontos': 'Saldo de pontos',
+                            'pontos_average': 'Pontos average',
+                            'sets_pro': 'Sets pró',
+                            'sets_contra': 'Sets contra',
+                            'pontos_pro': 'Pontos pró',
+                            'pontos_contra': 'Pontos contra',
+                            'confronto_direto': 'Confronto direto',
+                            'menor_wo': 'Menor número de W.O.',
+                            'fair_play': 'Fair play',
+                            'sorteio': 'Sorteio'
+                        } %}
+                        {% set criterios_desc = {
+                            'pontos': 'Pontuação conquistada conforme a regra da competição.',
+                            'vitorias': 'Quantidade total de vitórias.',
+                            'saldo_sets': 'Sets vencidos menos sets perdidos.',
+                            'sets_average': 'Sets pró divididos por sets contra.',
+                            'saldo_pontos': 'Pontos feitos menos pontos sofridos.',
+                            'pontos_average': 'Pontos pró divididos por pontos contra.',
+                            'sets_pro': 'Maior número de sets vencidos.',
+                            'sets_contra': 'Menor número de sets perdidos.',
+                            'pontos_pro': 'Maior número de pontos feitos.',
+                            'pontos_contra': 'Menor número de pontos sofridos.',
+                            'confronto_direto': 'Resultado entre as equipes empatadas.',
+                            'menor_wo': 'Menor quantidade de W.O. registrado.',
+                            'fair_play': 'Menor pontuação disciplinar, quando existir.',
+                            'sorteio': 'Último recurso quando o empate permanecer.'
+                        } %}
+                        {% set criterios_padrao = ['pontos', 'vitorias', 'saldo_sets', 'sets_average', 'saldo_pontos', 'pontos_average', 'confronto_direto', 'sorteio'] %}
+
+                        <input type="hidden" id="criterios_ordenados" name="criterios_ordenados" value="">
+
+                        <div class="criterios-box" id="criterios-classificacao-lista">
+                            {% for criterio in criterios_salvos %}
+                                {% set criterio_limpo = criterio.strip() %}
+                                {% if criterio_limpo in criterios_labels %}
+                                <div class="criterio-item" draggable="true" data-criterio="{{ criterio_limpo }}">
+                                    <div class="criterio-main">
+                                        <span class="criterio-handle">☰</span>
+                                        <div>
+                                            <div class="criterio-titulo">{{ criterios_labels[criterio_limpo] }}</div>
+                                            <div class="criterio-desc">{{ criterios_desc[criterio_limpo] }}</div>
+                                        </div>
+                                    </div>
+                                    <span class="criterio-ordem">0</span>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+
+                            {% for criterio in criterios_padrao %}
+                                {% if criterio not in criterios_salvos %}
+                                <div class="criterio-item" draggable="true" data-criterio="{{ criterio }}">
+                                    <div class="criterio-main">
+                                        <span class="criterio-handle">☰</span>
+                                        <div>
+                                            <div class="criterio-titulo">{{ criterios_labels[criterio] }}</div>
+                                            <div class="criterio-desc">{{ criterios_desc[criterio] }}</div>
+                                        </div>
+                                    </div>
+                                    <span class="criterio-ordem">0</span>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+
+                        <div class="criterios-preview" id="criterios-classificacao-preview"></div>
                     </div>
                 </div>
 
                 <div class="competicao-actions">
-                    <button class="btn-padrao" type="submit">Salvar pontuação</button>
+                    <button class="btn-padrao" type="submit">Salvar pontuação e classificação</button>
                 </div>
             </div>
         </form>
     </div>
 </div>
+
+
+    <!-- ABA: CLASSIFICAÇÃO E AVANÇO -->
+    <div id="tab-fases" class="competicao-tab-pane">
+        <div class="competicao-pane-title">Classificação e avanço</div>
+        <div class="competicao-pane-subtitle">
+            Configure como as equipes avançam depois da classificatória: classificação por grupo ou geral, quantidade de classificados, formato principal, byes e modelos de fases.
+        </div>
+
+        <form method="post" action="{{ url_for('competicoes.salvar_fases_competicao_view') }}">
+            <div class="competicao-section-box">
+                <div class="competicao-pane-title" style="font-size:20px;">Classificação e avanço</div>
+
+                <div class="competicao-form-grid">
+                    <div class="competicao-form-field">
+                        <label for="tipo_confronto">Tipo de confronto</label>
+                        <select name="tipo_confronto" id="tipo_confronto">
+                            <option value="grupo_interno" {% if config.tipo_confronto == 'grupo_interno' %}selected{% endif %}>Dentro do grupo</option>
+                            <option value="geral" {% if config.tipo_confronto == 'geral' %}selected{% endif %}>Todos contra todos geral</option>
+                            <option value="intergrupos_total" {% if config.tipo_confronto == 'intergrupos_total' %}selected{% endif %}>Intergrupos total</option>
+                            <option value="intergrupos_parcial" {% if config.tipo_confronto == 'intergrupos_parcial' %}selected{% endif %}>Intergrupos parcial</option>
+                        </select>
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label for="tipo_classificacao">Tipo de classificação</label>
+                        <select name="tipo_classificacao" id="tipo_classificacao">
+                            <option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo</option>
+                            <option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option>
+                            <option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option>
+                        </select>
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label for="qtd_classificados">Quantidade total de classificados</label>
+                        <input type="number" id="qtd_classificados" name="qtd_classificados" value="{{ config.qtd_classificados or 0 }}">
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label for="cruzamentos_grupos">Cruzamentos entre grupos</label>
+                        <input type="text" id="cruzamentos_grupos" name="cruzamentos_grupos" value="{{ config.cruzamentos_grupos or '' }}" placeholder="Ex.: A-B,B-C,C-A">
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label for="formato_finais">Formato principal</label>
+                        <select name="formato_finais" id="formato_finais">
+                            <option value="oitavas" {% if config.formato_finais == 'oitavas' %}selected{% endif %}>Oitavas + quartas + semifinal + final</option>
+                            <option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas + semifinal + final</option>
+                            <option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal + final</option>
+                            <option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Só final</option>
+                            <option value="series" {% if config.formato_finais == 'series' %}selected{% endif %}>Séries Ouro, Prata e Bronze</option>
+                            <option value="personalizado" {% if config.formato_finais == 'personalizado' %}selected{% endif %}>Personalizado</option>
+                        </select>
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label for="possui_bye">Possui bye?</label>
+                        <select name="possui_bye" id="possui_bye">
+                            <option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option>
+                            <option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option>
+                        </select>
+                    </div>
+
+                    <div class="competicao-form-field">
+                        <label for="qtd_bye">Quantidade de byes</label>
+                        <input type="number" id="qtd_bye" name="qtd_bye" value="{{ config.qtd_bye or 0 }}">
+                    </div>
+                </div>
+            </div>
+
+            <div class="competicao-section-box" style="margin-top:18px;">
+                <div class="competicao-pane-title" style="font-size:20px;">Modelo de fases futuras</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Esta parte deixa a competição preparada para cenários como: classificatória → oitavas → quartas → semifinais → finais, ou divisão em Série Ouro, Prata e Bronze.
+                </div>
+
+                <div class="fase-grid">
+                    {% set fases_personalizadas = fases.get('fases_personalizadas', []) %}
+                    {% set fases_modelo = fases_personalizadas if fases_personalizadas else [
+                        {'nome':'Oitavas de final', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'1º ao 16º geral'},
+                        {'nome':'Série Ouro', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'melhores classificados'},
+                        {'nome':'Série Prata', 'serie':'prata', 'tipo':'mata_mata', 'origem':'classificados intermediários'},
+                        {'nome':'Série Bronze', 'serie':'bronze', 'tipo':'mata_mata', 'origem':'demais classificados'}
+                    ] %}
+                    {% for fase in fases_modelo %}
+                    <div class="fase-card">
+                        <div class="fase-card-title">Fase {{ loop.index }}</div>
+                        <div class="competicao-form-field" style="margin-bottom:10px;">
+                            <label>Nome da fase</label>
+                            <input type="text" name="fase_nome[]" value="{{ fase.nome if fase.nome is defined else fase.get('nome', '') }}">
+                        </div>
+                        <div class="competicao-form-grid">
+                            <div class="competicao-form-field">
+                                <label>Série</label>
+                                {% set serie_fase = fase.serie if fase.serie is defined else fase.get('serie', 'ouro') %}
+                                <select name="fase_serie[]">
+                                    <option value="geral" {% if serie_fase == 'geral' %}selected{% endif %}>Geral</option>
+                                    <option value="ouro" {% if serie_fase == 'ouro' %}selected{% endif %}>Ouro</option>
+                                    <option value="prata" {% if serie_fase == 'prata' %}selected{% endif %}>Prata</option>
+                                    <option value="bronze" {% if serie_fase == 'bronze' %}selected{% endif %}>Bronze</option>
+                                </select>
+                            </div>
+                            <div class="competicao-form-field">
+                                <label>Tipo</label>
+                                {% set tipo_fase = fase.tipo if fase.tipo is defined else fase.get('tipo', 'mata_mata') %}
+                                <select name="fase_tipo[]">
+                                    <option value="mata_mata" {% if tipo_fase == 'mata_mata' %}selected{% endif %}>Mata-mata</option>
+                                    <option value="grupos" {% if tipo_fase == 'grupos' %}selected{% endif %}>Grupos</option>
+                                    <option value="pontos_corridos" {% if tipo_fase == 'pontos_corridos' %}selected{% endif %}>Pontos corridos</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="competicao-form-field" style="margin-top:10px;">
+                            <label>Origem dos participantes</label>
+                            <input type="text" name="fase_origem[]" value="{{ fase.origem if fase.origem is defined else fase.get('origem', '') }}" placeholder="Ex.: 1º ao 16º geral">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="competicao-actions">
+                <button class="btn-padrao" type="submit">Salvar fases</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ABA: REGRAS AVANÇADAS -->
+    <div id="tab-regras-avancadas" class="competicao-tab-pane">
+        <div class="competicao-pane-title">Regras Avançadas</div>
+        <div class="competicao-pane-subtitle">
+            Use esta aba somente quando uma competição fugir do padrão: grupos com pontuação diferente, fases com regras próprias, séries Ouro/Prata/Bronze, repescagem ou fases personalizadas.
+        </div>
+
+        <div class="avancado-alerta">
+            A regra da aba <strong>Regras do jogo</strong> continua sendo a regra padrão. Tudo que for ativado aqui sobrescreve a regra padrão apenas no grupo, fase ou série escolhida.
+        </div>
+
+        {% set regras_avancadas = fases.get('regras_avancadas', {}) if fases is defined else {} %}
+        {% set regras_grupos = regras_avancadas.get('grupos', {}) %}
+        {% set regras_fases = regras_avancadas.get('fases', {}) %}
+        {% set series_config = regras_avancadas.get('series', {}) %}
+        {% set repescagem_config = regras_avancadas.get('repescagem', {}) %}
+        {% set fases_personalizadas_avancadas = regras_avancadas.get('fases_personalizadas', []) %}
+
+        <form method="post" action="{{ url_for('competicoes.salvar_regras_avancadas_view') }}">
+            <div class="competicao-section-box">
+                <div class="avancado-subtitle">Regras específicas por grupo</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Ative somente os grupos que precisam de regra diferente da regra padrão da competição.
+                </div>
+
+                <div class="avancado-grid">
+                    {% for grupo in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] %}
+                        {% set rg = regras_grupos.get(grupo, {}) %}
+                        <div class="avancado-card">
+                            <label class="competicao-check-inline" for="grupo_{{ grupo }}_ativo" style="margin-bottom:12px;">
+                                <input type="checkbox" id="grupo_{{ grupo }}_ativo" name="grupo_{{ grupo }}_ativo" style="width:auto;" {% if rg.get('ativo') %}checked{% endif %}>
+                                Grupo {{ grupo }} usa regra própria
+                            </label>
+
+                            <div class="competicao-form-grid">
+                                <div class="competicao-form-field">
+                                    <label>Tipo de jogo</label>
+                                    <select name="grupo_{{ grupo }}_sets_tipo">
+                                        <option value="set_unico" {% if rg.get('sets_tipo', 'set_unico') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                        <option value="melhor_de_3" {% if rg.get('sets_tipo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                        <option value="melhor_de_5" {% if rg.get('sets_tipo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                    </select>
+                                </div>
+                                <div class="competicao-form-field">
+                                    <label>Pontos por set</label>
+                                    <input type="number" name="grupo_{{ grupo }}_pontos_set" value="{{ rg.get('pontos_set', '') }}" placeholder="Padrão">
+                                </div>
+                                <div class="competicao-form-field">
+                                    <label>Tem tie-break?</label>
+                                    <select name="grupo_{{ grupo }}_tem_tiebreak">
+                                        <option value="padrao" {% if rg.get('tem_tiebreak') is not defined %}selected{% endif %}>Usar padrão</option>
+                                        <option value="sim" {% if rg.get('tem_tiebreak') == True %}selected{% endif %}>Sim</option>
+                                        <option value="nao" {% if rg.get('tem_tiebreak') == False %}selected{% endif %}>Não</option>
+                                    </select>
+                                </div>
+                                <div class="competicao-form-field">
+                                    <label>Pontos do tie-break</label>
+                                    <input type="number" name="grupo_{{ grupo }}_pontos_tiebreak" value="{{ rg.get('pontos_tiebreak', '') }}" placeholder="Padrão">
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="competicao-section-box" style="margin-top:18px;">
+                <div class="avancado-subtitle">Regras específicas por fase</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Exemplo: classificatória em set único, quartas em melhor de 3 e final em melhor de 5.
+                </div>
+
+                <div class="avancado-grid">
+                    {% for fase_id, fase_nome in [('oitavas','Oitavas'), ('quartas','Quartas'), ('semifinal','Semifinal'), ('final','Final')] %}
+                        {% set rf = regras_fases.get(fase_id, {}) %}
+                        <div class="avancado-card">
+                            <label class="competicao-check-inline" for="fase_{{ fase_id }}_ativo" style="margin-bottom:12px;">
+                                <input type="checkbox" id="fase_{{ fase_id }}_ativo" name="fase_{{ fase_id }}_ativo" style="width:auto;" {% if rf.get('ativo') %}checked{% endif %}>
+                                {{ fase_nome }} usa regra própria
+                            </label>
+
+                            <div class="competicao-form-grid">
+                                <div class="competicao-form-field">
+                                    <label>Tipo de jogo</label>
+                                    <select name="fase_{{ fase_id }}_sets_tipo">
+                                        <option value="set_unico" {% if rf.get('sets_tipo', 'set_unico') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                        <option value="melhor_de_3" {% if rf.get('sets_tipo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                        <option value="melhor_de_5" {% if rf.get('sets_tipo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                    </select>
+                                </div>
+                                <div class="competicao-form-field">
+                                    <label>Pontos por set</label>
+                                    <input type="number" name="fase_{{ fase_id }}_pontos_set" value="{{ rf.get('pontos_set', '') }}" placeholder="Padrão">
+                                </div>
+                                <div class="competicao-form-field">
+                                    <label>Tem tie-break?</label>
+                                    <select name="fase_{{ fase_id }}_tem_tiebreak">
+                                        <option value="padrao" {% if rf.get('tem_tiebreak') is not defined %}selected{% endif %}>Usar padrão</option>
+                                        <option value="sim" {% if rf.get('tem_tiebreak') == True %}selected{% endif %}>Sim</option>
+                                        <option value="nao" {% if rf.get('tem_tiebreak') == False %}selected{% endif %}>Não</option>
+                                    </select>
+                                </div>
+                                <div class="competicao-form-field">
+                                    <label>Pontos do tie-break</label>
+                                    <input type="number" name="fase_{{ fase_id }}_pontos_tiebreak" value="{{ rf.get('pontos_tiebreak', '') }}" placeholder="Padrão">
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="competicao-section-box" style="margin-top:18px;">
+                <div class="avancado-subtitle">Séries paralelas</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Use quando a competição separar classificados em Série Ouro, Prata e Bronze após a fase classificatória.
+                </div>
+
+                <div class="competicao-form-grid">
+                    {% for serie_id, serie_nome in [('ouro','Série Ouro'), ('prata','Série Prata'), ('bronze','Série Bronze')] %}
+                        {% set serie = series_config.get(serie_id, {}) %}
+                        <div class="avancado-card">
+                            <label class="competicao-check-inline" for="serie_{{ serie_id }}_ativa" style="margin-bottom:12px;">
+                                <input type="checkbox" id="serie_{{ serie_id }}_ativa" name="serie_{{ serie_id }}_ativa" style="width:auto;" {% if serie.get('ativa') %}checked{% endif %}>
+                                {{ serie_nome }}
+                            </label>
+                            <div class="competicao-form-field">
+                                <label>Faixa de classificação</label>
+                                <input type="text" name="serie_{{ serie_id }}_faixa" value="{{ serie.get('faixa', '') }}" placeholder="Ex.: 1º ao 8º geral">
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="competicao-section-box" style="margin-top:18px;">
+                <div class="avancado-subtitle">Repescagem</div>
+                <label class="competicao-check-inline" for="repescagem_ativa">
+                    <input type="checkbox" id="repescagem_ativa" name="repescagem_ativa" style="width:auto;" {% if repescagem_config.get('ativa') %}checked{% endif %}>
+                    Utilizar repescagem nesta competição
+                </label>
+                <div class="competicao-form-field" style="margin-top:12px;">
+                    <label>Descrição da repescagem</label>
+                    <input type="text" name="repescagem_descricao" value="{{ repescagem_config.get('descricao', '') }}" placeholder="Ex.: Perdedor da semifinal disputa 3º lugar">
+                </div>
+            </div>
+
+            <div class="competicao-section-box" style="margin-top:18px;">
+                <div class="avancado-subtitle">Fases personalizadas avançadas</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Reserve para formatos mais raros, como Oitavas Ouro, Quartas Prata, semifinal de Bronze ou repescagens específicas.
+                </div>
+
+                <div class="fase-grid">
+                    {% set fases_avancadas_modelo = fases_personalizadas_avancadas if fases_personalizadas_avancadas else [
+                        {'nome':'Oitavas Ouro', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'1º ao 16º geral'},
+                        {'nome':'Quartas Ouro', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'vencedores das oitavas'},
+                        {'nome':'Semifinal Prata', 'serie':'prata', 'tipo':'mata_mata', 'origem':'9º ao 12º geral'},
+                        {'nome':'Final Bronze', 'serie':'bronze', 'tipo':'mata_mata', 'origem':'classificados da Série Bronze'}
+                    ] %}
+
+                    {% for fase in fases_avancadas_modelo %}
+                    <div class="fase-card">
+                        <div class="fase-card-title">Fase avançada {{ loop.index }}</div>
+                        <div class="competicao-form-field" style="margin-bottom:10px;">
+                            <label>Nome da fase</label>
+                            <input type="text" name="fase_avancada_nome[]" value="{{ fase.nome if fase.nome is defined else fase.get('nome', '') }}">
+                        </div>
+                        <div class="competicao-form-grid">
+                            <div class="competicao-form-field">
+                                <label>Série</label>
+                                {% set serie_fase = fase.serie if fase.serie is defined else fase.get('serie', 'geral') %}
+                                <select name="fase_avancada_serie[]">
+                                    <option value="geral" {% if serie_fase == 'geral' %}selected{% endif %}>Geral</option>
+                                    <option value="ouro" {% if serie_fase == 'ouro' %}selected{% endif %}>Ouro</option>
+                                    <option value="prata" {% if serie_fase == 'prata' %}selected{% endif %}>Prata</option>
+                                    <option value="bronze" {% if serie_fase == 'bronze' %}selected{% endif %}>Bronze</option>
+                                </select>
+                            </div>
+                            <div class="competicao-form-field">
+                                <label>Tipo</label>
+                                {% set tipo_fase = fase.tipo if fase.tipo is defined else fase.get('tipo', 'mata_mata') %}
+                                <select name="fase_avancada_tipo[]">
+                                    <option value="mata_mata" {% if tipo_fase == 'mata_mata' %}selected{% endif %}>Mata-mata</option>
+                                    <option value="grupos" {% if tipo_fase == 'grupos' %}selected{% endif %}>Grupos</option>
+                                    <option value="pontos_corridos" {% if tipo_fase == 'pontos_corridos' %}selected{% endif %}>Pontos corridos</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="competicao-form-field" style="margin-top:10px;">
+                            <label>Origem dos participantes</label>
+                            <input type="text" name="fase_avancada_origem[]" value="{{ fase.origem if fase.origem is defined else fase.get('origem', '') }}" placeholder="Ex.: 1º ao 16º geral">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="competicao-actions">
+                <button class="btn-padrao" type="submit">Salvar regras avançadas</button>
+            </div>
+        </form>
+    </div>
 
 <script>
     (function () {
@@ -683,6 +1139,125 @@
                 }
             });
         });
+
+        const listaCriterios = document.getElementById('criterios-classificacao-lista');
+        const inputCriterios = document.getElementById('criterios_ordenados');
+        const previewCriterios = document.getElementById('criterios-classificacao-preview');
+        let criterioArrastado = null;
+
+        function atualizarCriteriosClassificacao() {
+            if (!listaCriterios || !inputCriterios) {
+                return;
+            }
+
+            const itens = Array.from(listaCriterios.querySelectorAll('[data-criterio]'));
+            const valores = [];
+            const nomes = [];
+            const ignorados = [];
+            let sorteioEncontrado = false;
+            let ordemEfetiva = 1;
+
+            itens.forEach((item) => {
+                const criterio = item.getAttribute('data-criterio');
+                const titulo = item.querySelector('.criterio-titulo');
+                const ordem = item.querySelector('.criterio-ordem');
+                const nomeTitulo = titulo ? titulo.textContent.trim() : criterio;
+
+                item.classList.remove('criterio-ignorado');
+
+                if (!criterio) {
+                    return;
+                }
+
+                if (!sorteioEncontrado) {
+                    valores.push(criterio);
+                    nomes.push(`${ordemEfetiva}º ${nomeTitulo}`);
+
+                    if (ordem) {
+                        ordem.textContent = ordemEfetiva;
+                    }
+
+                    ordemEfetiva += 1;
+
+                    if (criterio === 'sorteio') {
+                        sorteioEncontrado = true;
+                    }
+                } else {
+                    item.classList.add('criterio-ignorado');
+                    ignorados.push(nomeTitulo);
+
+                    if (ordem) {
+                        ordem.textContent = '—';
+                    }
+                }
+            });
+
+            inputCriterios.value = valores.join(',');
+
+            if (previewCriterios) {
+                let html = `<strong>Ordem atual:</strong> ${nomes.join(' › ')}`;
+
+                if (ignorados.length) {
+                    html += `<br><span style="color:#8a6512;font-weight:700;">Ignorados após o sorteio:</span> ${ignorados.join(' › ')}`;
+                }
+
+                previewCriterios.innerHTML = html;
+            }
+        }
+
+        function itemAposCursor(container, y) {
+            const itens = [...container.querySelectorAll('.criterio-item:not(.dragging)')];
+
+            return itens.reduce((maisProximo, item) => {
+                const box = item.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+
+                if (offset < 0 && offset > maisProximo.offset) {
+                    return { offset, element: item };
+                }
+
+                return maisProximo;
+            }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+        }
+
+        if (listaCriterios) {
+            listaCriterios.addEventListener('dragstart', function (event) {
+                const item = event.target.closest('.criterio-item');
+                if (!item) {
+                    return;
+                }
+
+                criterioArrastado = item;
+                item.classList.add('dragging');
+                event.dataTransfer.effectAllowed = 'move';
+            });
+
+            listaCriterios.addEventListener('dragover', function (event) {
+                event.preventDefault();
+                const itemDestino = itemAposCursor(listaCriterios, event.clientY);
+                const itemAtual = document.querySelector('.criterio-item.dragging');
+
+                if (!itemAtual) {
+                    return;
+                }
+
+                if (itemDestino == null) {
+                    listaCriterios.appendChild(itemAtual);
+                } else {
+                    listaCriterios.insertBefore(itemAtual, itemDestino);
+                }
+            });
+
+            listaCriterios.addEventListener('dragend', function () {
+                if (criterioArrastado) {
+                    criterioArrastado.classList.remove('dragging');
+                    criterioArrastado = null;
+                }
+                atualizarCriteriosClassificacao();
+            });
+
+            atualizarCriteriosClassificacao();
+        }
 
         const listaQuadras = document.getElementById('quadras-lista');
         const btnAdicionarQuadra = document.getElementById('btn-adicionar-quadra');

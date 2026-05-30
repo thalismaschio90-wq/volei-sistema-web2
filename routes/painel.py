@@ -13,7 +13,9 @@ from banco import (
     buscar_perfil_equipe_por_login,
     salvar_perfil_equipe_por_login,
     atualizar_dados_conta_usuario,
-    atualizar_dados_conta_apontador
+    atualizar_dados_conta_apontador,
+    buscar_vinculo_arbitragem_por_pin,
+    buscar_vinculo_operacional_por_pin,
 )
 from routes.utils import login_obrigatorio
 
@@ -52,15 +54,18 @@ def _usuario_logado():
 
 def _usuario_tem_perfil_arbitro():
     """
-    No sistema atual, os árbitros criados pelo organizador entram como perfil 'mesario'.
-    Mantemos essa compatibilidade para não quebrar cadastros antigos.
+    Mantém compatibilidade com árbitros antigos por login, mas também permite
+    as novas telas públicas liberadas por PIN operacional.
     """
-    return _perfil_normalizado() in {"mesario", "arbitro"}
+    return _perfil_normalizado() in {"mesario", "arbitro"} or bool(session.get("arbitro_pin_validado"))
 
 
 def _competicao_arbitro_logado():
-    competicao = (session.get("competicao_vinculada") or "").strip()
+    competicao = (session.get("arbitro_competicao") or "").strip()
+    if competicao:
+        return competicao
 
+    competicao = (session.get("competicao_vinculada") or "").strip()
     if competicao:
         return competicao
 
@@ -74,7 +79,59 @@ def _competicao_arbitro_logado():
     return ""
 
 
-def _buscar_partida_ativa_para_painel_arbitro(competicao):
+def _limpar_vinculo_arbitro_sessao():
+    for chave in [
+        "arbitro_pin_validado",
+        "arbitro_pin_tipo",
+        "arbitro_pin",
+        "arbitro_competicao",
+        "arbitro_quadra_id",
+        "arbitro_quadra_nome",
+        "arbitro_quadra_local",
+        "arbitro_quadra_ordem",
+        "arbitro_apontador_cpf",
+        "arbitro_apontador_nome",
+        "arbitro_jogo_avulso_codigo",
+        "arbitro_jogo_avulso_pin",
+        "arbitro_jogo_avulso_equipe_a",
+        "arbitro_jogo_avulso_equipe_b",
+    ]:
+        session.pop(chave, None)
+
+
+def _vinculo_arbitro_sessao():
+    if not session.get("arbitro_pin_validado"):
+        return None
+    tipo = (session.get("arbitro_pin_tipo") or "").strip().lower()
+    if tipo == "avulso":
+        return {
+            "tipo": "avulso",
+            "codigo": session.get("arbitro_jogo_avulso_codigo") or "",
+            "pin": session.get("arbitro_jogo_avulso_pin") or "",
+            "equipe_a": session.get("arbitro_jogo_avulso_equipe_a") or "Equipe A",
+            "equipe_b": session.get("arbitro_jogo_avulso_equipe_b") or "Equipe B",
+        }
+    if tipo == "competicao":
+        return {
+            "tipo": "competicao",
+            "competicao": session.get("arbitro_competicao") or "",
+            "quadra_id": session.get("arbitro_quadra_id"),
+            "quadra_nome": session.get("arbitro_quadra_nome") or "",
+            "quadra_local": session.get("arbitro_quadra_local") or "",
+            "quadra_ordem": session.get("arbitro_quadra_ordem"),
+            "pin": session.get("arbitro_pin") or "",
+        }
+    if tipo == "operacional":
+        return {
+            "tipo": "operacional",
+            "competicao": session.get("arbitro_competicao") or "",
+            "apontador_cpf": session.get("arbitro_apontador_cpf") or "",
+            "apontador_nome": session.get("arbitro_apontador_nome") or "",
+            "pin": session.get("arbitro_pin") or "",
+        }
+    return None
+
+def _buscar_partida_ativa_para_painel_arbitro(competicao, quadra_id=None, quadra_nome=None, quadra_ordem=None, operador_login=None):
     """
     Busca a partida que deve aparecer nos tablets fixos dos árbitros.
     Ela entra na fila assim que o apontador salva o pré-jogo/sorteio.
@@ -82,13 +139,31 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao):
     if not competicao:
         return None
 
+    filtro_quadra = ""
+    params_quadra = []
+    if quadra_id:
+        filtro_quadra = " AND (quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s)"
+        params_quadra.extend([quadra_id, quadra_nome or "", quadra_nome or "", str(quadra_ordem or "")])
+    elif quadra_nome:
+        filtro_quadra = " AND (quadra_nome = %s OR quadra = %s)"
+        params_quadra.extend([quadra_nome, quadra_nome])
+    elif quadra_ordem:
+        filtro_quadra = " AND (quadra = %s OR quadra_nome = %s)"
+        params_quadra.extend([str(quadra_ordem), f"Quadra {quadra_ordem}"])
+
+    filtro_operador = ""
+    params_operador = []
+    if operador_login:
+        filtro_operador = " AND REGEXP_REPLACE(COALESCE(operador_login, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')"
+        params_operador.append(operador_login)
+
     ativos = list(STATUS_ATIVOS_ARBITRO)
     finalizados = list(STATUS_FINALIZADOS_ARBITRO)
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT
                     id,
                     competicao,
@@ -115,6 +190,8 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao):
                     operador_login
                 FROM partidas
                 WHERE competicao = %s
+                  {filtro_quadra}
+                  {filtro_operador}
                   AND LOWER(COALESCE(status, '')) <> ALL(%s)
                   AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
                   AND (
@@ -136,7 +213,7 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao):
                     id
                 LIMIT 1
                 """,
-                (competicao, finalizados, finalizados, ativos, ativos, ativos, ativos),
+                tuple([competicao] + params_quadra + params_operador + [finalizados, finalizados, ativos, ativos, ativos, ativos]),
             )
             return cur.fetchone()
 
@@ -268,28 +345,90 @@ def inicio():
     )
 
 
-@painel_bp.route("/painel-arbitros")
-@login_obrigatorio
+@painel_bp.route("/arbitro", methods=["GET", "POST"])
+@painel_bp.route("/painel-arbitros", methods=["GET", "POST"])
 def painel_arbitros():
-    if not _usuario_tem_perfil_arbitro():
-        flash("Você não tem permissão para acessar o painel dos árbitros.", "erro")
-        return redirect(url_for("painel.inicio"))
+
+    if request.method == "POST":
+        acao = (request.form.get("acao") or "").strip()
+        if acao == "trocar_pin":
+            _limpar_vinculo_arbitro_sessao()
+            flash("Vínculo removido. Digite o PIN da nova quadra ou jogo.", "sucesso")
+            return redirect(url_for("painel.painel_arbitros"))
+
+        pin = (request.form.get("pin") or "").strip()
+        pin_limpo = "".join(ch for ch in pin if ch.isdigit())
+        if len(pin_limpo) != 4:
+            flash("Digite um PIN de 4 números.", "erro")
+            return redirect(url_for("painel.painel_arbitros"))
+
+        vinculo_operacional = buscar_vinculo_operacional_por_pin(pin_limpo)
+        if vinculo_operacional:
+            session["arbitro_pin_validado"] = True
+            session["arbitro_pin_tipo"] = "operacional"
+            session["arbitro_pin"] = pin_limpo
+            session["arbitro_competicao"] = vinculo_operacional.get("competicao") or ""
+            session["arbitro_apontador_cpf"] = vinculo_operacional.get("apontador_cpf") or ""
+            session["arbitro_apontador_nome"] = vinculo_operacional.get("apontador_nome") or ""
+            flash("PIN validado. Escolha 1º ou 2º árbitro.", "sucesso")
+            return redirect(url_for("painel.painel_arbitros"))
+
+        vinculo = buscar_vinculo_arbitragem_por_pin(pin_limpo)
+        if vinculo:
+            session["arbitro_pin_validado"] = True
+            session["arbitro_pin_tipo"] = "competicao"
+            session["arbitro_pin"] = pin_limpo
+            session["arbitro_competicao"] = vinculo.get("competicao") or ""
+            session["arbitro_quadra_id"] = vinculo.get("id")
+            session["arbitro_quadra_nome"] = vinculo.get("nome") or ""
+            session["arbitro_quadra_local"] = vinculo.get("local") or ""
+            session["arbitro_quadra_ordem"] = vinculo.get("ordem")
+            flash("PIN validado. Escolha 1º ou 2º árbitro.", "sucesso")
+            return redirect(url_for("painel.painel_arbitros"))
+
+        try:
+            from routes.jogo_avulso import buscar_jogo_avulso_por_pin
+            vinculo_avulso = buscar_jogo_avulso_por_pin(pin_limpo)
+        except Exception as e:
+            print("ERRO buscar_jogo_avulso_por_pin:", e, flush=True)
+            vinculo_avulso = None
+
+        if vinculo_avulso:
+            session["arbitro_pin_validado"] = True
+            session["arbitro_pin_tipo"] = "avulso"
+            session["arbitro_jogo_avulso_pin"] = pin_limpo
+            session["arbitro_jogo_avulso_codigo"] = vinculo_avulso.get("codigo") or ""
+            session["arbitro_jogo_avulso_equipe_a"] = vinculo_avulso.get("equipe_a") or "Equipe A"
+            session["arbitro_jogo_avulso_equipe_b"] = vinculo_avulso.get("equipe_b") or "Equipe B"
+            flash("PIN do jogo rápido validado. Escolha 1º ou 2º árbitro.", "sucesso")
+            return redirect(url_for("painel.painel_arbitros"))
+
+        flash("PIN não encontrado ou não está mais ativo.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
 
     competicao = _competicao_arbitro_logado()
+    vinculo_arbitro = _vinculo_arbitro_sessao()
 
     return render_template(
         "painel_arbitro.html",
         competicao=competicao,
+        vinculo_arbitro=vinculo_arbitro,
         nome=session.get("nome") or session.get("usuario")
     )
 
 
 @painel_bp.route("/painel-arbitro-1")
-@login_obrigatorio
 def painel_arbitro_1():
     if not _usuario_tem_perfil_arbitro():
         flash("Você não tem permissão para acessar o painel do 1º árbitro.", "erro")
         return redirect(url_for("painel.inicio"))
+
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo:
+        flash("Digite o PIN da quadra ou do jogo rápido antes de abrir o painel.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
+    if vinculo.get("tipo") == "avulso":
+        return redirect(url_for("jogo_avulso.arbitro1_jogo_avulso", codigo=vinculo.get("codigo")))
 
     return render_template(
         "painel_arbitro_automatico.html",
@@ -302,11 +441,17 @@ def painel_arbitro_1():
 
 
 @painel_bp.route("/painel-arbitro-2")
-@login_obrigatorio
 def painel_arbitro_2():
     if not _usuario_tem_perfil_arbitro():
         flash("Você não tem permissão para acessar o painel do 2º árbitro.", "erro")
         return redirect(url_for("painel.inicio"))
+
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo:
+        flash("Digite o PIN da quadra ou do jogo rápido antes de abrir o painel.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
+    if vinculo.get("tipo") == "avulso":
+        return redirect(url_for("jogo_avulso.arbitro2_jogo_avulso", codigo=vinculo.get("codigo")))
 
     return render_template(
         "painel_arbitro_automatico.html",
@@ -322,8 +467,18 @@ def _resposta_proxima_partida_arbitro(tipo):
     if not _usuario_tem_perfil_arbitro():
         return jsonify({"ok": False, "erro": "sem_permissao"}), 403
 
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo or vinculo.get("tipo") != "competicao":
+        return jsonify({"ok": False, "erro": "PIN da quadra não validado."}), 403
+
     competicao = _competicao_arbitro_logado()
-    partida = _buscar_partida_ativa_para_painel_arbitro(competicao)
+    partida = _buscar_partida_ativa_para_painel_arbitro(
+        competicao,
+        quadra_id=vinculo.get("quadra_id"),
+        quadra_nome=vinculo.get("quadra_nome"),
+        quadra_ordem=vinculo.get("quadra_ordem"),
+        operador_login=vinculo.get("apontador_cpf") if vinculo.get("tipo") == "operacional" else None,
+    )
 
     if not partida:
         return jsonify({
@@ -356,13 +511,11 @@ def _resposta_proxima_partida_arbitro(tipo):
 
 
 @painel_bp.route("/painel-arbitro-1/proxima")
-@login_obrigatorio
 def proxima_partida_arbitro_1():
     return _resposta_proxima_partida_arbitro("primeiro")
 
 
 @painel_bp.route("/painel-arbitro-2/proxima")
-@login_obrigatorio
 def proxima_partida_arbitro_2():
     return _resposta_proxima_partida_arbitro("segundo")
 

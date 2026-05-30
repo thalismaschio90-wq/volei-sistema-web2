@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
-from routes.utils import exigir_perfil
+from routes.utils import exigir_perfil, login_obrigatorio
 
 try:
     from socket_events import emitir_estado_partida, obter_estado_cache, atualizar_estado_cache
@@ -20,6 +20,7 @@ except Exception:
 
 import time
 import uuid
+import random
 
 jogo_avulso_bp = Blueprint("jogo_avulso", __name__)
 
@@ -69,6 +70,50 @@ def _novo_codigo():
 def _partida_id(codigo):
     return f"avulso:{str(codigo or '').strip().upper()}"
 
+
+
+def _novo_pin_arbitragem_avulso():
+    usados = set()
+    for jogo in _JOGOS_AVULSOS.values():
+        estado = (jogo or {}).get("estado") or {}
+        pin = str(estado.get("pin_arbitragem") or "").strip()
+        if pin:
+            usados.add(pin)
+    for _ in range(80):
+        pin = str(random.randint(1000, 9999))
+        if pin not in usados:
+            return pin
+    return str(random.randint(1000, 9999))
+
+
+def buscar_jogo_avulso_por_pin(pin):
+    pin = "".join(ch for ch in str(pin or "") if ch.isdigit())
+    if len(pin) != 4:
+        return None
+
+    for codigo, jogo in list(_JOGOS_AVULSOS.items()):
+        estado = (jogo or {}).get("estado") or {}
+        if str(estado.get("pin_arbitragem") or "") == pin:
+            return {
+                "codigo": codigo,
+                "pin": pin,
+                "equipe_a": estado.get("equipe_a") or "Equipe A",
+                "equipe_b": estado.get("equipe_b") or "Equipe B",
+            }
+    return None
+
+
+def _usuario_tem_perfil_arbitro_avulso():
+    return (session.get("perfil") or "").strip().lower() in {"mesario", "arbitro"}
+
+
+def _arbitro_pode_abrir_jogo_avulso(codigo):
+    codigo = str(codigo or "").strip().upper()
+    if not _usuario_tem_perfil_arbitro_avulso():
+        return False
+    if (session.get("arbitro_pin_tipo") or "") != "avulso":
+        return False
+    return (session.get("arbitro_jogo_avulso_codigo") or "").strip().upper() == codigo
 
 def _buscar_jogo(codigo):
     codigo = str(codigo or "").strip().upper()
@@ -155,6 +200,7 @@ def novo_jogo_avulso():
     estado = {
         "ok": True,
         "codigo": codigo,
+        "pin_arbitragem": _novo_pin_arbitragem_avulso(),
         "partida_id": _partida_id(codigo),
         "competicao": "JOGO AVULSO",
         "modo_avulso": True,
@@ -329,15 +375,25 @@ def telao_jogo_avulso(codigo):
 
 
 @jogo_avulso_bp.route("/arbitro1-avulso/<codigo>")
+@login_obrigatorio
 def arbitro1_jogo_avulso(codigo):
+    codigo = str(codigo or "").strip().upper()
+    if not _arbitro_pode_abrir_jogo_avulso(codigo):
+        flash("Digite o PIN do jogo rápido no painel dos árbitros antes de abrir esta tela.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
     jogo = _buscar_jogo(codigo)
-    return render_template("jogo_avulso_arbitro.html", codigo=str(codigo).upper(), estado=(jogo or {}).get("estado") or {}, arbitro="1º Árbitro")
+    return render_template("jogo_avulso_arbitro.html", codigo=codigo, estado=(jogo or {}).get("estado") or {}, arbitro="1º Árbitro")
 
 
 @jogo_avulso_bp.route("/arbitro2-avulso/<codigo>")
+@login_obrigatorio
 def arbitro2_jogo_avulso(codigo):
+    codigo = str(codigo or "").strip().upper()
+    if not _arbitro_pode_abrir_jogo_avulso(codigo):
+        flash("Digite o PIN do jogo rápido no painel dos árbitros antes de abrir esta tela.", "erro")
+        return redirect(url_for("painel.painel_arbitros"))
     jogo = _buscar_jogo(codigo)
-    return render_template("jogo_avulso_arbitro.html", codigo=str(codigo).upper(), estado=(jogo or {}).get("estado") or {}, arbitro="2º Árbitro")
+    return render_template("jogo_avulso_arbitro.html", codigo=codigo, estado=(jogo or {}).get("estado") or {}, arbitro="2º Árbitro")
 
 
 @jogo_avulso_bp.route("/apontador/jogo-avulso/<codigo>/estado", methods=["GET", "POST"])

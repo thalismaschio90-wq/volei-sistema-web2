@@ -4,6 +4,7 @@ import random
 
 from banco import (
     buscar_competicao_por_organizador,
+    buscar_competicao_por_nome,
     listar_equipes_da_competicao,
     criar_grupo,
     listar_grupos,
@@ -425,36 +426,126 @@ def _bool_por_chaves(competicao, chaves):
     return False
 
 
+CRITERIOS_CLASSIFICACAO_PADRAO = [
+    "pontos",
+    "vitorias",
+    "saldo_sets",
+    "sets_average",
+    "saldo_pontos",
+    "pontos_average",
+    "confronto_direto",
+    "sorteio",
+]
+
+CRITERIOS_CLASSIFICACAO_SUPORTADOS = {
+    "pontos",
+    "vitorias",
+    "sets_average",
+    "pontos_average",
+    "saldo_sets",
+    "saldo_pontos",
+    "sets_pro",
+    "sets_contra",
+    "pontos_pro",
+    "pontos_contra",
+    "confronto_direto",
+    "coef_sets",
+    "coef_pontos",
+    "fair_play",
+    "menor_wo",
+    "sorteio",
+}
+
+CRITERIOS_MENOR_MELHOR = {"sets_contra", "pontos_contra", "fair_play", "menor_wo"}
+
+
+def _normalizar_criterios_classificacao(valor):
+    """
+    Lê a ordem salva em competicoes.criterios_desempate.
+
+    A coluna antiga foi mantida por compatibilidade, mas agora ela representa
+    a ORDEM DOS CRITÉRIOS DE CLASSIFICAÇÃO. Ex.:
+    pontos,vitorias,saldo_sets,confronto_direto,saldo_pontos,sorteio
+    """
+    if isinstance(valor, (list, tuple)):
+        brutos = valor
+    else:
+        texto = str(valor or "").strip()
+        if texto.startswith("["):
+            try:
+                import json
+                carregado = json.loads(texto)
+                brutos = carregado if isinstance(carregado, list) else []
+            except Exception:
+                brutos = []
+        else:
+            brutos = texto.split(",")
+
+    criterios = []
+    vistos = set()
+
+    aliases = {
+        "vitórias": "vitorias",
+        "vitorias": "vitorias",
+        "pontos average": "pontos_average",
+        "sets average": "sets_average",
+        "saldo de sets": "saldo_sets",
+        "saldo de pontos": "saldo_pontos",
+        "confronto": "confronto_direto",
+        "confronto direto": "confronto_direto",
+        "wo": "menor_wo",
+        "menor numero de wo": "menor_wo",
+        "menor número de w.o.": "menor_wo",
+    }
+
+    for item in brutos:
+        criterio = str(item or "").strip().lower()
+        criterio = criterio.replace("-", "_").replace(" ", "_")
+        criterio = aliases.get(criterio, criterio)
+
+        if criterio in CRITERIOS_CLASSIFICACAO_SUPORTADOS and criterio not in vistos:
+            criterios.append(criterio)
+            vistos.add(criterio)
+
+    if not criterios:
+        criterios = list(CRITERIOS_CLASSIFICACAO_PADRAO)
+
+    # Sorteio, quando existir, fica por último para evitar embaralhar antes dos critérios técnicos.
+    # Sorteio encerra a lista de critérios.
+    # Qualquer critério configurado depois dele é desconsiderado.
+    if "sorteio" in criterios:
+        indice_sorteio = criterios.index("sorteio")
+        criterios = criterios[:indice_sorteio + 1]
+
+    return criterios
+
+
 def _obter_regras_classificacao(competicao):
-    criterios = [
-        ("pontos", _bool_por_chaves(competicao, ["criterio_pontos", "usar_pontos", "pontos_criterio"])),
-        ("sets_average", _bool_por_chaves(competicao, ["criterio_sets_average", "usar_sets_average", "sets_average"])),
-        ("pontos_average", _bool_por_chaves(competicao, ["criterio_pontos_average", "usar_pontos_average", "pontos_average"])),
-        ("confronto_direto", _bool_por_chaves(competicao, ["criterio_confronto_direto", "usar_confronto_direto", "confronto_direto"])),
-        ("saldo_sets", _bool_por_chaves(competicao, ["criterio_saldo_sets", "usar_saldo_sets", "saldo_sets"])),
-        ("saldo_pontos", _bool_por_chaves(competicao, ["criterio_saldo_pontos", "usar_saldo_pontos", "saldo_pontos"])),
-        ("sorteio", _bool_por_chaves(competicao, ["criterio_sorteio", "usar_sorteio", "sorteio"])),
-    ]
+    criterios = _normalizar_criterios_classificacao(
+        competicao.get("criterios_desempate")
+        or competicao.get("criterios_classificacao")
+        or ""
+    )
 
     return {
         "pontos_vitoria": _valor_inteiro_regra(
             competicao,
-            ["pontos_vitoria"],
+            ["pontos_vitoria", "vitoria_set_unico", "vitoria_2x0", "vitoria_3x0"],
             2
         ),
         "pontos_derrota": _valor_inteiro_regra(
             competicao,
-            ["pontos_derrota"],
+            ["pontos_derrota", "derrota_set_unico", "derrota_0x2", "derrota_0x3"],
             0
         ),
         "pontos_tiebreak_vitoria": _valor_inteiro_regra(
             competicao,
-            ["pontos_tiebreak_vitoria", "vitoria_tiebreak"],
+            ["pontos_tiebreak_vitoria", "vitoria_tiebreak", "vitoria_2x1", "vitoria_3x2"],
             2
         ),
         "pontos_tiebreak_derrota": _valor_inteiro_regra(
             competicao,
-            ["pontos_tiebreak_derrota", "derrota_tiebreak"],
+            ["pontos_tiebreak_derrota", "derrota_tiebreak", "derrota_1x2", "derrota_2x3"],
             1
         ),
         "criterios": criterios,
@@ -463,27 +554,58 @@ def _obter_regras_classificacao(competicao):
 
 def _valor_criterio(linha, nome):
     if nome == "pontos":
-        return linha["pontos"]
+        return linha.get("pontos", 0)
 
-    if nome == "sets_average":
-        sets_contra = linha["sets_contra"]
+    if nome == "vitorias":
+        return linha.get("vitorias", 0)
+
+    if nome in {"sets_average", "coef_sets"}:
+        sets_contra = linha.get("sets_contra", 0)
         if sets_contra > 0:
-            return linha["sets_pro"] / sets_contra
-        return float(linha["sets_pro"])
+            return linha.get("sets_pro", 0) / sets_contra
+        return float(linha.get("sets_pro", 0))
 
-    if nome == "pontos_average":
-        pontos_contra = linha["pontos_contra"]
+    if nome in {"pontos_average", "coef_pontos"}:
+        pontos_contra = linha.get("pontos_contra", 0)
         if pontos_contra > 0:
-            return linha["pontos_pro"] / pontos_contra
-        return float(linha["pontos_pro"])
+            return linha.get("pontos_pro", 0) / pontos_contra
+        return float(linha.get("pontos_pro", 0))
 
     if nome == "saldo_sets":
-        return linha["saldo_sets"]
+        return linha.get("saldo_sets", 0)
 
     if nome == "saldo_pontos":
-        return linha["saldo_pontos"]
+        return linha.get("saldo_pontos", 0)
+
+    if nome == "sets_pro":
+        return linha.get("sets_pro", 0)
+
+    if nome == "sets_contra":
+        return linha.get("sets_contra", 0)
+
+    if nome == "pontos_pro":
+        return linha.get("pontos_pro", 0)
+
+    if nome == "pontos_contra":
+        return linha.get("pontos_contra", 0)
+
+    if nome == "fair_play":
+        return linha.get("fair_play", 0)
+
+    if nome == "menor_wo":
+        return linha.get("wo", linha.get("wos", 0))
 
     return 0
+
+
+def _valor_ordenacao_criterio(linha, criterio):
+    valor = _valor_criterio(linha, criterio)
+    if criterio in CRITERIOS_MENOR_MELHOR:
+        try:
+            return -float(valor)
+        except (TypeError, ValueError):
+            return 0
+    return valor
 
 
 def _resolver_confronto_direto(bloco, partidas, grupo):
@@ -571,37 +693,59 @@ def _resolver_confronto_direto(bloco, partidas, grupo):
     )
 
 
-def _aplicar_desempates_profissional(linhas, partidas, grupo, criterios):
+def _aplicar_criterios_classificacao(linhas, partidas, grupo, criterios):
+    """
+    Aplica a classificação exatamente na ordem cadastrada pelo organizador.
+    Cada critério só mexe dentro de blocos que ainda estão empatados no critério anterior.
+    """
     if not linhas:
         return linhas
 
-    criterios_base = [c for c in criterios if c not in {"confronto_direto", "sorteio"}]
+    def aplicar_bloco(bloco, indice_criterio):
+        if len(bloco) <= 1 or indice_criterio >= len(criterios):
+            return bloco
 
-    def assinatura_base(linha):
-        return tuple(_valor_criterio(linha, c) for c in criterios_base)
+        criterio = criterios[indice_criterio]
 
-    resultado_final = []
-    i = 0
-
-    while i < len(linhas):
-        atual = linhas[i]
-        bloco = [atual]
-        j = i + 1
-
-        while j < len(linhas) and assinatura_base(linhas[j]) == assinatura_base(atual):
-            bloco.append(linhas[j])
-            j += 1
-
-        if len(bloco) > 1 and "confronto_direto" in criterios:
-            bloco = _resolver_confronto_direto(bloco, partidas, grupo)
-
-        if len(bloco) > 1 and "sorteio" in criterios:
+        if criterio == "sorteio":
+            bloco = list(bloco)
             random.shuffle(bloco)
+            return bloco
 
-        resultado_final.extend(bloco)
-        i = j
+        if criterio == "confronto_direto":
+            ordenado = _resolver_confronto_direto(bloco, partidas, grupo)
+            # Depois do confronto direto, segue para os próximos critérios apenas nos empates técnicos restantes.
+            return aplicar_bloco(ordenado, indice_criterio + 1)
 
-    return resultado_final
+        ordenado = sorted(
+            bloco,
+            key=lambda linha: _valor_ordenacao_criterio(linha, criterio),
+            reverse=True,
+        )
+
+        resultado = []
+        pos = 0
+        while pos < len(ordenado):
+            atual = ordenado[pos]
+            valor_atual = _valor_ordenacao_criterio(atual, criterio)
+            sub_bloco = [atual]
+            prox = pos + 1
+
+            while prox < len(ordenado) and _valor_ordenacao_criterio(ordenado[prox], criterio) == valor_atual:
+                sub_bloco.append(ordenado[prox])
+                prox += 1
+
+            resultado.extend(aplicar_bloco(sub_bloco, indice_criterio + 1))
+            pos = prox
+
+        return resultado
+
+    return aplicar_bloco(list(linhas), 0)
+
+
+# Compatibilidade com chamadas antigas.
+def _aplicar_desempates_profissional(linhas, partidas, grupo, criterios):
+    return _aplicar_criterios_classificacao(linhas, partidas, grupo, criterios)
 
 
 def _calcular_classificacao(partidas, grupos, competicao):
@@ -718,31 +862,14 @@ def _calcular_classificacao(partidas, grupos, competicao):
             linha["saldo_sets"] = linha["sets_pro"] - linha["sets_contra"]
             linha["saldo_pontos"] = linha["pontos_pro"] - linha["pontos_contra"]
 
-    criterios_ativos = [c for c, ativo in regras["criterios"] if ativo]
-    if not criterios_ativos:
-        criterios_ativos = ["pontos", "saldo_sets", "saldo_pontos"]
-
-    def chave(linha):
-        valores = []
-
-        for criterio in criterios_ativos:
-            if criterio in {"confronto_direto", "sorteio"}:
-                continue
-            valores.append(_valor_criterio(linha, criterio))
-
-        valores.append(linha["vitorias"])
-        valores.append(linha["sets_pro"])
-        valores.append(linha["pontos_pro"])
-
-        return tuple(valores)
+    criterios_ativos = regras.get("criterios") or list(CRITERIOS_CLASSIFICACAO_PADRAO)
 
     for grupo, linhas in classificacao.items():
-        linhas.sort(key=chave, reverse=True)
-        classificacao[grupo] = _aplicar_desempates_profissional(
+        classificacao[grupo] = _aplicar_criterios_classificacao(
             linhas,
             partidas,
             grupo,
-            criterios_ativos
+            criterios_ativos,
         )
 
     return classificacao
@@ -766,12 +893,12 @@ def visualizador_publico(competicao_nome):
             "quadra_id": _quadra_id_do_grupo(g),
         })
 
-    competicao_fake = {
+    competicao = buscar_competicao_por_nome(competicao_nome) or {
         "nome": competicao_nome
     }
 
     partidas_preparadas = _preparar_partidas(partidas)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao_fake)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao)
 
     return render_template(
         "visualizador_publico.html",

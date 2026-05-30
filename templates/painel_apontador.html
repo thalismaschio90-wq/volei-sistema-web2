@@ -28,6 +28,7 @@
 .ap-pre { background:#fef3c7; color:#92400e; }
 .ap-wait { background:#dbeafe; color:#1e40af; }
 .ap-done { background:#e5e7eb; color:#374151; }
+.ap-paused { background:#ffedd5; color:#9a3412; }
 .ap-offline-ok { background:#ecfdf5; color:#047857; border:1px solid #86efac; }
 .ap-offline-warn { background:#fff7ed; color:#9a3412; border:1px solid #fdba74; }
 .ap-card-actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
@@ -68,6 +69,29 @@
 .atalhos-acoes button { flex:1; border:0; border-radius:12px; padding:12px; font-weight:900; cursor:pointer; }
 .atalhos-salvar { background:#0f766e; color:#fff; }
 .atalhos-limpar { background:#e5e7eb; color:#111827; }
+
+.ap-quadra-tabs { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 18px; padding:10px; background:#f8fafc; border:1px solid var(--border); border-radius:18px; }
+.ap-quadra-tab { border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius:999px; padding:10px 14px; font-weight:1000; cursor:pointer; display:inline-flex; align-items:center; gap:8px; box-shadow:0 8px 20px rgba(15,23,42,.05); transition:.18s ease; }
+.ap-quadra-tab:hover { transform:translateY(-1px); border-color:#94a3b8; }
+.ap-quadra-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
+.ap-quadra-tab small { font-size:11px; font-weight:1000; opacity:.78; background:rgba(15,23,42,.08); padding:3px 7px; border-radius:999px; }
+.ap-quadra-tab.ativa small { background:rgba(255,255,255,.18); color:#fff; }
+.ap-quadra-label { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.ap-quadra-nome { font-weight:900; opacity:.82; }
+.ap-section.ap-section-oculta { display:none; }
+.ap-empty.ap-empty-filtro { display:none; }
+.ap-empty.ap-empty-filtro.aparece { display:block; }
+.ap-pins-arbitragem { margin:0 0 18px; border:1px solid #c7d2fe; background:linear-gradient(180deg,#eef2ff,#ffffff); border-radius:20px; padding:16px; }
+.ap-pins-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+.ap-pins-titulo { font-size:18px; font-weight:1000; color:#172554; }
+.ap-pins-hint { color:#64748b; font-size:13px; font-weight:800; margin-top:4px; }
+.ap-pins-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.ap-pin-card { background:#fff; border:1px solid #dbe3ef; border-radius:16px; padding:13px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.ap-pin-quadra { font-weight:1000; color:#0f172a; }
+.ap-pin-local { color:#64748b; font-size:12px; font-weight:800; margin-top:3px; }
+.ap-pin-numero { font-size:28px; letter-spacing:4px; font-weight:1000; color:#123852; background:#f8fafc; border:1px solid #cbd5e1; border-radius:14px; padding:8px 12px; min-width:104px; text-align:center; }
+.ap-pin-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+@media (max-width:850px) { .ap-pins-grid { grid-template-columns:1fr; } .ap-pin-card { flex-direction:column; align-items:flex-start; } .ap-pin-actions { width:100%; justify-content:flex-start; } }
 @media (max-width:850px) { .ap-grid { grid-template-columns:1fr; } .ap-card { flex-direction:column; align-items:flex-start; } .ap-card-actions { width:100%; justify-content:flex-start; } .ap-actions { width:100%; } .ap-actions .btn-padrao { width:100%; justify-content:center; } .ap-hero { padding:22px; } }
 </style>
 
@@ -79,55 +103,63 @@
     <div>
         <div class="ap-kicker">Central de operação</div>
         <div class="ap-title">Painel do Apontador</div>
-        <div class="ap-sub">Entre rápido no pré-jogo, operação ao vivo e telão da competição.</div>
-    </div>
-    <div class="ap-actions">
-        {% if pode_jogo_avulso %}
-            <a class="btn-padrao ap-btn-green" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">⚡ Criar jogo rápido</a>
-        {% else %}
-            <span class="ap-badge ap-done" title="Liberação feita pelo Super ADM">Jogo rápido bloqueado</span>
-        {% endif %}
-        <button type="button" class="btn-padrao ap-btn-dark" onclick="abrirModalAtalhosApontador()">⚙️ Teclas de atalho</button>
-        {% if modo_partidas %}
-            {% if offline_habilitado_tpl %}
-                <button type="button" class="btn-padrao ap-btn-gold" onclick="abrirModalOfflineApontador()">📦 Modo Offline</button>
-            {% endif %}
-            <a class="btn-padrao ap-btn-green" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank">🖥️ Abrir Telão</a>
-        {% elif competicao_unica %}
-            {% if offline_habilitado_tpl %}
-                <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
-            {% endif %}
-        {% endif %}
+        <div class="ap-sub">Entre rápido no pré-jogo e na operação ao vivo da competição.</div>
     </div>
 </div>
 
-{% if offline_habilitado_tpl %}
-<div id="ap-offline-panel" class="ap-offline-panel">
-    <div>
-        <strong>📦 Modo offline do apontador</strong><br>
-        <span id="ap-offline-panel-texto">Prepare a competição antes de ir para um local sem internet.</span>
-    </div>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir tela offline</a>
-    </div>
-</div>
-{% endif %}
+
+
+{% macro quadra_label(numero, nome) %}
+    {% set qtxt = (numero or '')|string|trim %}
+    {% set ntxt = (nome or '')|string|trim %}
+    {% if qtxt %}
+        {% if 'quadra' in (qtxt|lower) %}{{ qtxt }}{% else %}Quadra {{ qtxt }}{% endif %}{% if ntxt %} — {{ ntxt }}{% endif %}
+    {% else %}
+        Sem quadra definida{% if ntxt %} — {{ ntxt }}{% endif %}
+    {% endif %}
+{% endmacro %}
 
 {% macro card_partida(p, competicao_nome) %}
     {% set status_op = (p.status_operacao or 'livre')|lower %}
     {% set status_partida = (p.status or 'agendada')|lower %}
-    {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
-    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
-    {% if jogo_iniciado %}
+    {% set status_jogo = (p.status_jogo or '')|lower %}
+    {% set tem_estado = (p.pontos_a or 0) or (p.pontos_b or 0) or (p.sets_a or 0) or (p.sets_b or 0) or ((p.set_atual or 1) > 1) or (p.eventos_total or 0) %}
+    {% set jogo_pausado = status_op in ['pausada','pausado'] or status_jogo in ['pausada','pausado'] %}
+    {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
+    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
+    {% set nome_quadra = p.nome_quadra or p.quadra_nome or p.local_quadra or p.nome_local_quadra or '' %}
+    {% set quadra_chave = (p.quadra or 'SEM_QUADRA')|string %}
+    {% if jogo_finalizado %}
+        {% set status_categoria = 'done' %}
+    {% elif jogo_pausado %}
+        {% set status_categoria = 'paused' %}
+    {% elif jogo_iniciado %}
+        {% set status_categoria = 'live' %}
+    {% elif status_op in ['pre_jogo','reservado'] %}
+        {% set status_categoria = 'pre' %}
+    {% else %}
+        {% set status_categoria = 'wait' %}
+    {% endif %}
+    {% if jogo_iniciado or jogo_pausado %}
         {% set url_operacao = url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) %}
     {% else %}
         {% set url_operacao = url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=p.id) %}
     {% endif %}
-    <div class="ap-card" data-partida-card="1" data-partida-id="{{ p.id }}" data-competicao="{{ competicao_nome }}" data-url-operacao="{{ url_operacao }}" data-finalizada="{{ '1' if jogo_finalizado else '0' }}">
+    <div class="ap-card"
+         data-partida-card="1"
+         data-partida-id="{{ p.id }}"
+         data-competicao="{{ competicao_nome }}"
+         data-url-operacao="{{ url_operacao }}"
+         data-finalizada="{{ '1' if jogo_finalizado else '0' }}"
+         data-status-categoria="{{ status_categoria }}"
+         data-quadra-chave="{{ quadra_chave }}">
         <div class="ap-info">
             <div class="ap-match-line">{{ p.equipe_a }} <span style="color:var(--muted);">x</span> {{ p.equipe_b }}</div>
-            <div class="ap-meta">Jogo {{ p.ordem or '-' }}{% if p.quadra %} • Quadra {{ p.quadra }}{% endif %} • {{ p.grupo or '-' }}</div>
+            <div class="ap-meta">
+                Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {{ p.grupo or '-' }}
+            </div>
             {% if jogo_finalizado %}<span class="ap-badge ap-done">Finalizado</span>
+            {% elif jogo_pausado %}<span class="ap-badge ap-paused">Pausada</span>
             {% elif jogo_iniciado %}<span class="ap-badge ap-live">Ao vivo</span>
             {% elif status_op in ['pre_jogo','reservado'] %}<span class="ap-badge ap-pre">Pré-jogo</span>
             {% else %}<span class="ap-badge ap-wait">Aguardando</span>{% endif %}
@@ -137,6 +169,8 @@
         <div class="ap-card-actions">
             {% if jogo_finalizado %}
                 <span class="ap-badge ap-done">Encerrado</span>
+            {% elif jogo_pausado %}
+                <a class="btn-padrao" href="{{ url_operacao }}">Retomar partida</a>
             {% elif jogo_iniciado %}
                 <a class="btn-padrao" href="{{ url_operacao }}">Entrar no jogo</a>
             {% else %}
@@ -149,84 +183,181 @@
     </div>
 {% endmacro %}
 
+{% macro secao_partidas(titulo, dica, categoria, vazio, partidas, competicao_nome) %}
+    <div class="ap-section" data-ap-section="{{ categoria }}">
+        <div class="ap-section-head"><div class="ap-section-title">{{ titulo }}</div><div class="ap-section-hint">{{ dica }}</div></div>
+        <div class="ap-grid">
+            {% set sec = namespace(total=0) %}
+            {% for p in partidas %}
+                {% set status_op = (p.status_operacao or 'livre')|lower %}
+                {% set status_partida = (p.status or 'agendada')|lower %}
+                {% set status_jogo = (p.status_jogo or '')|lower %}
+                {% set tem_estado = (p.pontos_a or 0) or (p.pontos_b or 0) or (p.sets_a or 0) or (p.sets_b or 0) or ((p.set_atual or 1) > 1) or (p.eventos_total or 0) %}
+                {% set jogo_pausado = status_op in ['pausada','pausado'] or status_jogo in ['pausada','pausado'] %}
+                {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
+                {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
+                {% if categoria == 'live' and jogo_iniciado and not jogo_finalizado %}
+                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                {% elif categoria == 'paused' and jogo_pausado and not jogo_finalizado %}
+                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                {% elif categoria == 'pre' and not jogo_iniciado and not jogo_pausado and not jogo_finalizado and status_op in ['pre_jogo','reservado'] %}
+                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                {% elif categoria == 'wait' and not jogo_iniciado and not jogo_pausado and not jogo_finalizado and status_op not in ['pre_jogo','reservado'] %}
+                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                {% elif categoria == 'done' and jogo_finalizado %}
+                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                {% endif %}
+            {% endfor %}
+        </div>
+        <div class="ap-empty ap-empty-original" {% if sec.total > 0 %}style="display:none;"{% endif %}>{{ vazio }}</div>
+        <div class="ap-empty ap-empty-filtro">Nenhuma partida nesta quadra para esta situação.</div>
+    </div>
+{% endmacro %}
+
 {% if modo_partidas %}
     <div class="card-painel">
         <div class="ap-section-head">
             <div>
                 <div class="ap-section-title">{{ competicao_nome }}</div>
-                <div class="ap-section-hint">Partidas separadas por situação para facilitar a operação.</div>
+                <div class="ap-section-hint">Partidas separadas por quadra e pelo nome cadastrado da quadra.</div>
             </div>
-            {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>{% endif %}
         </div>
 
-        {% set ns = namespace(live=0, pre=0, wait=0, done=0) %}
+        {% if pin_operacional %}
+            <div class="ap-pins-arbitragem">
+                <div class="ap-pins-topo">
+                    <div>
+                        <div class="ap-pins-titulo">PIN operacional do apontador</div>
+                        <div class="ap-pins-hint">Passe este PIN para o árbitro acessar /arbitro. Ele acompanha o jogo que você estiver operando nesta competição.</div>
+                    </div>
+                </div>
+                <div class="ap-pins-grid">
+                    <div class="ap-pin-card">
+                        <div>
+                            <div class="ap-pin-quadra">{{ competicao_nome }}</div>
+                            <div class="ap-pin-local">Canal operacional do apontador</div>
+                        </div>
+                        <div class="ap-pin-actions">
+                            <div class="ap-pin-numero" id="pin-operacional-apontador">{{ pin_operacional.pin }}</div>
+                            <button type="button" class="btn-secundario" onclick="copiarPinArbitragem('{{ pin_operacional.pin }}')">Copiar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% set ns = namespace(live=0, paused=0, pre=0, wait=0, done=0) %}
         {% for p in partidas %}
             {% set status_op = (p.status_operacao or 'livre')|lower %}
             {% set status_partida = (p.status or 'agendada')|lower %}
-            {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
-            {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
+            {% set status_jogo = (p.status_jogo or '')|lower %}
+            {% set tem_estado = (p.pontos_a or 0) or (p.pontos_b or 0) or (p.sets_a or 0) or (p.sets_b or 0) or ((p.set_atual or 1) > 1) or (p.eventos_total or 0) %}
+            {% set jogo_pausado = status_op in ['pausada','pausado'] or status_jogo in ['pausada','pausado'] %}
+            {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
+            {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
             {% if jogo_finalizado %}{% set ns.done = ns.done + 1 %}
+            {% elif jogo_pausado %}{% set ns.paused = ns.paused + 1 %}
             {% elif jogo_iniciado %}{% set ns.live = ns.live + 1 %}
             {% elif status_op in ['pre_jogo','reservado'] %}{% set ns.pre = ns.pre + 1 %}
             {% else %}{% set ns.wait = ns.wait + 1 %}{% endif %}
         {% endfor %}
 
+        {% if partidas %}
+            {% set qns = namespace(chaves=[]) %}
+            <div class="ap-quadra-tabs" id="ap-quadra-tabs" aria-label="Filtrar partidas por quadra">
+                <button type="button" class="ap-quadra-tab ativa" data-quadra-chave="TODAS">
+                    Todas <small>{{ partidas|length }}</small>
+                </button>
+                {% for p in partidas %}
+                    {% set nome_quadra = p.nome_quadra or p.quadra_nome or p.local_quadra or p.nome_local_quadra or '' %}
+                    {% set quadra_chave = (p.quadra or 'SEM_QUADRA')|string %}
+                    {% if quadra_chave not in qns.chaves %}
+                        {% set _ = qns.chaves.append(quadra_chave) %}
+                        <button type="button" class="ap-quadra-tab" data-quadra-chave="{{ quadra_chave }}">
+                            <span class="ap-quadra-label">{{ quadra_label(p.quadra, nome_quadra) }}</span>
+                            <small>{{ partidas|selectattr('quadra', 'equalto', p.quadra)|list|length }}</small>
+                        </button>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        {% endif %}
+
         <div class="cards-grid" style="margin-bottom:18px;">
-            <div class="numero-card"><div class="numero-titulo">Ao vivo</div><div class="numero-valor">{{ ns.live }}</div></div>
-            <div class="numero-card"><div class="numero-titulo">Pré-jogo</div><div class="numero-valor">{{ ns.pre }}</div></div>
-            <div class="numero-card"><div class="numero-titulo">Aguardando</div><div class="numero-valor">{{ ns.wait }}</div></div>
+            <div class="numero-card"><div class="numero-titulo">Ao vivo</div><div class="numero-valor" id="ap-count-live">{{ ns.live }}</div></div>
+            <div class="numero-card"><div class="numero-titulo">Pausadas</div><div class="numero-valor" id="ap-count-paused">{{ ns.paused }}</div></div>
+            <div class="numero-card"><div class="numero-titulo">Pré-jogo</div><div class="numero-valor" id="ap-count-pre">{{ ns.pre }}</div></div>
+            <div class="numero-card"><div class="numero-titulo">Aguardando</div><div class="numero-valor" id="ap-count-wait">{{ ns.wait }}</div></div>
         </div>
 
         {% if partidas %}
-            <div class="ap-section">
-                <div class="ap-section-head"><div class="ap-section-title">🟢 Ao vivo</div><div class="ap-section-hint">Prioridade máxima</div></div>
-                <div class="ap-grid">
-                {% set sec = namespace(total=0) %}
-                {% for p in partidas %}
-                    {% set status_op = (p.status_operacao or 'livre')|lower %}{% set status_partida = (p.status or 'agendada')|lower %}
-                    {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
-                    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
-                    {% if jogo_iniciado and not jogo_finalizado %}{% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}{% endif %}
-                {% endfor %}
-                </div>{% if sec.total == 0 %}<div class="ap-empty">Nenhum jogo ao vivo agora.</div>{% endif %}
-            </div>
+            {{ secao_partidas('🟢 Ao vivo', 'Prioridade máxima', 'live', 'Nenhum jogo ao vivo agora.', partidas, competicao_nome) }}
+            {{ secao_partidas('🟠 Pausadas', 'Salvas manualmente para retomar depois', 'paused', 'Nenhuma partida pausada.', partidas, competicao_nome) }}
+            {{ secao_partidas('🟡 Pré-jogo', 'Sorteio, papeleta e preparação', 'pre', 'Nenhuma partida em pré-jogo.', partidas, competicao_nome) }}
+            {{ secao_partidas('🔵 Aguardando', 'Próximas partidas', 'wait', 'Nenhuma partida aguardando.', partidas, competicao_nome) }}
+            {{ secao_partidas('⚫ Finalizados', 'Jogos encerrados', 'done', 'Nenhum jogo finalizado.', partidas, competicao_nome) }}
 
-            <div class="ap-section">
-                <div class="ap-section-head"><div class="ap-section-title">🟡 Pré-jogo</div><div class="ap-section-hint">Sorteio, papeleta e preparação</div></div>
-                <div class="ap-grid">
-                {% set sec = namespace(total=0) %}
-                {% for p in partidas %}
-                    {% set status_op = (p.status_operacao or 'livre')|lower %}{% set status_partida = (p.status or 'agendada')|lower %}
-                    {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
-                    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
-                    {% if not jogo_iniciado and not jogo_finalizado and status_op in ['pre_jogo','reservado'] %}{% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}{% endif %}
-                {% endfor %}
-                </div>{% if sec.total == 0 %}<div class="ap-empty">Nenhuma partida em pré-jogo.</div>{% endif %}
-            </div>
+            <script>
+            window.copiarPinArbitragem = async function(pin) {
+                const texto = String(pin || "");
+                try {
+                    await navigator.clipboard.writeText(texto);
+                    alert("PIN copiado: " + texto);
+                } catch (e) {
+                    prompt("Copie o PIN da arbitragem:", texto);
+                }
+            };
+            (function () {
+                function aplicarFiltroQuadra(chave) {
+                    const chaveAtiva = chave || "TODAS";
+                    const cards = Array.from(document.querySelectorAll("[data-partida-card='1']"));
+                    const sections = Array.from(document.querySelectorAll("[data-ap-section]"));
+                    const counts = { live: 0, pre: 0, wait: 0, done: 0 };
 
-            <div class="ap-section">
-                <div class="ap-section-head"><div class="ap-section-title">🔵 Aguardando</div><div class="ap-section-hint">Próximas partidas</div></div>
-                <div class="ap-grid">
-                {% set sec = namespace(total=0) %}
-                {% for p in partidas %}
-                    {% set status_op = (p.status_operacao or 'livre')|lower %}{% set status_partida = (p.status or 'agendada')|lower %}
-                    {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
-                    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
-                    {% if not jogo_iniciado and not jogo_finalizado and status_op not in ['pre_jogo','reservado'] %}{% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}{% endif %}
-                {% endfor %}
-                </div>{% if sec.total == 0 %}<div class="ap-empty">Nenhuma partida aguardando.</div>{% endif %}
-            </div>
+                    cards.forEach(card => {
+                        const mostrar = chaveAtiva === "TODAS" || card.dataset.quadraChave === chaveAtiva;
+                        card.style.display = mostrar ? "" : "none";
+                        if (mostrar && counts[card.dataset.statusCategoria] !== undefined) {
+                            counts[card.dataset.statusCategoria] += 1;
+                        }
+                    });
 
-            <div class="ap-section">
-                <div class="ap-section-head"><div class="ap-section-title">⚫ Finalizados</div><div class="ap-section-hint">Jogos encerrados</div></div>
-                <div class="ap-grid">
-                {% set sec = namespace(total=0) %}
-                {% for p in partidas %}
-                    {% set status_partida = (p.status or 'agendada')|lower %}
-                    {% if status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}{% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}{% endif %}
-                {% endfor %}
-                </div>{% if sec.total == 0 %}<div class="ap-empty">Nenhum jogo finalizado.</div>{% endif %}
-            </div>
+                    sections.forEach(section => {
+                        const categoria = section.dataset.apSection;
+                        const totalVisivel = counts[categoria] || 0;
+                        const originalEmpty = section.querySelector(".ap-empty-original");
+                        const filtroEmpty = section.querySelector(".ap-empty-filtro");
+                        const temCardsOriginais = section.querySelectorAll("[data-partida-card='1']").length > 0;
+
+                        section.classList.toggle("ap-section-oculta", chaveAtiva !== "TODAS" && totalVisivel === 0 && categoria === "done");
+
+                        if (originalEmpty) {
+                            originalEmpty.style.display = chaveAtiva === "TODAS" && !temCardsOriginais ? "block" : "none";
+                        }
+                        if (filtroEmpty) {
+                            filtroEmpty.classList.toggle("aparece", chaveAtiva !== "TODAS" && totalVisivel === 0 && categoria !== "done");
+                        }
+                    });
+
+                    const live = document.getElementById("ap-count-live");
+                    const pre = document.getElementById("ap-count-pre");
+                    const wait = document.getElementById("ap-count-wait");
+                    if (live) live.textContent = counts.live;
+                    if (pre) pre.textContent = counts.pre;
+                    if (wait) wait.textContent = counts.wait;
+                }
+
+                document.querySelectorAll(".ap-quadra-tab").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        document.querySelectorAll(".ap-quadra-tab").forEach(b => b.classList.remove("ativa"));
+                        btn.classList.add("ativa");
+                        aplicarFiltroQuadra(btn.dataset.quadraChave || "TODAS");
+                    });
+                });
+
+                document.addEventListener("DOMContentLoaded", () => aplicarFiltroQuadra("TODAS"));
+                aplicarFiltroQuadra("TODAS");
+            })();
+            </script>
         {% else %}
             <div class="ap-empty">Nenhuma partida encontrada.</div>
         {% endif %}
@@ -237,12 +368,7 @@
         <div class="ap-section-hint" style="margin:6px 0 14px;">Você está vinculado a uma competição ativa.</div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_unica.competicao) }}">Entrar na competição</a>
-            {% if offline_habilitado_tpl %}
-                <button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoUnicaOffline()">📦 Baixar competição</button>
-                <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir offline</a>
-            {% endif %}
         </div>
-        {% if offline_habilitado_tpl %}<div class="ap-offline-small" id="status-competicao-unica-offline">Prepare aqui a sessão offline; depois entre na competição e use “Baixar competição inteira” para salvar as partidas.</div>{% endif %}
     </div>
 {% elif competicoes %}
     <div class="card-painel">
@@ -255,7 +381,6 @@
                 <td>{{ c.status or '-' }}</td>
                 <td style="display:flex; gap:8px; flex-wrap:wrap;">
                     <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a>
-                    {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>{% endif %}
                 </td>
             </tr>
         {% endfor %}
@@ -286,7 +411,6 @@
         <div id="offline-progresso" class="ap-offline-item" style="display:none;"></div>
 
         <div class="ap-offline-modal-actions">
-            {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="baixarCompeticaoOffline()">📦 Baixar competição inteira</button>{% endif %}
             <a class="btn-padrao ap-btn-dark" href="/offline-apontador">Abrir tela offline</a>
             <button type="button" class="btn-padrao" onclick="fecharModalOfflineApontador()">Fechar</button>
         </div>
@@ -316,8 +440,11 @@
             {% for p in partidas %}
                 {% set status_op = (p.status_operacao or 'livre')|lower %}
                 {% set status_partida = (p.status or 'agendada')|lower %}
-                {% set jogo_iniciado = status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] %}
-                {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] %}
+                {% set status_jogo = (p.status_jogo or '')|lower %}
+                {% set tem_estado = (p.pontos_a or 0) or (p.pontos_b or 0) or (p.sets_a or 0) or (p.sets_b or 0) or ((p.set_atual or 1) > 1) or (p.eventos_total or 0) %}
+                {% set jogo_pausado = status_op in ['pausada','pausado'] or status_jogo in ['pausada','pausado'] %}
+                {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
+                {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
                 {% if jogo_iniciado %}
                     {% set url_operacao = url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) %}
                 {% else %}
@@ -330,6 +457,7 @@
                     equipe_b: {{ (p.equipe_b or 'A definir')|tojson }},
                     ordem: {{ (p.ordem or '')|tojson }},
                     quadra: {{ (p.quadra or '')|tojson }},
+                    nome_quadra: {{ (p.nome_quadra or p.quadra_nome or p.local_quadra or p.nome_local_quadra or '')|tojson }},
                     grupo: {{ (p.grupo or '')|tojson }},
                     status: {{ (p.status or 'agendada')|tojson }},
                     status_operacao: {{ (p.status_operacao or 'livre')|tojson }},

@@ -18,6 +18,7 @@ from banco import (
 )
 
 from routes.auth import auth_bp
+from routes.acessos_pin import acessos_pin_bp
 from routes.painel import painel_bp
 from routes.competicoes import competicoes_bp
 from routes.equipes import equipes_bp
@@ -105,6 +106,7 @@ socketio.init_app(
 )
 
 
+app.register_blueprint(acessos_pin_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(painel_bp)
 app.register_blueprint(competicoes_bp)

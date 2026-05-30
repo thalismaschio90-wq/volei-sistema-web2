@@ -149,6 +149,18 @@
             font-size: 14px;
         }
 
+
+
+        button.menu-link {
+            width: 100%;
+            text-align: left;
+            border: 0;
+            font-family: inherit;
+            cursor: pointer;
+            background: transparent;
+        }
+
+
         .menu-link:hover {
             background: rgba(255,255,255,0.10);
         }
@@ -662,6 +674,7 @@
 {% if session.get("usuario") %}
 {% set perfil = session.get("perfil", "").lower() %}
 {% set path = request.path %}
+{% set home_url = '/apontador' if perfil == 'apontador' else '/inicio' %}
 
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="fecharMenu()"></div>
 
@@ -680,7 +693,7 @@
         <div class="menu-section-title">Navegação</div>
 
         <div class="menu-item">
-            <a class="menu-link {% if path == '/inicio' %}active{% endif %}" href="/inicio">Início</a>
+            <a class="menu-link {% if path == home_url %}active{% endif %}" href="{{ home_url }}">Início</a>
             <div class="tooltip-texto">Volta para o painel principal do seu perfil.</div>
         </div>
 
@@ -708,11 +721,6 @@
                 <div class="tooltip-texto">Configure regras, estrutura e informações da competição.</div>
             </div>
 
-            <div class="menu-item">
-                <a class="menu-link {% if path == '/formato-competicao' %}active{% endif %}" href="/formato-competicao">Formato da competição</a>
-                <div class="tooltip-texto">Defina confronto, classificação, fases finais, bye e regras por fase.</div>
-            </div>
-
             <div class="menu-section-title">Cadastros</div>
 
             <div class="menu-item">
@@ -721,8 +729,8 @@
             </div>
 
             <div class="menu-item">
-                <a class="menu-link {% if path.startswith('/oficiais') %}active{% endif %}" href="/oficiais">Oficiais</a>
-                <div class="tooltip-texto">Vincule árbitros e apontador à competição por CPF.</div>
+                <a class="menu-link {% if path.startswith('/oficiais') or path.startswith('/arbitros') %}active{% endif %}" href="/oficiais">Arbitragem e oficiais</a>
+                <div class="tooltip-texto">Vincule oficiais e gerencie os PINs operacionais de árbitro/telão.</div>
             </div>
 
             <div class="menu-item">
@@ -746,7 +754,7 @@
             <div class="menu-section-title">Operação dos árbitros</div>
 
             <div class="menu-item">
-                <a class="menu-link {% if path == '/painel-arbitros' %}active{% endif %}" href="/painel-arbitros">Painel dos árbitros</a>
+                <a class="menu-link {% if path == '/painel-arbitros' or path == '/arbitro' %}active{% endif %}" href="/arbitro">Painel dos árbitros</a>
                 <div class="tooltip-texto">Escolha entre o painel fixo do 1º árbitro e do 2º árbitro.</div>
             </div>
 
@@ -767,53 +775,71 @@
 
         {% elif perfil == 'apontador' %}
 
-            <div class="menu-section-title">
-                Operação
+            <div class="menu-section-title">Operação</div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/apontador' %}active{% endif %}" href="/apontador">Início</a>
+                <div class="tooltip-texto">Volta para o painel principal do apontador.</div>
             </div>
 
             <div class="menu-item">
-
-                <a class="menu-link {% if path == '/inicio' %}active{% endif %}"
-                href="/inicio">
-
-                    Início
-
-                </a>
-
-                <div class="tooltip-texto">
-                    Volta para o painel principal do apontador.
-                </div>
-
+                <a class="menu-link {% if path.startswith('/apontador') %}active{% endif %}" href="/apontador">Painel do apontador</a>
+                <div class="tooltip-texto">Acesse rapidamente as partidas da competição.</div>
             </div>
 
-            <div class="menu-item">
+            <div class="menu-section-title">Ferramentas</div>
 
-                <a class="menu-link {% if path.startswith('/apontador') %}active{% endif %}"
-                href="/apontador">
-
-                    Painel do apontador
-
-                </a>
-
-                <div class="tooltip-texto">
-                    Acesse rapidamente as partidas e ferramentas operacionais.
+            {% if pode_jogo_avulso is defined and pode_jogo_avulso %}
+                <div class="menu-item">
+                    <a class="menu-link" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">⚡ Criar jogo rápido</a>
+                    <div class="tooltip-texto">Abre uma partida avulsa para uso rápido, fora da tabela da competição.</div>
                 </div>
+            {% endif %}
 
+            <div class="menu-item">
+                <button type="button" class="menu-link" onclick="fecharMenu(); if (window.abrirModalAtalhosApontador) { abrirModalAtalhosApontador(); }">⚙️ Teclas de atalho</button>
+                <div class="tooltip-texto">Configure atalhos do teclado para acelerar a operação do apontador.</div>
             </div>
 
-            <div class="menu-item">
-
-                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}"
-                href="/minha-conta">
-
-                    Minha conta
-
-                </a>
-
-                <div class="tooltip-texto">
-                    Veja e gerencie seus dados de acesso e senha.
+            {% if modo_partidas is defined and modo_partidas %}
+                <div class="menu-item">
+                    <a class="menu-link" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank">🖥️ Abrir telão</a>
+                    <div class="tooltip-texto">Abre o placar/telão da competição em outra aba.</div>
                 </div>
+            {% endif %}
 
+            {% set offline_menu_habilitado = offline_habilitado if offline_habilitado is defined else false %}
+            {% if offline_menu_habilitado %}
+                <div class="menu-section-title">Offline</div>
+
+                {% if modo_partidas is defined and modo_partidas %}
+                    <div class="menu-item">
+                        <button type="button" class="menu-link" onclick="fecharMenu(); if (window.abrirModalOfflineApontador) { abrirModalOfflineApontador(); }">📦 Preparar offline</button>
+                        <div class="tooltip-texto">Baixe a competição e prepare este dispositivo para operar sem internet.</div>
+                    </div>
+
+                    <div class="menu-item">
+                        <button type="button" class="menu-link" onclick="fecharMenu(); if (window.baixarCompeticaoOffline) { baixarCompeticaoOffline(); }">⬇️ Baixar competição</button>
+                        <div class="tooltip-texto">Salva as partidas desta competição no dispositivo.</div>
+                    </div>
+                {% elif competicao_unica is defined and competicao_unica %}
+                    <div class="menu-item">
+                        <button type="button" class="menu-link" onclick="fecharMenu(); if (window.prepararCompeticaoUnicaOffline) { prepararCompeticaoUnicaOffline(); }">📦 Baixar competição</button>
+                        <div class="tooltip-texto">Prepara a competição vinculada para uso offline.</div>
+                    </div>
+                {% endif %}
+
+                <div class="menu-item">
+                    <a class="menu-link" href="/offline-apontador">📲 Abrir tela offline</a>
+                    <div class="tooltip-texto">Abre a área offline do apontador neste dispositivo.</div>
+                </div>
+            {% endif %}
+
+            <div class="menu-section-title">Conta</div>
+
+            <div class="menu-item">
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
+                <div class="tooltip-texto">Veja e gerencie seus dados de acesso e senha.</div>
             </div>
 
         {% elif perfil == 'equipe' %}
@@ -896,7 +922,7 @@
                     </svg>
                 </button>
 
-                <a href="{{ url_for('painel.inicio') }}" class="topbar-home-link" title="Voltar para o início">
+                <a href="{{ home_url }}" class="topbar-home-link" title="Voltar para o início">
                     <img
                         src="{{ url_for('static', filename='img/logo.png') }}"
                         class="topbar-logo"

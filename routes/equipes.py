@@ -7,6 +7,7 @@ from banco import (
     criar_equipe_com_credenciais,
     criar_nova_equipe_com_credenciais,
     buscar_equipes_globais_por_nome,
+    buscar_atleta_global_por_cpf,
     vincular_equipe_existente_competicao,
     listar_competicoes_da_equipe_por_login,
     salvar_perfil_equipe_por_login,
@@ -46,31 +47,6 @@ from banco import (
 from routes.utils import exigir_perfil
 
 equipes_bp = Blueprint("equipes", __name__)
-
-
-URL_LOGIN_EQUIPE = "https://volleytablepro.com.br/login"
-
-
-def _montar_credenciais_equipe(nome, login, senha, ja_existia=False, ja_vinculada=False):
-    nome = nome or ""
-    login = login or ""
-    senha = senha or ""
-
-    return {
-        "nome": nome,
-        "login": login,
-        "senha": senha,
-        "ja_existia": bool(ja_existia),
-        "ja_vinculada": bool(ja_vinculada),
-        "url": URL_LOGIN_EQUIPE,
-        "texto_copia": (
-            "Acesso VolleyTable Pro\n"
-            f"Site: {URL_LOGIN_EQUIPE}\n"
-            f"Equipe: {nome}\n"
-            f"Login: {login}\n"
-            f"Senha: {senha}"
-        ),
-    }
 
 
 def _equipe_logada_com_competicao():
@@ -149,13 +125,13 @@ def nova_equipe():
                 flash("Não foi possível encontrar essa equipe no cadastro global.", "erro")
                 return redirect(url_for("equipes.nova_equipe"))
 
-            session["credenciais_nova_equipe"] = _montar_credenciais_equipe(
-                resultado.get("nome"),
-                resultado.get("login"),
-                resultado.get("senha"),
-                ja_existia=True,
-                ja_vinculada=resultado.get("ja_vinculada", False),
-            )
+            session["credenciais_nova_equipe"] = {
+                "nome": resultado.get("nome"),
+                "login": resultado.get("login"),
+                "senha": resultado.get("senha"),
+                "ja_existia": True,
+                "ja_vinculada": resultado.get("ja_vinculada", False),
+            }
 
             if resultado.get("ja_vinculada"):
                 flash("Essa equipe já estava vinculada a esta competição. O login e senha foram mantidos.", "sucesso")
@@ -198,13 +174,13 @@ def nova_equipe():
                     equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca),
                 )
 
-            session["credenciais_nova_equipe"] = _montar_credenciais_equipe(
-                credenciais.get("nome") or nome_busca,
-                credenciais["login"],
-                credenciais["senha"],
-                ja_existia=False,
-                ja_vinculada=False,
-            )
+            session["credenciais_nova_equipe"] = {
+                "nome": credenciais.get("nome") or nome_busca,
+                "login": credenciais["login"],
+                "senha": credenciais["senha"],
+                "ja_existia": False,
+                "ja_vinculada": False,
+            }
 
             flash("Nova equipe criada com sucesso. A equipe completará cidade, responsável e telefone no primeiro login.", "sucesso")
             return redirect(url_for("equipes.listar_equipes_view"))
@@ -240,15 +216,7 @@ def redefinir_senha_equipe_view(nome):
     session["senha_redefinida_equipe"] = {
         "nome": nome,
         "login": resultado["login"],
-        "senha": resultado["senha"],
-        "url": URL_LOGIN_EQUIPE,
-        "texto_copia": (
-            "Acesso VolleyTable Pro\n"
-            f"Site: {URL_LOGIN_EQUIPE}\n"
-            f"Equipe: {nome}\n"
-            f"Login: {resultado['login']}\n"
-            f"Senha: {resultado['senha']}"
-        ),
+        "senha": resultado["senha"]
     }
 
     flash("Senha da equipe redefinida com sucesso.", "sucesso")
@@ -870,30 +838,54 @@ def cadastrar_atleta_pagina_view():
         return redirect(url_for("painel.inicio"))
 
     erro = None
+    atleta_encontrado = None
+    cpf_busca = ""
 
     if request.method == "POST":
-        # Deixa a função cadastrar_atleta validar CPF, prazo, limite e número.
-        # Assim evitamos consulta duplicada antes de salvar.
-        resultado = cadastrar_atleta(
-            request.form.get("nome", "").strip(),
-            request.form.get("cpf", "").strip(),
-            request.form.get("data_nascimento", "").strip(),
-            request.form.get("numero", "").strip(),
-            equipe["nome"],
-            equipe["competicao"]
-        )
+        acao = (request.form.get("acao") or "cadastrar").strip()
+        cpf_busca = request.form.get("cpf", "").strip()
 
-        if isinstance(resultado, tuple):
-            ok, msg = resultado
+        if acao == "buscar_cpf":
+            if not cpf_busca:
+                erro = "Informe o CPF para buscar o atleta."
+            else:
+                atleta_encontrado = buscar_atleta_global_por_cpf(cpf_busca)
+                if atleta_encontrado:
+                    flash("Atleta encontrado no banco. Confira os dados e informe o número para vincular nesta competição.", "sucesso")
+                else:
+                    flash("CPF não encontrado no banco. Complete os dados para cadastrar um novo atleta.", "aviso")
+
         else:
-            ok = bool(resultado)
-            msg = None
+            # Deixa a função cadastrar_atleta validar CPF, prazo, limite e número.
+            # Se o CPF já existir em outra competição, ela reaproveita os dados enviados
+            # e cria um novo registro apenas para a competição atual.
+            resultado = cadastrar_atleta(
+                request.form.get("nome", "").strip(),
+                request.form.get("cpf", "").strip(),
+                request.form.get("data_nascimento", "").strip(),
+                request.form.get("numero", "").strip(),
+                equipe["nome"],
+                equipe["competicao"]
+            )
 
-        if ok:
-            flash(msg or "Atleta cadastrado com sucesso.", "sucesso")
-            return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
+            if isinstance(resultado, tuple):
+                ok, msg = resultado
+            else:
+                ok = bool(resultado)
+                msg = None
 
-        erro = msg or "Não foi possível cadastrar o atleta. Verifique CPF duplicado, número repetido, limite de atletas ou bloqueio de inscrição."
+            if ok:
+                flash(msg or "Atleta cadastrado com sucesso.", "sucesso")
+                return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
+
+            erro = msg or "Não foi possível cadastrar o atleta. Verifique CPF duplicado nesta competição, número repetido, limite de atletas ou bloqueio de inscrição."
+
+            # Em caso de erro, tenta manter os dados na tela.
+            atleta_encontrado = {
+                "nome": request.form.get("nome", "").strip(),
+                "cpf": request.form.get("cpf", "").strip(),
+                "data_nascimento": request.form.get("data_nascimento", "").strip(),
+            }
 
     contexto = _montar_contexto_atletas_equipe(
         equipe,
@@ -902,6 +894,8 @@ def cadastrar_atleta_pagina_view():
         modo_tela="cadastro",
         carregar_atletas=False
     )
+    contexto["atleta_encontrado"] = atleta_encontrado
+    contexto["cpf_busca"] = cpf_busca
     return render_template("meus_atletas.html", **contexto)
 
 

@@ -1,35 +1,76 @@
 {% extends "base.html" %}
 
-{% block titulo %}Oficiais{% endblock %}
+{% block titulo %}Arbitragem e oficiais{% endblock %}
 
 {% block conteudo %}
 <div class="topo-secao">
-    <div class="titulo-secao">Oficiais da Competição</div>
+    <div>
+        <div class="titulo-secao" style="margin-bottom:6px;">Arbitragem e oficiais</div>
+        <div style="color:var(--muted);font-weight:700;">Vincule as pessoas da competição e gere os PINs operacionais para árbitros e telão.</div>
+    </div>
 </div>
 
-<div class="card-painel">
-    <form method="post">
-        <label>CPF</label>
-        <input type="text" name="cpf" placeholder="Digite o CPF" required>
+<style>
+    .arb-tabs { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+    .arb-tab { border:1px solid var(--border); background:#fff; color:var(--text); border-radius:14px; padding:11px 16px; font-weight:900; text-decoration:none; }
+    .arb-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
+    .arb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .arb-info { background:#f8fbff; border:1px solid #d7dee7; border-radius:16px; padding:14px; color:var(--muted); font-weight:700; line-height:1.45; }
+    .pin-op { display:inline-flex; align-items:center; justify-content:center; min-width:86px; padding:8px 12px; border-radius:999px; background:#123852; color:white; font-size:20px; letter-spacing:3px; font-weight:1000; }
+    .pin-status { display:inline-flex; padding:5px 10px; border-radius:999px; background:#ecfdf5; color:#166534; border:1px solid #bbf7d0; font-weight:900; font-size:12px; }
+    .pin-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .pin-copy { border:1px solid var(--border); border-radius:10px; padding:8px 10px; background:white; font-weight:900; cursor:pointer; color:#123852; }
+    .mini-form { display:flex; gap:8px; flex-wrap:wrap; align-items:end; margin-top:10px; }
+    .mini-form input { max-width:220px; }
+    @media (max-width:900px){ .arb-grid{grid-template-columns:1fr;} .pin-actions .btn-secundario,.pin-actions .btn-danger,.pin-copy{width:100%;} }
+</style>
 
-        <label>Nome (se novo)</label>
-        <input type="text" name="nome" placeholder="Preencha apenas se não existir">
+{% set aba = aba_ativa or 'oficiais' %}
+<div class="arb-tabs">
+    <a class="arb-tab {% if aba == 'oficiais' %}ativa{% endif %}" href="{{ url_for('oficiais.oficiais', aba='oficiais') }}">Oficiais da competição</a>
+    <a class="arb-tab {% if aba == 'pins' %}ativa{% endif %}" href="{{ url_for('oficiais.oficiais', aba='pins') }}">PINs operacionais</a>
+</div>
 
-        <label>Função</label>
-        <select name="funcao" required>
-            <option value="">Selecione</option>
-            <option value="arbitro1">Árbitro 1</option>
-            <option value="arbitro2">Árbitro 2</option>
-            <option value="apontador">Apontador</option>
-        </select>
+{% if aba == 'oficiais' %}
+<div class="arb-grid">
+    <div class="card-painel">
+        <h3 style="margin-top:0;">Vincular oficial</h3>
+        <form method="post">
+            <label>CPF</label>
+            <input type="text" name="cpf" placeholder="Digite o CPF" required>
 
-        <br><br>
-        <button class="btn-padrao" type="submit">Vincular</button>
-    </form>
+            <label>Nome (se novo)</label>
+            <input type="text" name="nome" placeholder="Preencha apenas se ainda não existir">
+
+            <label>Função</label>
+            <select name="funcao" required>
+                <option value="">Selecione</option>
+                <option value="apontador">Apontador</option>
+                <option value="arbitro1">Árbitro 1</option>
+                <option value="arbitro2">Árbitro 2</option>
+                <option value="mesario">Mesário</option>
+                <option value="delegado">Delegado</option>
+            </select>
+
+            <div style="margin-top:16px;">
+                <button class="btn-padrao" type="submit">Vincular oficial</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card-painel">
+        <h3 style="margin-top:0;">Como funciona</h3>
+        <div class="arb-info">
+            <strong>Oficial</strong> é a pessoa real vinculada à competição por CPF. O apontador continua usando login e senha normalmente.
+            <br><br>
+            Árbitro e telão não precisam de login: eles entram por PIN operacional na aba ao lado.
+        </div>
+    </div>
 </div>
 
 {% if oficiais %}
 <div class="card-painel">
+    <h3 style="margin-top:0;">Oficiais vinculados</h3>
     <table>
         <thead>
             <tr>
@@ -51,7 +92,7 @@
                           action="{{ url_for('oficiais.remover_apontador_competicao_view', cpf=o.cpf) }}"
                           onsubmit="return confirm('Remover este apontador apenas desta competição?');"
                           style="display:inline;">
-                        <button type="submit" class="btn-perigo">Remover da competição</button>
+                        <button type="submit" class="btn-danger">Remover da competição</button>
                     </form>
                     {% else %}
                     —
@@ -63,8 +104,82 @@
     </table>
 </div>
 {% else %}
+<div class="card-painel">Nenhum oficial vinculado ainda.</div>
+{% endif %}
+{% endif %}
+
+{% if aba == 'pins' %}
 <div class="card-painel">
-    Nenhum oficial vinculado ainda.
+    <h3 style="margin-top:0;">PINs operacionais</h3>
+    <div class="arb-info" style="margin-bottom:16px;">
+        Cada apontador vinculado à competição recebe um PIN de 4 números. Esse PIN libera o acesso em:
+        <br><strong>/arbitro</strong> para 1º/2º árbitro e <strong>/telao</strong> para o placar profissional.
+        <br><br>
+        O PIN é da competição e do canal operacional do apontador. Se o apontador mudar no meio do dia, você pode transferir o PIN sem derrubar árbitros e telão.
+    </div>
+
+    {% if pins_operacionais %}
+    <table>
+        <thead>
+            <tr>
+                <th>Apontador</th>
+                <th>PIN</th>
+                <th>Status</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in pins_operacionais %}
+            <tr>
+                <td>
+                    <strong>{{ p.apontador_nome or p.apontador_cpf }}</strong><br>
+                    <span style="color:var(--muted);font-weight:700;">{{ p.apontador_cpf }}</span>
+                </td>
+                <td><span class="pin-op">{{ p.pin }}</span></td>
+                <td><span class="pin-status">{% if p.ativo %}Ativo{% else %}Inativo{% endif %}</span></td>
+                <td>
+                    <div class="pin-actions">
+                        <button class="pin-copy" type="button" data-pin="{{ p.pin }}">Copiar PIN</button>
+                        <form method="post" action="{{ url_for('oficiais.regenerar_pin_operacional_view', cpf=p.apontador_cpf) }}" onsubmit="return confirm('Regenerar este PIN? Árbitros e telão que estiverem usando o PIN antigo precisarão digitar o novo.');">
+                            <button class="btn-secundario" type="submit">Regenerar</button>
+                        </form>
+                    </div>
+                    <form class="mini-form" method="post" action="{{ url_for('oficiais.transferir_pin_operacional_view') }}" onsubmit="return confirm('Transferir este PIN para outro apontador?');">
+                        <input type="hidden" name="pin" value="{{ p.pin }}">
+                        <div>
+                            <label style="font-size:12px;">Transferir para CPF</label>
+                            <input type="text" name="novo_cpf" placeholder="CPF do novo apontador">
+                        </div>
+                        <button class="btn-secundario" type="submit">Transferir</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="arb-info">
+        Nenhum PIN gerado ainda. Vincule pelo menos um oficial com função <strong>Apontador</strong> na aba Oficiais da competição.
+    </div>
+    {% endif %}
 </div>
 {% endif %}
+
+<script>
+(function(){
+    document.querySelectorAll('.pin-copy').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const pin = btn.getAttribute('data-pin') || '';
+            try {
+                await navigator.clipboard.writeText(pin);
+                const original = btn.textContent;
+                btn.textContent = 'Copiado!';
+                setTimeout(() => btn.textContent = original, 1200);
+            } catch (e) {
+                alert('PIN: ' + pin);
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}

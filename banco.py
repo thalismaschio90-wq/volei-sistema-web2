@@ -3340,12 +3340,24 @@ def criar_tabela_atletas(force=False):
                 CREATE TABLE IF NOT EXISTS atletas (
                     id SERIAL PRIMARY KEY,
                     nome TEXT NOT NULL,
-                    cpf TEXT UNIQUE NOT NULL,
+                    cpf TEXT NOT NULL,
                     data_nascimento TEXT,
                     numero INTEGER,
                     equipe TEXT,
                     competicao TEXT,
                     status TEXT DEFAULT 'pendente'
+                )
+            """)
+
+            # Compatibilidade com bancos antigos: remove trava global de CPF.
+            cur.execute("ALTER TABLE atletas DROP CONSTRAINT IF EXISTS atletas_cpf_key")
+
+            # O mesmo CPF pode estar em competições diferentes, mas não pode duplicar dentro da mesma competição.
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_atletas_cpf_competicao
+                ON atletas (
+                    REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g'),
+                    COALESCE(competicao, '')
                 )
             """)
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS capitao_padrao BOOLEAN DEFAULT FALSE")
@@ -3369,6 +3381,53 @@ def atleta_existe_por_cpf(cpf):
             """, (cpf_limpo,))
             return cur.fetchone() is not None
 
+
+
+def buscar_atleta_global_por_cpf(cpf):
+    """
+    Busca um atleta já existente em qualquer competição pelo CPF.
+    Usado para reaproveitar nome/data de nascimento quando a equipe cadastra
+    o mesmo atleta em uma nova competição.
+    """
+    cpf_limpo = somente_digitos(cpf)
+    if not cpf_limpo:
+        return None
+
+    criar_tabela_atletas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT
+                    nome,
+                    cpf,
+                    data_nascimento
+                FROM atletas
+                WHERE {_cpf_sql_limpo('cpf')} = %s
+                ORDER BY id DESC
+                LIMIT 1
+            """, (cpf_limpo,))
+            return cur.fetchone()
+
+
+def atleta_existe_na_competicao_por_cpf(cpf, competicao):
+    cpf_limpo = somente_digitos(cpf)
+    competicao = (competicao or "").strip()
+    if not cpf_limpo or not competicao:
+        return False
+
+    criar_tabela_atletas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT id
+                FROM atletas
+                WHERE {_cpf_sql_limpo('cpf')} = %s
+                  AND competicao = %s
+                LIMIT 1
+            """, (cpf_limpo, competicao))
+            return cur.fetchone() is not None
 
 def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
     nome = (nome or "").strip()
@@ -3404,10 +3463,11 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
                 SELECT id
                 FROM atletas
                 WHERE {_cpf_sql_limpo('cpf')} = %s
+                  AND competicao = %s
                 LIMIT 1
-            """, (cpf_limpo,))
+            """, (cpf_limpo, competicao))
             if cur.fetchone() is not None:
-                return False, "Já existe um atleta cadastrado com este CPF."
+                return False, "Este atleta já está cadastrado nesta competição."
 
             cur.execute("""
                 SELECT
@@ -7354,9 +7414,12 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             else:
                 pontos_b += 1
 
-            pontos_set = int(regras.get("pontos_set") or 21)
+            sets_tipo_regra = str(regras.get("sets_tipo") or "set_unico").strip().lower()
+            pontos_set_normal = int(regras.get("pontos_set") or 21)
+            pontos_tiebreak = int(regras.get("pontos_tiebreak") or 15)
             diferenca_minima = int(regras.get("diferenca_minima") or 2)
             sets_para_vencer = int(regras.get("sets_para_vencer") or 1)
+            pontos_set = pontos_tiebreak if set_eh_tiebreak(sets_tipo_regra, set_atual) else pontos_set_normal
 
             fundamento = (
                 detalhes.get("fundamento")
@@ -9807,7 +9870,9 @@ def criar_tabela_competicao_quadras(force=False):
                     ordem INTEGER DEFAULT 1,
                     ativa BOOLEAN DEFAULT TRUE,
                     criado_em TIMESTAMP DEFAULT NOW(),
-                    atualizado_em TIMESTAMP DEFAULT NOW()
+                    atualizado_em TIMESTAMP DEFAULT NOW(),
+                    pin_arbitragem VARCHAR(4),
+                    pin_arbitragem_criado_em TIMESTAMP
                 )
             """)
 
@@ -9819,7 +9884,9 @@ def criar_tabela_competicao_quadras(force=False):
                 ADD COLUMN IF NOT EXISTS ordem INTEGER DEFAULT 1,
                 ADD COLUMN IF NOT EXISTS ativa BOOLEAN DEFAULT TRUE,
                 ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT NOW(),
-                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()
+                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS pin_arbitragem VARCHAR(4),
+                ADD COLUMN IF NOT EXISTS pin_arbitragem_criado_em TIMESTAMP
             """)
 
             cur.execute("""
@@ -9829,6 +9896,10 @@ def criar_tabela_competicao_quadras(force=False):
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_competicao_quadras_ordem
                 ON competicao_quadras (competicao, ordem)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competicao_quadras_pin_arbitragem
+                ON competicao_quadras (pin_arbitragem)
             """)
 
             if _tabela_existe_cur(cur, "partidas"):
@@ -9866,6 +9937,129 @@ def criar_tabela_competicao_quadras(force=False):
     except Exception:
         pass
 
+
+
+def _normalizar_pin_arbitragem(pin):
+    pin = re.sub(r"\D", "", str(pin or ""))
+    if len(pin) != 4:
+        return ""
+    return pin
+
+
+def _gerar_pin_arbitragem_unico_cur(cur):
+    for _ in range(60):
+        pin = str(random.randint(1000, 9999))
+        cur.execute("""
+            SELECT id
+            FROM competicao_quadras
+            WHERE pin_arbitragem = %s
+            LIMIT 1
+        """, (pin,))
+        if not cur.fetchone():
+            return pin
+    return str(random.randint(1000, 9999))
+
+
+def garantir_pins_arbitragem_quadras(nome_competicao):
+    """
+    Gera PIN de 4 números para cada quadra ativa da competição.
+    O PIN fica salvo na quadra e vale enquanto a quadra/competição existir.
+    Se a competição ainda não tiver quadras cadastradas, cria a lista a partir das partidas.
+    """
+    criar_tabela_competicao_quadras()
+
+    nome_competicao = (nome_competicao or "").strip()
+    if not nome_competicao:
+        return []
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id
+                FROM competicao_quadras
+                WHERE competicao = %s
+                  AND COALESCE(ativa, TRUE) = TRUE
+                LIMIT 1
+            """, (nome_competicao,))
+            tem_quadras = cur.fetchone() is not None
+
+            if not tem_quadras and _tabela_existe_cur(cur, "partidas"):
+                cur.execute("""
+                    SELECT
+                        COALESCE(NULLIF(TRIM(quadra), ''), '1') AS quadra,
+                        COALESCE(NULLIF(TRIM(quadra_nome), ''), NULLIF(TRIM(quadra), ''), 'Quadra 1') AS quadra_nome
+                    FROM partidas
+                    WHERE competicao = %s
+                    GROUP BY COALESCE(NULLIF(TRIM(quadra), ''), '1'), COALESCE(NULLIF(TRIM(quadra_nome), ''), NULLIF(TRIM(quadra), ''), 'Quadra 1')
+                    ORDER BY COALESCE(NULLIF(TRIM(quadra), ''), '1')
+                """, (nome_competicao,))
+                linhas = cur.fetchall() or []
+                if not linhas:
+                    linhas = [{"quadra": "1", "quadra_nome": "Quadra 1"}]
+
+                for idx, linha in enumerate(linhas, start=1):
+                    numero = (linha.get("quadra") or str(idx)).strip()
+                    nome = (linha.get("quadra_nome") or f"Quadra {numero}").strip()
+                    cur.execute("""
+                        INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
+                        VALUES (%s, %s, %s, %s, TRUE)
+                    """, (nome_competicao, nome, "", idx))
+
+            cur.execute("""
+                SELECT id, pin_arbitragem
+                FROM competicao_quadras
+                WHERE competicao = %s
+                  AND COALESCE(ativa, TRUE) = TRUE
+                ORDER BY COALESCE(ordem, 9999), id
+            """, (nome_competicao,))
+            quadras = cur.fetchall() or []
+
+            for quadra in quadras:
+                pin_atual = _normalizar_pin_arbitragem(quadra.get("pin_arbitragem"))
+                if pin_atual:
+                    continue
+                novo_pin = _gerar_pin_arbitragem_unico_cur(cur)
+                cur.execute("""
+                    UPDATE competicao_quadras
+                    SET pin_arbitragem = %s,
+                        pin_arbitragem_criado_em = COALESCE(pin_arbitragem_criado_em, NOW()),
+                        atualizado_em = NOW()
+                    WHERE id = %s
+                """, (novo_pin, quadra["id"]))
+
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("competicao_quadras", None)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, competicao, nome, local, ordem, ativa, pin_arbitragem
+                FROM competicao_quadras
+                WHERE competicao = %s
+                  AND COALESCE(ativa, TRUE) = TRUE
+                ORDER BY COALESCE(ordem, 9999), id
+            """, (nome_competicao,))
+            return cur.fetchall()
+
+
+def buscar_vinculo_arbitragem_por_pin(pin):
+    """Retorna a competição/quadra vinculada ao PIN informado pelo árbitro."""
+    criar_tabela_competicao_quadras()
+    pin = _normalizar_pin_arbitragem(pin)
+    if not pin:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, competicao, nome, local, ordem, ativa, pin_arbitragem
+                FROM competicao_quadras
+                WHERE pin_arbitragem = %s
+                  AND COALESCE(ativa, TRUE) = TRUE
+                LIMIT 1
+            """, (pin,))
+            return cur.fetchone()
 
 def listar_quadras_competicao(nome_competicao, somente_ativas=False):
     criar_tabela_competicao_quadras()
@@ -10325,3 +10519,478 @@ def salvar_perfil_equipe_por_login(
 
     return alteradas > 0
 
+
+
+# =========================================================
+# PIN OPERACIONAL POR APONTADOR (ÁRBITROS E TELÃO)
+# =========================================================
+def criar_tabela_pins_operacionais():
+    """
+    PIN operacional por competição + apontador.
+
+    Diferente do login do apontador: este PIN é apenas o canal usado por
+    árbitros e telão para acompanhar o jogo que aquele apontador está operando.
+    """
+    criar_tabelas_oficiais()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS competicao_pins_operacionais (
+                    id SERIAL PRIMARY KEY,
+                    competicao TEXT NOT NULL,
+                    apontador_cpf TEXT NOT NULL,
+                    pin VARCHAR(4) UNIQUE NOT NULL,
+                    ativo BOOLEAN DEFAULT TRUE,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    atualizado_em TIMESTAMP DEFAULT NOW(),
+                    transferido_de_cpf TEXT DEFAULT '',
+                    transferido_em TIMESTAMP
+                )
+            """)
+
+            cur.execute("""
+                ALTER TABLE competicao_pins_operacionais
+                ADD COLUMN IF NOT EXISTS competicao TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS apontador_cpf TEXT NOT NULL DEFAULT '',
+                ADD COLUMN IF NOT EXISTS pin VARCHAR(4),
+                ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS transferido_de_cpf TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS transferido_em TIMESTAMP
+            """)
+
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_competicao_pin_operacional_comp_apontador
+                ON competicao_pins_operacionais (
+                    competicao,
+                    REGEXP_REPLACE(COALESCE(apontador_cpf, ''), '\\D', '', 'g')
+                )
+            """)
+
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_competicao_pin_operacional_pin
+                ON competicao_pins_operacionais (pin)
+                WHERE pin IS NOT NULL AND pin <> ''
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competicao_pin_operacional_competicao
+                ON competicao_pins_operacionais (competicao)
+            """)
+
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("competicao_pins_operacionais", None)
+    return True
+
+
+def _normalizar_pin_operacional(pin):
+    pin = re.sub(r"\D", "", str(pin or ""))
+    if len(pin) != 4:
+        return ""
+    return pin
+
+
+def _gerar_pin_operacional_unico_cur(cur):
+    for _ in range(80):
+        pin = str(random.randint(1000, 9999))
+
+        cur.execute("""
+            SELECT id
+            FROM competicao_pins_operacionais
+            WHERE pin = %s
+            LIMIT 1
+        """, (pin,))
+        if cur.fetchone():
+            continue
+
+        try:
+            cur.execute("""
+                SELECT id
+                FROM competicao_quadras
+                WHERE pin_arbitragem = %s
+                LIMIT 1
+            """, (pin,))
+            if cur.fetchone():
+                continue
+        except Exception:
+            pass
+
+        return pin
+
+    return str(random.randint(1000, 9999))
+
+
+def garantir_pin_operacional_apontador(competicao, apontador_cpf):
+    criar_tabela_pins_operacionais()
+    competicao = (competicao or "").strip()
+    apontador_cpf = somente_digitos(apontador_cpf)
+
+    if not competicao or not apontador_cpf:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM competicao_pins_operacionais
+                WHERE competicao = %s
+                  AND REGEXP_REPLACE(COALESCE(apontador_cpf, ''), '\\D', '', 'g') = %s
+                LIMIT 1
+            """, (competicao, apontador_cpf))
+            atual = cur.fetchone()
+
+            if atual and _normalizar_pin_operacional(atual.get("pin")):
+                return atual
+
+            novo_pin = _gerar_pin_operacional_unico_cur(cur)
+
+            if atual:
+                cur.execute("""
+                    UPDATE competicao_pins_operacionais
+                    SET pin = %s,
+                        ativo = TRUE,
+                        atualizado_em = NOW()
+                    WHERE id = %s
+                """, (novo_pin, atual["id"]))
+            else:
+                cur.execute("""
+                    INSERT INTO competicao_pins_operacionais (
+                        competicao, apontador_cpf, pin, ativo
+                    )
+                    VALUES (%s, %s, %s, TRUE)
+                """, (competicao, apontador_cpf, novo_pin))
+
+        conn.commit()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM competicao_pins_operacionais
+                WHERE competicao = %s
+                  AND REGEXP_REPLACE(COALESCE(apontador_cpf, ''), '\\D', '', 'g') = %s
+                LIMIT 1
+            """, (competicao, apontador_cpf))
+            return cur.fetchone()
+
+
+def listar_pins_operacionais_competicao(competicao):
+    """
+    Lista todos os apontadores vinculados à competição e garante PIN para cada um.
+    """
+    criar_tabela_pins_operacionais()
+    criar_tabelas_oficiais()
+    competicao = (competicao or "").strip()
+
+    if not competicao:
+        return []
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT
+                    o.nome,
+                    o.cpf,
+                    c.funcao
+                FROM competicao_oficiais c
+                JOIN oficiais o ON o.cpf = c.cpf
+                WHERE c.competicao = %s
+                  AND LOWER(COALESCE(c.funcao, '')) = 'apontador'
+                ORDER BY o.nome
+            """, (competicao,))
+            apontadores = cur.fetchall() or []
+
+    for apontador in apontadores:
+        garantir_pin_operacional_apontador(competicao, apontador.get("cpf"))
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    p.id,
+                    p.competicao,
+                    p.apontador_cpf,
+                    p.pin,
+                    p.ativo,
+                    p.criado_em,
+                    p.atualizado_em,
+                    o.nome AS apontador_nome,
+                    a.ativo AS apontador_ativo
+                FROM competicao_pins_operacionais p
+                LEFT JOIN oficiais o
+                    ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(p.apontador_cpf, ''), '\\D', '', 'g')
+                LEFT JOIN apontadores_acesso a
+                    ON REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(p.apontador_cpf, ''), '\\D', '', 'g')
+                WHERE p.competicao = %s
+                ORDER BY COALESCE(o.nome, p.apontador_cpf)
+            """, (competicao,))
+            return cur.fetchall() or []
+
+
+def buscar_vinculo_operacional_por_pin(pin):
+    criar_tabela_pins_operacionais()
+    pin = _normalizar_pin_operacional(pin)
+    if not pin:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    p.id,
+                    p.competicao,
+                    p.apontador_cpf,
+                    p.pin,
+                    p.ativo,
+                    o.nome AS apontador_nome
+                FROM competicao_pins_operacionais p
+                LEFT JOIN oficiais o
+                    ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(p.apontador_cpf, ''), '\\D', '', 'g')
+                WHERE p.pin = %s
+                  AND COALESCE(p.ativo, TRUE) = TRUE
+                LIMIT 1
+            """, (pin,))
+            return cur.fetchone()
+
+
+def regenerar_pin_operacional_apontador(competicao, apontador_cpf):
+    criar_tabela_pins_operacionais()
+    competicao = (competicao or "").strip()
+    apontador_cpf = somente_digitos(apontador_cpf)
+
+    if not competicao or not apontador_cpf:
+        return None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            novo_pin = _gerar_pin_operacional_unico_cur(cur)
+            cur.execute("""
+                INSERT INTO competicao_pins_operacionais (
+                    competicao, apontador_cpf, pin, ativo
+                )
+                VALUES (%s, %s, %s, TRUE)
+                ON CONFLICT (competicao, REGEXP_REPLACE(COALESCE(apontador_cpf, ''), '\\D', '', 'g'))
+                DO UPDATE SET
+                    pin = EXCLUDED.pin,
+                    ativo = TRUE,
+                    atualizado_em = NOW()
+            """, (competicao, apontador_cpf, novo_pin))
+        conn.commit()
+
+    return garantir_pin_operacional_apontador(competicao, apontador_cpf)
+
+
+def transferir_pin_operacional(competicao, pin, novo_apontador_cpf):
+    """
+    Transfere o canal operacional para outro apontador sem trocar o PIN.
+    Útil quando um apontador assume no meio do dia e árbitro/telão não podem parar.
+    """
+    criar_tabela_pins_operacionais()
+    competicao = (competicao or "").strip()
+    pin = _normalizar_pin_operacional(pin)
+    novo_apontador_cpf = somente_digitos(novo_apontador_cpf)
+
+    if not competicao or not pin or not novo_apontador_cpf:
+        return False
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT apontador_cpf
+                FROM competicao_pins_operacionais
+                WHERE competicao = %s
+                  AND pin = %s
+                  AND COALESCE(ativo, TRUE) = TRUE
+                LIMIT 1
+            """, (competicao, pin))
+            atual = cur.fetchone()
+            if not atual:
+                return False
+
+            cur.execute("""
+                UPDATE competicao_pins_operacionais
+                SET apontador_cpf = %s,
+                    transferido_de_cpf = %s,
+                    transferido_em = NOW(),
+                    atualizado_em = NOW()
+                WHERE competicao = %s
+                  AND pin = %s
+            """, (novo_apontador_cpf, atual.get("apontador_cpf") or "", competicao, pin))
+        conn.commit()
+
+    return True
+
+
+
+# =========================================================
+# APONTADOR - STATUS INTELIGENTE / SALVAR E RETOMAR PARTIDA
+# =========================================================
+def _partida_tem_placar_ou_estado(partida):
+    partida = partida or {}
+    try:
+        if int(partida.get("pontos_a") or 0) > 0:
+            return True
+        if int(partida.get("pontos_b") or 0) > 0:
+            return True
+        if int(partida.get("sets_a") or 0) > 0:
+            return True
+        if int(partida.get("sets_b") or 0) > 0:
+            return True
+        if int(partida.get("set_atual") or 1) > 1:
+            return True
+    except Exception:
+        pass
+
+    for campo in ("rotacao_a_json", "rotacao_b_json", "saque_atual"):
+        valor = partida.get(campo)
+        if valor not in (None, "", "[]", "{}"):
+            return True
+
+    return False
+
+
+def normalizar_status_partidas_apontador(partidas, competicao):
+    """
+    Corrige a lista que aparece no painel do apontador.
+    Se a partida já tem placar/sets/eventos/snapshot, ela não pode voltar para pré-jogo.
+    Também reconhece partidas pausadas manualmente.
+    """
+    partidas = [dict(p or {}) for p in (partidas or [])]
+    if not partidas:
+        return []
+
+    ids = [p.get("id") for p in partidas if p.get("id") is not None]
+    eventos_por_id = {}
+
+    try:
+        criar_tabela_eventos()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT partida_id, COUNT(*) AS total
+                    FROM eventos
+                    WHERE competicao = %s
+                      AND partida_id = ANY(%s)
+                    GROUP BY partida_id
+                """, (competicao, ids))
+                for row in cur.fetchall() or []:
+                    eventos_por_id[int(row["partida_id"])] = int(row["total"] or 0)
+    except Exception as e:
+        print("ERRO normalizar_status_partidas_apontador/eventos:", e, flush=True)
+
+    for p in partidas:
+        status = str(p.get("status") or "").strip().lower()
+        status_jogo = str(p.get("status_jogo") or "").strip().lower()
+        status_op = str(p.get("status_operacao") or "livre").strip().lower()
+        total_eventos = eventos_por_id.get(int(p.get("id") or 0), 0)
+
+        finalizada = status in {"finalizada", "finalizado", "encerrada", "encerrado"} or status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"} or status_op in {"finalizada", "finalizado"}
+        pausada = status_jogo in {"pausada", "pausado", "salva", "salvo"} or status_op in {"pausada", "pausado"}
+        iniciada = (
+            status in {"em andamento", "em_andamento", "ao vivo", "ao_vivo", "iniciada", "iniciado"}
+            or status_jogo in {"em_andamento", "em andamento", "entre_sets", "tiebreak_sorteio"}
+            or status_op in {"em_andamento", "ao_vivo", "jogo", "iniciada", "iniciado"}
+            or _partida_tem_placar_ou_estado(p)
+            or total_eventos > 0
+        )
+
+        p["eventos_total"] = total_eventos
+        p["tem_jogo_iniciado"] = bool(iniciada and not finalizada and not pausada)
+        p["tem_jogo_pausado"] = bool(pausada and not finalizada)
+        p["tem_jogo_finalizado"] = bool(finalizada)
+
+        if finalizada:
+            p["status_operacao"] = "finalizada"
+        elif pausada:
+            p["status_operacao"] = "pausada"
+        elif iniciada:
+            p["status_operacao"] = "em_andamento"
+            if not p.get("status_jogo") or str(p.get("status_jogo")).lower() == "pre_jogo":
+                p["status_jogo"] = "em_andamento"
+        elif status_op in {"pre_jogo", "reservado"}:
+            p["status_operacao"] = status_op
+        else:
+            p["status_operacao"] = "livre"
+
+    return partidas
+
+
+def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, pausar=False):
+    """Salva no banco o estado vivo do cache/JS para permitir troca de aparelho e retomada."""
+    import json
+
+    criar_campos_jogo_partida()
+    criar_campos_sets_partida()
+
+    estado = dict(estado or {})
+
+    def _int(v, padrao=0):
+        try:
+            if v is None or v == "":
+                return padrao
+            return int(v)
+        except Exception:
+            return padrao
+
+    def _lista6(v):
+        return _normalizar_rotacao_oficial(v or ["", "", "", "", "", ""])
+
+    pontos_a = _int(estado.get("pontos_a", estado.get("placar_a", 0)), 0)
+    pontos_b = _int(estado.get("pontos_b", estado.get("placar_b", 0)), 0)
+    sets_a = _int(estado.get("sets_a"), 0)
+    sets_b = _int(estado.get("sets_b"), 0)
+    set_atual = max(1, _int(estado.get("set_atual"), 1))
+    rotacao_a = _lista6(estado.get("rotacao_a"))
+    rotacao_b = _lista6(estado.get("rotacao_b"))
+
+    status_jogo = "pausada" if pausar else str(estado.get("status_jogo") or "em_andamento").strip().lower()
+    if status_jogo in {"pre_jogo", "", "livre"}:
+        status_jogo = "em_andamento"
+
+    colunas = _buscar_colunas_tabela("partidas")
+    sets = [
+        "pontos_a = %s", "pontos_b = %s", "sets_a = %s", "sets_b = %s", "set_atual = %s",
+        "saque_atual = %s", "rotacao_a = %s", "rotacao_b = %s", "rotacao_a_json = %s", "rotacao_b_json = %s",
+        "status_jogadores_a_json = %s", "status_jogadores_b_json = %s", "subs_a = %s", "subs_b = %s",
+        "sancoes_a_json = %s", "sancoes_b_json = %s", "cartoes_verdes_a_json = %s", "cartoes_verdes_b_json = %s",
+        "retardamentos_a_json = %s", "retardamentos_b_json = %s", "subs_excepcionais_json = %s",
+        "status_jogo = %s", "fase_partida = %s"
+    ]
+    params = [
+        pontos_a, pontos_b, sets_a, sets_b, set_atual,
+        estado.get("saque_atual") or None, rotacao_a, rotacao_b, json.dumps(rotacao_a, ensure_ascii=False), json.dumps(rotacao_b, ensure_ascii=False),
+        json.dumps(estado.get("status_jogadores_a") or {}, ensure_ascii=False), json.dumps(estado.get("status_jogadores_b") or {}, ensure_ascii=False),
+        _int(estado.get("subs_a"), 0), _int(estado.get("subs_b"), 0),
+        json.dumps(estado.get("sancoes_a") or [], ensure_ascii=False), json.dumps(estado.get("sancoes_b") or [], ensure_ascii=False),
+        json.dumps(estado.get("cartoes_verdes_a") or [], ensure_ascii=False), json.dumps(estado.get("cartoes_verdes_b") or [], ensure_ascii=False),
+        json.dumps(estado.get("retardamentos_a") or [], ensure_ascii=False), json.dumps(estado.get("retardamentos_b") or [], ensure_ascii=False),
+        json.dumps(estado.get("subs_excepcionais") or [], ensure_ascii=False),
+        status_jogo, "jogo",
+    ]
+
+    if "status_operacao" in colunas:
+        sets.append("status_operacao = %s")
+        params.append("pausada" if pausar else "em_andamento")
+    if "status" in colunas:
+        sets.append("status = %s")
+        params.append("em andamento")
+    if "operador_login" in colunas and operador:
+        sets.append("operador_login = COALESCE(operador_login, %s)")
+        params.append(operador)
+
+    params.extend([partida_id, competicao])
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                UPDATE partidas
+                SET {', '.join(sets)}
+                WHERE id = %s
+                  AND competicao = %s
+            """, tuple(params))
+        conn.commit()
+
+    return buscar_estado_jogo_partida(partida_id, competicao) or {}

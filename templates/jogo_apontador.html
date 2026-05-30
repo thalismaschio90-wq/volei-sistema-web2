@@ -427,6 +427,10 @@
 /* =========================================================
    TECLAS DE ATALHO DO APONTADOR
    ========================================================= */
+.btn-salvar-partida { border:0; border-radius:12px; padding:8px 12px; font-size:13px; font-weight:900; cursor:pointer; background:#0f766e; color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.14); }
+.btn-salvar-partida.sair { background:#9a3412; }
+.btn-salvar-partida:disabled { opacity:.65; cursor:not-allowed; }
+
 .btn-atalhos-apontador {
     border: 0;
     border-radius: 12px;
@@ -685,6 +689,8 @@
     </div>
 
     <div class="topo-acoes-direita">
+        <button id="btn-salvar-partida" class="btn-salvar-partida" type="button">💾 Salvar partida</button>
+        <button id="btn-salvar-sair-partida" class="btn-salvar-partida sair" type="button">💾 Salvar e sair</button>
         <button id="btn-preparar-jogo-offline" class="btn-atalhos-apontador" type="button">⬇️ Offline</button>
         <button id="btn-abrir-atalhos-apontador" class="btn-atalhos-apontador" type="button">⚙️ Teclas de atalho</button>
     </div>
@@ -3410,8 +3416,81 @@ const URLS_ACAO = {
     retardamento: "{{ url_for('apontadores.registrar_retardamento_view', competicao=competicao_nome, partida_id=partida.id) }}",
     sancao: "{{ url_for('apontadores.registrar_sancao_view', competicao=competicao_nome, partida_id=partida.id) }}",
     cartao_verde: "{{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) }}",
-    sincronizar: "{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}"
+    sincronizar: "{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    salvar_estado: "{{ url_for('apontadores.salvar_estado_manual_view', competicao=competicao_nome, partida_id=partida.id) }}"
 };
+
+
+const btnSalvarPartida = document.getElementById("btn-salvar-partida");
+const btnSalvarSairPartida = document.getElementById("btn-salvar-sair-partida");
+
+function montarEstadoManualParaBanco() {
+    return {
+        ...(estadoAtual || {}),
+        pontos_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
+        pontos_b: numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0),
+        placar_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
+        placar_b: numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0),
+        sets_a: numeroInteiro(estadoAtual?.sets_a ?? 0, 0),
+        sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
+        set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
+        saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
+        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+        status_jogadores_a: estadoAtual?.status_jogadores_a || {},
+        status_jogadores_b: estadoAtual?.status_jogadores_b || {},
+        sancoes_a: estadoAtual?.sancoes_a || [],
+        sancoes_b: estadoAtual?.sancoes_b || [],
+        cartoes_verdes_a: estadoAtual?.cartoes_verdes_a || [],
+        cartoes_verdes_b: estadoAtual?.cartoes_verdes_b || [],
+        retardamentos_a: estadoAtual?.retardamentos_a || [],
+        retardamentos_b: estadoAtual?.retardamentos_b || [],
+        subs_excepcionais: estadoAtual?.subs_excepcionais || [],
+        subs_a: numeroInteiro(estadoAtual?.subs_a ?? 0, 0),
+        subs_b: numeroInteiro(estadoAtual?.subs_b ?? 0, 0),
+        historico: estadoAtual?.historico || [],
+        ultima_acao: estadoAtual?.ultima_acao || "Partida salva manualmente"
+    };
+}
+
+async function salvarPartidaManual(pausar = false) {
+    const btn = pausar ? btnSalvarSairPartida : btnSalvarPartida;
+    const textoOriginal = btn ? btn.textContent : "";
+    try {
+        if (btn) { btn.disabled = true; btn.textContent = "Salvando..."; }
+        limparErro();
+
+        const resp = await fetch(URLS_ACAO.salvar_estado, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                pausar,
+                estado: montarEstadoManualParaBanco()
+            })
+        });
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || !json.ok) throw new Error(json.mensagem || json.erro || "Erro ao salvar partida.");
+
+        aplicarEstado(json);
+        atualizarUltimaAcao(pausar ? "Partida pausada e salva no banco." : "Partida salva no banco.");
+
+        if (pausar) {
+            window.location.href = "{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}";
+            return;
+        }
+
+        if (btn) btn.textContent = "✅ Salvo";
+        setTimeout(() => { if (btn) btn.textContent = textoOriginal; }, 1200);
+    } catch (e) {
+        mostrarErro(e.message || "Erro ao salvar partida.");
+        if (btn) btn.textContent = textoOriginal;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+if (btnSalvarPartida) btnSalvarPartida.addEventListener("click", () => salvarPartidaManual(false));
+if (btnSalvarSairPartida) btnSalvarSairPartida.addEventListener("click", () => salvarPartidaManual(true));
 
 const OFFLINE_PARTIDAS_KEY = "voleitable_offline_partidas";
 const OFFLINE_SESSAO_KEY = "voleitable_offline_sessao";

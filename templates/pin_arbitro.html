@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Árbitro por PIN</title>
+<style>
+:root{--bg:#f4f7fb;--text:#183247;--muted:#6b7c8c;--border:#d9e3ec;--primary:#123852;--accent:#d4a62a;--shadow:0 12px 28px rgba(17,41,65,.08)}*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#f7f9fc 0%,var(--bg) 100%);color:var(--text)}.topbar{background:linear-gradient(90deg,#062743 0%,#0b3557 100%);padding:18px 24px;color:#fff;display:flex;align-items:center;gap:14px;box-shadow:0 4px 18px rgba(0,0,0,.10)}.logo{width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:26px}.brand{font-size:28px;font-weight:1000;line-height:1}.brand span{color:var(--accent)}.sub{font-size:13px;color:rgba(255,255,255,.72);margin-top:4px}.wrap{padding:28px;min-height:calc(100vh - 82px);display:flex;align-items:center;justify-content:center}.card{width:min(700px,100%);background:#fff;border:1px solid var(--border);border-radius:28px;padding:30px;box-shadow:var(--shadow);text-align:center}.icone{width:70px;height:70px;border-radius:24px;background:#eef4fb;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:36px}.titulo{font-size:32px;font-weight:1000;margin-bottom:8px}.texto{color:var(--muted);font-weight:700;line-height:1.5;margin-bottom:20px}.pin{width:100%;text-align:center;font-size:42px;letter-spacing:14px;font-weight:1000;color:#123852;padding:14px 10px;border:1px solid #ccd8e3;border-radius:16px;outline:none}.btn{width:100%;margin-top:12px;border:none;border-radius:16px;background:#123852;color:#fff;padding:15px 18px;font-size:16px;font-weight:900;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.btn:hover{background:#0f3147}.flash{margin-bottom:14px;padding:12px 14px;border-radius:14px;background:#fff0f0;color:#9f2f2f;border:1px solid #f0c9c9;font-weight:800}@media(max-width:760px){.brand{font-size:24px}.wrap{padding:18px}.pin{font-size:34px}}
+</style></head>
+<body>
+<div class="topbar"><div class="logo">🏐</div><div><div class="brand">Volley<span>Table</span> Pro</div><div class="sub">Acesso de árbitros por PIN</div></div></div>
+<div class="wrap"><div class="card">
+    <div class="icone">⚖️</div>
+    <div class="titulo">Painel dos Árbitros</div>
+    <div class="texto">Digite o PIN operacional informado pelo apontador ou pela organização. Depois disso a tela ficará aguardando a partida que o apontador abrir.</div>
+    {% with mensagens = get_flashed_messages(with_categories=true) %}{% if mensagens %}{% for cat,msg in mensagens %}<div class="flash">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
+    <form method="post" autocomplete="off">
+        <input class="pin" type="text" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="0000" required autofocus>
+        <button class="btn" type="submit">Entrar e aguardar partida</button>
+    </form>
+    <div class="texto" style="margin-top:14px;margin-bottom:0;font-size:13px;">Para usar como 2º árbitro, acesse <strong>/arbitro/2</strong> depois de vincular o PIN.</div>
+</div></div>
+<script>document.querySelectorAll('.pin').forEach(i=>i.addEventListener('input',()=>i.value=(i.value||'').replace(/\D/g,'').slice(0,4)))</script>
+</body></html>

@@ -28,15 +28,71 @@
 
 {% if tela_cadastro %}
 <div class="card-painel">
-    <div style="font-weight: 900; margin-bottom: 14px;">Cadastrar atleta</div>
+    <div style="font-weight: 900; margin-bottom: 14px;">Buscar atleta por CPF</div>
 
     {% if controle_inscricao and not controle_inscricao.aberta %}
         <div class="flash-erro">{{ controle_inscricao.motivo }}</div>
     {% endif %}
 
+    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarBuscaCPFAtleta(this);">
+        <input type="hidden" name="acao" value="buscar_cpf">
+
+        <label>CPF do atleta</label>
+        <input
+            type="text"
+            name="cpf"
+            required
+            maxlength="14"
+            minlength="14"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="000.000.000-00"
+            pattern="\d{3}\.\d{3}\.\d{3}-\d{2}"
+            value="{{ cpf_busca or (atleta_encontrado.cpf if atleta_encontrado else '') }}"
+            oninput="mascaraCPF(this)"
+            onblur="validarCPFNaTela(this)"
+            {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}
+        >
+
+        <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                Buscar CPF
+            </button>
+        </div>
+    </form>
+</div>
+
+{% if atleta_encontrado %}
+<div class="card-painel" style="background:#f8fbff; border-color:#bfdbfe;">
+    <div style="font-weight: 900; margin-bottom: 10px;">Atleta encontrado</div>
+    <div style="line-height:1.7; margin-bottom:14px;">
+        <div><strong>Nome:</strong> {{ atleta_encontrado.nome }}</div>
+        <div><strong>CPF:</strong> {{ atleta_encontrado.cpf }}</div>
+        <div><strong>Data de nascimento:</strong> {{ atleta_encontrado.data_nascimento or '-' }}</div>
+    </div>
+
     <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarFormularioAtleta(this);">
-        <label>Nome</label>
-        <input type="text" name="nome" required autocomplete="name" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+        <input type="hidden" name="acao" value="cadastrar">
+        <input type="hidden" name="nome" value="{{ atleta_encontrado.nome }}">
+        <input type="hidden" name="cpf" value="{{ atleta_encontrado.cpf }}">
+        <input type="hidden" name="data_nascimento" value="{{ atleta_encontrado.data_nascimento or '' }}">
+
+        <label>Número (opcional no cadastro)</label>
+        <input type="number" name="numero" min="1" max="99" inputmode="numeric" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+        <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                Vincular atleta nesta competição
+            </button>
+        </div>
+    </form>
+</div>
+{% elif cpf_busca %}
+<div class="card-painel">
+    <div style="font-weight: 900; margin-bottom: 14px;">CPF não encontrado. Complete o cadastro</div>
+
+    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarFormularioAtleta(this);">
+        <input type="hidden" name="acao" value="cadastrar">
 
         <label>CPF</label>
         <input
@@ -49,23 +105,33 @@
             autocomplete="off"
             placeholder="000.000.000-00"
             pattern="\d{3}\.\d{3}\.\d{3}-\d{2}"
+            value="{{ cpf_busca }}"
             oninput="mascaraCPF(this)"
             onblur="validarCPFNaTela(this)"
             {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}
         >
 
+        <label>Nome completo</label>
+        <input type="text" name="nome" required autocomplete="name" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
         <label>Data de nascimento</label>
         <input type="date" name="data_nascimento" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
 
         <label>Número (opcional no cadastro)</label>
-        <input type="number" name="numero" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+        <input type="number" name="numero" min="1" max="99" inputmode="numeric" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
 
         <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Cadastrar atleta</button>
-            <a class="btn-secundario" href="{{ url_for('equipes.meus_atletas_view') }}">Ver atletas cadastrados</a>
+            <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                Cadastrar novo atleta
+            </button>
         </div>
     </form>
 </div>
+{% else %}
+<div class="card-painel" style="background:#fffdf5; border-color:#fde68a;">
+    Digite o CPF do atleta primeiro. Se ele já existir no banco, o sistema puxará nome e data de nascimento automaticamente.
+</div>
+{% endif %}
 {% else %}
 <div class="card-painel">
     <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
@@ -188,6 +254,18 @@ function validarCPFNaTela(input) {
     } else {
         input.setCustomValidity('');
     }
+}
+
+function validarBuscaCPFAtleta(form) {
+    const cpf = form.querySelector('input[name="cpf"]');
+    if (cpf) {
+        validarCPFNaTela(cpf);
+        if (!cpf.checkValidity()) {
+            cpf.reportValidity();
+            return false;
+        }
+    }
+    return true;
 }
 
 function validarFormularioAtleta(form) {

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Painel dos Árbitros</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root { --bg:#f4f7fb; --card:#fff; --text:#183247; --muted:#5f7285; --border:#d9e3ec; --primary:#123852; --accent:#d4a62a; --shadow:0 16px 38px rgba(17,41,65,.10); }
+        * { box-sizing:border-box; }
+        body { margin:0; font-family:Arial, Helvetica, sans-serif; background:linear-gradient(180deg,#f8fbff 0%,var(--bg) 100%); color:var(--text); min-height:100vh; }
+        .topbar { background:linear-gradient(90deg,#062743 0%,#0b3557 100%); color:#fff; padding:18px 28px; display:flex; align-items:center; gap:14px; box-shadow:0 4px 18px rgba(0,0,0,.12); }
+        .logo { width:46px; height:46px; border-radius:14px; background:rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center; font-size:24px; }
+        .brand { font-size:28px; font-weight:1000; line-height:1; }
+        .brand span { color:var(--accent); }
+        .sub { color:rgba(255,255,255,.72); font-size:13px; margin-top:5px; font-weight:700; }
+        .wrap { width:min(1280px, calc(100% - 48px)); margin:32px auto; }
+        .card { background:var(--card); border:1px solid var(--border); border-radius:24px; box-shadow:var(--shadow); padding:24px; margin-bottom:18px; }
+        .title { font-size:28px; font-weight:1000; margin:0 0 8px; }
+        .hint { color:var(--muted); font-weight:800; line-height:1.5; }
+        .vinculo { background:#ecfdf5; border:1px solid #bbf7d0; color:#064e3b; border-radius:18px; padding:16px; font-weight:900; line-height:1.55; margin-top:18px; }
+        .pin { display:inline-flex; align-items:center; justify-content:center; background:#123852; color:#fff; border-radius:999px; padding:5px 12px; letter-spacing:2px; font-weight:1000; }
+        .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+        .opcao { background:#fff; border:1px solid var(--border); border-radius:24px; box-shadow:var(--shadow); padding:24px; position:relative; overflow:hidden; }
+        .opcao::before { content:""; position:absolute; inset:0 0 auto 0; height:6px; background:linear-gradient(90deg,#123852,#d4a62a); }
+        .icone { width:58px; height:58px; border-radius:18px; background:#eef4fb; display:flex; align-items:center; justify-content:center; font-size:30px; margin-bottom:18px; }
+        .opcao h2 { font-size:28px; margin:0 0 12px; }
+        .opcao p { color:var(--muted); font-weight:800; line-height:1.55; min-height:50px; }
+        .btn { display:flex; align-items:center; justify-content:center; width:100%; text-decoration:none; border:none; border-radius:16px; background:#123852; color:#fff; font-size:16px; font-weight:1000; padding:16px; margin-top:22px; cursor:pointer; }
+        .btn:hover { background:#0f3147; }
+        .btn2 { background:#fff; color:#123852; border:1px solid var(--border); }
+        .acoes { margin-top:18px; display:flex; gap:10px; flex-wrap:wrap; }
+        @media(max-width:760px){ .grid{grid-template-columns:1fr;} .wrap{width:calc(100% - 24px); margin:18px auto;} .brand{font-size:24px;} }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="logo">🏐</div>
+        <div>
+            <div class="brand">Volley<span>Table</span> Pro</div>
+            <div class="sub">Painel dos árbitros por PIN</div>
+        </div>
+    </div>
+
+    <main class="wrap">
+        <section class="card">
+            <h1 class="title">Escolha o tipo de árbitro deste tablet</h1>
+            <div class="hint">O PIN já foi validado. Agora selecione se esta tela ficará como 1º árbitro ou 2º árbitro. Depois disso, ela ficará aguardando o apontador abrir/iniciar a partida.</div>
+
+            {% if vinculo_arbitro %}
+            <div class="vinculo">
+                {% if vinculo_arbitro.tipo == 'operacional' %}
+                    Competição: {{ vinculo_arbitro.competicao }}<br>
+                    Canal do apontador: {{ vinculo_arbitro.apontador_nome or vinculo_arbitro.apontador_cpf }}<br>
+                    PIN: <span class="pin">{{ vinculo_arbitro.pin }}</span>
+                {% elif vinculo_arbitro.tipo == 'competicao' %}
+                    Competição: {{ vinculo_arbitro.competicao }}<br>
+                    Quadra: {{ vinculo_arbitro.quadra_nome or ('Quadra ' ~ vinculo_arbitro.quadra_ordem) }}<br>
+                    PIN: <span class="pin">{{ vinculo_arbitro.pin }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </section>
+
+        <section class="grid">
+            <div class="opcao">
+                <div class="icone">⬆️</div>
+                <h2>1º Árbitro</h2>
+                <p>Tela principal da arbitragem. Acompanha rotação, sacador, placar e última ação enviada pelo apontador.</p>
+                <a class="btn" href="{{ url_for('acessos_pin.arbitro_automatico_primeiro') }}">Entrar como 1º árbitro</a>
+            </div>
+            <div class="opcao">
+                <div class="icone">⬇️</div>
+                <h2>2º Árbitro</h2>
+                <p>Tela do segundo árbitro. Acompanha rotação, solicitações, tempos e avisos enviados pelo apontador.</p>
+                <a class="btn" href="{{ url_for('acessos_pin.arbitro_automatico_segundo') }}">Entrar como 2º árbitro</a>
+            </div>
+        </section>
+
+        <div class="acoes">
+            <a class="btn btn2" href="{{ url_for('acessos_pin.arbitro_publico_pin', trocar=1) }}">Trocar PIN</a>
+        </div>
+    </main>
+</body>
+</html>

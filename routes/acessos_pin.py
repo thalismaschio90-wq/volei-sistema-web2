@@ -1,0 +1,362 @@
+from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify
+
+from banco import (
+    conectar,
+    buscar_vinculo_operacional_por_pin,
+    buscar_vinculo_arbitragem_por_pin,
+)
+
+acessos_pin_bp = Blueprint("acessos_pin", __name__)
+
+
+STATUS_ATIVOS_ARBITRO = (
+    "pre_jogo",
+    "papeleta",
+    "papeleta_pronta",
+    "em_andamento",
+    "andamento",
+    "ao_vivo",
+    "jogo",
+    "iniciada",
+    "iniciado",
+    "entre_sets",
+    "tiebreak_sorteio",
+)
+
+STATUS_FINALIZADOS_ARBITRO = (
+    "finalizada",
+    "finalizado",
+    "encerrada",
+    "encerrado",
+)
+
+
+def _pin_limpo(valor):
+    return "".join(ch for ch in str(valor or "") if ch.isdigit())[:4]
+
+
+def _limpar_sessao_arbitro():
+    for chave in [
+        "arbitro_pin_validado",
+        "arbitro_pin_tipo",
+        "arbitro_pin",
+        "arbitro_competicao",
+        "arbitro_quadra_id",
+        "arbitro_quadra_nome",
+        "arbitro_quadra_local",
+        "arbitro_quadra_ordem",
+        "arbitro_apontador_cpf",
+        "arbitro_apontador_nome",
+        "arbitro_jogo_avulso_codigo",
+        "arbitro_jogo_avulso_pin",
+        "arbitro_jogo_avulso_equipe_a",
+        "arbitro_jogo_avulso_equipe_b",
+    ]:
+        session.pop(chave, None)
+
+
+def _limpar_sessao_telao():
+    for chave in [
+        "telao_pin_validado",
+        "telao_pin",
+        "telao_competicao",
+        "telao_apontador",
+        "telao_apontador_nome",
+    ]:
+        session.pop(chave, None)
+
+
+def _vinculo_arbitro_sessao():
+    if not session.get("arbitro_pin_validado"):
+        return None
+
+    tipo = (session.get("arbitro_pin_tipo") or "").strip().lower()
+
+    if tipo == "operacional":
+        return {
+            "tipo": "operacional",
+            "competicao": session.get("arbitro_competicao") or "",
+            "apontador_cpf": session.get("arbitro_apontador_cpf") or "",
+            "apontador_nome": session.get("arbitro_apontador_nome") or "",
+            "pin": session.get("arbitro_pin") or "",
+        }
+
+    if tipo == "competicao":
+        return {
+            "tipo": "competicao",
+            "competicao": session.get("arbitro_competicao") or "",
+            "quadra_id": session.get("arbitro_quadra_id"),
+            "quadra_nome": session.get("arbitro_quadra_nome") or "",
+            "quadra_local": session.get("arbitro_quadra_local") or "",
+            "quadra_ordem": session.get("arbitro_quadra_ordem"),
+            "pin": session.get("arbitro_pin") or "",
+        }
+
+    return None
+
+
+def _buscar_partida_ativa_por_pin(vinculo):
+    if not vinculo:
+        return None
+
+    competicao = (vinculo.get("competicao") or "").strip()
+    if not competicao:
+        return None
+
+    filtros = ["competicao = %s"]
+    params = [competicao]
+
+    if vinculo.get("tipo") == "operacional":
+        apontador = (vinculo.get("apontador_cpf") or "").strip()
+        if apontador:
+            filtros.append("COALESCE(operador_login, '') = %s")
+            params.append(apontador)
+    elif vinculo.get("tipo") == "competicao":
+        quadra_id = vinculo.get("quadra_id")
+        quadra_nome = (vinculo.get("quadra_nome") or "").strip()
+        quadra_ordem = vinculo.get("quadra_ordem")
+        if quadra_id:
+            filtros.append("(quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s)")
+            params.extend([quadra_id, quadra_nome, quadra_nome, str(quadra_ordem or "")])
+        elif quadra_nome:
+            filtros.append("(quadra_nome = %s OR quadra = %s)")
+            params.extend([quadra_nome, quadra_nome])
+
+    ativos = list(STATUS_ATIVOS_ARBITRO)
+    finalizados = list(STATUS_FINALIZADOS_ARBITRO)
+
+    where = " AND ".join(filtros)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    id,
+                    competicao,
+                    ordem,
+                    quadra,
+                    quadra_id,
+                    quadra_nome,
+                    grupo,
+                    equipe_a,
+                    equipe_b,
+                    equipe_a_operacional,
+                    equipe_b_operacional,
+                    status,
+                    status_operacao,
+                    status_jogo,
+                    fase_partida,
+                    set_atual,
+                    pontos_a,
+                    pontos_b,
+                    sets_a,
+                    sets_b,
+                    pre_jogo_finalizado,
+                    arbitro_1_nome,
+                    arbitro_2_nome,
+                    operador_nome,
+                    operador_login
+                FROM partidas
+                WHERE {where}
+                  AND LOWER(COALESCE(status, '')) <> ALL(%s)
+                  AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
+                  AND (
+                        COALESCE(pre_jogo_finalizado, FALSE) = TRUE
+                     OR LOWER(COALESCE(status, '')) = ANY(%s)
+                     OR LOWER(COALESCE(status_operacao, '')) = ANY(%s)
+                     OR LOWER(COALESCE(status_jogo, '')) = ANY(%s)
+                     OR LOWER(COALESCE(fase_partida, '')) = ANY(%s)
+                  )
+                ORDER BY
+                    CASE
+                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo') THEN 1
+                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo') THEN 2
+                        WHEN LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo', 'iniciada', 'iniciado') THEN 3
+                        WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 4
+                        ELSE 9
+                    END,
+                    COALESCE(ordem, 999999),
+                    id
+                LIMIT 1
+                """,
+                tuple(params + [finalizados, finalizados, ativos, ativos, ativos, ativos]),
+            )
+            return cur.fetchone()
+
+
+@acessos_pin_bp.route("/arbitro", methods=["GET", "POST"])
+def arbitro_publico_pin():
+    """
+    Entrada pública do árbitro por PIN.
+
+    O PIN só libera o canal operacional. Depois de validar, a tela entra direto
+    no painel automático que aguarda o apontador abrir/iniciar uma partida.
+    """
+    if request.args.get("trocar") == "1":
+        _limpar_sessao_arbitro()
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+    if request.method == "POST":
+        pin = _pin_limpo(request.form.get("pin"))
+
+        if len(pin) != 4:
+            flash("Digite um PIN de 4 números.", "erro")
+            return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+        vinculo_operacional = buscar_vinculo_operacional_por_pin(pin)
+        if vinculo_operacional:
+            session["arbitro_pin_validado"] = True
+            session["arbitro_pin_tipo"] = "operacional"
+            session["arbitro_pin"] = pin
+            session["arbitro_competicao"] = vinculo_operacional.get("competicao") or ""
+            session["arbitro_apontador_cpf"] = vinculo_operacional.get("apontador_cpf") or ""
+            session["arbitro_apontador_nome"] = vinculo_operacional.get("apontador_nome") or ""
+            flash("PIN validado. Escolha se este tablet será o 1º ou o 2º árbitro.", "sucesso")
+            return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+        try:
+            vinculo_quadra = buscar_vinculo_arbitragem_por_pin(pin)
+        except Exception:
+            vinculo_quadra = None
+
+        if vinculo_quadra:
+            session["arbitro_pin_validado"] = True
+            session["arbitro_pin_tipo"] = "competicao"
+            session["arbitro_pin"] = pin
+            session["arbitro_competicao"] = vinculo_quadra.get("competicao") or ""
+            session["arbitro_quadra_id"] = vinculo_quadra.get("id")
+            session["arbitro_quadra_nome"] = vinculo_quadra.get("nome") or ""
+            session["arbitro_quadra_local"] = vinculo_quadra.get("local") or ""
+            session["arbitro_quadra_ordem"] = vinculo_quadra.get("ordem")
+            flash("PIN validado. Escolha se este tablet será o 1º ou o 2º árbitro.", "sucesso")
+            return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+        flash("PIN não encontrado ou inativo.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+    if session.get("arbitro_pin_validado"):
+        return render_template(
+            "painel_arbitro_pin_escolha.html",
+            vinculo_arbitro=_vinculo_arbitro_sessao(),
+        )
+
+    return render_template("pin_arbitro.html")
+
+
+@acessos_pin_bp.route("/arbitro/1")
+def arbitro_automatico_primeiro():
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo:
+        flash("Digite o PIN antes de abrir o painel do árbitro.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+    return render_template(
+        "painel_arbitro_automatico.html",
+        tipo="primeiro",
+        titulo="Painel do 1º Árbitro",
+        subtitulo="Tablet do árbitro principal. Aguarde o apontador abrir ou iniciar uma partida.",
+        endpoint_status=url_for("acessos_pin.proxima_partida_arbitro_primeiro"),
+        voltar_url=url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+    )
+
+
+@acessos_pin_bp.route("/arbitro/2")
+def arbitro_automatico_segundo():
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo:
+        flash("Digite o PIN antes de abrir o painel do árbitro.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+    return render_template(
+        "painel_arbitro_automatico.html",
+        tipo="segundo",
+        titulo="Painel do 2º Árbitro",
+        subtitulo="Tablet do segundo árbitro. Aguarde o apontador abrir ou iniciar uma partida.",
+        endpoint_status=url_for("acessos_pin.proxima_partida_arbitro_segundo"),
+        voltar_url=url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+    )
+
+
+def _resposta_proxima_partida(tipo):
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo:
+        return jsonify({"ok": False, "erro": "PIN não validado."}), 403
+
+    partida = _buscar_partida_ativa_por_pin(vinculo)
+
+    if not partida:
+        return jsonify({
+            "ok": True,
+            "tem_partida": False,
+            "competicao": vinculo.get("competicao") or "",
+            "mensagem": "Aguardando o apontador abrir/iniciar uma partida neste PIN."
+        })
+
+    rota = "oficiais.primeiro_arbitro_view" if tipo == "primeiro" else "oficiais.segundo_arbitro_view"
+    url = url_for(rota, competicao=partida["competicao"], partida_id=partida["id"])
+
+    return jsonify({
+        "ok": True,
+        "tem_partida": True,
+        "url": url,
+        "partida": {
+            "id": partida.get("id"),
+            "competicao": partida.get("competicao"),
+            "ordem": partida.get("ordem"),
+            "quadra": partida.get("quadra_nome") or partida.get("quadra"),
+            "grupo": partida.get("grupo"),
+            "equipe_a": partida.get("equipe_a_operacional") or partida.get("equipe_a"),
+            "equipe_b": partida.get("equipe_b_operacional") or partida.get("equipe_b"),
+            "status": partida.get("status"),
+            "status_operacao": partida.get("status_operacao"),
+            "operador": partida.get("operador_nome") or partida.get("operador_login") or "",
+        }
+    })
+
+
+@acessos_pin_bp.route("/arbitro/1/proxima")
+def proxima_partida_arbitro_primeiro():
+    return _resposta_proxima_partida("primeiro")
+
+
+@acessos_pin_bp.route("/arbitro/2/proxima")
+def proxima_partida_arbitro_segundo():
+    return _resposta_proxima_partida("segundo")
+
+
+@acessos_pin_bp.route("/telao", methods=["GET", "POST"])
+def telao_publico_pin():
+    """
+    Entrada pública do telão por PIN operacional.
+    Depois do PIN, mantém o comportamento antigo do telão do apontador.
+    """
+    if request.args.get("trocar") == "1":
+        _limpar_sessao_telao()
+        return redirect(url_for("acessos_pin.telao_publico_pin"))
+
+    if request.method == "POST":
+        pin = _pin_limpo(request.form.get("pin"))
+
+        if len(pin) != 4:
+            flash("Digite um PIN de 4 números.", "erro")
+            return redirect(url_for("acessos_pin.telao_publico_pin"))
+
+        vinculo = buscar_vinculo_operacional_por_pin(pin)
+        if not vinculo:
+            flash("PIN não encontrado ou inativo.", "erro")
+            return redirect(url_for("acessos_pin.telao_publico_pin"))
+
+        apontador = vinculo.get("apontador_cpf") or ""
+        if not apontador:
+            flash("Este PIN não possui apontador vinculado.", "erro")
+            return redirect(url_for("acessos_pin.telao_publico_pin"))
+
+        session["telao_pin_validado"] = True
+        session["telao_pin"] = pin
+        session["telao_competicao"] = vinculo.get("competicao") or ""
+        session["telao_apontador"] = apontador
+        session["telao_apontador_nome"] = vinculo.get("apontador_nome") or ""
+        return redirect(url_for("apontadores.placar_ao_vivo_apontador", apontador=apontador))
+
+    return render_template("pin_telao.html")
