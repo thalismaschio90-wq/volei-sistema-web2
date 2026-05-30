@@ -103,7 +103,7 @@
     <div>
         <div class="ap-kicker">Central de operação</div>
         <div class="ap-title">Painel do Apontador</div>
-        <div class="ap-sub">Entre rápido no pré-jogo e na operação ao vivo da competição.</div>
+        <div class="ap-sub">Entre rápido no pré-jogo, operação ao vivo e telão da competição.</div>
     </div>
 </div>
 
@@ -228,7 +228,7 @@
                 <div class="ap-pins-topo">
                     <div>
                         <div class="ap-pins-titulo">PIN operacional do apontador</div>
-                        <div class="ap-pins-hint">Passe este PIN para o árbitro acessar /arbitro. Ele acompanha o jogo que você estiver operando nesta competição.</div>
+                        <div class="ap-pins-hint">Passe este PIN para o árbitro acessar /arbitro e para o telão acessar /telao. Ele acompanha o jogo que você estiver operando nesta competição.</div>
                     </div>
                 </div>
                 <div class="ap-pins-grid">
@@ -381,6 +381,7 @@
                 <td>{{ c.status or '-' }}</td>
                 <td style="display:flex; gap:8px; flex-wrap:wrap;">
                     <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a>
+                    {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>{% endif %}
                 </td>
             </tr>
         {% endfor %}

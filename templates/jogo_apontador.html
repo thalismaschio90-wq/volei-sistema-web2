@@ -688,12 +688,6 @@
         <span id="nome-a">{{ partida.equipe_a_operacional or partida.equipe_a }}</span> x <span id="nome-b">{{ partida.equipe_b_operacional or partida.equipe_b }}</span>
     </div>
 
-    <div class="topo-acoes-direita">
-        <button id="btn-salvar-partida" class="btn-salvar-partida" type="button">💾 Salvar partida</button>
-        <button id="btn-salvar-sair-partida" class="btn-salvar-partida sair" type="button">💾 Salvar e sair</button>
-        <button id="btn-preparar-jogo-offline" class="btn-atalhos-apontador" type="button">⬇️ Offline</button>
-        <button id="btn-abrir-atalhos-apontador" class="btn-atalhos-apontador" type="button">⚙️ Teclas de atalho</button>
-    </div>
 </div>
 
 <div class="card-painel" style="text-align:center;">
@@ -993,13 +987,27 @@
     </div>
 </div>
 
-<div class="card-painel" style="display:flex; gap:12px; flex-wrap:wrap;">
+<div class="card-painel" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
     <a class="btn-secundario" href="{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}">
         Voltar para papeleta
     </a>
     <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">
         Voltar para partidas
     </a>
+    <button id="btn-salvar-partida" class="btn-secundario" type="button">
+        Salvar partida
+    </button>
+    <button id="btn-salvar-sair-partida" class="btn-secundario" type="button">
+        Salvar e sair
+    </button>
+    {% if offline_habilitado is defined and offline_habilitado %}
+        <button id="btn-preparar-jogo-offline" class="btn-secundario" type="button">
+            Modo offline
+        </button>
+    {% endif %}
+    <button id="btn-atalhos-apontador" class="btn-secundario" type="button" onclick="abrirModalAtalhosApontador()">
+        Teclas de atalho
+    </button>
 </div>
 
 
@@ -2170,67 +2178,166 @@ function inverterLadosVisual() {
         }, 1000);
     }
 
+    function setsParaVencerPelasRegras(dados) {
+        const setsTipo = String(dados?.sets_tipo ?? "").trim().toLowerCase();
+
+        if (["set_unico", "único", "unico", "1_set", "melhor_de_1"].includes(setsTipo)) {
+            return 1;
+        }
+
+        if (setsTipo === "melhor_de_5") {
+            return 3;
+        }
+
+        if (setsTipo === "melhor_de_3") {
+            return 2;
+        }
+
+        return numeroInteiro(dados?.sets_para_vencer ?? 2, 2);
+    }
+
+    function limiteDoSetAtualPelasRegras(dados) {
+        const setAtualNumero = numeroInteiro(dados?.set_atual ?? 1, 1);
+        const setsTipo = String(dados?.sets_tipo ?? "").trim().toLowerCase();
+        const pontosSet = numeroInteiro(dados?.pontos_set ?? 25, 25);
+        const pontosTiebreak = numeroInteiro(dados?.pontos_tiebreak ?? 15, 15);
+
+        const ehTiebreak =
+            (setsTipo === "melhor_de_3" && setAtualNumero === 3) ||
+            (setsTipo === "melhor_de_5" && setAtualNumero === 5);
+
+        return ehTiebreak ? pontosTiebreak : pontosSet;
+    }
+
+    function ladoVencedorSetLocal(dados) {
+        const pontosAAtual = numeroInteiro(dados?.pontos_a ?? dados?.placar_a ?? 0, 0);
+        const pontosBAtual = numeroInteiro(dados?.pontos_b ?? dados?.placar_b ?? 0, 0);
+        const limite = limiteDoSetAtualPelasRegras(dados);
+        const diferenca = numeroInteiro(dados?.diferenca_minima ?? 2, 2);
+
+        if (pontosAAtual >= limite && (pontosAAtual - pontosBAtual) >= diferenca) {
+            return "A";
+        }
+
+        if (pontosBAtual >= limite && (pontosBAtual - pontosAAtual) >= diferenca) {
+            return "B";
+        }
+
+        return "";
+    }
+
+    function aplicarFimSetPartidaLocal(ladoVencedor, origem = "local") {
+        ladoVencedor = String(ladoVencedor || "").toUpperCase();
+        if (!estadoAtual || partidaFinalizada || !["A", "B"].includes(ladoVencedor)) return false;
+
+        const setsParaVencer = setsParaVencerPelasRegras(estadoAtual);
+        const setsAtuaisA = numeroInteiro(estadoAtual.sets_a ?? 0, 0);
+        const setsAtuaisB = numeroInteiro(estadoAtual.sets_b ?? 0, 0);
+        const novosSetsA = setsAtuaisA + (ladoVencedor === "A" ? 1 : 0);
+        const novosSetsB = setsAtuaisB + (ladoVencedor === "B" ? 1 : 0);
+        const nome = nomeEquipePorLado(ladoVencedor);
+        const acabouPartida = (ladoVencedor === "A" ? novosSetsA : novosSetsB) >= setsParaVencer;
+
+        estadoAtual = {
+            ...(estadoAtual || {}),
+            sets_a: novosSetsA,
+            sets_b: novosSetsB,
+            fim_set: true,
+            set_finalizado: true,
+            vencedor_set: ladoVencedor,
+            partida_finalizada: acabouPartida,
+            status_jogo: acabouPartida ? "finalizada" : "entre_sets",
+            ultima_acao: acabouPartida ? `PARTIDA FINALIZADA - ${nome}` : `SET FINALIZADO - ${nome}`
+        };
+
+        partidaFinalizada = acabouPartida;
+        atualizarUltimaAcao(estadoAtual.ultima_acao);
+        renderPainelVisual(estadoAtual);
+        renderQuadra();
+
+        if (alertaPointEl) {
+            alertaPointEl.textContent = acabouPartida ? `PARTIDA FINALIZADA - ${nome}` : `SET FINALIZADO - ${nome}`;
+            alertaPointEl.style.display = "block";
+        }
+
+        emitirEstadoTempoReal({
+            ...estadoAtual,
+            origem: origem,
+            fim_set: true,
+            set_finalizado: true,
+            partida_finalizada: acabouPartida,
+            ultima_acao: estadoAtual.ultima_acao
+        });
+
+        salvarSnapshotLocalAutomatico(acabouPartida ? "partida_finalizada_local" : "set_finalizado_local");
+        enviarSnapshotBancoAutomatico({
+            pausar: !acabouPartida,
+            finalizar: acabouPartida,
+            motivo: acabouPartida ? "partida_finalizada_local" : "set_finalizado_local",
+            forcar: true
+        }).catch(() => {});
+
+        if (acabouPartida) {
+            travarBotoes(true);
+            if (saqueInfo && !saqueInfo.textContent.includes("Partida finalizada")) {
+                saqueInfo.textContent += " • Partida finalizada";
+            }
+            removerJogoOfflineSeFinalizado();
+
+            // Fluxo oficial: terminou a partida -> abre observações dos árbitros.
+            // A observação é o fechamento real da partida; depois de salvar lá,
+            // o sistema volta para a lista de partidas do apontador.
+            abrirObservacoesAutomaticamente();
+        } else {
+            travarBotoes(true);
+            setTimeout(() => window.location.reload(), 900);
+        }
+
+        return true;
+    }
+
     function atualizarAvisoPoint(dados) {
         if (!alertaPointEl) return;
 
-        // 🟢 Placar atual
-        const pontosA = parseInt(dados?.pontos_a ?? dados?.placar_a ?? 0, 10) || 0;
-        const pontosB = parseInt(dados?.pontos_b ?? dados?.placar_b ?? 0, 10) || 0;
+        dados = dados || {};
 
-        // 🟢 Sets
-        const setsA = parseInt(dados?.sets_a ?? 0, 10) || 0;
-        const setsB = parseInt(dados?.sets_b ?? 0, 10) || 0;
-
-        const setAtual = parseInt(dados?.set_atual ?? 1, 10) || 1;
-        const setsParaVencer = parseInt(dados?.sets_para_vencer ?? 2, 10) || 2;
-
-        // 🟢 Regras da competição (DINÂMICO)
-        const pontosSet = parseInt(dados?.pontos_set ?? 25, 10) || 25;
-        const pontosTiebreak = parseInt(dados?.pontos_tiebreak ?? 15, 10) || 15;
-        const diferencaMinima = parseInt(dados?.diferenca_minima ?? 2, 10) || 2;
-
-        const setsTipo = String(dados?.sets_tipo ?? "").toLowerCase();
-
-        // 🟢 Detecta se é tiebreak
-        const ehTiebreak =
-            (setsTipo === "melhor_de_3" && setAtual === 3) ||
-            (setsTipo === "melhor_de_5" && setAtual === 5);
-
-        const limite = ehTiebreak ? pontosTiebreak : pontosSet;
-
-        // 🚨 REGRA CORRETA DE SET POINT
-        let lado = null;
-
-        if (
-            pontosA >= (limite - 1) &&
-            (pontosA - pontosB) >= (diferencaMinima - 1)
-        ) {
-            lado = "A";
-        }
-
-        if (
-            pontosB >= (limite - 1) &&
-            (pontosB - pontosA) >= (diferencaMinima - 1)
-        ) {
-            lado = "B";
-        }
-
-        // ❌ NÃO MOSTRA NADA
-        if (!lado || dados?.partida_finalizada) {
+        // Se o set já acabou, não mostra MATCH POINT/SET POINT atrasado.
+        if (ladoVencedorSetLocal(dados) || dados?.partida_finalizada) {
             alertaPointEl.style.display = "none";
             alertaPointEl.textContent = "";
             return;
         }
 
-        // 🔥 MATCH POINT OU SET POINT
-        const setsDoLado = lado === "A" ? setsA : setsB;
-        const ehMatchPoint = (setsDoLado + 1) >= setsParaVencer;
+        const pontosAAtual = numeroInteiro(dados?.pontos_a ?? dados?.placar_a ?? 0, 0);
+        const pontosBAtual = numeroInteiro(dados?.pontos_b ?? dados?.placar_b ?? 0, 0);
+        const setsAAtual = numeroInteiro(dados?.sets_a ?? 0, 0);
+        const setsBAtual = numeroInteiro(dados?.sets_b ?? 0, 0);
+        const limite = limiteDoSetAtualPelasRegras(dados);
+        const diferenca = numeroInteiro(dados?.diferenca_minima ?? 2, 2);
+        const setsParaVencer = setsParaVencerPelasRegras(dados);
 
+        let lado = "";
+
+        // Mostra point apenas quando o próximo ponto daquele lado encerraria o set.
+        if ((pontosAAtual + 1) >= limite && ((pontosAAtual + 1) - pontosBAtual) >= diferenca) {
+            lado = "A";
+        }
+
+        if ((pontosBAtual + 1) >= limite && ((pontosBAtual + 1) - pontosAAtual) >= diferenca) {
+            lado = "B";
+        }
+
+        if (!lado) {
+            alertaPointEl.style.display = "none";
+            alertaPointEl.textContent = "";
+            return;
+        }
+
+        const setsDoLado = lado === "A" ? setsAAtual : setsBAtual;
+        const ehMatchPoint = (setsDoLado + 1) >= setsParaVencer;
         const nome = nomeEquipePorLado(lado);
 
-        alertaPointEl.textContent =
-            `${ehMatchPoint ? "MATCH POINT" : "SET POINT"} - ${nome}`;
-
+        alertaPointEl.textContent = `${ehMatchPoint ? "MATCH POINT" : "SET POINT"} - ${nome}`;
         alertaPointEl.style.display = "block";
     }
 
@@ -2326,6 +2433,12 @@ function inverterLadosVisual() {
         if (Array.isArray(dados.historico)) renderHistoricoBackend(dados.historico);
         partidaFinalizada = !!dados.partida_finalizada;
 
+        const vencedorSetEstado = ladoVencedorSetLocal(estadoAtual);
+        if (vencedorSetEstado && !partidaFinalizada) {
+            aplicarFimSetPartidaLocal(vencedorSetEstado, "estado_local");
+            return;
+        }
+
         atualizarAvisoPoint(estadoAtual);
         atualizarContadoresDisciplinares();
         renderPainelVisual(estadoAtual);
@@ -2342,8 +2455,21 @@ function inverterLadosVisual() {
             travarBotoes(true);
         }
 
-        if (partidaFinalizada) removerJogoOfflineSeFinalizado();
-        else salvarJogoOfflineLocal(true);
+        if (partidaFinalizada) {
+            salvarSnapshotLocalAutomatico("partida_finalizada");
+            enviarSnapshotBancoAutomatico({ pausar: false, finalizar: true, motivo: "partida_finalizada", forcar: true }).catch(() => {});
+            removerJogoOfflineSeFinalizado();
+
+            // Se o servidor ou o socket avisar que a partida acabou, mantém o mesmo fluxo:
+            // ir para observações, não ficar parado na tela do jogo.
+            if (dados?.abrir_observacoes || dados?.partida_finalizada || dados?.encerrado) {
+                abrirObservacoesAutomaticamente();
+            }
+        } else {
+            salvarJogoOfflineLocal(true);
+            salvarSnapshotLocalAutomatico("estado_aplicado");
+            agendarAutosaveBancoAutomatico(1600, "estado_aplicado");
+        }
     }
 
     // nomeEquipePorLado centralizada acima.
@@ -3383,6 +3509,12 @@ function aplicarPontoOtimista(equipe, scout) {
         rotacao_b: Array.isArray(rotB) ? [...rotB] : []
     };
 
+    const vencedorSetLocal = ladoVencedorSetLocal(estadoAtual);
+    if (vencedorSetLocal) {
+        aplicarFimSetPartidaLocal(vencedorSetLocal, "ponto_local");
+        return;
+    }
+
     // Correção principal: antes atualizava placar, mas a quadra do apontador não era
     // redesenhada. Árbitros/treinador recebiam certo pelo socket, e só o apontador ficava parado.
     renderPainelVisual(estadoAtual);
@@ -3406,6 +3538,9 @@ function aplicarPontoOtimista(equipe, scout) {
         rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
         rotacao_b: Array.isArray(rotB) ? [...rotB] : []
     });
+
+    salvarSnapshotLocalAutomatico("ponto");
+    agendarAutosaveBancoAutomatico(900, "ponto");
 }
 
 const FILA_OFFLINE_KEY = `fila_offline_jogo_{{ partida.id }}`;
@@ -3456,30 +3591,40 @@ function montarEstadoManualParaBanco() {
 async function salvarPartidaManual(pausar = false) {
     const btn = pausar ? btnSalvarSairPartida : btnSalvarPartida;
     const textoOriginal = btn ? btn.textContent : "";
+
+    limparErro();
+    salvarSnapshotLocalAutomatico(pausar ? "salvar_e_sair_clique" : "salvar_manual_clique");
+
+    if (pausar) {
+        if (btn) { btn.disabled = true; btn.textContent = "Salvando..."; }
+        atualizarUltimaAcao("Partida salva localmente. Enviando ao banco em segundo plano...");
+
+        enviarSnapshotSaidaRapida({
+            pausar: true,
+            finalizar: false,
+            motivo: "salvar_e_sair"
+        });
+
+        setTimeout(() => {
+            window.location.href = "{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}";
+        }, 350);
+        return;
+    }
+
     try {
         if (btn) { btn.disabled = true; btn.textContent = "Salvando..."; }
-        limparErro();
 
-        const resp = await fetch(URLS_ACAO.salvar_estado, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                pausar,
-                estado: montarEstadoManualParaBanco()
-            })
+        const ok = await enviarSnapshotBancoAutomatico({
+            pausar: false,
+            finalizar: false,
+            motivo: "salvar_manual",
+            forcar: true
         });
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok || !json.ok) throw new Error(json.mensagem || json.erro || "Erro ao salvar partida.");
 
-        aplicarEstado(json);
-        atualizarUltimaAcao(pausar ? "Partida pausada e salva no banco." : "Partida salva no banco.");
+        if (!ok) throw new Error("Não confirmou no banco agora. O snapshot ficou salvo neste dispositivo e será reenviado na próxima ação.");
 
-        if (pausar) {
-            window.location.href = "{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}";
-            return;
-        }
-
-        if (btn) btn.textContent = "✅ Salvo";
+        atualizarUltimaAcao("Partida salva no banco.");
+        if (btn) btn.textContent = "Salvo";
         setTimeout(() => { if (btn) btn.textContent = textoOriginal; }, 1200);
     } catch (e) {
         mostrarErro(e.message || "Erro ao salvar partida.");
@@ -3495,7 +3640,10 @@ if (btnSalvarSairPartida) btnSalvarSairPartida.addEventListener("click", () => s
 const OFFLINE_PARTIDAS_KEY = "voleitable_offline_partidas";
 const OFFLINE_SESSAO_KEY = "voleitable_offline_sessao";
 const OFFLINE_ESTADO_KEY = `voleitable_offline_estado_partida_${PARTIDA_ID}`;
-const btnPrepararJogoOffline = document.getElementById("btn-preparar-jogo-offline");
+const OFFLINE_HABILITADO_PELO_SUPERADM = {{ (offline_habilitado if offline_habilitado is defined else false)|tojson }};
+const btnPrepararJogoOffline = OFFLINE_HABILITADO_PELO_SUPERADM
+    ? document.getElementById("btn-preparar-jogo-offline")
+    : null;
 
 function lerJSONLocal(chave, padrao) {
     try { return JSON.parse(localStorage.getItem(chave) || JSON.stringify(padrao)); }
@@ -3506,7 +3654,165 @@ function salvarJSONLocal(chave, valor) {
     localStorage.setItem(chave, JSON.stringify(valor));
 }
 
+
+/* =========================================================
+   AUTOSAVE SEGURO E RÁPIDO
+   =========================================================
+   - Não bloqueia clique do apontador.
+   - Salva localmente em milissegundos.
+   - Envia snapshot para o banco em segundo plano com limite de frequência.
+   - "Salvar partida" espera confirmação.
+   - "Salvar e sair" manda snapshot por sendBeacon/keepalive e sai rápido.
+*/
+const AUTOSAVE_LOCAL_KEY = `voleitable_autosave_partida_${PARTIDA_ID}`;
+const AUTOSAVE_BANCO_MIN_INTERVALO_MS = 7000;
+let autosaveBancoTimer = null;
+let ultimoAutosaveBancoEm = 0;
+let autosaveBancoEmAndamento = false;
+let ultimoHashAutosaveBanco = "";
+
+function hashLeveEstadoAutosave(estado) {
+    try {
+        return JSON.stringify({
+            pontos_a: estado?.pontos_a ?? estado?.placar_a ?? 0,
+            pontos_b: estado?.pontos_b ?? estado?.placar_b ?? 0,
+            sets_a: estado?.sets_a ?? 0,
+            sets_b: estado?.sets_b ?? 0,
+            set_atual: estado?.set_atual ?? 1,
+            saque_atual: estado?.saque_atual ?? "",
+            rotacao_a: estado?.rotacao_a ?? [],
+            rotacao_b: estado?.rotacao_b ?? [],
+            tempos_a: estado?.tempos_a ?? 0,
+            tempos_b: estado?.tempos_b ?? 0,
+            subs_a: estado?.subs_a ?? 0,
+            subs_b: estado?.subs_b ?? 0,
+            ultima_acao: estado?.ultima_acao ?? "",
+            fila_tamanho: carregarFilaOffline().length
+        });
+    } catch (e) {
+        return String(Date.now());
+    }
+}
+
+function salvarSnapshotLocalAutomatico(motivo = "autosave") {
+    try {
+        const estado = montarEstadoManualParaBanco();
+        const pacote = {
+            ok: true,
+            partida_id: PARTIDA_ID,
+            competicao: COMPETICAO,
+            equipe_a: NOME_EQUIPE_A,
+            equipe_b: NOME_EQUIPE_B,
+            motivo,
+            pendente_banco: true,
+            atualizado_em: new Date().toISOString(),
+            estado,
+            fila_offline: carregarFilaOffline()
+        };
+        salvarJSONLocal(AUTOSAVE_LOCAL_KEY, pacote);
+        if (OFFLINE_HABILITADO_PELO_SUPERADM) {
+            salvarJSONLocal(OFFLINE_ESTADO_KEY, estado);
+        }
+        return pacote;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function enviarSnapshotBancoAutomatico({ pausar = false, finalizar = false, motivo = "autosave", forcar = false } = {}) {
+    if (autosaveBancoEmAndamento && !forcar) return false;
+
+    const pacoteLocal = salvarSnapshotLocalAutomatico(motivo);
+    if (!pacoteLocal || !URLS_ACAO || !URLS_ACAO.salvar_estado) return false;
+
+    const estado = pacoteLocal.estado || montarEstadoManualParaBanco();
+    const hashAtual = hashLeveEstadoAutosave(estado);
+    const agora = Date.now();
+
+    if (!forcar) {
+        if (hashAtual === ultimoHashAutosaveBanco) return true;
+        if (agora - ultimoAutosaveBancoEm < AUTOSAVE_BANCO_MIN_INTERVALO_MS) return false;
+    }
+
+    autosaveBancoEmAndamento = true;
+    ultimoAutosaveBancoEm = agora;
+    ultimoHashAutosaveBanco = hashAtual;
+
+    try {
+        const resp = await fetch(URLS_ACAO.salvar_estado, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+            body: JSON.stringify({
+                pausar,
+                finalizar,
+                autosave: true,
+                motivo,
+                estado
+            }),
+            keepalive: true
+        });
+
+        const json = await resp.json().catch(() => ({}));
+        if (resp.ok && json && json.ok) {
+            const confirmado = lerJSONLocal(AUTOSAVE_LOCAL_KEY, {});
+            confirmado.pendente_banco = false;
+            confirmado.confirmado_banco_em = new Date().toISOString();
+            salvarJSONLocal(AUTOSAVE_LOCAL_KEY, confirmado);
+            return true;
+        }
+    } catch (e) {
+        // Mantém local; próxima ação tenta de novo.
+    } finally {
+        autosaveBancoEmAndamento = false;
+    }
+
+    return false;
+}
+
+function agendarAutosaveBancoAutomatico(delay = 1200, motivo = "autosave") {
+    salvarSnapshotLocalAutomatico(motivo);
+    if (autosaveBancoTimer) return;
+
+    autosaveBancoTimer = setTimeout(() => {
+        autosaveBancoTimer = null;
+        enviarSnapshotBancoAutomatico({ motivo }).catch(() => {});
+    }, Math.max(250, delay));
+}
+
+function enviarSnapshotSaidaRapida({ pausar = true, finalizar = false, motivo = "salvar_e_sair" } = {}) {
+    const pacoteLocal = salvarSnapshotLocalAutomatico(motivo);
+    const estado = pacoteLocal?.estado || montarEstadoManualParaBanco();
+    const payload = JSON.stringify({
+        pausar,
+        finalizar,
+        autosave: true,
+        saida_rapida: true,
+        motivo,
+        estado
+    });
+
+    let enviadoBeacon = false;
+    try {
+        if (navigator.sendBeacon) {
+            const blob = new Blob([payload], { type: "application/json" });
+            enviadoBeacon = navigator.sendBeacon(URLS_ACAO.salvar_estado, blob);
+        }
+    } catch (e) {}
+
+    try {
+        fetch(URLS_ACAO.salvar_estado, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+            body: payload,
+            keepalive: true
+        }).catch(() => {});
+    } catch (e) {}
+
+    return enviadoBeacon;
+}
+
 function montarPacoteOfflineJogo() {
+    if (!OFFLINE_HABILITADO_PELO_SUPERADM) return null;
     return {
         id: PARTIDA_ID,
         partida_id: PARTIDA_ID,
@@ -3533,6 +3839,7 @@ function montarPacoteOfflineJogo() {
 }
 
 async function cachearUrlsOfflineJogo() {
+    if (!OFFLINE_HABILITADO_PELO_SUPERADM) return;
     if (!("serviceWorker" in navigator)) return;
     try {
         const reg = await navigator.serviceWorker.ready;
@@ -3551,7 +3858,11 @@ async function cachearUrlsOfflineJogo() {
 }
 
 function salvarJogoOfflineLocal(silencioso = true) {
+    if (!OFFLINE_HABILITADO_PELO_SUPERADM) return false;
+
     const pacote = montarPacoteOfflineJogo();
+    if (!pacote) return false;
+
     salvarJSONLocal(OFFLINE_ESTADO_KEY, pacote.estado);
 
     const partidas = lerJSONLocal(OFFLINE_PARTIDAS_KEY, []);
@@ -3582,9 +3893,11 @@ function salvarJogoOfflineLocal(silencioso = true) {
         btnPrepararJogoOffline.style.background = "#15803d";
     }
     if (!silencioso) alert("Jogo salvo para uso offline neste dispositivo.");
+    return true;
 }
 
 function removerJogoOfflineSeFinalizado() {
+    if (!OFFLINE_HABILITADO_PELO_SUPERADM) return;
     if (!partidaFinalizada) return;
     const partidas = lerJSONLocal(OFFLINE_PARTIDAS_KEY, []);
     salvarJSONLocal(OFFLINE_PARTIDAS_KEY, partidas.filter(p => String(p.id || p.partida_id) !== String(PARTIDA_ID)));
@@ -3599,7 +3912,13 @@ function carregarFilaOffline() {
 
 function salvarFilaOffline(fila) {
     localStorage.setItem(FILA_OFFLINE_KEY, JSON.stringify(fila || []));
-    try { salvarJogoOfflineLocal(true); } catch (e) {}
+
+    // IMPORTANTE:
+    // A fila local também serve para o autosave rápido, mas isso NÃO significa
+    // que o modo offline está liberado. Só prepara/cacheia offline se o Super ADM permitir.
+    if (OFFLINE_HABILITADO_PELO_SUPERADM) {
+        try { salvarJogoOfflineLocal(true); } catch (e) {}
+    }
 }
 
 function adicionarFilaOffline(tipo, payload) {
@@ -3701,6 +4020,9 @@ function aplicarAcaoLocal(tipo, payload) {
     estadoAtual.ultima_acao = descricao;
     emitirEstadoTempoReal({ ultima_acao: descricao, tipo_evento: tipo, tipo: tipo === "tempo" ? "tempo_autorizado" : tipo, status: tipo === "tempo" ? "iniciado" : "ok", origem: "apontador", equipe: payload.equipe || "", equipe_nome: nomeEquipePorLado(payload.equipe || "") });
     atualizarTravasOperacionais();
+
+    salvarSnapshotLocalAutomatico(tipo || "acao");
+    agendarAutosaveBancoAutomatico(1200, tipo || "acao");
 }
 
 async function enviarAcaoRapida(tipo, payload, aoSucesso) {
@@ -3751,6 +4073,9 @@ async function registrarPonto(equipe, scout) {
             scout: scout || {},
             estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
         });
+
+        salvarSnapshotLocalAutomatico("ponto_confirmado_local");
+        agendarAutosaveBancoAutomatico(900, "ponto_confirmado_local");
 
         const msg = "Ponto registrado";
         atualizarUltimaAcao(msg);
@@ -4062,8 +4387,19 @@ btnInverterLados.addEventListener("click", inverterLadosVisual);
 
 renderPainelVisual(estadoAtual);
 renderQuadra();
-if (btnPrepararJogoOffline) btnPrepararJogoOffline.addEventListener("click", function () { salvarJogoOfflineLocal(false); });
-salvarJogoOfflineLocal(true);
+const vencedorSetInicial = ladoVencedorSetLocal(estadoAtual);
+if (vencedorSetInicial && !partidaFinalizada) {
+    setTimeout(() => aplicarFimSetPartidaLocal(vencedorSetInicial, "abertura_local"), 150);
+} else {
+    atualizarAvisoPoint(estadoAtual);
+}
+if (OFFLINE_HABILITADO_PELO_SUPERADM && btnPrepararJogoOffline) {
+    btnPrepararJogoOffline.addEventListener("click", function () {
+        salvarJogoOfflineLocal(false);
+    });
+}
+salvarSnapshotLocalAutomatico("abertura_jogo");
+setTimeout(() => enviarSnapshotBancoAutomatico({ motivo: "abertura_jogo" }).catch(() => {}), 1800);
 
 btnRetardamentoCancelar.addEventListener("click", fecharModalRetardamento);
 btnRetardamentoConfirmar.addEventListener("click", registrarRetardamento);
@@ -4187,6 +4523,8 @@ modalSubExFundo.addEventListener("click", function (event) {
         modal.setAttribute("aria-hidden", "false");
         atualizarTela();
     }
+
+    window.abrirModalAtalhosApontador = abrirModal;
 
     function fecharModal() {
         if (!modal) return;

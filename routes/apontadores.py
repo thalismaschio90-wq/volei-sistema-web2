@@ -1837,6 +1837,15 @@ def salvar_papeleta_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>", methods=["GET"])
 @exigir_perfil("apontador")
 def jogo_view(competicao, partida_id):
+    """
+    Abre/retoma a partida de forma rápida.
+
+    IMPORTANTE:
+    Antes esta rota reconstruía histórico, evolução de pontos e placar lendo a
+    tabela eventos antes de renderizar. Em partidas pausadas isso podia travar
+    por minutos. Agora a tela abre com o estado salvo/cacheado e o JS/socket
+    continua a sincronização depois, sem bloquear o clique em "Retomar partida".
+    """
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -1844,28 +1853,77 @@ def jogo_view(competicao, partida_id):
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
     status_jogo = (partida.get("status_jogo") or "").strip().lower()
+    status_operacao = (partida.get("status_operacao") or "").strip().lower()
 
-    # Só inicializa se ainda não estiver em jogo.
-    if status_jogo not in {"em_andamento", "entre_sets", "finalizada"}:
-        partida = inicializar_jogo_partida(partida_id, competicao) or partida
-
-    if (partida.get("status_jogo") or "").strip().lower() == "finalizada":
+    if status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}:
         flash("A partida já está finalizada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+    # Não reinicializa partida pausada. Apenas abre do ponto salvo.
+    if status_jogo not in {"em_andamento", "entre_sets", "pausada", "pausado"} and status_operacao not in {"pausada", "pausado"}:
+        try:
+            partida = inicializar_jogo_partida(partida_id, competicao) or partida
+        except Exception as e:
+            print("ERRO inicializar_jogo_partida/jogo_view rapido:", repr(e), flush=True)
 
+    # Prioridade para cache vivo; se não existir, usa snapshot salvo no banco.
+    try:
+        estado = obter_estado_cache(partida_id) or {}
+    except Exception:
+        estado = {}
+
+    if not estado:
+        try:
+            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        except Exception as e:
+            print("ERRO buscar_estado_jogo_partida/jogo_view rapido:", repr(e), flush=True)
+            estado = {}
+
+    estado = dict(estado or {})
+
+    # Montagem mínima e segura do estado, sem varrer eventos.
+    estado.setdefault("ok", True)
+    estado["competicao"] = competicao
+    estado["partida_id"] = partida_id
+
+    equipe_a_op = partida.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
+    equipe_b_op = partida.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
+
+    estado["equipe_a_operacional"] = equipe_a_op
+    estado["equipe_b_operacional"] = equipe_b_op
+    estado["equipe_a"] = equipe_a_op
+    estado["equipe_b"] = equipe_b_op
+
+    for campo, padrao in (
+        ("pontos_a", partida.get("pontos_a") or 0),
+        ("pontos_b", partida.get("pontos_b") or 0),
+        ("sets_a", partida.get("sets_a") or 0),
+        ("sets_b", partida.get("sets_b") or 0),
+        ("set_atual", partida.get("set_atual") or 1),
+    ):
+        if estado.get(campo) in (None, ""):
+            estado[campo] = padrao
+
+    estado["placar_a"] = estado.get("placar_a", estado.get("pontos_a", 0))
+    estado["placar_b"] = estado.get("placar_b", estado.get("pontos_b", 0))
+    estado["saque_atual"] = estado.get("saque_atual") or partida.get("saque_atual") or partida.get("saque_inicial") or ""
+    estado.setdefault("status_jogo", status_jogo or "em_andamento")
+    estado.setdefault("fase_partida", partida.get("fase_partida") or "jogo")
+
+    # Papeleta e atletas são necessários para a operação da tela, mas são leves
+    # comparados à reconstrução por eventos. Mantemos com fallback seguro.
     equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
         partida_id,
         competicao,
         partida,
-        estado
+        estado,
     )
 
     try:
         atletas_a = _listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else []
         atletas_b = _listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else []
-    except Exception:
+    except Exception as e:
+        print("ERRO atletas jogo_view rapido:", repr(e), flush=True)
         atletas_a = []
         atletas_b = []
 
@@ -1878,22 +1936,18 @@ def jogo_view(competicao, partida_id):
     if not estado.get("rotacao_b"):
         estado["rotacao_b"] = _rotacao_fallback_por_papeleta(papeleta_b)
 
-    # Histórico inicial apenas para abrir a tela já preenchida.
+    # Não busca histórico/eventos aqui. Isso destravava o "Retomar partida".
+    estado.setdefault("historico", [])
+    estado.setdefault("ultima_acao", estado.get("ultima_acao") or "Partida retomada")
+    estado.setdefault("evolucao_pontos", estado.get("evolucao_pontos") or [])
+    estado.setdefault("scout", estado.get("scout") or {})
+
+    estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
+
     try:
-        historico_inicial, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
-    except Exception:
-        historico_inicial, ultima_acao = [], estado.get("ultima_acao") or "-"
-
-    estado["historico"] = historico_inicial
-    estado["ultima_acao"] = ultima_acao or estado.get("ultima_acao") or "-"
-
-    estado = _emitir_estado_e_placar(
-        partida_id,
-        competicao,
-        estado,
-        partida=partida,
-        origem="JOGO_VIEW"
-    )
+        atualizar_estado_cache(partida_id, estado)
+    except Exception as e:
+        print("AVISO atualizar cache jogo_view rapido:", repr(e), flush=True)
 
     resposta = make_response(render_template(
         "jogo_apontador.html",
@@ -1905,6 +1959,7 @@ def jogo_view(competicao, partida_id):
         atletas_a=atletas_a,
         atletas_b=atletas_b,
         modo_operacao=(partida.get("modo_operacao") or "simples"),
+        offline_habilitado=offline_global_habilitado(),
     ))
 
     resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -3101,6 +3156,8 @@ def encerrar_partida_view(competicao, partida_id):
             "encerrado": True,
             "estado": estado,
             "partida_finalizada": True,
+            "abrir_observacoes": True,
+            "url_observacoes": url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id),
             "eventos_processados": processados,
             **estado
         })
@@ -3132,7 +3189,7 @@ def salvar_observacoes_view(competicao, partida_id):
     estado["status_jogo"] = "finalizada"
     _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_OBSERVACOES")
 
-    return redirect("/")
+    return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
 # FIX: garantir fundamento/resultado corretos para falta e erro_saque
 

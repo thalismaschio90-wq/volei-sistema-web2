@@ -149,20 +149,22 @@
             font-size: 14px;
         }
 
+        .menu-link:hover {
+            background: rgba(255,255,255,0.10);
+        }
 
-
-        button.menu-link {
+        .menu-button {
             width: 100%;
-            text-align: left;
             border: 0;
+            text-align: left;
             font-family: inherit;
             cursor: pointer;
             background: transparent;
         }
 
-
-        .menu-link:hover {
-            background: rgba(255,255,255,0.10);
+        .menu-link.menu-button {
+            appearance: none;
+            -webkit-appearance: none;
         }
 
         .menu-link.active {
@@ -597,6 +599,135 @@
             letter-spacing: 0.4px;
         }
 
+
+
+        /* Modal global das teclas de atalho do apontador - abre em qualquer tela */
+        .atalhos-global-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 100000;
+            background: rgba(15,23,42,.72);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .atalhos-global-modal.aberto {
+            display: flex;
+        }
+
+        .atalhos-global-card {
+            width: min(560px, 96vw);
+            max-height: 92vh;
+            overflow: auto;
+            background: #fff;
+            color: #0f172a;
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            box-shadow: 0 24px 70px rgba(0,0,0,.28);
+            padding: 18px;
+        }
+
+        .atalhos-global-topo {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .atalhos-global-topo h3 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 900;
+            color: #0f2f4a;
+        }
+
+        .atalhos-global-fechar {
+            width: 38px;
+            height: 38px;
+            border: 0;
+            border-radius: 12px;
+            background: #e5e7eb;
+            color: #111827;
+            font-size: 24px;
+            font-weight: 900;
+            cursor: pointer;
+        }
+
+        .atalhos-global-ajuda {
+            color: #64748b;
+            font-size: 14px;
+            line-height: 1.45;
+            margin: 0 0 14px;
+        }
+
+        .atalhos-global-lista {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+
+        .atalhos-global-item {
+            width: 100%;
+            border: 1px solid #dbe3ef;
+            background: #f8fafc;
+            color: #0f172a;
+            padding: 12px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            font-weight: 800;
+            cursor: pointer;
+            text-align: left;
+            font-family: inherit;
+        }
+
+        .atalhos-global-item.aguardando {
+            border-color: #0f766e;
+            background: #ccfbf1;
+        }
+
+        .atalhos-global-tecla {
+            min-width: 70px;
+            text-align: center;
+            color: #fff;
+            background: #111827;
+            border-radius: 10px;
+            padding: 6px 10px;
+            font-weight: 900;
+        }
+
+        .atalhos-global-acoes {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .atalhos-global-acoes button {
+            flex: 1 1 160px;
+            border: 0;
+            border-radius: 12px;
+            padding: 12px;
+            font-weight: 900;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .atalhos-global-salvar {
+            background: #0f766e;
+            color: #fff;
+        }
+
+        .atalhos-global-limpar {
+            background: #e5e7eb;
+            color: #111827;
+        }
+
         @media (min-width: 861px) {
             .sidebar {
                 position: fixed;
@@ -775,70 +906,60 @@
 
         {% elif perfil == 'apontador' %}
 
-            <div class="menu-section-title">Operação</div>
+            <div class="menu-section-title">Navegação</div>
 
             <div class="menu-item">
-                <a class="menu-link {% if path == '/apontador' %}active{% endif %}" href="/apontador">Início</a>
+                <a class="menu-link {% if path == '/apontador' %}active{% endif %}" href="/apontador">
+                    Início
+                </a>
                 <div class="tooltip-texto">Volta para o painel principal do apontador.</div>
             </div>
 
             <div class="menu-item">
-                <a class="menu-link {% if path.startswith('/apontador') %}active{% endif %}" href="/apontador">Painel do apontador</a>
+                <a class="menu-link {% if path.startswith('/apontador') %}active{% endif %}" href="/apontador">
+                    Painel do apontador
+                </a>
                 <div class="tooltip-texto">Acesse rapidamente as partidas da competição.</div>
             </div>
 
-            <div class="menu-section-title">Ferramentas</div>
-
-            {% if pode_jogo_avulso is defined and pode_jogo_avulso %}
-                <div class="menu-item">
-                    <a class="menu-link" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">⚡ Criar jogo rápido</a>
-                    <div class="tooltip-texto">Abre uma partida avulsa para uso rápido, fora da tabela da competição.</div>
-                </div>
-            {% endif %}
+            <div class="menu-section-title">Operação</div>
 
             <div class="menu-item">
-                <button type="button" class="menu-link" onclick="fecharMenu(); if (window.abrirModalAtalhosApontador) { abrirModalAtalhosApontador(); }">⚙️ Teclas de atalho</button>
-                <div class="tooltip-texto">Configure atalhos do teclado para acelerar a operação do apontador.</div>
+                <a class="menu-link" href="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">
+                    Criar jogo rápido
+                </a>
+                <div class="tooltip-texto">Abre o modo de jogo avulso/rápido do apontador.</div>
             </div>
 
-            {% if modo_partidas is defined and modo_partidas %}
-                <div class="menu-item">
-                    <a class="menu-link" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank">🖥️ Abrir telão</a>
-                    <div class="tooltip-texto">Abre o placar/telão da competição em outra aba.</div>
-                </div>
-            {% endif %}
+            <div class="menu-item">
+                <a class="menu-link" href="{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}" target="_blank" rel="noopener">
+                    Abrir telão
+                </a>
+                <div class="tooltip-texto">Abre o telão vinculado ao seu canal operacional.</div>
+            </div>
 
-            {% set offline_menu_habilitado = offline_habilitado if offline_habilitado is defined else false %}
-            {% if offline_menu_habilitado %}
-                <div class="menu-section-title">Offline</div>
+            <div class="menu-item">
+                <button type="button" class="menu-link menu-button" onclick="abrirAtalhosApontadorPeloMenu(event)">
+                    Teclas de atalho
+                </button>
+                <div class="tooltip-texto">Configura as teclas rápidas do apontador.</div>
+            </div>
 
-                {% if modo_partidas is defined and modo_partidas %}
-                    <div class="menu-item">
-                        <button type="button" class="menu-link" onclick="fecharMenu(); if (window.abrirModalOfflineApontador) { abrirModalOfflineApontador(); }">📦 Preparar offline</button>
-                        <div class="tooltip-texto">Baixe a competição e prepare este dispositivo para operar sem internet.</div>
-                    </div>
-
-                    <div class="menu-item">
-                        <button type="button" class="menu-link" onclick="fecharMenu(); if (window.baixarCompeticaoOffline) { baixarCompeticaoOffline(); }">⬇️ Baixar competição</button>
-                        <div class="tooltip-texto">Salva as partidas desta competição no dispositivo.</div>
-                    </div>
-                {% elif competicao_unica is defined and competicao_unica %}
-                    <div class="menu-item">
-                        <button type="button" class="menu-link" onclick="fecharMenu(); if (window.prepararCompeticaoUnicaOffline) { prepararCompeticaoUnicaOffline(); }">📦 Baixar competição</button>
-                        <div class="tooltip-texto">Prepara a competição vinculada para uso offline.</div>
-                    </div>
-                {% endif %}
-
-                <div class="menu-item">
-                    <a class="menu-link" href="/offline-apontador">📲 Abrir tela offline</a>
-                    <div class="tooltip-texto">Abre a área offline do apontador neste dispositivo.</div>
-                </div>
+            {% if offline_habilitado is defined and offline_habilitado %}
+            <div class="menu-item">
+                <button type="button" class="menu-link menu-button" onclick="abrirOfflineApontadorPeloMenu(event)">
+                    Modo offline
+                </button>
+                <div class="tooltip-texto">Abre as ferramentas offline do apontador.</div>
+            </div>
             {% endif %}
 
             <div class="menu-section-title">Conta</div>
 
             <div class="menu-item">
-                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">Minha conta</a>
+                <a class="menu-link {% if path == '/minha-conta' %}active{% endif %}" href="/minha-conta">
+                    Minha conta
+                </a>
                 <div class="tooltip-texto">Veja e gerencie seus dados de acesso e senha.</div>
             </div>
 
@@ -962,7 +1083,199 @@
     </div>
 </div>
 
+{% if session.get("usuario") and perfil == 'apontador' %}
+<div id="modal-atalhos-global-apontador" class="atalhos-global-modal" aria-hidden="true">
+    <div class="atalhos-global-card" role="dialog" aria-modal="true" aria-labelledby="atalhos-global-titulo">
+        <div class="atalhos-global-topo">
+            <h3 id="atalhos-global-titulo">Teclas de atalho do apontador</h3>
+            <button type="button" class="atalhos-global-fechar" onclick="fecharModalAtalhosApontador()" aria-label="Fechar">×</button>
+        </div>
+        <p class="atalhos-global-ajuda">
+            Clique em uma ação, pressione a tecla desejada e depois salve. Os atalhos funcionam na tela do jogo, desde que nenhum campo de texto esteja selecionado.
+        </p>
+        <div id="atalhos-global-lista" class="atalhos-global-lista"></div>
+        <div class="atalhos-global-ajuda" style="margin-top:12px;">Pressione ESC para fechar este painel.</div>
+        <div class="atalhos-global-acoes">
+            <button type="button" class="atalhos-global-limpar" onclick="restaurarPadroesAtalhosApontador()">Restaurar padrões</button>
+            <button type="button" class="atalhos-global-salvar" onclick="salvarAtalhosApontadorGlobal()">Salvar alterações</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+
 <script>
+
+    const ATALHOS_APONTADOR_PADRAO_GLOBAL = {
+        ponto_a: "A",
+        ponto_b: "B",
+        desfazer: "Z",
+        tempo_a: "1",
+        tempo_b: "2",
+        substituicao_a: "K",
+        substituicao_b: "L",
+        sub_excepcional: "X",
+        sancao: "C",
+        cartao_verde: "V",
+        retardamento: "R",
+        wo_a: "7",
+        wo_b: "8",
+        fullscreen: "F",
+        placar_ao_vivo: "P",
+        inverter_lados: "I"
+    };
+
+    const ROTULOS_ATALHOS_APONTADOR_GLOBAL = {
+        ponto_a: "+ ponto equipe da esquerda",
+        ponto_b: "+ ponto equipe da direita",
+        desfazer: "Desfazer última ação",
+        tempo_a: "Tempo equipe da esquerda",
+        tempo_b: "Tempo equipe da direita",
+        substituicao_a: "Substituição equipe da esquerda",
+        substituicao_b: "Substituição equipe da direita",
+        sub_excepcional: "Substituição excepcional",
+        sancao: "Sanção (cartão)",
+        cartao_verde: "Cartão verde",
+        retardamento: "Retardamento",
+        wo_a: "WO equipe da esquerda",
+        wo_b: "WO equipe da direita",
+        fullscreen: "Tela cheia",
+        placar_ao_vivo: "Abrir placar ao vivo",
+        inverter_lados: "Inverter lados visualmente"
+    };
+
+    let atalhosApontadorGlobal = Object.assign({}, ATALHOS_APONTADOR_PADRAO_GLOBAL);
+    let acaoAtalhoAguardandoGlobal = null;
+
+    function normalizarTeclaAtalhoApontadorGlobal(evento) {
+        if (!evento) return "";
+        if (evento.key === " ") return "ESPAÇO";
+        if (evento.key === "Escape") return "ESC";
+        if (evento.key === "ArrowUp") return "↑";
+        if (evento.key === "ArrowDown") return "↓";
+        if (evento.key === "ArrowLeft") return "←";
+        if (evento.key === "ArrowRight") return "→";
+        return String(evento.key || "").trim().toUpperCase();
+    }
+
+    function renderizarAtalhosApontadorGlobal() {
+        const lista = document.getElementById("atalhos-global-lista");
+        if (!lista) return;
+        lista.innerHTML = "";
+
+        Object.keys(ROTULOS_ATALHOS_APONTADOR_GLOBAL).forEach(function(acao) {
+            const botao = document.createElement("button");
+            botao.type = "button";
+            botao.className = "atalhos-global-item" + (acaoAtalhoAguardandoGlobal === acao ? " aguardando" : "");
+            botao.onclick = function() {
+                acaoAtalhoAguardandoGlobal = acao;
+                renderizarAtalhosApontadorGlobal();
+            };
+
+            const label = document.createElement("strong");
+            label.textContent = ROTULOS_ATALHOS_APONTADOR_GLOBAL[acao];
+
+            const tecla = document.createElement("span");
+            tecla.className = "atalhos-global-tecla";
+            tecla.textContent = atalhosApontadorGlobal[acao] || "—";
+
+            botao.appendChild(label);
+            botao.appendChild(tecla);
+            lista.appendChild(botao);
+        });
+    }
+
+    async function carregarAtalhosApontadorGlobal() {
+        try {
+            const resp = await fetch("/apontador/atalhos", { cache: "no-store" });
+            const dados = await resp.json();
+            if (dados && dados.ok && dados.atalhos) {
+                atalhosApontadorGlobal = Object.assign({}, ATALHOS_APONTADOR_PADRAO_GLOBAL, dados.atalhos);
+            }
+        } catch (e) {
+            atalhosApontadorGlobal = Object.assign({}, ATALHOS_APONTADOR_PADRAO_GLOBAL);
+        }
+        renderizarAtalhosApontadorGlobal();
+    }
+
+    window.abrirModalAtalhosApontador = function() {
+        const modal = document.getElementById("modal-atalhos-global-apontador");
+        if (!modal) return;
+        modal.classList.add("aberto");
+        modal.setAttribute("aria-hidden", "false");
+        acaoAtalhoAguardandoGlobal = null;
+        carregarAtalhosApontadorGlobal();
+    };
+
+    window.fecharModalAtalhosApontador = function() {
+        const modal = document.getElementById("modal-atalhos-global-apontador");
+        if (!modal) return;
+        modal.classList.remove("aberto");
+        modal.setAttribute("aria-hidden", "true");
+        acaoAtalhoAguardandoGlobal = null;
+        renderizarAtalhosApontadorGlobal();
+    };
+
+    window.restaurarPadroesAtalhosApontador = function() {
+        atalhosApontadorGlobal = Object.assign({}, ATALHOS_APONTADOR_PADRAO_GLOBAL);
+        acaoAtalhoAguardandoGlobal = null;
+        renderizarAtalhosApontadorGlobal();
+    };
+
+    window.salvarAtalhosApontadorGlobal = async function() {
+        try {
+            const resp = await fetch("/apontador/atalhos/salvar", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ atalhos: atalhosApontadorGlobal })
+            });
+            const dados = await resp.json();
+            if (!dados || !dados.ok) {
+                throw new Error((dados && dados.erro) || "Erro ao salvar atalhos.");
+            }
+            alert("Atalhos salvos com sucesso.");
+            fecharModalAtalhosApontador();
+        } catch (e) {
+            alert(e.message || "Erro ao salvar atalhos.");
+        }
+    };
+
+    document.addEventListener("keydown", function(evento) {
+        const modal = document.getElementById("modal-atalhos-global-apontador");
+        const modalAberto = modal && modal.classList.contains("aberto");
+        if (!modalAberto) return;
+
+        if (evento.key === "Escape") {
+            evento.preventDefault();
+            fecharModalAtalhosApontador();
+            return;
+        }
+
+        if (!acaoAtalhoAguardandoGlobal) return;
+        evento.preventDefault();
+        evento.stopPropagation();
+
+        const tecla = normalizarTeclaAtalhoApontadorGlobal(evento);
+        if (!tecla || tecla === "ESC") return;
+
+        Object.keys(atalhosApontadorGlobal).forEach(function(acao) {
+            if (acao !== acaoAtalhoAguardandoGlobal && atalhosApontadorGlobal[acao] === tecla) {
+                atalhosApontadorGlobal[acao] = "";
+            }
+        });
+
+        atalhosApontadorGlobal[acaoAtalhoAguardandoGlobal] = tecla;
+        acaoAtalhoAguardandoGlobal = null;
+        renderizarAtalhosApontadorGlobal();
+    }, true);
+
+    document.addEventListener("click", function(evento) {
+        const modal = document.getElementById("modal-atalhos-global-apontador");
+        if (modal && modal.classList.contains("aberto") && evento.target === modal) {
+            fecharModalAtalhosApontador();
+        }
+    });
+
     function alternarMenu() {
         document.body.classList.toggle("menu-aberto");
     }
@@ -999,6 +1312,55 @@
             fecharMenu();
         }
     });
+
+    function abrirAtalhosApontadorPeloMenu(evento) {
+        if (evento) {
+            evento.preventDefault();
+            evento.stopPropagation();
+        }
+
+        fecharMenu();
+
+        setTimeout(function() {
+            if (typeof window.abrirModalAtalhosApontador === "function") {
+                window.abrirModalAtalhosApontador();
+                return;
+            }
+
+            const modal = document.getElementById("modal-atalhos-apontador");
+            if (modal) {
+                modal.classList.add("aberto");
+                modal.setAttribute("aria-hidden", "false");
+                return;
+            }
+
+            const botaoAntigo = document.getElementById("btn-abrir-atalhos-apontador");
+            if (botaoAntigo) {
+                botaoAntigo.click();
+                return;
+            }
+
+            alert("As teclas de atalho estão disponíveis na tela do jogo do apontador.");
+        }, 80);
+    }
+
+    function abrirOfflineApontadorPeloMenu(evento) {
+        if (evento) {
+            evento.preventDefault();
+            evento.stopPropagation();
+        }
+
+        fecharMenu();
+
+        setTimeout(function() {
+            if (typeof window.abrirModalOfflineApontador === "function") {
+                window.abrirModalOfflineApontador();
+                return;
+            }
+
+            window.location.href = "/offline-apontador";
+        }, 80);
+    }
 </script>
 {% else %}
     {% block conteudo_sem_sidebar %}{% endblock %}

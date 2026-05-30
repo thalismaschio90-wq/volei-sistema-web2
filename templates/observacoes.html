@@ -1,19 +1,74 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+<style>
+.obs-wrap {
+    max-width: 760px;
+    margin: 42px auto;
+}
+.obs-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    padding: 24px;
+}
+.obs-titulo {
+    font-size: 28px;
+    font-weight: 1000;
+    color: #183247;
+    margin-bottom: 6px;
+    text-align: center;
+}
+.obs-sub {
+    color: #6b7c8c;
+    font-weight: 800;
+    text-align: center;
+    margin-bottom: 18px;
+}
+.obs-jogo {
+    background: #f8fbff;
+    border: 1px solid #d6e2f0;
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 16px;
+    text-align: center;
+    font-weight: 900;
+    color: #183247;
+}
+.obs-textarea {
+    width: 100%;
+    min-height: 160px;
+    resize: vertical;
+    line-height: 1.45;
+}
+.obs-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+</style>
 
-<div style="max-width:500px;margin:auto;margin-top:60px;text-align:center">
+<div class="obs-wrap">
+    <div class="obs-card">
+        <div class="obs-titulo">Observações da partida</div>
+        <div class="obs-sub">Registre algo importante antes de salvar o encerramento oficial.</div>
 
-    <h2>Encerramento da Partida</h2>
+        <div class="obs-jogo">
+            {{ partida.equipe_a_operacional or partida.equipe_a }} x {{ partida.equipe_b_operacional or partida.equipe_b }}
+        </div>
 
-    <form method="POST" action="{{ url_for('apontadores.salvar_observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}">
+        <form method="POST" action="{{ url_for('apontadores.salvar_observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}">
+            <label for="observacoes">Observações</label>
+            <textarea id="observacoes" class="obs-textarea" name="observacoes" placeholder="Ex.: atraso, lesão, protesto, ocorrência disciplinar ou deixe em branco se não houve observação."></textarea>
 
-        <textarea name="observacoes" placeholder="Observações da partida" style="width:100%;height:120px;"></textarea>
-
-        <button type="submit">Finalizar partida</button>
-
-    </form>
-
+            <div class="obs-actions">
+                <button class="btn-padrao" type="submit">Salvar encerramento</button>
+                <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar para partidas</a>
+            </div>
+        </form>
+    </div>
 </div>
-
 {% endblock %}
