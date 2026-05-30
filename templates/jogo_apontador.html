@@ -112,6 +112,7 @@
             <a href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">← Voltar</a>
             <button id="mobile-desfazer" type="button">↶ Desfazer</button>
             <button id="mobile-fullscreen" type="button">⛶</button>
+            <button id="mobile-inverter-lados" type="button">⇄ Inverter</button>
             <button id="mobile-salvar" class="salvar" type="button">💾 Salvar</button>
             <button id="mobile-salvar-sair" class="sair" type="button">Salvar e sair</button>
         </div>
@@ -1207,6 +1208,14 @@
         .mobile-footer-acoes .salvar { background: #0f766e; }
         .mobile-footer-acoes .sair { background: #9a3412; }
 
+        #mobile-inverter-lados {
+            background: #2563eb;
+        }
+
+        .mobile-lados-invertidos #mobile-inverter-lados {
+            background: #f97316;
+        }
+
         .mobile-cronometro {
             display: none;
             padding: 9px 12px;
@@ -1790,7 +1799,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         ultimaAcao: document.getElementById("mobile-ultima-acao"),
         cronometro: document.getElementById("mobile-cronometro"),
         menuEsq: document.getElementById("mobile-menu-esq"),
-        menuDir: document.getElementById("mobile-menu-dir")
+        menuDir: document.getElementById("mobile-menu-dir"),
+        inverterLados: document.getElementById("mobile-inverter-lados")
     };
 
     const PARTIDA_ID = {{ partida.id | tojson }};
@@ -2423,6 +2433,7 @@ function montarPayloadTempoReal(extra = {}) {
         marcarBotaoComEquipe(btnWoB, equipeDir, `WO ${nomeDir}`);
 
         if (btnInverterLados) btnInverterLados.textContent = ladosInvertidos ? "Desfazer inversão dos lados" : "Inverter lados";
+        if (mobileEls.inverterLados) mobileEls.inverterLados.textContent = ladosInvertidos ? "⇄ Normal" : "⇄ Inverter";
     }
 
     function renderPainelVisual(dados = estadoAtual) {
@@ -2500,17 +2511,33 @@ function montarPayloadTempoReal(extra = {}) {
         mobileEls.subDir.textContent = `Tempos ${tempoRestanteDoLado(equipeDir, dados)} • Subs ${valorEquipe(dados, equipeDir, "subs_a", "subs_b", 0)}`;
     }
 
+    const POSICOES_VISUAIS_QUADRA = [4, 3, 2, 5, 6, 1];
+    const INDICE_ROTACAO_POR_POSICAO = { 4: 0, 3: 1, 2: 2, 5: 3, 6: 4, 1: 5 };
+
+    function numeroDaPosicaoVisual(rotacao, posicaoRegra) {
+        if (!Array.isArray(rotacao)) return "";
+        const idx = INDICE_ROTACAO_POR_POSICAO[posicaoRegra];
+        return rotacao[idx] || "";
+    }
+
     function renderMobileQuadraContainer(container, rotacao, lado) {
         if (!container) return;
         container.innerHTML = "";
-        rotacao.forEach((numero, idx) => {
+
+        // IMPORTANTE: o mobile desenha pela posição OFICIAL da quadra,
+        // não pela ordem em que os botões aparecem na tela.
+        // Isso evita o bug em que a equipe da direita parece não girar,
+        // principalmente quando os lados estão invertidos ou espelhados no celular.
+        POSICOES_VISUAIS_QUADRA.forEach((posicaoRegra) => {
+            const numero = numeroDaPosicaoVisual(rotacao, posicaoRegra);
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className = "mobile-pos" + classePosicao(numero, lado);
-            btn.title = numero ? `#${numero} ${nomeCurtoAtleta(lado, numero)}` : "Posição vazia";
+            btn.dataset.posicao = String(posicaoRegra);
+            btn.title = numero ? `P${posicaoRegra} • #${numero} ${nomeCurtoAtleta(lado, numero)}` : `P${posicaoRegra} vazia`;
             btn.innerHTML = `
                 <span class="mobile-pos-numero">${numero || "-"}</span>
-                <span class="mobile-pos-nome">${nomeCurtoAtleta(lado, numero) || `P${idx + 1}`}</span>
+                <span class="mobile-pos-nome">${nomeCurtoAtleta(lado, numero) || `P${posicaoRegra}`}</span>
             `;
             btn.addEventListener("click", function () {
                 abrirModalSubstituicao(lado);
@@ -2606,8 +2633,14 @@ function avisarPlacarAoVivoSobreInversao() {
     }
 }
 
+function aplicarClasseInversaoMobile() {
+    const ui = document.getElementById("mobile-apontador-ui");
+    if (ui) ui.classList.toggle("mobile-lados-invertidos", !!ladosInvertidos);
+}
+
 function inverterLadosVisual() {
     ladosInvertidos = !ladosInvertidos;
+    aplicarClasseInversaoMobile();
     avisarPlacarAoVivoSobreInversao();
     renderPainelVisual(estadoAtual);
     renderQuadra();
@@ -5111,6 +5144,7 @@ const mobileMenuEsqBtn = document.getElementById("mobile-menu-esq-btn");
 const mobileMenuDirBtn = document.getElementById("mobile-menu-dir-btn");
 const mobileDesfazer = document.getElementById("mobile-desfazer");
 const mobileFullscreen = document.getElementById("mobile-fullscreen");
+const mobileInverterLados = document.getElementById("mobile-inverter-lados");
 const mobileSalvar = document.getElementById("mobile-salvar");
 const mobileSalvarSair = document.getElementById("mobile-salvar-sair");
 
@@ -5122,6 +5156,7 @@ if (mobileMenuEsqBtn) mobileMenuEsqBtn.addEventListener("click", () => { if (mob
 if (mobileMenuDirBtn) mobileMenuDirBtn.addEventListener("click", () => { if (mobileEls.menuEsq) mobileEls.menuEsq.classList.remove("aberto"); if (mobileEls.menuDir) mobileEls.menuDir.classList.toggle("aberto"); });
 if (mobileDesfazer) mobileDesfazer.addEventListener("click", desfazerAcao);
 if (mobileFullscreen) mobileFullscreen.addEventListener("click", alternarTelaCheia);
+if (mobileInverterLados) mobileInverterLados.addEventListener("click", inverterLadosVisual);
 if (mobileSalvar) mobileSalvar.addEventListener("click", () => salvarPartidaManual(false));
 if (mobileSalvarSair) mobileSalvarSair.addEventListener("click", () => salvarPartidaManual(true));
 
@@ -5142,6 +5177,7 @@ document.querySelectorAll("[data-mobile-action]").forEach((btn) => {
     });
 });
 
+aplicarClasseInversaoMobile();
 renderPainelVisual(estadoAtual);
 renderQuadra();
 renderMobileQuadra();
