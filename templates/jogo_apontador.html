@@ -25,6 +25,99 @@
     </div>
 </div>
 
+
+<div class="mobile-orientacao-bloqueio" aria-live="polite">
+    <div class="mobile-orientacao-card">
+        <div class="mobile-orientacao-icone">↻</div>
+        <strong>Vire o celular para operar o jogo</strong>
+        <span>O modo apontador mobile foi feito para funcionar com o celular ou tablet na horizontal.</span>
+    </div>
+</div>
+
+<div id="mobile-apontador-ui" class="mobile-apontador-ui" aria-label="Modo operação mobile do apontador">
+    <div class="mobile-jogo-topo">
+        <button id="mobile-head-esq" class="mobile-equipe-head" type="button">
+            <div>
+                <div id="mobile-nome-esq" class="mobile-equipe-nome">Equipe A</div>
+                <div id="mobile-sub-esq" class="mobile-equipe-sub">Toque para ponto</div>
+            </div>
+            <div id="mobile-pontos-esq" class="mobile-placar-numero">0</div>
+        </button>
+
+        <div class="mobile-centro-head">
+            <div id="mobile-set-atual" class="mobile-set-atual">1º SET</div>
+            <div class="mobile-sets"><span id="mobile-sets-esq">0</span> × <span id="mobile-sets-dir">0</span></div>
+            <div id="mobile-saque" class="mobile-saque">Saque atual ainda não definido</div>
+        </div>
+
+        <button id="mobile-head-dir" class="mobile-equipe-head" type="button">
+            <div>
+                <div id="mobile-nome-dir" class="mobile-equipe-nome">Equipe B</div>
+                <div id="mobile-sub-dir" class="mobile-equipe-sub">Toque para ponto</div>
+            </div>
+            <div id="mobile-pontos-dir" class="mobile-placar-numero">0</div>
+        </button>
+    </div>
+
+    <div class="mobile-main">
+        <div class="mobile-aba-lateral esquerda">
+            <button id="mobile-menu-esq-btn" class="mobile-aba-gatilho" type="button">Menu A</button>
+            <div id="mobile-menu-esq" class="mobile-menu-lateral">
+                <div class="mobile-menu-topo"><span id="mobile-menu-esq-titulo">Equipe A</span><button class="mobile-menu-fechar" type="button" data-mobile-close="esq">×</button></div>
+                <div class="mobile-menu-acoes">
+                    <button class="mobile-btn principal" type="button" data-mobile-action="tempo" data-side="esq">⏱️ Pedido de tempo</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sub" data-side="esq">🔁 Substituição</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="subex" data-side="esq">🚑 Subst. excepcional</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sancao">🟨 Sanção</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="verde">🟩 Cartão verde</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="retardamento">⏳ Retardamento</button>
+                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="esq">WO</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mobile-quadra-card">
+            <div class="mobile-quadra-titulo"><span id="mobile-quadra-esq-titulo">Equipe A</span><span class="mobile-badge">toque no atleta</span></div>
+            <div id="mobile-quadra-esq" class="mobile-quadra-grid"></div>
+            <button id="mobile-ponto-esq" class="mobile-ponto-btn" type="button">+ PONTO</button>
+        </div>
+
+        <div class="mobile-quadra-card">
+            <div class="mobile-quadra-titulo"><span id="mobile-quadra-dir-titulo">Equipe B</span><span class="mobile-badge">toque no atleta</span></div>
+            <div id="mobile-quadra-dir" class="mobile-quadra-grid"></div>
+            <button id="mobile-ponto-dir" class="mobile-ponto-btn" type="button">+ PONTO</button>
+        </div>
+
+        <div class="mobile-aba-lateral direita">
+            <button id="mobile-menu-dir-btn" class="mobile-aba-gatilho" type="button">Menu B</button>
+            <div id="mobile-menu-dir" class="mobile-menu-lateral">
+                <div class="mobile-menu-topo"><span id="mobile-menu-dir-titulo">Equipe B</span><button class="mobile-menu-fechar" type="button" data-mobile-close="dir">×</button></div>
+                <div class="mobile-menu-acoes">
+                    <button class="mobile-btn principal" type="button" data-mobile-action="tempo" data-side="dir">⏱️ Pedido de tempo</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sub" data-side="dir">🔁 Substituição</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="subex" data-side="dir">🚑 Subst. excepcional</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sancao">🟨 Sanção</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="verde">🟩 Cartão verde</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="retardamento">⏳ Retardamento</button>
+                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="dir">WO</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mobile-footer">
+        <div id="mobile-cronometro" class="mobile-cronometro">⏱️ 30</div>
+        <div id="mobile-ultima-acao" class="mobile-ultima-acao">ÚLTIMA AÇÃO: {{ estado.ultima_acao or '-' }}</div>
+        <div class="mobile-footer-acoes">
+            <a href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">← Voltar</a>
+            <button id="mobile-desfazer" type="button">↶ Desfazer</button>
+            <button id="mobile-fullscreen" type="button">⛶</button>
+            <button id="mobile-salvar" class="salvar" type="button">💾 Salvar</button>
+            <button id="mobile-salvar-sair" class="sair" type="button">Salvar e sair</button>
+        </div>
+    </div>
+</div>
+
 <style>
     header, nav, .topbar, .navbar {
         display: none !important;
@@ -673,6 +766,490 @@
         background: #f8fbff !important;
     }
 
+
+    /* =========================================================
+       MODO OPERAÇÃO MOBILE/TABLET DO APONTADOR
+       - Desktop permanece igual.
+       - Em celular/tablet horizontal, mostra uma operação enxuta.
+       ========================================================= */
+    .mobile-apontador-ui,
+    .mobile-orientacao-bloqueio {
+        display: none;
+    }
+
+    @media (max-width: 1024px) and (orientation: portrait) {
+        body {
+            overflow: hidden !important;
+            background: #061629 !important;
+        }
+
+        .topo-secao,
+        .topo-jogo-mini,
+        .card-painel,
+        .ultima-acao-barra,
+        .jogo-area-central {
+            display: none !important;
+        }
+
+        .mobile-orientacao-bloqueio {
+            position: fixed;
+            inset: 0;
+            z-index: 90000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+            background:
+                radial-gradient(circle at 50% 10%, rgba(255,138,0,.18), transparent 30%),
+                linear-gradient(180deg, #061629 0%, #071b30 100%);
+            color: #fff;
+            text-align: center;
+        }
+
+        .mobile-orientacao-card {
+            width: min(460px, 96vw);
+            border: 1px solid rgba(255,255,255,.16);
+            border-radius: 26px;
+            padding: 26px;
+            background: rgba(15, 35, 60, .88);
+            box-shadow: 0 24px 80px rgba(0,0,0,.35);
+        }
+
+        .mobile-orientacao-icone {
+            font-size: 54px;
+            margin-bottom: 12px;
+        }
+
+        .mobile-orientacao-card strong {
+            display: block;
+            font-size: 24px;
+            font-weight: 1000;
+            margin-bottom: 8px;
+        }
+
+        .mobile-orientacao-card span {
+            display: block;
+            color: #cbd5e1;
+            font-size: 15px;
+            line-height: 1.4;
+        }
+    }
+
+    @media (max-width: 1024px) and (orientation: landscape) {
+        html, body {
+            height: 100%;
+            overflow: hidden !important;
+            background: #061629 !important;
+        }
+
+        .topo-secao,
+        .topo-jogo-mini,
+        body > .card-painel,
+        body > .ultima-acao-barra,
+        body > .jogo-area-central {
+            display: none !important;
+        }
+
+        .mobile-apontador-ui {
+            position: fixed;
+            inset: 0;
+            z-index: 80000;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            gap: 6px;
+            padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 8px) calc(env(safe-area-inset-bottom) + 6px) calc(env(safe-area-inset-left) + 8px);
+            background:
+                radial-gradient(circle at 18% 0%, rgba(37, 99, 235, .24), transparent 34%),
+                radial-gradient(circle at 82% 0%, rgba(220, 38, 38, .20), transparent 34%),
+                linear-gradient(180deg, #061629 0%, #071b30 100%);
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        }
+
+        .mobile-jogo-topo {
+            display: grid;
+            grid-template-columns: minmax(130px, 1fr) auto minmax(130px, 1fr);
+            align-items: stretch;
+            gap: 8px;
+            min-height: 72px;
+        }
+
+        .mobile-equipe-head,
+        .mobile-centro-head {
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 16px;
+            background: rgba(255,255,255,.08);
+            box-shadow: 0 12px 28px rgba(0,0,0,.18);
+            overflow: hidden;
+        }
+
+        .mobile-equipe-head {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            padding: 8px 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .mobile-equipe-head:active,
+        .mobile-btn:active,
+        .mobile-pos:active,
+        .mobile-aba-gatilho:active {
+            transform: scale(.98);
+        }
+
+        .mobile-equipe-nome {
+            font-size: clamp(13px, 2vw, 19px);
+            font-weight: 1000;
+            line-height: 1.05;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-equipe-sub {
+            margin-top: 3px;
+            color: rgba(255,255,255,.74);
+            font-size: 11px;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-placar-numero {
+            font-size: clamp(38px, 8vw, 76px);
+            line-height: .9;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -1px;
+        }
+
+        .mobile-centro-head {
+            min-width: 152px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 12px;
+            text-align: center;
+        }
+
+        .mobile-set-atual {
+            font-size: 13px;
+            font-weight: 1000;
+            color: #fbbf24;
+        }
+
+        .mobile-sets {
+            margin-top: 2px;
+            font-size: 19px;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mobile-saque {
+            margin-top: 2px;
+            max-width: 180px;
+            font-size: 11px;
+            line-height: 1.12;
+            color: #cbd5e1;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-main {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) 44px;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .mobile-quadra-card {
+            min-width: 0;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 18px;
+            background: rgba(255,255,255,.07);
+            padding: 8px;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            gap: 6px;
+            overflow: hidden;
+        }
+
+        .mobile-quadra-titulo {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 1000;
+            color: #e2e8f0;
+            min-width: 0;
+        }
+
+        .mobile-quadra-titulo span:first-child {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-badge {
+            flex: 0 0 auto;
+            padding: 3px 7px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.12);
+            color: #f8fafc;
+            font-size: 10px;
+        }
+
+        .mobile-quadra-grid {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(44px, 1fr));
+            grid-template-rows: repeat(2, minmax(48px, 1fr));
+            gap: 6px;
+        }
+
+        .mobile-pos {
+            border: 1px solid rgba(255,255,255,.15);
+            border-radius: 14px;
+            background: rgba(248,250,252,.96);
+            color: #0f172a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            min-width: 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .mobile-pos-numero {
+            font-size: clamp(23px, 5.2vw, 44px);
+            line-height: .9;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mobile-pos-nome {
+            width: 100%;
+            margin-top: 4px;
+            font-size: 10px;
+            font-weight: 900;
+            color: #475569;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+
+        .mobile-pos.pos-substituto {
+            background: #fecaca !important;
+            color: #7f1d1d !important;
+        }
+
+        .mobile-pos.pos-retorno {
+            background: #bbf7d0 !important;
+            color: #14532d !important;
+        }
+
+        .mobile-ponto-btn {
+            width: 100%;
+            border: 0;
+            border-radius: 14px;
+            padding: 9px 8px;
+            background: #f8fafc;
+            color: #061629;
+            font-size: 14px;
+            font-weight: 1000;
+            cursor: pointer;
+        }
+
+        .mobile-aba-lateral {
+            position: relative;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mobile-aba-gatilho {
+            width: 42px;
+            height: 100%;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 16px;
+            background: rgba(255,255,255,.10);
+            color: #fff;
+            font-size: 19px;
+            font-weight: 1000;
+            cursor: pointer;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+
+        .mobile-menu-lateral {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: min(238px, 44vw);
+            z-index: 2;
+            display: none;
+            grid-template-rows: auto 1fr;
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid rgba(255,255,255,.16);
+            border-radius: 18px;
+            background: rgba(2, 8, 23, .94);
+            box-shadow: 0 20px 50px rgba(0,0,0,.38);
+        }
+
+        .mobile-menu-lateral.aberto {
+            display: grid;
+        }
+
+        .mobile-aba-lateral.esquerda .mobile-menu-lateral { left: 46px; }
+        .mobile-aba-lateral.direita .mobile-menu-lateral { right: 46px; }
+
+        .mobile-menu-topo {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 1000;
+        }
+
+        .mobile-menu-fechar {
+            border: 0;
+            border-radius: 10px;
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            font-size: 20px;
+            font-weight: 1000;
+            cursor: pointer;
+        }
+
+        .mobile-menu-acoes {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 7px;
+            align-content: start;
+            overflow: auto;
+        }
+
+        .mobile-btn {
+            border: 0;
+            border-radius: 12px;
+            padding: 10px 9px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 1000;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .mobile-btn.principal { background: #f97316; }
+        .mobile-btn.perigo { background: #991b1b; }
+        .mobile-btn.neutro { background: #334155; }
+
+        .mobile-footer {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 8px;
+            align-items: center;
+            min-height: 42px;
+        }
+
+        .mobile-ultima-acao {
+            min-width: 0;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 14px;
+            padding: 9px 12px;
+            background: rgba(255,255,255,.08);
+            color: #fef3c7;
+            font-size: 12px;
+            font-weight: 1000;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+
+        .mobile-footer-acoes {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .mobile-footer-acoes a,
+        .mobile-footer-acoes button {
+            border: 0;
+            border-radius: 12px;
+            padding: 10px 11px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 1000;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .mobile-footer-acoes .salvar { background: #0f766e; }
+        .mobile-footer-acoes .sair { background: #9a3412; }
+
+        .mobile-cronometro {
+            display: none;
+            padding: 9px 12px;
+            border-radius: 14px;
+            background: #fbbf24;
+            color: #111827;
+            font-size: 16px;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .mobile-cronometro.ativo {
+            display: block;
+        }
+
+        .alerta-solicitacao {
+            top: calc(env(safe-area-inset-top) + 8px) !important;
+            right: calc(env(safe-area-inset-right) + 8px) !important;
+            max-width: 330px !important;
+            min-width: 230px !important;
+            padding: 10px 12px !important;
+            border-radius: 12px !important;
+            font-size: 12px !important;
+        }
+
+        .popup-jogo-grande-card {
+            width: min(760px, 94vw) !important;
+            min-height: min(290px, 78vh) !important;
+            border-radius: 24px !important;
+        }
+
+        .substituicao-modal,
+        .sancao-modal,
+        .verde-modal,
+        .ponto-modal {
+            max-width: min(720px, 94vw) !important;
+            max-height: 88vh !important;
+            overflow: auto !important;
+            padding: 14px !important;
+        }
+    }
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -1160,6 +1737,30 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const tituloQuadraDireitaEl = document.getElementById("titulo-quadra-direita");
     const nomeTopoAEl = document.getElementById("nome-a");
     const nomeTopoBEl = document.getElementById("nome-b");
+
+
+    const mobileEls = {
+        nomeEsq: document.getElementById("mobile-nome-esq"),
+        nomeDir: document.getElementById("mobile-nome-dir"),
+        subEsq: document.getElementById("mobile-sub-esq"),
+        subDir: document.getElementById("mobile-sub-dir"),
+        pontosEsq: document.getElementById("mobile-pontos-esq"),
+        pontosDir: document.getElementById("mobile-pontos-dir"),
+        setsEsq: document.getElementById("mobile-sets-esq"),
+        setsDir: document.getElementById("mobile-sets-dir"),
+        setAtual: document.getElementById("mobile-set-atual"),
+        saque: document.getElementById("mobile-saque"),
+        quadraEsqTitulo: document.getElementById("mobile-quadra-esq-titulo"),
+        quadraDirTitulo: document.getElementById("mobile-quadra-dir-titulo"),
+        menuEsqTitulo: document.getElementById("mobile-menu-esq-titulo"),
+        menuDirTitulo: document.getElementById("mobile-menu-dir-titulo"),
+        quadraEsq: document.getElementById("mobile-quadra-esq"),
+        quadraDir: document.getElementById("mobile-quadra-dir"),
+        ultimaAcao: document.getElementById("mobile-ultima-acao"),
+        cronometro: document.getElementById("mobile-cronometro"),
+        menuEsq: document.getElementById("mobile-menu-esq"),
+        menuDir: document.getElementById("mobile-menu-dir")
+    };
 
     const PARTIDA_ID = {{ partida.id | tojson }};
     const COMPETICAO = {{ competicao_nome | tojson }};
@@ -1823,12 +2424,94 @@ function montarPayloadTempoReal(extra = {}) {
         if (verdesAEl) verdesAEl.textContent = Array.isArray(verdEsq) ? verdEsq.length : (verdEsq || 0);
         if (verdesBEl) verdesBEl.textContent = Array.isArray(verdDir) ? verdDir.length : (verdDir || 0);
         atualizarTextoBotoesVisual();
+        renderMobilePainel(dados);
+    }
+
+    function mobileLadoPorPosicao(posicao) {
+        return equipeVisual(posicao === "dir" || posicao === "direita" ? "direita" : "esquerda");
+    }
+
+    function buscarAtletaPorNumero(lado, numero) {
+        const lista = atletasEquipePorLado(lado) || [];
+        const alvo = String(numero || "").trim();
+        return lista.find((a) => String(a.numero || "").trim() === alvo) || null;
+    }
+
+    function nomeCurtoAtleta(lado, numero) {
+        const atleta = buscarAtletaPorNumero(lado, numero);
+        const nome = String((atleta && atleta.nome) || "").trim();
+        if (!nome) return "";
+        const partes = nome.split(/\s+/).filter(Boolean);
+        return partes.slice(0, 2).join(" ");
+    }
+
+    function renderMobilePainel(dados = estadoAtual) {
+        if (!mobileEls.nomeEsq) return;
+        dados = dados || estadoAtual || {};
+        const equipeEsq = equipeVisual("esquerda");
+        const equipeDir = equipeVisual("direita");
+        const nomeEsq = nomeEquipePorLado(equipeEsq);
+        const nomeDir = nomeEquipePorLado(equipeDir);
+
+        mobileEls.nomeEsq.textContent = nomeEsq;
+        mobileEls.nomeDir.textContent = nomeDir;
+        mobileEls.quadraEsqTitulo.textContent = nomeEsq;
+        mobileEls.quadraDirTitulo.textContent = nomeDir;
+        mobileEls.menuEsqTitulo.textContent = nomeEsq;
+        mobileEls.menuDirTitulo.textContent = nomeDir;
+        mobileEls.pontosEsq.textContent = valorEquipe(dados, equipeEsq, "pontos_a", "pontos_b", 0);
+        mobileEls.pontosDir.textContent = valorEquipe(dados, equipeDir, "pontos_a", "pontos_b", 0);
+        mobileEls.setsEsq.textContent = valorEquipe(dados, equipeEsq, "sets_a", "sets_b", 0);
+        mobileEls.setsDir.textContent = valorEquipe(dados, equipeDir, "sets_a", "sets_b", 0);
+        mobileEls.setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
+        mobileEls.saque.textContent = textoSaqueAtual();
+        mobileEls.subEsq.textContent = `Tempos ${tempoRestanteDoLado(equipeEsq, dados)} • Subs ${valorEquipe(dados, equipeEsq, "subs_a", "subs_b", 0)}`;
+        mobileEls.subDir.textContent = `Tempos ${tempoRestanteDoLado(equipeDir, dados)} • Subs ${valorEquipe(dados, equipeDir, "subs_a", "subs_b", 0)}`;
+    }
+
+    function renderMobileQuadraContainer(container, rotacao, lado) {
+        if (!container) return;
+        container.innerHTML = "";
+        rotacao.forEach((numero, idx) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "mobile-pos" + classePosicao(numero, lado);
+            btn.title = numero ? `#${numero} ${nomeCurtoAtleta(lado, numero)}` : "Posição vazia";
+            btn.innerHTML = `
+                <span class="mobile-pos-numero">${numero || "-"}</span>
+                <span class="mobile-pos-nome">${nomeCurtoAtleta(lado, numero) || `P${idx + 1}`}</span>
+            `;
+            btn.addEventListener("click", function () {
+                abrirModalSubstituicao(lado);
+            });
+            container.appendChild(btn);
+        });
+    }
+
+    function renderMobileQuadra() {
+        if (!mobileEls.quadraEsq) return;
+        const equipeEsq = equipeVisual("esquerda");
+        const equipeDir = equipeVisual("direita");
+        renderMobileQuadraContainer(mobileEls.quadraEsq, rotacaoPorEquipe(equipeEsq), equipeEsq);
+        renderMobileQuadraContainer(mobileEls.quadraDir, rotacaoPorEquipe(equipeDir), equipeDir);
+    }
+
+    function atualizarMobileCronometro(texto, ativo = true) {
+        if (!mobileEls.cronometro) return;
+        mobileEls.cronometro.textContent = texto;
+        mobileEls.cronometro.classList.toggle("ativo", !!ativo);
+    }
+
+    function fecharMenusMobile() {
+        if (mobileEls.menuEsq) mobileEls.menuEsq.classList.remove("aberto");
+        if (mobileEls.menuDir) mobileEls.menuDir.classList.remove("aberto");
     }
 
 
 function atualizarUltimaAcao(texto) {
     const finalTexto = String(texto || "-").trim() || "-";
     if (ultimaAcaoEl) ultimaAcaoEl.textContent = "ÚLTIMA AÇÃO: " + finalTexto;
+    if (mobileEls.ultimaAcao) mobileEls.ultimaAcao.textContent = "ÚLTIMA AÇÃO: " + finalTexto;
 }
 
 function renderHistoricoBackend(lista) {
@@ -2013,6 +2696,7 @@ function inverterLadosVisual() {
 
         cronometroEl.style.display = "block";
         cronometroEl.textContent = "⏱️ " + tempoAtual;
+        atualizarMobileCronometro("⏱️ " + tempoAtual, true);
         abrirPopupJogoGrande("tempo", {
             segundos: tempoAtual,
             nome: "CRONÔMETRO",
@@ -2039,6 +2723,7 @@ function inverterLadosVisual() {
         intervaloTempo = setInterval(() => {
             tempoAtual--;
             cronometroEl.textContent = "⏱️ " + tempoAtual;
+            atualizarMobileCronometro("⏱️ " + tempoAtual, true);
             atualizarPopupTempo(tempoAtual);
 
             try {
@@ -2057,6 +2742,7 @@ function inverterLadosVisual() {
             if (tempoAtual <= 0) {
                 clearInterval(intervaloTempo);
                 cronometroEl.textContent = "⏱️ FIM DO TEMPO";
+                atualizarMobileCronometro("⏱️ FIM", true);
                 atualizarPopupTempo(0);
                 setTimeout(fecharPopupJogoGrande, 1200);
                 try {
@@ -2133,6 +2819,7 @@ function inverterLadosVisual() {
             atualizarCelulas(celulasQuadraB, rotDir, equipeDir, renderAnteriorB);
             renderAnteriorA = [...rotEsq];
             renderAnteriorB = [...rotDir];
+            renderMobileQuadra();
             setTimeout(limparAnimacaoCelulas, 130);
             renderPendente = false;
         });
@@ -4385,8 +5072,48 @@ btnFullscreen.addEventListener("click", alternarTelaCheia);
 if (btnAbrirPlacar) btnAbrirPlacar.addEventListener("click", abrirPlacarAoVivo);
 btnInverterLados.addEventListener("click", inverterLadosVisual);
 
+const mobileHeadEsq = document.getElementById("mobile-head-esq");
+const mobileHeadDir = document.getElementById("mobile-head-dir");
+const mobilePontoEsq = document.getElementById("mobile-ponto-esq");
+const mobilePontoDir = document.getElementById("mobile-ponto-dir");
+const mobileMenuEsqBtn = document.getElementById("mobile-menu-esq-btn");
+const mobileMenuDirBtn = document.getElementById("mobile-menu-dir-btn");
+const mobileDesfazer = document.getElementById("mobile-desfazer");
+const mobileFullscreen = document.getElementById("mobile-fullscreen");
+const mobileSalvar = document.getElementById("mobile-salvar");
+const mobileSalvarSair = document.getElementById("mobile-salvar-sair");
+
+if (mobileHeadEsq) mobileHeadEsq.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("esq")));
+if (mobileHeadDir) mobileHeadDir.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("dir")));
+if (mobilePontoEsq) mobilePontoEsq.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("esq")));
+if (mobilePontoDir) mobilePontoDir.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("dir")));
+if (mobileMenuEsqBtn) mobileMenuEsqBtn.addEventListener("click", () => { if (mobileEls.menuDir) mobileEls.menuDir.classList.remove("aberto"); if (mobileEls.menuEsq) mobileEls.menuEsq.classList.toggle("aberto"); });
+if (mobileMenuDirBtn) mobileMenuDirBtn.addEventListener("click", () => { if (mobileEls.menuEsq) mobileEls.menuEsq.classList.remove("aberto"); if (mobileEls.menuDir) mobileEls.menuDir.classList.toggle("aberto"); });
+if (mobileDesfazer) mobileDesfazer.addEventListener("click", desfazerAcao);
+if (mobileFullscreen) mobileFullscreen.addEventListener("click", alternarTelaCheia);
+if (mobileSalvar) mobileSalvar.addEventListener("click", () => salvarPartidaManual(false));
+if (mobileSalvarSair) mobileSalvarSair.addEventListener("click", () => salvarPartidaManual(true));
+
+document.querySelectorAll("[data-mobile-close]").forEach((btn) => btn.addEventListener("click", fecharMenusMobile));
+document.querySelectorAll("[data-mobile-action]").forEach((btn) => {
+    btn.addEventListener("click", function () {
+        const action = this.dataset.mobileAction;
+        const side = this.dataset.side || "";
+        const equipe = side ? mobileLadoPorPosicao(side) : "";
+        fecharMenusMobile();
+        if (action === "tempo") return registrarTempo(equipe);
+        if (action === "sub") return abrirModalSubstituicao(equipe);
+        if (action === "subex") return abrirModalSubExcepcional(equipe);
+        if (action === "sancao") return abrirModalSancao();
+        if (action === "verde") return abrirModalVerde();
+        if (action === "retardamento") return abrirModalRetardamento();
+        if (action === "wo") return registrarWO(equipe);
+    });
+});
+
 renderPainelVisual(estadoAtual);
 renderQuadra();
+renderMobileQuadra();
 const vencedorSetInicial = ladoVencedorSetLocal(estadoAtual);
 if (vencedorSetInicial && !partidaFinalizada) {
     setTimeout(() => aplicarFimSetPartidaLocal(vencedorSetInicial, "abertura_local"), 150);
