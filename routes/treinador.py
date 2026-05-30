@@ -10,6 +10,7 @@ from banco import (
     salvar_papeleta,
     registrar_solicitacao_treinador,
     listar_atletas_aprovados_da_equipe,
+    listar_competicoes_da_equipe_por_login,
 )
 from routes.utils import exigir_perfil
 
@@ -58,12 +59,28 @@ def _buscar_equipe_sessao():
     if not login:
         return None
 
-    chave = str(login).strip()
+    competicao_atual = (session.get("competicao_equipe_atual") or "").strip()
+
+    # Se a sessão não trouxe a competição, tenta descobrir pela lista de vínculos
+    # da equipe. Sem isso, buscar_equipe_por_login() retorna competicao = None e
+    # o /treinador quebrava ao montar a URL do jogo.
+    if not competicao_atual:
+        try:
+            comps = listar_competicoes_da_equipe_por_login(login) or []
+            if comps:
+                competicao_atual = (comps[0].get("nome") or comps[0].get("competicao") or "").strip()
+                if competicao_atual:
+                    session["competicao_equipe_atual"] = competicao_atual
+        except Exception as e:
+            print("ERRO descobrir competição da equipe:", e, flush=True)
+
+    chave = (str(login).strip(), competicao_atual)
     equipe = _cache_get(_CACHE_EQUIPE_LOGIN, chave)
     if equipe is not None:
         return equipe
 
-    return _cache_set(_CACHE_EQUIPE_LOGIN, chave, buscar_equipe_por_login(login))
+    equipe = buscar_equipe_por_login(login, competicao_atual) if competicao_atual else buscar_equipe_por_login(login)
+    return _cache_set(_CACHE_EQUIPE_LOGIN, chave, equipe)
 
 
 def _listar_atletas_cache(equipe_nome, competicao):
@@ -354,8 +371,10 @@ def abrir_modo_treinador():
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
+    competicao = (equipe.get("competicao") or session.get("competicao_equipe_atual") or "").strip()
+
     partida = buscar_partida_treinador_por_equipe(
-        equipe.get("competicao"),
+        competicao,
         equipe.get("nome")
     )
 
@@ -363,10 +382,15 @@ def abrir_modo_treinador():
         flash("Nenhuma partida disponível para o modo treinador no momento.", "erro")
         return redirect(url_for("equipes.minha_equipe"))
 
+    competicao_partida = (partida.get("competicao") or competicao or "").strip()
+    if not competicao_partida:
+        flash("Competição da equipe não encontrada para abrir o modo treinador.", "erro")
+        return redirect(url_for("equipes.minha_equipe"))
+
     return redirect(
         url_for(
             "treinador.tela_treinador",
-            competicao=equipe.get("competicao"),
+            competicao=competicao_partida,
             partida_id=partida.get("id"),
         )
     )

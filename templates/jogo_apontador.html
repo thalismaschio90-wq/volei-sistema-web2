@@ -2087,8 +2087,8 @@ function montarPayloadTempoReal(extra = {}) {
             saque_atual: String(saqueAtual || estadoAtual?.saque_atual || "").toUpperCase(),
             sacador_nome: extra.sacador_nome ?? infoSaque.nome ?? estadoAtual?.sacador_nome ?? "",
             sacador_numero: extra.sacador_numero ?? infoSaque.numero ?? estadoAtual?.sacador_numero ?? "",
-            rotacao_a: Array.isArray(rotA) ? rotA : [],
-            rotacao_b: Array.isArray(rotB) ? rotB : [],
+            rotacao_a: Array.isArray(rotA) ? rotA.map(numeroRotacaoSeguro) : [],
+            rotacao_b: Array.isArray(rotB) ? rotB.map(numeroRotacaoSeguro) : [],
             ultima_acao: extra.ultima_acao || estadoAtual?.ultima_acao || "Atualização em tempo real",
             tempos_a: numeroInteiro(estadoAtual?.tempos_a ?? 0, 0),
             tempos_b: numeroInteiro(estadoAtual?.tempos_b ?? 0, 0),
@@ -2290,20 +2290,33 @@ function montarPayloadTempoReal(extra = {}) {
         return Array.isArray(rot) && rot.length === 6;
     }
 
+    function numeroRotacaoSeguro(valor) {
+        if (valor === null || valor === undefined) return "";
+        if (typeof valor === "object") {
+            return numeroRotacaoSeguro(
+                valor.numero ?? valor.camisa ?? valor.numero_camisa ?? valor.atleta_numero ?? valor.n ?? valor.id ?? ""
+            );
+        }
+        const texto = String(valor || "").trim();
+        return texto === "[object Object]" ? "" : texto;
+    }
+
     function normalizarRotacao(rot, fallback, atual) {
-        // Se veio válido, usa
+        // A rotação oficial da tela é sempre string/número simples.
+        // Se vier objeto {numero,nome}, extrai só o número para não renderizar [object Object].
         if (Array.isArray(rot) && rot.length === 6) {
-            const limpa = rot.map(x => x ? String(x) : "");
+            const limpa = rot.map(numeroRotacaoSeguro);
             if (limpa.some(x => x !== "")) return limpa;
         }
 
-        // Se não veio, mantém a atual (não deixa sumir)
         if (Array.isArray(atual) && atual.length === 6) {
-            return atual;
+            const atualLimpa = atual.map(numeroRotacaoSeguro);
+            if (atualLimpa.some(x => x !== "")) return atualLimpa;
         }
 
-        // Só usa fallback como último recurso
-        return Array.isArray(fallback) ? [...fallback] : ["", "", "", "", "", ""];
+        const fb = Array.isArray(fallback) ? fallback.map(numeroRotacaoSeguro) : ["", "", "", "", "", ""];
+        while (fb.length < 6) fb.push("");
+        return fb.slice(0, 6);
     }
 
     function girarRotacaoLocal(lado) {
@@ -2614,7 +2627,7 @@ function montarPayloadTempoReal(extra = {}) {
             btn.dataset.posicao = String(posicao);
             btn.title = numero ? `P${posicao} • #${numero} ${nomeCurtoAtleta(lado, numero)}` : `P${posicao} vazia`;
             btn.innerHTML = `
-                <span class="mobile-pos-numero">${numero || "-"}</span>
+                <span class="mobile-pos-numero">${numeroRotacaoSeguro(numero) || "-"}</span>
                 <span class="mobile-pos-nome">${nomeCurtoAtleta(lado, numero) || `P${posicao}`}</span>
             `;
             btn.addEventListener("click", function () {
@@ -3756,7 +3769,7 @@ function inverterLadosVisual() {
             return {
                 valor: numero,
                 label: numero || nome,
-                title: `${numero || "-"} - ${nome}`,
+                title: `${numeroRotacaoSeguro(numero) || "-"} - ${nome}`,
                 nome: nome,
                 labelCompleto: numero ? `#${numero} - ${nome}` : nome
             };
@@ -4392,8 +4405,8 @@ function aplicarPontoOtimista(equipe, scout) {
         placar_a: novoA,
         placar_b: novoB,
         saque_atual: saqueAtual,
-        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+        rotacao_a: Array.isArray(rotA) ? rotA.map(numeroRotacaoSeguro) : [],
+        rotacao_b: Array.isArray(rotB) ? rotB.map(numeroRotacaoSeguro) : [],
         ultimo_sideout_girou: !!resultadoRotacao.girou,
         saque_anterior: resultadoRotacao.saqueAnterior || ""
     };
@@ -4425,8 +4438,8 @@ function aplicarPontoOtimista(equipe, scout) {
         sideout_girou: !!resultadoRotacao.girou,
         saque_anterior: resultadoRotacao.saqueAnterior || "",
         saque_atual: saqueAtual,
-        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+        rotacao_a: Array.isArray(rotA) ? rotA.map(numeroRotacaoSeguro) : [],
+        rotacao_b: Array.isArray(rotB) ? rotB.map(numeroRotacaoSeguro) : []
     });
 
     salvarSnapshotLocalAutomatico("ponto");
@@ -4460,8 +4473,8 @@ function montarEstadoManualParaBanco() {
         sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
         set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
         saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
-        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+        rotacao_a: Array.isArray(rotA) ? rotA.map(numeroRotacaoSeguro) : [],
+        rotacao_b: Array.isArray(rotB) ? rotB.map(numeroRotacaoSeguro) : [],
         status_jogadores_a: estadoAtual?.status_jogadores_a || {},
         status_jogadores_b: estadoAtual?.status_jogadores_b || {},
         sancoes_a: estadoAtual?.sancoes_a || [],
@@ -4719,8 +4732,8 @@ function montarPacoteOfflineJogo() {
             sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
             set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
             saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
-            rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-            rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+            rotacao_a: Array.isArray(rotA) ? rotA.map(numeroRotacaoSeguro) : [],
+            rotacao_b: Array.isArray(rotB) ? rotB.map(numeroRotacaoSeguro) : [],
             scout_local: scoutLocalPorLado,
             fila_offline: carregarFilaOffline()
         },

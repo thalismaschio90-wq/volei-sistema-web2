@@ -77,6 +77,16 @@ def _atletas_mapa(equipe, competicao):
     return mapa
 
 
+def _valor_numero_rotacao(valor):
+    if isinstance(valor, dict):
+        for chave in ("numero", "camisa", "numero_camisa", "atleta_numero", "id"):
+            if valor.get(chave) not in (None, ""):
+                return _valor_numero_rotacao(valor.get(chave))
+        return ""
+    texto = str(valor or "").strip()
+    return "" if texto == "[object Object]" else texto
+
+
 def _normalizar_rotacao(rotacao, mapa_atletas):
     saida = []
     if not isinstance(rotacao, list):
@@ -84,10 +94,10 @@ def _normalizar_rotacao(rotacao, mapa_atletas):
 
     for item in rotacao[:6]:
         if isinstance(item, dict):
-            numero = str(item.get("numero") or item.get("camisa") or "").strip()
-            nome = str(item.get("nome") or "").strip()
+            numero = _valor_numero_rotacao(item)
+            nome = str(item.get("nome") or item.get("atleta_nome") or "").strip()
         else:
-            numero = str(item or "").strip()
+            numero = _valor_numero_rotacao(item)
             nome = ""
 
         if numero and not nome:
@@ -121,7 +131,15 @@ def _montar_estado_arbitro(competicao, partida_id):
                 pid_ultimo = str(ultimo.get("partida_id") or ultimo.get("id") or "").strip()
                 comp_ultimo = str(ultimo.get("competicao") or competicao or "").strip()
                 if pid_ultimo == str(partida_id) and (not comp_ultimo or comp_ultimo == str(competicao)):
-                    estado = {**estado, **ultimo}
+                    # Não deixa um cache leve do telão apagar rotação já montada.
+                    base = dict(estado)
+                    for k, v in dict(ultimo).items():
+                        if k in {"rotacao_a", "rotacao_b"}:
+                            if isinstance(v, list) and any(str((x.get("numero") if isinstance(x, dict) else x) or "").strip() for x in v):
+                                base[k] = v
+                        else:
+                            base[k] = v
+                    estado = base
     except Exception as e:
         print("ERRO fallback estado árbitro cache apontador:", e, flush=True)
 

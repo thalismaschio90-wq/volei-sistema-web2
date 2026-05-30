@@ -513,7 +513,8 @@
 
         <div class="quadra">
             {% for i in ordem_quadra %}
-            {% set numero_pos = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
+            {% set numero_pos_raw = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
+            {% set numero_pos = (numero_pos_raw.numero if numero_pos_raw is mapping and numero_pos_raw.numero is defined else (numero_pos_raw.camisa if numero_pos_raw is mapping and numero_pos_raw.camisa is defined else numero_pos_raw)) %}
             <div class="posicao {% if not papeleta_editavel %}sem-clique{% endif %}"
                  {% if papeleta_editavel %}onclick="abrirModal({{ i }})"{% endif %}>
                 <span id="num_{{ i }}">
@@ -569,7 +570,8 @@
 
         <div class="quadra">
             {% for pos in ordem_quadra %}
-            {% set numero = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
+            {% set numero_raw = rotacao[loop.index0] if rotacao and rotacao|length > loop.index0 else '' %}
+            {% set numero = (numero_raw.numero if numero_raw is mapping and numero_raw.numero is defined else (numero_raw.camisa if numero_raw is mapping and numero_raw.camisa is defined else numero_raw)) %}
             <div class="posicao sem-clique">
                 <span id="rotacao_pos_{{ loop.index0 }}">{{ numero or '-' }}</span>
                 <small>{{ ['IV','III','II','V','VI','I'][loop.index0] }}</small>
@@ -910,14 +912,22 @@ function rotacaoTemValor(rotacao) {
     return Array.isArray(rotacao) && rotacao.some(v => String(v || "").trim() !== "");
 }
 
+function numeroRotacaoSeguro(v) {
+    if (v == null) return "";
+    if (typeof v === "object") {
+        const candidato = v.numero ?? v.camisa ?? v.numero_camisa ?? v.atleta_numero ?? v.id ?? "";
+        if (candidato && typeof candidato === "object") {
+            return numeroRotacaoSeguro(candidato);
+        }
+        return String(candidato || "").trim();
+    }
+    const texto = String(v || "").trim();
+    return texto === "[object Object]" ? "" : texto;
+}
+
 function normalizarRotacao(rotacao) {
     rotacao = Array.isArray(rotacao) ? rotacao : [];
-    rotacao = rotacao.map(v => {
-        if (v && typeof v === "object") {
-            return String(v.numero || v.camisa || v.numero_camisa || "").trim();
-        }
-        return String(v || "").trim();
-    });
+    rotacao = rotacao.map(numeroRotacaoSeguro);
     while (rotacao.length < 6) rotacao.push("");
     return rotacao.slice(0, 6);
 }
@@ -1619,23 +1629,19 @@ document.addEventListener("click", function (ev) {
 });
 
 if (socket) {
-    function entrarSalaTreinador() {
-        const payload = {
+    socket.on("connect", () => {
+        const payloadSalaTreinador = {
             competicao: {{ competicao_nome | tojson }},
             partida_id: {{ partida.id }},
             equipe_nome: equipeNomeTreinador,
             perfil: "treinador"
         };
-        socket.emit("entrar_partida", payload);
-        socket.emit("entrar_partida_tempo_real", payload);
-        socket.emit("join_partida", payload);
-        socket.emit("join", { ...payload, room: String({{ partida.id }}) });
-        socket.emit("join", { ...payload, room: `partida:${String({{ partida.id }})}` });
-        socket.emit("join", { ...payload, room: `partida_${String({{ partida.id }})}` });
-    }
-
-    socket.on("connect", () => {
-        entrarSalaTreinador();
+        socket.emit("entrar_partida", payloadSalaTreinador);
+        socket.emit("entrar_partida_tempo_real", payloadSalaTreinador);
+        socket.emit("join_partida", payloadSalaTreinador);
+        socket.emit("join", { ...payloadSalaTreinador, room: String({{ partida.id }}) });
+        socket.emit("join", { ...payloadSalaTreinador, room: "partida:" + String({{ partida.id }}) });
+        socket.emit("join", { ...payloadSalaTreinador, room: "arbitros:" + String({{ partida.id }}) });
         buscarEstadoTreinadorSeguro(true);
     });
 
@@ -1653,14 +1659,6 @@ if (socket) {
         aplicarEstadoTreinador(dados);
     });
 
-    socket.on("estado_partida_tempo_real", (dados) => {
-        aplicarEstadoTreinador(dados);
-    });
-
-    socket.on("estado_arbitros", (dados) => {
-        aplicarEstadoTreinador(dados);
-    });
-
     socket.on("resposta_solicitacao", (dados) => {
         if (!dados || String(dados.partida_id) !== String({{ partida.id }})) return;
         mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
@@ -1671,9 +1669,6 @@ if (socket) {
         mostrarRetorno(dados.mensagem || "Nova notificação recebida.", dados.status !== "recusada");
     });
 }
-
-window.addEventListener("focus", () => { if (socket && socket.connected) { try { entrarSalaTreinador(); } catch(e){} } buscarEstadoTreinadorSeguro(true); });
-window.addEventListener("pageshow", () => { if (socket && socket.connected) { try { entrarSalaTreinador(); } catch(e){} } buscarEstadoTreinadorSeguro(true); });
 
 // Carrega o complemento pesado (scout/banco/solicitações) depois que a tela já abriu.
 // Primeira carga rápida

@@ -44,12 +44,6 @@ STATUS_FINALIZADOS_ARBITRO = (
 )
 
 
-
-def _sql_lista_constantes(valores):
-    # Constantes internas; evita erro psycopg com tupla em ANY/ALL.
-    return "(" + ", ".join("'" + str(v).replace("'", "''").lower() + "'" for v in valores) + ")"
-
-
 def _perfil_normalizado():
     return (session.get("perfil") or "").strip().lower()
 
@@ -139,89 +133,71 @@ def _vinculo_arbitro_sessao():
 
 def _buscar_partida_ativa_para_painel_arbitro(competicao, quadra_id=None, quadra_nome=None, quadra_ordem=None, operador_login=None):
     """
-    Busca a partida que deve aparecer nos tablets fixos dos árbitros.
-    Ela entra na fila assim que o apontador salva o pré-jogo/sorteio.
+    Busca a partida que deve aparecer nos tablets dos árbitros.
+    Não usa ANY/ALL com array para evitar erro de malformed array literal no psycopg.
+    Prioriza a partida ao vivo/mais recente e ignora finalizadas.
     """
     if not competicao:
         return None
 
-    filtro_quadra = ""
-    params_quadra = []
+    filtros = ["competicao = %s"]
+    params = [competicao]
+
     if quadra_id:
-        filtro_quadra = " AND (quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s)"
-        params_quadra.extend([quadra_id, quadra_nome or "", quadra_nome or "", str(quadra_ordem or "")])
+        filtros.append("(quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s)")
+        params.extend([quadra_id, quadra_nome or "", quadra_nome or "", str(quadra_ordem or "")])
     elif quadra_nome:
-        filtro_quadra = " AND (quadra_nome = %s OR quadra = %s)"
-        params_quadra.extend([quadra_nome, quadra_nome])
+        filtros.append("(quadra_nome = %s OR quadra = %s)")
+        params.extend([quadra_nome, quadra_nome])
     elif quadra_ordem:
-        filtro_quadra = " AND (quadra = %s OR quadra_nome = %s)"
-        params_quadra.extend([str(quadra_ordem), f"Quadra {quadra_ordem}"])
+        filtros.append("(quadra = %s OR quadra_nome = %s)")
+        params.extend([str(quadra_ordem), f"Quadra {quadra_ordem}"])
 
-    filtro_operador = ""
-    params_operador = []
     if operador_login:
-        filtro_operador = " AND REGEXP_REPLACE(COALESCE(operador_login, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')"
-        params_operador.append(operador_login)
+        filtros.append("REGEXP_REPLACE(COALESCE(operador_login, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')")
+        params.append(operador_login)
 
-    ativos = list(STATUS_ATIVOS_ARBITRO)
-    finalizados = list(STATUS_FINALIZADOS_ARBITRO)
-    ativos_sql = _sql_lista_constantes(ativos)
-    finalizados_sql = _sql_lista_constantes(finalizados)
+    where = " AND ".join(filtros)
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
                 SELECT
-                    id,
-                    competicao,
-                    ordem,
-                    quadra,
-                    grupo,
-                    equipe_a,
-                    equipe_b,
-                    equipe_a_operacional,
-                    equipe_b_operacional,
-                    status,
-                    status_operacao,
-                    status_jogo,
-                    fase_partida,
-                    set_atual,
-                    pontos_a,
-                    pontos_b,
-                    sets_a,
-                    sets_b,
-                    pre_jogo_finalizado,
-                    arbitro_1_nome,
-                    arbitro_2_nome,
-                    operador_nome,
-                    operador_login
+                    id, competicao, ordem, quadra, grupo,
+                    equipe_a, equipe_b, equipe_a_operacional, equipe_b_operacional,
+                    status, status_operacao, status_jogo, fase_partida,
+                    set_atual, pontos_a, pontos_b, sets_a, sets_b,
+                    pre_jogo_finalizado, arbitro_1_nome, arbitro_2_nome,
+                    operador_nome, operador_login
                 FROM partidas
-                WHERE competicao = %s
-                  {filtro_quadra}
-                  {filtro_operador}
-                  AND LOWER(COALESCE(status, '')) NOT IN {finalizados_sql}
-                  AND LOWER(COALESCE(status_operacao, '')) NOT IN {finalizados_sql}
+                WHERE {where}
+                  AND LOWER(COALESCE(status, '')) NOT IN ('finalizada','finalizado','encerrada','encerrado')
+                  AND LOWER(COALESCE(status_operacao, '')) NOT IN ('finalizada','finalizado','encerrada','encerrado')
+                  AND LOWER(COALESCE(status_jogo, '')) NOT IN ('finalizada','finalizado','encerrada','encerrado')
+                  AND LOWER(COALESCE(fase_partida, '')) NOT IN ('finalizada','finalizado','encerrada','encerrado')
                   AND (
                         COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                     OR LOWER(COALESCE(status, '')) IN {ativos_sql}
-                     OR LOWER(COALESCE(status_operacao, '')) IN {ativos_sql}
-                     OR LOWER(COALESCE(status_jogo, '')) IN {ativos_sql}
-                     OR LOWER(COALESCE(fase_partida, '')) IN {ativos_sql}
+                     OR COALESCE(pontos_a, 0) > 0
+                     OR COALESCE(pontos_b, 0) > 0
+                     OR LOWER(COALESCE(status, '')) IN ('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio')
+                     OR LOWER(COALESCE(status_operacao, '')) IN ('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio')
+                     OR LOWER(COALESCE(status_jogo, '')) IN ('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio')
+                     OR LOWER(COALESCE(fase_partida, '')) IN ('pre_jogo','papeleta','papeleta_pronta','em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado','entre_sets','tiebreak_sorteio')
                   )
                 ORDER BY
                     CASE
-                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo') THEN 1
-                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo') THEN 2
-                        WHEN LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'ao_vivo', 'jogo', 'iniciada', 'iniciado') THEN 3
-                        WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 4
+                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','jogo') THEN 1
+                        WHEN LOWER(COALESCE(status_operacao, '')) IN ('em_andamento','andamento','ao_vivo','jogo') THEN 2
+                        WHEN COALESCE(pontos_a, 0) > 0 OR COALESCE(pontos_b, 0) > 0 THEN 3
+                        WHEN LOWER(COALESCE(status, '')) IN ('em_andamento','andamento','ao_vivo','jogo','iniciada','iniciado') THEN 4
+                        WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 5
                         ELSE 9
                     END,
-                    COALESCE(ordem, 999999),
-                    id
+                    id DESC
                 LIMIT 1
                 """,
-                tuple([competicao] + params_quadra + params_operador),
+                tuple(params),
             )
             return cur.fetchone()
 
@@ -476,19 +452,10 @@ def _resposta_proxima_partida_arbitro(tipo):
         return jsonify({"ok": False, "erro": "sem_permissao"}), 403
 
     vinculo = _vinculo_arbitro_sessao()
+    if not vinculo or vinculo.get("tipo") not in {"competicao", "operacional"}:
+        return jsonify({"ok": False, "erro": "PIN de árbitro não validado."}), 403
+
     competicao = _competicao_arbitro_logado()
-
-    if not vinculo:
-        # Compatibilidade com o login antigo do árbitro: se não há PIN na sessão,
-        # ainda tenta encontrar a partida pela competição vinculada ao usuário.
-        vinculo = {"tipo": "login", "competicao": competicao}
-
-    if vinculo.get("tipo") not in {"competicao", "operacional", "login"}:
-        return jsonify({"ok": False, "erro": "PIN/usuário de árbitro não validado."}), 403
-
-    if not competicao:
-        competicao = (vinculo.get("competicao") or "").strip()
-
     partida = _buscar_partida_ativa_para_painel_arbitro(
         competicao,
         quadra_id=vinculo.get("quadra_id") if vinculo.get("tipo") == "competicao" else None,

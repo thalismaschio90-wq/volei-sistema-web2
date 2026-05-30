@@ -924,6 +924,11 @@ if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_I
 }
 
 socket.on("placar_apontador_atualizado", aplicarEstado);
+socket.on("estado_partida", aplicarEstado);
+socket.on("estado_jogo_atualizado", aplicarEstado);
+socket.on("estado_partida_tempo_real", aplicarEstado);
+socket.on("placar_atualizado", aplicarEstado);
+socket.on("ponto_registrado", aplicarEstado);
 </script>
 
 </body>

@@ -36,12 +36,6 @@ STATUS_FINALIZADOS_ARBITRO = (
 )
 
 
-
-def _sql_lista_constantes(valores):
-    # Constantes internas; evita erro psycopg com tupla em ANY/ALL.
-    return "(" + ", ".join("'" + str(v).replace("'", "''").lower() + "'" for v in valores) + ")"
-
-
 def _pin_limpo(valor):
     return "".join(ch for ch in str(valor or "") if ch.isdigit())[:4]
 
@@ -203,8 +197,6 @@ def _buscar_partida_ativa_por_pin(vinculo):
         "ao vivo",
     )
     finalizados = tuple(STATUS_FINALIZADOS_ARBITRO)
-    finalizados_sql = _sql_lista_constantes(finalizados)
-    ativos_sql = _sql_lista_constantes(ativos)
 
     colunas = """
         id,
@@ -264,15 +256,15 @@ def _buscar_partida_ativa_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) NOT IN {finalizados_sql}
-                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {finalizados_sql}
-                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {finalizados_sql}
+                      AND LOWER(COALESCE(status, '')) <> ALL(%s)
+                      AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
+                      AND LOWER(COALESCE(status_jogo, '')) <> ALL(%s)
                       AND (
                             COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                         OR LOWER(COALESCE(status, '')) IN {ativos_sql}
-                         OR LOWER(COALESCE(status_operacao, '')) IN {ativos_sql}
-                         OR LOWER(COALESCE(status_jogo, '')) IN {ativos_sql}
-                         OR LOWER(COALESCE(fase_partida, '')) IN {ativos_sql}
+                         OR LOWER(COALESCE(status, '')) = ANY(%s)
+                         OR LOWER(COALESCE(status_operacao, '')) = ANY(%s)
+                         OR LOWER(COALESCE(status_jogo, '')) = ANY(%s)
+                         OR LOWER(COALESCE(fase_partida, '')) = ANY(%s)
                          OR COALESCE(pontos_a, 0) > 0
                          OR COALESCE(pontos_b, 0) > 0
                          OR COALESCE(set_atual, 1) > 1
@@ -289,7 +281,7 @@ def _buscar_partida_ativa_por_pin(vinculo):
                         id DESC
                     LIMIT 1
                     """,
-                    tuple(params),
+                    tuple(params + [finalizados, finalizados, finalizados, ativos, ativos, ativos, ativos]),
                 )
                 return cur.fetchone()
 
@@ -327,7 +319,6 @@ def _buscar_partida_aberta_por_pin(vinculo):
         return None
 
     finalizados = tuple(STATUS_FINALIZADOS_ARBITRO)
-    finalizados_sql = _sql_lista_constantes(finalizados)
 
     colunas = """
         id,
@@ -398,9 +389,9 @@ def _buscar_partida_aberta_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) NOT IN {finalizados_sql}
-                      AND LOWER(COALESCE(status_operacao, '')) NOT IN {finalizados_sql}
-                      AND LOWER(COALESCE(status_jogo, '')) NOT IN {finalizados_sql}
+                      AND LOWER(COALESCE(status, '')) <> ALL(%s)
+                      AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
+                      AND LOWER(COALESCE(status_jogo, '')) <> ALL(%s)
                     ORDER BY
                         CASE
                             WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo') THEN 1
@@ -414,7 +405,7 @@ def _buscar_partida_aberta_por_pin(vinculo):
                         id DESC
                     LIMIT 1
                     """,
-                    tuple(params),
+                    tuple(params + [finalizados, finalizados, finalizados]),
                 )
                 return cur.fetchone()
 

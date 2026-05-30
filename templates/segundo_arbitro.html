@@ -511,14 +511,23 @@
             return String(dados.partida_id) === String(PARTIDA_ID);
         }
 
+        function numeroJogadorSeguro(valor) {
+            if (valor == null) return "";
+            if (typeof valor === "object") {
+                return numeroJogadorSeguro(valor.numero ?? valor.camisa ?? valor.numero_camisa ?? valor.atleta_numero ?? valor.id ?? "");
+            }
+            const texto = String(valor || "").trim();
+            return texto === "[object Object]" ? "" : texto;
+        }
+
         function normalizarJogador(j) {
             if (j && typeof j === "object") {
                 return {
-                    numero: String(j.numero || j.camisa || j.numero_camisa || "").trim(),
+                    numero: numeroJogadorSeguro(j),
                     nome: String(j.nome || j.atleta_nome || "").trim()
                 };
             }
-            return { numero: String(j || "").trim(), nome: "" };
+            return { numero: numeroJogadorSeguro(j), nome: "" };
         }
 
         function nomeEquipe(lado) {
