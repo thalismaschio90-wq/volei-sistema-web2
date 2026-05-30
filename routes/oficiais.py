@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, render_template, request, redirect, session, url_for, flash
+from flask import Blueprint, jsonify, render_template, request, redirect, session, url_for, flash, make_response
 from banco import (
     criar_tabelas_oficiais,
     buscar_oficial_por_cpf,
@@ -21,6 +21,14 @@ from socket_events import obter_estado_cache
 
 oficiais_bp = Blueprint("oficiais", __name__)
 
+
+
+def _resposta_sem_cache(html):
+    resp = make_response(html)
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 def _arbitro_tem_pin_competicao(competicao):
@@ -103,7 +111,8 @@ def _normalizar_rotacao(rotacao, mapa_atletas):
 
 def _montar_estado_arbitro(competicao, partida_id):
     partida = buscar_partida_operacional(partida_id, competicao) or {}
-    estado = dict(obter_estado_cache(partida_id) or {})
+    cache_estado = obter_estado_cache(partida_id)
+    estado = dict(cache_estado) if isinstance(cache_estado, dict) else {}
 
     if not estado:
         try:
@@ -313,13 +322,13 @@ def primeiro_arbitro_view(competicao, partida_id):
         flash("Digite o PIN da quadra no Painel dos Árbitros antes de abrir esta tela.", "erro")
         return redirect(url_for("painel.painel_arbitros"))
     estado = _montar_estado_arbitro(competicao, partida_id)
-    return render_template(
+    return _resposta_sem_cache(render_template(
         "primeiro_arbitro.html",
         competicao=competicao,
         partida_id=partida_id,
         estado=estado,
         tipo_arbitro="primeiro",
-    )
+    ))
 
 
 @oficiais_bp.route("/oficiais/segundo-arbitro/<competicao>/<int:partida_id>")
@@ -328,13 +337,13 @@ def segundo_arbitro_view(competicao, partida_id):
         flash("Digite o PIN da quadra no Painel dos Árbitros antes de abrir esta tela.", "erro")
         return redirect(url_for("painel.painel_arbitros"))
     estado = _montar_estado_arbitro(competicao, partida_id)
-    return render_template(
+    return _resposta_sem_cache(render_template(
         "segundo_arbitro.html",
         competicao=competicao,
         partida_id=partida_id,
         estado=estado,
         tipo_arbitro="segundo",
-    )
+    ))
 
 
 @oficiais_bp.route("/oficiais/arbitro/estado/<competicao>/<int:partida_id>")

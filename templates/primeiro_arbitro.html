@@ -318,7 +318,7 @@
             <div id="statusSocket" class="status off">● Conectando</div>
             <div class="acoes-topo">
                 <button type="button" onclick="inverterQuadra()">🔄 Inverter</button>
-                <button type="button" onclick="carregarEstado(true)">↻</button>
+                <button type="button" onclick="carregarEstado(true, true)">↻</button>
             </div>
         </header>
 
@@ -565,6 +565,11 @@
 
                 if (!dados) return;
 
+                if (dados.ok === false) {
+                    console.error("Estado do árbitro retornou erro:", dados.mensagem || dados.erro || dados);
+                    return dados;
+                }
+
                 aplicarEstado(dados, silencioso);
 
                 return dados;
@@ -592,6 +597,7 @@
             // celular que reconecta e fica escutando uma sala diferente do PC.
             socket.emit("entrar_arbitro", payload);
             socket.emit("entrar_partida", payload);
+            socket.emit("entrar_partida_tempo_real", { ...payload, perfil: "arbitro" });
             socket.emit("join_partida", payload);
 
             socket.emit("join", { ...payload, room: pid });
@@ -654,8 +660,10 @@
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
-                // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
+                setTimeout(() => carregarEstado(true, true), 700);
             });
+
+            socket.on("reconnect_attempt", () => setSocketStatus(false));
 
             socket.on("reconnect", async () => {
                 setSocketStatus(true);
@@ -724,8 +732,14 @@
 
         function acordarTelaMobile() {
             if (socket) socket.connect();
-            setTimeout(entrarNaSala, 80);
-            // Não busca banco aqui para não piscar/zerar rotação; Socket.IO atualiza.
+
+            setTimeout(() => {
+                entrarNaSala();
+            }, 80);
+
+            setTimeout(() => {
+                carregarEstado(true, true);
+            }, 500);
         }
 
         document.addEventListener("visibilitychange", () => {
@@ -739,6 +753,7 @@
         aplicarEstado(ESTADO_INICIAL, true);
         // Busca inicial única; depois, quem manda é o Socket.IO.
         carregarEstado(true, true);
+        setTimeout(() => carregarEstado(true, true), 300);
         iniciarSocket();
         iniciarPollingRapido();
     </script>
