@@ -1250,6 +1250,37 @@
         }
     }
 
+
+/* =========================================================
+   CORREÇÃO MOBILE: modais acima da tela mobile
+   ========================================================= */
+@media (max-width: 1024px) and (orientation: landscape) {
+    .substituicao-modal-fundo,
+    .sancao-modal-fundo,
+    .verde-modal-fundo,
+    .ponto-modal-fundo,
+    #retardamento-modal-fundo,
+    #subex-modal-fundo {
+        z-index: 95000 !important;
+    }
+
+    .substituicao-modal,
+    .sancao-modal,
+    .verde-modal,
+    .ponto-modal {
+        position: relative;
+        z-index: 95001 !important;
+    }
+
+    .mobile-apontador-ui button,
+    .mobile-apontador-ui a,
+    .mobile-pos,
+    .mobile-ponto-btn,
+    .mobile-equipe-head {
+        touch-action: manipulation;
+    }
+}
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -5188,18 +5219,6 @@ modalSubExFundo.addEventListener("click", function (event) {
     atualizarTravasOperacionais();
     agendarSincronizacao(120, true);
 })();
-
-try{
-const _mpE=document.getElementById('mobile-ponto-esq');
-const _mpD=document.getElementById('mobile-ponto-dir');
-const _mhE=document.getElementById('mobile-head-esq');
-const _mhD=document.getElementById('mobile-head-dir');
-if(_mpE){_mpE.onclick=()=>document.getElementById('btn-ponto-a')?.click();}
-if(_mpD){_mpD.onclick=()=>document.getElementById('btn-ponto-b')?.click();}
-if(_mhE){_mhE.onclick=()=>document.getElementById('btn-ponto-a')?.click();}
-if(_mhD){_mhD.onclick=()=>document.getElementById('btn-ponto-b')?.click();}
-}catch(e){console.log(e);}
-
 </script>
 
 <script>
@@ -5467,6 +5486,83 @@ if(_mhD){_mhD.onclick=()=>document.getElementById('btn-ponto-b')?.click();}
     document.addEventListener("DOMContentLoaded", carregarAtalhos);
     carregarAtalhos();
 })();
+</script>
+
+
+<script>
+/* CORREÇÃO MOBILE: ponte final de cliques */
+document.addEventListener("DOMContentLoaded", function () {
+    function clicar(id) {
+        const el = document.getElementById(id);
+        if (el) el.click();
+    }
+
+    function fecharMenus() {
+        document.getElementById("mobile-menu-esq")?.classList.remove("aberto");
+        document.getElementById("mobile-menu-dir")?.classList.remove("aberto");
+    }
+
+    const mapaDireto = {
+        "mobile-head-esq": "btn-ponto-a",
+        "mobile-ponto-esq": "btn-ponto-a",
+        "mobile-head-dir": "btn-ponto-b",
+        "mobile-ponto-dir": "btn-ponto-b",
+        "mobile-desfazer": "btn-desfazer",
+        "mobile-fullscreen": "btn-fullscreen",
+        "mobile-salvar": "btn-salvar-partida",
+        "mobile-salvar-sair": "btn-salvar-sair-partida"
+    };
+
+    Object.entries(mapaDireto).forEach(([mobileId, realId]) => {
+        const el = document.getElementById(mobileId);
+        if (!el) return;
+        el.addEventListener("touchend", function (ev) {
+            ev.preventDefault();
+            clicar(realId);
+        }, { passive: false });
+        el.addEventListener("click", function (ev) {
+            ev.preventDefault();
+            clicar(realId);
+        });
+    });
+
+    document.addEventListener("click", function (ev) {
+        const btn = ev.target.closest("[data-mobile-action]");
+        if (!btn) return;
+
+        const action = btn.dataset.mobileAction;
+        const side = btn.dataset.side || "";
+        fecharMenus();
+
+        const esquerda = side === "esq";
+        const realId = {
+            tempo: esquerda ? "btn-tempo-a" : "btn-tempo-b",
+            sub: esquerda ? "btn-sub-a" : "btn-sub-b",
+            wo: esquerda ? "btn-wo-a" : "btn-wo-b",
+            sancao: "btn-sancao",
+            verde: "btn-verde",
+            retardamento: "btn-retardamento",
+            subex: "btn-sub-excepcional"
+        }[action];
+
+        if (realId) {
+            ev.preventDefault();
+            clicar(realId);
+        }
+    }, true);
+
+    document.addEventListener("click", function (ev) {
+        const pos = ev.target.closest(".mobile-pos");
+        if (!pos) return;
+
+        const quadraEsq = pos.closest("#mobile-quadra-esq");
+        const quadraDir = pos.closest("#mobile-quadra-dir");
+
+        ev.preventDefault();
+        if (quadraEsq) clicar("btn-sub-a");
+        if (quadraDir) clicar("btn-sub-b");
+    }, true);
+});
 </script>
 
 {% endblock %}
