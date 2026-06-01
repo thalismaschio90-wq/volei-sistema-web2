@@ -585,6 +585,66 @@
             };
         }
 
+        function numeroInteiro(valor, padrao = 0) {
+            const n = parseInt(valor, 10);
+            return Number.isFinite(n) ? n : padrao;
+        }
+
+        function setsParaVencerPelasRegras(dados) {
+            const setsTipo = String(dados?.sets_tipo || "").trim().toLowerCase();
+            if (["set_unico", "único", "unico", "1_set", "melhor_de_1"].includes(setsTipo)) return 1;
+            if (setsTipo === "melhor_de_5") return 3;
+            return numeroInteiro(dados?.sets_para_vencer || 2, 2);
+        }
+
+        function limiteDoSetAtualPelasRegras(dados) {
+            const setAtualNumero = numeroInteiro(dados?.set_atual || 1, 1);
+            const setsTipo = String(dados?.sets_tipo || "").trim().toLowerCase();
+            const pontosSet = numeroInteiro(dados?.pontos_set || dados?.ponto_alvo_set || dados?.pontos_para_vencer_set || 25, 25);
+            const pontosTiebreak = numeroInteiro(dados?.pontos_tiebreak || 15, 15);
+            const ehTiebreak = (setsTipo === "melhor_de_3" && setAtualNumero === 3) || (setsTipo === "melhor_de_5" && setAtualNumero === 5);
+            return ehTiebreak ? pontosTiebreak : pontosSet;
+        }
+
+        function ladoVencedorSetLocal(dados) {
+            const a = numeroInteiro(dados?.pontos_a ?? dados?.placar_a ?? 0, 0);
+            const b = numeroInteiro(dados?.pontos_b ?? dados?.placar_b ?? 0, 0);
+            const limite = limiteDoSetAtualPelasRegras(dados);
+            const dif = numeroInteiro(dados?.diferenca_minima || 2, 2);
+            if (a >= limite && (a - b) >= dif) return "A";
+            if (b >= limite && (b - a) >= dif) return "B";
+            return "";
+        }
+
+        function avisoPointAtual(dados) {
+            if (!dados || dados.partida_finalizada || ladoVencedorSetLocal(dados)) return null;
+            const a = numeroInteiro(dados?.pontos_a ?? dados?.placar_a ?? 0, 0);
+            const b = numeroInteiro(dados?.pontos_b ?? dados?.placar_b ?? 0, 0);
+            const limite = limiteDoSetAtualPelasRegras(dados);
+            const dif = numeroInteiro(dados?.diferenca_minima || 2, 2);
+            let lado = "";
+            // Em empate não existe SET/MATCH POINT; só mostra se o próximo ponto encerra pelo critério de diferença.
+            if ((a + 1) >= limite && ((a + 1) - b) >= dif && a >= b) lado = "A";
+            if ((b + 1) >= limite && ((b + 1) - a) >= dif && b >= a) lado = "B";
+            if (!lado) return null;
+            const setsLado = lado === "A" ? numeroInteiro(dados.sets_a, 0) : numeroInteiro(dados.sets_b, 0);
+            const ehMatch = (setsLado + 1) >= setsParaVencerPelasRegras(dados);
+            return { lado, titulo: ehMatch ? "MATCH POINT" : "SET POINT", equipe: nomeEquipe(lado) };
+        }
+
+        let ultimoAvisoPointChave = "";
+        function mostrarAvisoPointSeNecessario(dados) {
+            const aviso = avisoPointAtual(dados || estadoAtual);
+            if (!aviso) {
+                ultimoAvisoPointChave = "";
+                return;
+            }
+            const chave = `${aviso.titulo}|${aviso.lado}|${dados?.pontos_a}|${dados?.pontos_b}|${dados?.sets_a}|${dados?.sets_b}|${dados?.set_atual}`;
+            if (chave === ultimoAvisoPointChave) return;
+            ultimoAvisoPointChave = chave;
+            mostrarPopup(aviso.titulo, aviso.equipe, "Próximo ponto pode encerrar", 3000);
+        }
+
         function renderQuadra(containerId, lado) {
             const el = document.getElementById(containerId);
             if (!el) return;
@@ -651,11 +711,20 @@
             if ((seguro.equipe_b === "" || seguro.equipe_b == null) && estadoAtual.equipe_b) delete seguro.equipe_b;
 
             estadoAtual = { ...estadoAtual, ...seguro };
+            if (!estadoAtual.sets_tipo) estadoAtual.sets_tipo = seguro.sets_tipo || "melhor_de_3";
+            estadoAtual.pontos_set = numeroInteiro(estadoAtual.pontos_set || estadoAtual.ponto_alvo_set || estadoAtual.pontos_para_vencer_set || 25, 25);
+            estadoAtual.ponto_alvo_set = estadoAtual.pontos_set;
+            estadoAtual.pontos_para_vencer_set = estadoAtual.pontos_set;
+            estadoAtual.pontos_tiebreak = numeroInteiro(estadoAtual.pontos_tiebreak || 15, 15);
+            estadoAtual.diferenca_minima = numeroInteiro(estadoAtual.diferenca_minima || 2, 2);
+            estadoAtual.sets_para_vencer = numeroInteiro(estadoAtual.sets_para_vencer || setsParaVencerPelasRegras(estadoAtual), 2);
             render();
+
+            if (!silencioso) mostrarAvisoPointSeNecessario(estadoAtual);
 
             const s = sacadorAtual();
             const chaveSaque = `${s.lado}|${s.numero}|${s.nome}|${s.equipe}`;
-            if (!silencioso && s.lado && s.numero && s.numero !== "-" && chaveSaque !== ultimoSaqueChave) {
+            if (false && !silencioso && s.lado && s.numero && s.numero !== "-" && chaveSaque !== ultimoSaqueChave) {
                 ultimoSaqueChave = chaveSaque;
                 mostrarPopup("Saque", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 2600);
             }
@@ -917,8 +986,7 @@
 
             socket.on("saque_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;
-                // O popup principal já vem pelo estado completo. Este evento parcial
-                // apenas sincroniza o texto do sacador sem gerar aviso duplicado/diferente.
+                // Atualiza apenas o card do sacador. Não abre popup de saque aleatório.
                 aplicarEstado(dados, true);
             });
 

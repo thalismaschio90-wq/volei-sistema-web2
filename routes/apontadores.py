@@ -345,23 +345,35 @@ def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, par
         estado.setdefault("subs_b", 0)
 
     # Regras de pontuação para set point/match point no frontend.
-    if "pontos_set" not in estado:
-        estado["pontos_set"] = (
-            partida.get("pontos_set")
-            or partida.get("ponto_alvo_set")
-            or partida.get("pontos_para_vencer_set")
-            or estado.get("ponto_alvo_set")
-            or estado.get("pontos_para_vencer_set")
-            or 25
-        )
-    if "pontos_tiebreak" not in estado:
-        estado["pontos_tiebreak"] = partida.get("pontos_tiebreak") or estado.get("pontos_tiebreak") or 15
-    if "diferenca_minima" not in estado:
-        estado["diferenca_minima"] = partida.get("diferenca_minima") or estado.get("diferenca_minima") or 2
-    if "sets_para_vencer" not in estado:
-        estado["sets_para_vencer"] = partida.get("sets_para_vencer") or estado.get("sets_para_vencer") or 2
-    if "sets_tipo" not in estado:
-        estado["sets_tipo"] = partida.get("sets_tipo") or estado.get("sets_tipo") or "melhor_de_3"
+    # IMPORTANTE: aqui a regra da competição/partida SEMPRE ganha do cache.
+    # O cache do socket_events pode nascer com padrão 25/15/2; se não sobrescrevermos,
+    # torneio configurado para 21 nunca mostra SET POINT/MATCH POINT no 20.
+    sets_tipo_regra = (partida.get("sets_tipo") or estado.get("sets_tipo") or "melhor_de_3")
+    estado["sets_tipo"] = sets_tipo_regra
+    estado["pontos_set"] = _int_seguro(
+        partida.get("pontos_set")
+        or partida.get("ponto_alvo_set")
+        or partida.get("pontos_para_vencer_set")
+        or estado.get("pontos_set")
+        or estado.get("ponto_alvo_set")
+        or estado.get("pontos_para_vencer_set")
+        or 25,
+        25,
+    )
+    estado["ponto_alvo_set"] = estado["pontos_set"]
+    estado["pontos_para_vencer_set"] = estado["pontos_set"]
+    estado["pontos_tiebreak"] = _int_seguro(partida.get("pontos_tiebreak") or estado.get("pontos_tiebreak") or 15, 15)
+    estado["diferenca_minima"] = _int_seguro(partida.get("diferenca_minima") or estado.get("diferenca_minima") or 2, 2)
+
+    sets_tipo_norm = str(sets_tipo_regra or "").strip().lower()
+    if sets_tipo_norm in {"set_unico", "único", "unico", "1_set", "melhor_de_1"}:
+        estado["sets_para_vencer"] = 1
+    elif sets_tipo_norm == "melhor_de_5":
+        estado["sets_para_vencer"] = 3
+    elif sets_tipo_norm == "melhor_de_3":
+        estado["sets_para_vencer"] = 2
+    else:
+        estado["sets_para_vencer"] = _int_seguro(partida.get("sets_para_vencer") or estado.get("sets_para_vencer") or 2, 2)
 
     return estado
 

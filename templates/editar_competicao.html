@@ -349,12 +349,41 @@
     }
 
 
+    .modo-operacao-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .modo-operacao-card {
+        margin-bottom: 0;
+        cursor: pointer;
+        transition: 0.16s ease;
+    }
+
+    .modo-operacao-card:hover {
+        background: #eef6ff;
+        border-color: #bfd0df;
+    }
+
+    .modo-operacao-inline {
+        align-items: flex-start;
+    }
+
+    .modo-operacao-inline small {
+        color: #6b7c8c;
+        font-weight: 700;
+        line-height: 1.35;
+    }
+
+
 
     @media (max-width: 860px) {
         .competicao-form-grid,
         .criterios-box,
         .fase-grid,
-        .avancado-grid {
+        .avancado-grid,
+        .modo-operacao-grid {
             grid-template-columns: 1fr;
         }
 
@@ -555,6 +584,46 @@
                     <div class="competicao-form-field">
                         <label for="qtd_grupos">Quantidade de grupos</label>
                         <input type="number" id="qtd_grupos" name="qtd_grupos" value="{{ competicao.qtd_grupos or 0 }}">
+                    </div>
+
+                    <div class="competicao-form-field full">
+                        <label>Modo de operação da competição</label>
+                        {% set modo_atual = competicao.modo_operacao or 'simples' %}
+                        <div class="modo-operacao-grid">
+                            <label class="competicao-check-card modo-operacao-card" for="modo_operacao_simples">
+                                <span class="competicao-check-inline modo-operacao-inline">
+                                    <input
+                                        type="radio"
+                                        id="modo_operacao_simples"
+                                        name="modo_operacao"
+                                        value="simples"
+                                        style="width:auto;"
+                                        {% if modo_atual != 'avancado' %}checked{% endif %}
+                                    >
+                                    <span>
+                                        <strong>Simples</strong><br>
+                                        <small>Placar direto, sem abrir scout/justificativa do ponto.</small>
+                                    </span>
+                                </span>
+                            </label>
+
+                            <label class="competicao-check-card modo-operacao-card" for="modo_operacao_avancado">
+                                <span class="competicao-check-inline modo-operacao-inline">
+                                    <input
+                                        type="radio"
+                                        id="modo_operacao_avancado"
+                                        name="modo_operacao"
+                                        value="avancado"
+                                        style="width:auto;"
+                                        {% if modo_atual == 'avancado' %}checked{% endif %}
+                                    >
+                                    <span>
+                                        <strong>Avançado</strong><br>
+                                        <small>Abre scout completo/justificativa em cada ponto.</small>
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
 

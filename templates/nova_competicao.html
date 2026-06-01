@@ -1,62 +1,287 @@
 {% extends "base.html" %}
 
+{% block titulo %}Nova competição{% endblock %}
+
 {% block conteudo %}
-<div class="topo-secao">
-    <div class="titulo-secao" style="margin-bottom: 0;">Nova Competição</div>
-    <a href="{{ url_for('competicoes.listar_competicoes_view') }}" class="btn-secundario">Voltar</a>
-</div>
+{% set form = dados_form or {} %}
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        <div class="flash-box">
-            {% for categoria, mensagem in messages %}
-                <div class="flash-erro">{{ mensagem }}</div>
-            {% endfor %}
+<style>
+    .nova-wrap {
+        max-width: 980px;
+        margin: 0 auto;
+    }
+
+    .nova-hero {
+        background: linear-gradient(135deg, #123852, #0b2740 62%, #071827);
+        color: #fff;
+        border-radius: 26px;
+        padding: 26px;
+        box-shadow: 0 18px 45px rgba(18,56,82,.18);
+        margin-bottom: 18px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .nova-hero:after {
+        content: "";
+        position: absolute;
+        right: -80px;
+        top: -90px;
+        width: 240px;
+        height: 240px;
+        border-radius: 999px;
+        background: rgba(212,166,42,.18);
+    }
+
+    .nova-hero > * {
+        position: relative;
+        z-index: 1;
+    }
+
+    .nova-kicker {
+        font-size: 13px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        color: rgba(255,255,255,.72);
+        margin-bottom: 6px;
+    }
+
+    .nova-title {
+        font-size: clamp(28px,4vw,42px);
+        font-weight: 1000;
+        line-height: 1;
+    }
+
+    .nova-sub {
+        color: rgba(255,255,255,.78);
+        font-weight: 700;
+        margin-top: 8px;
+        max-width: 760px;
+        line-height: 1.45;
+    }
+
+    .nova-card {
+        background: #fff;
+        border: 1px solid var(--border, #dbe4ec);
+        border-radius: 22px;
+        padding: 22px;
+        box-shadow: var(--shadow, 0 10px 24px rgba(15,23,42,.06));
+    }
+
+    .nova-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+    }
+
+    .nova-field label {
+        display: block;
+        margin-bottom: 7px;
+        font-weight: 900;
+        color: var(--text, #17324a);
+        font-size: 14px;
+    }
+
+    .nova-field input,
+    .nova-field select {
+        width: 100%;
+        padding: 13px 14px;
+        border: 1px solid #cfd9e3;
+        border-radius: 14px;
+        font-size: 15px;
+        background: #fcfdff;
+        outline: none;
+        transition: .18s ease;
+    }
+
+    .nova-field input:focus,
+    .nova-field select:focus {
+        background: #fff;
+        border-color: #8da8bf;
+        box-shadow: 0 0 0 4px rgba(18,56,82,.08);
+    }
+
+    .nova-full {
+        grid-column: 1 / -1;
+    }
+
+    .modo-box {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .modo-card {
+        position: relative;
+        border: 1px solid #dbe4ec;
+        border-radius: 18px;
+        padding: 16px;
+        background: #f8fbff;
+        cursor: pointer;
+        transition: .16s ease;
+        min-height: 120px;
+    }
+
+    .modo-card:hover {
+        transform: translateY(-1px);
+        border-color: #b7c9da;
+        background: #fff;
+    }
+
+    .modo-card input {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: auto;
+        transform: scale(1.2);
+    }
+
+    .modo-card:has(input:checked) {
+        border-color: #123852;
+        box-shadow: 0 0 0 4px rgba(18,56,82,.08);
+        background: #eef4fb;
+    }
+
+    .modo-title {
+        font-size: 18px;
+        font-weight: 1000;
+        color: #123852;
+        margin-bottom: 7px;
+        padding-right: 34px;
+    }
+
+    .modo-desc {
+        color: var(--muted, #64748b);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.45;
+    }
+
+    .nova-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+    }
+
+    .nova-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        background: #123852;
+        color: #fff;
+        font-weight: 900;
+        font-size: 14px;
+        border-radius: 14px;
+        padding: 13px 18px;
+        cursor: pointer;
+        text-decoration: none;
+        transition: .18s ease;
+    }
+
+    .nova-btn:hover {
+        background: #0f3147;
+    }
+
+    .nova-btn-sec {
+        background: #eef4fb;
+        color: #123852;
+        border: 1px solid #dbe4ec;
+    }
+
+    .nova-btn-sec:hover {
+        background: #e3edf7;
+    }
+
+    .helper-text {
+        color: var(--muted, #64748b);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.45;
+        margin-top: 7px;
+    }
+
+    @media (max-width: 760px) {
+        .nova-grid,
+        .modo-box {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<div class="nova-wrap">
+    <div class="nova-hero">
+        <div class="nova-kicker">Super ADM</div>
+        <div class="nova-title">Criar competição</div>
+        <div class="nova-sub">
+            Defina os dados iniciais e escolha se a competição vai nascer no modo simples ou avançado.
         </div>
-    {% endif %}
-{% endwith %}
+    </div>
 
-<div class="card-painel" style="max-width: 760px;">
-    <form method="post">
-        <div style="margin-bottom: 18px;">
-            <label for="nome" style="display:block; font-weight:700; margin-bottom:8px; color:#12344d;">
-                Nome da competição
-            </label>
-            <input
-                type="text"
-                id="nome"
-                name="nome"
-                required
-                style="width:100%; border:1px solid #dbe3ea; border-radius:14px; padding:14px 16px; font-size:16px;"
-            >
-        </div>
+    <form method="post" class="nova-card">
+        <div class="nova-grid">
+            <div class="nova-field nova-full">
+                <label for="nome">Nome da competição</label>
+                <input type="text" id="nome" name="nome" value="{{ form.nome or '' }}" required placeholder="Ex.: Prado Volley Cup 2026">
+            </div>
 
-        <div style="margin-bottom: 18px;">
-            <label for="data" style="display:block; font-weight:700; margin-bottom:8px; color:#12344d;">
-                Data
-            </label>
-            <input
-                type="date"
-                id="data"
-                name="data"
-                style="width:100%; border:1px solid #dbe3ea; border-radius:14px; padding:14px 16px; font-size:16px;"
-            >
-        </div>
+            <div class="nova-field">
+                <label for="data">Data</label>
+                <input type="date" id="data" name="data" value="{{ form.data or '' }}">
+            </div>
 
-        <div style="margin-bottom: 22px; padding: 14px; border-radius: 14px; background: #f7f9fc; border: 1px solid #dbe3ea;">
-            <div style="font-weight: 700; color:#12344d; margin-bottom:6px;">Acesso do organizador</div>
-            <div style="font-size: 14px; color:#5c6b78;">
-                Ao salvar, o sistema vai gerar automaticamente um <strong>login</strong> e uma <strong>senha</strong> para o organizador da competição.
+            <div class="nova-field">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                    {% set status_atual = form.status or 'Em preparação' %}
+                    <option value="Em preparação" {% if status_atual == 'Em preparação' %}selected{% endif %}>Em preparação</option>
+                    <option value="Inscrições abertas" {% if status_atual == 'Inscrições abertas' %}selected{% endif %}>Inscrições abertas</option>
+                    <option value="Em andamento" {% if status_atual == 'Em andamento' %}selected{% endif %}>Em andamento</option>
+                    <option value="Finalizada" {% if status_atual == 'Finalizada' %}selected{% endif %}>Finalizada</option>
+                </select>
+            </div>
+
+            <div class="nova-field nova-full">
+                <label>Modo de operação da competição</label>
+                {% set modo_atual = form.modo_operacao or 'simples' %}
+                <div class="modo-box">
+                    <label class="modo-card" for="modo_simples">
+                        <input type="radio" id="modo_simples" name="modo_operacao" value="simples" {% if modo_atual != 'avancado' %}checked{% endif %}>
+                        <div class="modo-title">Simples</div>
+                        <div class="modo-desc">
+                            Ideal para torneios rápidos, com menos configurações e operação mais direta.
+                        </div>
+                    </label>
+
+                    <label class="modo-card" for="modo_avancado">
+                        <input type="radio" id="modo_avancado" name="modo_operacao" value="avancado" {% if modo_atual == 'avancado' %}checked{% endif %}>
+                        <div class="modo-title">Avançado</div>
+                        <div class="modo-desc">
+                            Libera configuração completa de fases, critérios, grupos, mata-mata, quadras e regras detalhadas.
+                        </div>
+                    </label>
+                </div>
+                <div class="helper-text">
+                    Depois de criada, essa opção ainda pode ser alterada em Minha competição enquanto a competição não estiver travada.
+                </div>
+            </div>
+
+            <div class="nova-field">
+                <label for="tempos_por_set">Tempos por set</label>
+                <input type="number" id="tempos_por_set" name="tempos_por_set" min="0" value="{{ form.tempos_por_set if form.tempos_por_set is not none else 2 }}">
+            </div>
+
+            <div class="nova-field">
+                <label for="substituicoes_por_set">Substituições por set</label>
+                <input type="number" id="substituicoes_por_set" name="substituicoes_por_set" min="0" value="{{ form.substituicoes_por_set if form.substituicoes_por_set is not none else 6 }}">
             </div>
         </div>
 
-        <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao" style="border:none; cursor:pointer;">
-                Salvar competição
-            </button>
-            <a href="{{ url_for('competicoes.listar_competicoes_view') }}" class="btn-secundario">
-                Cancelar
-            </a>
+        <div class="nova-actions">
+            <button type="submit" class="nova-btn">Criar competição</button>
+            <a href="{{ url_for('competicoes.listar_competicoes_view') }}" class="nova-btn nova-btn-sec">Cancelar</a>
         </div>
     </form>
 </div>

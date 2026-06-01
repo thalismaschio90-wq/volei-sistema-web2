@@ -831,7 +831,10 @@ def estado_partida_local_socket(data):
         )
 
     saque_atual = str(payload.get("saque_atual") or "").strip().upper()
-    if saque_atual in {"A", "B"}:
+    # O estado_partida_tempo_real já contém saque_atual/sacador.
+    # Não dispara saque_arbitros a cada refresh/local-state, pois isso gerava
+    # popups repetidos e aparentemente aleatórios nos árbitros.
+    if payload.get("forcar_popup_saque") and saque_atual in {"A", "B"}:
         _emitir_salas(
             "saque_arbitros",
             {

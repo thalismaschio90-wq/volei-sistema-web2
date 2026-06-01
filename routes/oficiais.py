@@ -13,6 +13,7 @@ from banco import (
     remover_apontador_da_competicao,
     buscar_partida_operacional,
     buscar_estado_jogo_partida,
+    buscar_competicao_por_nome,
     listar_papeleta,
     listar_atletas_aprovados_da_equipe,
 )
@@ -131,15 +132,7 @@ def _montar_estado_arbitro(competicao, partida_id):
                 pid_ultimo = str(ultimo.get("partida_id") or ultimo.get("id") or "").strip()
                 comp_ultimo = str(ultimo.get("competicao") or competicao or "").strip()
                 if pid_ultimo == str(partida_id) and (not comp_ultimo or comp_ultimo == str(competicao)):
-                    # Não deixa um cache leve do telão apagar rotação já montada.
-                    base = dict(estado)
-                    for k, v in dict(ultimo).items():
-                        if k in {"rotacao_a", "rotacao_b"}:
-                            if isinstance(v, list) and any(str((x.get("numero") if isinstance(x, dict) else x) or "").strip() for x in v):
-                                base[k] = v
-                        else:
-                            base[k] = v
-                    estado = base
+                    estado = {**estado, **ultimo}
     except Exception as e:
         print("ERRO fallback estado árbitro cache apontador:", e, flush=True)
 
@@ -212,6 +205,24 @@ def _montar_estado_arbitro(competicao, partida_id):
     numero_sacador = sacador.get("numero") or "-"
     nome_sacador = sacador.get("nome") or ""
 
+    try:
+        comp = buscar_competicao_por_nome(competicao) or {}
+    except Exception:
+        comp = {}
+
+    sets_tipo = (comp.get("sets_tipo") or estado.get("sets_tipo") or partida.get("sets_tipo") or "melhor_de_3")
+    pontos_set = _int_seguro(comp.get("pontos_set") or estado.get("pontos_set") or partida.get("pontos_set"), 25)
+    pontos_tiebreak = _int_seguro(comp.get("pontos_tiebreak") or estado.get("pontos_tiebreak") or partida.get("pontos_tiebreak"), 15)
+    diferenca_minima = _int_seguro(comp.get("diferenca_minima") or estado.get("diferenca_minima") or partida.get("diferenca_minima"), 2)
+
+    sets_tipo_norm = str(sets_tipo or "").strip().lower()
+    if sets_tipo_norm in {"set_unico", "único", "unico", "1_set", "melhor_de_1"}:
+        sets_para_vencer = 1
+    elif sets_tipo_norm == "melhor_de_5":
+        sets_para_vencer = 3
+    else:
+        sets_para_vencer = 2
+
     return {
         "ok": True,
         "competicao": competicao,
@@ -223,6 +234,13 @@ def _montar_estado_arbitro(competicao, partida_id):
         "sets_a": _int_seguro(estado.get("sets_a"), 0),
         "sets_b": _int_seguro(estado.get("sets_b"), 0),
         "set_atual": set_atual,
+        "sets_tipo": sets_tipo,
+        "pontos_set": pontos_set,
+        "ponto_alvo_set": pontos_set,
+        "pontos_para_vencer_set": pontos_set,
+        "pontos_tiebreak": pontos_tiebreak,
+        "diferenca_minima": diferenca_minima,
+        "sets_para_vencer": sets_para_vencer,
         "saque_atual": saque_atual,
         "equipe_sacadora": equipe_sacadora,
         "numero_sacador": numero_sacador,
@@ -247,6 +265,13 @@ def _estado_arbitro_vazio(competicao, partida_id, mensagem="Aguardando dados do 
         "sets_a": 0,
         "sets_b": 0,
         "set_atual": 1,
+        "sets_tipo": "melhor_de_3",
+        "pontos_set": 25,
+        "ponto_alvo_set": 25,
+        "pontos_para_vencer_set": 25,
+        "pontos_tiebreak": 15,
+        "diferenca_minima": 2,
+        "sets_para_vencer": 2,
         "saque_atual": "",
         "equipe_sacadora": "",
         "numero_sacador": "-",

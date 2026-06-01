@@ -1881,6 +1881,13 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const CHAVE_INVERSAO_QUADRA = `quadra_invertida_{{ competicao_nome|replace(' ', '_') }}_{{ partida.id }}`;
 
     const modoOperacao = {{ modo_operacao_jogo | tojson }};
+    const REGRAS_JOGO_INICIAIS = {
+        sets_tipo: {{ (estado.get('sets_tipo') or partida.get('sets_tipo') or 'melhor_de_3') | tojson }},
+        pontos_set: {{ (estado.get('pontos_set') or estado.get('ponto_alvo_set') or estado.get('pontos_para_vencer_set') or partida.get('pontos_set') or 25) | tojson }},
+        pontos_tiebreak: {{ (estado.get('pontos_tiebreak') or partida.get('pontos_tiebreak') or 15) | tojson }},
+        diferenca_minima: {{ (estado.get('diferenca_minima') or partida.get('diferenca_minima') or 2) | tojson }},
+        sets_para_vencer: {{ (estado.get('sets_para_vencer') or partida.get('sets_para_vencer') or 0) | tojson }}
+    };
 
     let partidaFinalizada = false;
     let observacoesAbrindo = false;
@@ -2087,8 +2094,8 @@ function montarPayloadTempoReal(extra = {}) {
             saque_atual: String(saqueAtual || estadoAtual?.saque_atual || "").toUpperCase(),
             sacador_nome: extra.sacador_nome ?? infoSaque.nome ?? estadoAtual?.sacador_nome ?? "",
             sacador_numero: extra.sacador_numero ?? infoSaque.numero ?? estadoAtual?.sacador_numero ?? "",
-            rotacao_a: normalizarRotacao(rotA, fallbackRotA, rotA),
-            rotacao_b: normalizarRotacao(rotB, fallbackRotB, rotB),
+            rotacao_a: Array.isArray(rotA) ? rotA : [],
+            rotacao_b: Array.isArray(rotB) ? rotB : [],
             ultima_acao: extra.ultima_acao || estadoAtual?.ultima_acao || "Atualização em tempo real",
             tempos_a: numeroInteiro(estadoAtual?.tempos_a ?? 0, 0),
             tempos_b: numeroInteiro(estadoAtual?.tempos_b ?? 0, 0),
@@ -2290,31 +2297,20 @@ function montarPayloadTempoReal(extra = {}) {
         return Array.isArray(rot) && rot.length === 6;
     }
 
-    function numeroRotacaoSeguro(valor) {
-        if (valor === null || valor === undefined) return "";
-        if (typeof valor === "object") {
-            const candidato = valor.numero ?? valor.camisa ?? valor.numero_camisa ?? valor.atleta_numero ?? valor.n ?? valor.id ?? "";
-            if (candidato && typeof candidato === "object") return numeroRotacaoSeguro(candidato);
-            return String(candidato || "").trim();
-        }
-        const texto = String(valor || "").trim();
-        return texto === "[object Object]" ? "" : texto;
-    }
-
     function normalizarRotacao(rot, fallback, atual) {
+        // Se veio válido, usa
         if (Array.isArray(rot) && rot.length === 6) {
-            const limpa = rot.map(numeroRotacaoSeguro);
+            const limpa = rot.map(x => x ? String(x) : "");
             if (limpa.some(x => x !== "")) return limpa;
         }
 
+        // Se não veio, mantém a atual (não deixa sumir)
         if (Array.isArray(atual) && atual.length === 6) {
-            const limpaAtual = atual.map(numeroRotacaoSeguro);
-            if (limpaAtual.some(x => x !== "")) return limpaAtual;
+            return atual;
         }
 
-        const limpaFallback = Array.isArray(fallback) ? fallback.map(numeroRotacaoSeguro) : [];
-        while (limpaFallback.length < 6) limpaFallback.push("");
-        return limpaFallback.slice(0, 6);
+        // Só usa fallback como último recurso
+        return Array.isArray(fallback) ? [...fallback] : ["", "", "", "", "", ""];
     }
 
     function girarRotacaoLocal(lado) {
@@ -2339,6 +2335,16 @@ function montarPayloadTempoReal(extra = {}) {
     estadoAtual.sets_a = numeroInteiro(estadoAtual.sets_a ?? {{ (estado.sets_a if estado.sets_a is defined else 0) | tojson }}, 0);
     estadoAtual.sets_b = numeroInteiro(estadoAtual.sets_b ?? {{ (estado.sets_b if estado.sets_b is defined else 0) | tojson }}, 0);
     estadoAtual.set_atual = numeroInteiro(estadoAtual.set_atual ?? {{ (estado.set_atual if estado.set_atual is defined else 1) | tojson }}, 1);
+    estadoAtual.sets_tipo = estadoAtual.sets_tipo || REGRAS_JOGO_INICIAIS.sets_tipo || "melhor_de_3";
+    estadoAtual.pontos_set = numeroInteiro(estadoAtual.pontos_set ?? estadoAtual.ponto_alvo_set ?? estadoAtual.pontos_para_vencer_set ?? REGRAS_JOGO_INICIAIS.pontos_set, 25);
+    estadoAtual.ponto_alvo_set = estadoAtual.pontos_set;
+    estadoAtual.pontos_para_vencer_set = estadoAtual.pontos_set;
+    estadoAtual.pontos_tiebreak = numeroInteiro(estadoAtual.pontos_tiebreak ?? REGRAS_JOGO_INICIAIS.pontos_tiebreak, 15);
+    estadoAtual.diferenca_minima = numeroInteiro(estadoAtual.diferenca_minima ?? REGRAS_JOGO_INICIAIS.diferenca_minima, 2);
+    if (!estadoAtual.sets_para_vencer || numeroInteiro(estadoAtual.sets_para_vencer, 0) <= 0) {
+        const st = String(estadoAtual.sets_tipo || "").toLowerCase();
+        estadoAtual.sets_para_vencer = ["set_unico", "único", "unico", "1_set", "melhor_de_1"].includes(st) ? 1 : (st === "melhor_de_5" ? 3 : 2);
+    }
     estadoAtual.rotacao_a = rotA;
     estadoAtual.rotacao_b = rotB;
     saqueAtual = ladoPorEquipeOuNome(saqueAtual) || ladoPorEquipeOuNome(estadoAtual.saque_atual) || "";
@@ -2402,7 +2408,7 @@ function montarPayloadTempoReal(extra = {}) {
             popupSaqueTimer = null;
         }
 
-        if (popupJogoTituloEl) popupJogoTituloEl.textContent = tipo === "tempo" ? "TEMPO" : (dados.titulo || "SAQUE");
+        if (popupJogoTituloEl) popupJogoTituloEl.textContent = tipo === "tempo" ? "TEMPO" : (dados.titulo || "ORDEM DO SAQUE");
         if (popupJogoNumeroEl) {
             popupJogoNumeroEl.style.display = tipo === "tempo" ? "none" : "block";
             popupJogoNumeroEl.textContent = dados.numero || "?";
@@ -2477,7 +2483,7 @@ function montarPayloadTempoReal(extra = {}) {
 
         const nome = info.nome || `Atleta nº ${info.numero}`;
         abrirPopupJogoGrande("saque", {
-            numero: info.numero && info.numero !== "?" ? `#${info.numero}` : "?",
+            numero: info.numero,
             nome: nome,
             equipe: info.equipeNome,
             duracao: 2600
@@ -2940,7 +2946,7 @@ function inverterLadosVisual() {
 
     function atualizarCelulas(celulas, rotacao, lado, anterior) {
         for (let i = 0; i < 6; i++) {
-            const numero = numeroRotacaoSeguro(rotacao[i] || "");
+            const numero = rotacao[i] || "";
             const classeExtra = classePosicao(numero, lado);
             const mudou = String((anterior || [])[i] || "") !== String(numero || "");
             celulas[i].textContent = numero;
@@ -3155,12 +3161,13 @@ function inverterLadosVisual() {
 
         let lado = "";
 
-        // Mostra point apenas quando o próximo ponto daquele lado encerraria o set.
-        if ((pontosAAtual + 1) >= limite && ((pontosAAtual + 1) - pontosBAtual) >= diferenca) {
+        // Mostra point apenas quando o PRÓXIMO ponto daquele lado encerraria o set.
+        // Em empate (20x20, 21x21, 24x24...) não existe set/match point.
+        if ((pontosAAtual + 1) >= limite && ((pontosAAtual + 1) - pontosBAtual) >= diferenca && pontosAAtual >= pontosBAtual) {
             lado = "A";
         }
 
-        if ((pontosBAtual + 1) >= limite && ((pontosBAtual + 1) - pontosAAtual) >= diferenca) {
+        if ((pontosBAtual + 1) >= limite && ((pontosBAtual + 1) - pontosAAtual) >= diferenca && pontosBAtual >= pontosAAtual) {
             lado = "B";
         }
 
@@ -4280,6 +4287,20 @@ function atualizarResumoSubEx() {
         if (Array.isArray(dados.historico)) saida.historico = dados.historico.slice(0, 5);
         if (dados.ultima_acao === undefined && dados.mensagem) saida.ultima_acao = dados.mensagem;
 
+        // Mantém as regras oficiais da competição mesmo quando chega payload parcial
+        // de socket/autosave. Sem isso, o cache voltava para 25 e sumia o set/match point em jogos a 21.
+        saida.sets_tipo = saida.sets_tipo || (estadoAtual && estadoAtual.sets_tipo) || REGRAS_JOGO_INICIAIS.sets_tipo || "melhor_de_3";
+        saida.pontos_set = numeroInteiro(saida.pontos_set ?? saida.ponto_alvo_set ?? saida.pontos_para_vencer_set ?? (estadoAtual && estadoAtual.pontos_set) ?? REGRAS_JOGO_INICIAIS.pontos_set, 25);
+        saida.ponto_alvo_set = saida.pontos_set;
+        saida.pontos_para_vencer_set = saida.pontos_set;
+        saida.pontos_tiebreak = numeroInteiro(saida.pontos_tiebreak ?? (estadoAtual && estadoAtual.pontos_tiebreak) ?? REGRAS_JOGO_INICIAIS.pontos_tiebreak, 15);
+        saida.diferenca_minima = numeroInteiro(saida.diferenca_minima ?? (estadoAtual && estadoAtual.diferenca_minima) ?? REGRAS_JOGO_INICIAIS.diferenca_minima, 2);
+        saida.sets_para_vencer = numeroInteiro(saida.sets_para_vencer ?? (estadoAtual && estadoAtual.sets_para_vencer) ?? REGRAS_JOGO_INICIAIS.sets_para_vencer, 0);
+        if (!saida.sets_para_vencer || saida.sets_para_vencer <= 0) {
+            const st = String(saida.sets_tipo || "").toLowerCase();
+            saida.sets_para_vencer = ["set_unico", "único", "unico", "1_set", "melhor_de_1"].includes(st) ? 1 : (st === "melhor_de_5" ? 3 : 2);
+        }
+
         return saida;
     }
 
@@ -4403,17 +4424,16 @@ function aplicarPontoOtimista(equipe, scout) {
         placar_a: novoA,
         placar_b: novoB,
         saque_atual: saqueAtual,
-        rotacao_a: normalizarRotacao(rotA, fallbackRotA, rotA),
-        rotacao_b: normalizarRotacao(rotB, fallbackRotB, rotB),
+        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
         ultimo_sideout_girou: !!resultadoRotacao.girou,
         saque_anterior: resultadoRotacao.saqueAnterior || ""
     };
 
-    const vencedorSetLocal = ladoVencedorSetLocal(estadoAtual);
-    if (vencedorSetLocal) {
-        aplicarFimSetPartidaLocal(vencedorSetLocal, "ponto_local");
-        return;
-    }
+    // Não finaliza set/partida só pelo estado otimista do navegador.
+    // A finalização oficial vem do backend após gravar o ponto; isso evita
+    // MATCH POINT/SET POINT fora de hora e evita finalizar/rodar duas vezes.
+    const vencedorSetLocal = "";
 
     renderPainelVisual(estadoAtual);
     renderQuadra();
@@ -4441,11 +4461,12 @@ function aplicarPontoOtimista(equipe, scout) {
     });
 
     salvarSnapshotLocalAutomatico("ponto");
-    agendarAutosaveBancoAutomatico(900, "ponto");
+    // autosave de ponto removido: o ponto é salvo pela rota oficial /ponto.
 }
 
 const FILA_OFFLINE_KEY = `fila_offline_jogo_{{ partida.id }}`;
 const URLS_ACAO = {
+    ponto: "{{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) }}",
     tempo: "{{ url_for('apontadores.registrar_tempo_view', competicao=competicao_nome, partida_id=partida.id) }}",
     substituicao: "{{ url_for('apontadores.registrar_substituicao_view', competicao=competicao_nome, partida_id=partida.id) }}",
     substituicao_excepcional: "{{ url_for('apontadores.registrar_substituicao_excepcional_view', competicao=competicao_nome, partida_id=partida.id) }}",
@@ -4471,8 +4492,8 @@ function montarEstadoManualParaBanco() {
         sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
         set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
         saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
-        rotacao_a: normalizarRotacao(rotA, fallbackRotA, rotA),
-        rotacao_b: normalizarRotacao(rotB, fallbackRotB, rotB),
+        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
         status_jogadores_a: estadoAtual?.status_jogadores_a || {},
         status_jogadores_b: estadoAtual?.status_jogadores_b || {},
         sancoes_a: estadoAtual?.sancoes_a || [],
@@ -4730,8 +4751,8 @@ function montarPacoteOfflineJogo() {
             sets_b: numeroInteiro(estadoAtual?.sets_b ?? 0, 0),
             set_atual: numeroInteiro(estadoAtual?.set_atual ?? 1, 1),
             saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
-            rotacao_a: normalizarRotacao(rotA, fallbackRotA, rotA),
-            rotacao_b: normalizarRotacao(rotB, fallbackRotB, rotB),
+            rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+            rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
             scout_local: scoutLocalPorLado,
             fila_offline: carregarFilaOffline()
         },
@@ -4964,32 +4985,61 @@ async function registrarPonto(equipe, scout) {
     travarBotoes(true);
     limparErro();
 
+    const scoutSeguro = scout || {};
+
     try {
-        aplicarScoutLocal(equipe, scout || {});
-        aplicarPontoOtimista(equipe, scout || {});
+        // 1) Atualiza a tela imediatamente, mas sem decidir fim de set no navegador.
+        aplicarScoutLocal(equipe, scoutSeguro);
+        aplicarPontoOtimista(equipe, scoutSeguro);
         fecharModalPonto();
 
-        adicionarFilaOffline("ponto", {
-            equipe: equipe,
-            scout: scout || {},
-            estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
+        // 2) Salva o ponto na rota oficial. Ela é a fonte da verdade para:
+        // rotação, saque, scout, set point, match point, fim de set e fim de jogo.
+        const resp = await fetch(URLS_ACAO.ponto, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "fetch"
+            },
+            body: JSON.stringify({
+                equipe: equipe,
+                fundamento: scoutSeguro.fundamento || scoutSeguro.detalhe_lance || "",
+                resultado: scoutSeguro.resultado || scoutSeguro.tipo_lance || "",
+                tipo_lance: scoutSeguro.tipo_lance || scoutSeguro.resultado || "",
+                detalhe_lance: scoutSeguro.detalhe_lance || scoutSeguro.fundamento || "",
+                tipo_erro: scoutSeguro.tipo_erro || "",
+                atleta_numero: scoutSeguro.atleta_numero || "",
+                atleta_nome: scoutSeguro.atleta_nome || "",
+                atleta_label: scoutSeguro.atleta_label || "",
+                responsavel_lado: scoutSeguro.responsavel_lado || scoutSeguro.equipe_responsavel || ""
+            })
         });
 
-        salvarSnapshotLocalAutomatico("ponto_confirmado_local");
-        agendarAutosaveBancoAutomatico(900, "ponto_confirmado_local");
+        const dados = await resp.json().catch(() => ({}));
 
-        const msg = "Ponto registrado";
+        if (!resp.ok || dados.ok === false) {
+            throw new Error(dados.mensagem || dados.erro || "Não foi possível registrar o ponto no banco.");
+        }
+
+        // 3) Aplica a resposta oficial. Esse payload também alimenta árbitros,
+        // treinador e telão pelo socket emitido no backend.
+        aplicarEstado(dados);
+
+        const msg = dados.ultima_acao || dados.mensagem || "Ponto registrado";
         atualizarUltimaAcao(msg);
         estadoAtual.ultima_acao = msg;
-        emitirEstadoTempoReal({
-            ultima_acao: msg,
-            tipo_evento: "ponto",
-            equipe_pontuadora: equipe,
-            scout_evento: scout || {}
-        });
+
     } catch (e) {
-        mostrarErro("Erro local ao registrar ponto.");
-        atualizarUltimaAcao("Erro local ao registrar ponto.");
+        // Se a internet cair, preserva localmente, mas avisa. Não sobrescreve
+        // a partida do banco silenciosamente com um autosave parcial.
+        adicionarFilaOffline("ponto", {
+            equipe: equipe,
+            scout: scoutSeguro,
+            estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
+        });
+        salvarSnapshotLocalAutomatico("ponto_pendente_offline");
+        mostrarErro((e && e.message) ? e.message : "Erro ao registrar ponto.");
+        atualizarUltimaAcao("Ponto pendente de sincronização.");
     } finally {
         enviando = false;
         travarBotoes(false);
@@ -5154,6 +5204,25 @@ async function registrarRetardamento() {
     function tratarCliquePonto(equipe) {
         limparErro();
         if (enviando || partidaFinalizada) return;
+
+        // MODO SIMPLES: não abre scout/justificativa.
+        // Marca o ponto direto, como placar tradicional.
+        if (String(modoOperacao || "simples").toLowerCase() !== "avancado") {
+            registrarPonto(equipe, {
+                tipo_lance: "ponto_simples",
+                resultado: "ponto_simples",
+                fundamento: "",
+                detalhe_lance: "",
+                tipo_erro: "",
+                atleta_numero: "",
+                atleta_nome: "",
+                atleta_label: "",
+                responsavel_lado: ""
+            });
+            return;
+        }
+
+        // MODO AVANÇADO: abre scout completo.
         abrirModalPonto(equipe);
     }
 

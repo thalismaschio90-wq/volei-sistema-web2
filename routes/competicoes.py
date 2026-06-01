@@ -368,10 +368,15 @@ def salvar_estrutura_view():
     data_limite_inscricao = request.form.get("data_limite_inscricao", "").strip()
     hora_limite_inscricao = request.form.get("hora_limite_inscricao", "").strip()
 
+    modo_operacao = (request.form.get("modo_operacao") or comp.get("modo_operacao") or "simples").strip().lower()
+    if modo_operacao not in ("simples", "avancado"):
+        modo_operacao = "simples"
+
     dados = {
         "qtd_equipes": _to_int(request.form.get("qtd_equipes"), padrao=0, minimo=0),
         "tem_grupos": request.form.get("tem_grupos") == "on",
         "qtd_grupos": _to_int(request.form.get("qtd_grupos"), padrao=0, minimo=0),
+        "modo_operacao": modo_operacao,
         "data_limite_inscricao": data_limite_inscricao,
         "hora_limite_inscricao": hora_limite_inscricao,
         "limite_atletas": _to_int(request.form.get("limite_atletas"), padrao=0, minimo=0),
