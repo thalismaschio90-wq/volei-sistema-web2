@@ -7704,6 +7704,9 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "rotacao_b": rotacao_b,
         "girou": girou,
         "equipe_girou": equipe_girou,
+        "tipo_evento": "ponto",
+        "equipe_pontuadora": equipe_pontuadora,
+        "saque_anterior": saque_antes,
         "ultima_acao": "Jogo finalizado" if fim_jogo else ("Set finalizado" if fim_set else "Ponto registrado"),
         "historico": historico,
     }

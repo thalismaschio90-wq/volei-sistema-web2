@@ -2003,13 +2003,20 @@ def ponto_view(competicao, partida_id):
         if not tipo_lance:
             return _json_no_cache({"ok": False, "mensagem": "Selecione se foi ponto, erro ou falta."}, 400)
 
+        # O modo simples do apontador/mobile envia ponto_simples.
+        # Ele deve contar como ponto direto, sem obrigar scout/atleta.
+        if tipo_lance == "ponto_simples":
+            tipo_lance = "ponto"
+            resultado = "ponto"
+            detalhe_lance = detalhe_lance or "ponto_simples"
+
         if tipo_lance not in {"ponto", "erro", "falta"}:
             return _json_no_cache({"ok": False, "mensagem": "Tipo de lance inválido."}, 400)
 
         detalhe_final = (detalhe_lance or tipo_erro or resultado or fundamento).strip().lower()
 
         detalhes_validos = {
-            "ponto": {"ataque", "bloqueio", "ace"},
+            "ponto": {"ataque", "bloqueio", "ace", "ponto_simples"},
             "erro": {"erro_saque", "erro_geral"},
             "falta": {"rede", "invasao", "rotacao", "conducao", "dois_toques"},
         }
@@ -2076,6 +2083,10 @@ def ponto_view(competicao, partida_id):
         estado = retorno if isinstance(retorno, dict) else {}
         estado["competicao"] = competicao
         estado["partida_id"] = partida_id
+        # Marca explicitamente que esta resposta veio de um ponto.
+        # O front usa isso para não sobrescrever a rotação local/mobile com sync atrasado.
+        estado["tipo_evento"] = "ponto"
+        estado["equipe_pontuadora"] = equipe_pontuadora
 
         if not estado.get("historico") or not estado.get("ultima_acao"):
             historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
@@ -2587,6 +2598,10 @@ def salvar_estado_manual_view(competicao, partida_id):
         estado = {**estado_atual, **(estado_recebido or {})}
         estado["competicao"] = competicao
         estado["partida_id"] = partida_id
+        # Marca explicitamente que esta resposta veio de um ponto.
+        # O front usa isso para não sobrescrever a rotação local/mobile com sync atrasado.
+        estado["tipo_evento"] = "ponto"
+        estado["equipe_pontuadora"] = equipe_pontuadora
 
         estado_salvo = salvar_estado_manual_partida(
             partida_id=partida_id,
