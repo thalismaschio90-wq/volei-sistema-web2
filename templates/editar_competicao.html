@@ -1045,6 +1045,14 @@
                                     <label>Pontos do tie-break</label>
                                     <input type="number" name="grupo_{{ grupo }}_pontos_tiebreak" value="{{ rg.get('pontos_tiebreak', '') }}" placeholder="Padrão">
                                 </div>
+                                <div class="competicao-form-field full">
+                                    <label>Modo de operação do grupo</label>
+                                    <select name="grupo_{{ grupo }}_modo_operacao">
+                                        <option value="padrao" {% if not rg.get('modo_operacao') %}selected{% endif %}>Usar padrão da competição</option>
+                                        <option value="simples" {% if rg.get('modo_operacao') == 'simples' %}selected{% endif %}>Simples — ponto direto</option>
+                                        <option value="avancado" {% if rg.get('modo_operacao') == 'avancado' %}selected{% endif %}>Avançado — scout/justificativa</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     {% endfor %}
@@ -1054,11 +1062,11 @@
             <div class="competicao-section-box" style="margin-top:18px;">
                 <div class="avancado-subtitle">Regras específicas por fase</div>
                 <div class="helper-text" style="margin-bottom:14px;">
-                    Exemplo: classificatória em set único, quartas em melhor de 3 e final em melhor de 5.
+                    Exemplo: classificatória em modo simples, quartas com regra própria e final em modo avançado.
                 </div>
 
                 <div class="avancado-grid">
-                    {% for fase_id, fase_nome in [('oitavas','Oitavas'), ('quartas','Quartas'), ('semifinal','Semifinal'), ('final','Final')] %}
+                    {% for fase_id, fase_nome in [('grupos','Classificatória / Grupos'), ('oitavas','Oitavas'), ('quartas','Quartas'), ('semifinal','Semifinal'), ('final','Final')] %}
                         {% set rf = regras_fases.get(fase_id, {}) %}
                         <div class="avancado-card">
                             <label class="competicao-check-inline" for="fase_{{ fase_id }}_ativo" style="margin-bottom:12px;">
@@ -1090,6 +1098,14 @@
                                 <div class="competicao-form-field">
                                     <label>Pontos do tie-break</label>
                                     <input type="number" name="fase_{{ fase_id }}_pontos_tiebreak" value="{{ rf.get('pontos_tiebreak', '') }}" placeholder="Padrão">
+                                </div>
+                                <div class="competicao-form-field full">
+                                    <label>Modo de operação da fase</label>
+                                    <select name="fase_{{ fase_id }}_modo_operacao">
+                                        <option value="padrao" {% if not rf.get('modo_operacao') %}selected{% endif %}>Usar padrão da competição</option>
+                                        <option value="simples" {% if rf.get('modo_operacao') == 'simples' %}selected{% endif %}>Simples — ponto direto</option>
+                                        <option value="avancado" {% if rf.get('modo_operacao') == 'avancado' %}selected{% endif %}>Avançado — scout/justificativa</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>

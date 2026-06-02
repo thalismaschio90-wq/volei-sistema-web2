@@ -35,6 +35,7 @@ from banco import (
     registrar_tempo_partida,
     buscar_tempos_restantes_partida,
     buscar_competicao_por_nome,
+    buscar_configuracao_avancada_competicao,
     registrar_substituicao_partida,
     registrar_substituicao_excepcional_partida,
     registrar_retardamento_partida,
@@ -103,6 +104,66 @@ def _limpar_cache_atletas(equipe=None, competicao=None):
         return
     _CACHE_ATLETAS_EQUIPE.pop(((competicao or "").strip(), (equipe or "").strip()), None)
 
+
+def _normalizar_fase_operacao(fase):
+    fase = (fase or "grupos").strip().lower()
+    aliases = {
+        "grupo": "grupos",
+        "classificatoria": "grupos",
+        "classificatória": "grupos",
+        "classificatorias": "grupos",
+        "classificatórias": "grupos",
+        "semifinais": "semifinal",
+        "semi": "semifinal",
+        "semis": "semifinal",
+        "finais": "final",
+        "finalissima": "final",
+        "finalíssima": "final",
+    }
+    return aliases.get(fase, fase or "grupos")
+
+
+def _resolver_modo_operacao_partida(competicao, partida=None):
+    """Resolve o modo de operação efetivo da partida.
+
+    Prioridade:
+    1. regra avançada específica da fase;
+    2. regra avançada específica do grupo, quando for fase de grupos;
+    3. padrão geral da competição/partida;
+    4. simples.
+    """
+    partida = partida or {}
+    modo_padrao = (partida.get("modo_operacao") or "simples").strip().lower()
+
+    try:
+        comp = buscar_competicao_por_nome(competicao) or {}
+        modo_padrao = (comp.get("modo_operacao") or modo_padrao or "simples").strip().lower()
+    except Exception:
+        pass
+
+    modo_final = modo_padrao if modo_padrao in {"simples", "avancado"} else "simples"
+
+    try:
+        config = buscar_configuracao_avancada_competicao(competicao) or {}
+        fases_config = config.get("fases_config") or {}
+        regras_avancadas = fases_config.get("regras_avancadas") or {}
+        fase_id = _normalizar_fase_operacao(partida.get("fase"))
+
+        regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
+        modo_fase = (regra_fase.get("modo_operacao") or "").strip().lower()
+        if modo_fase in {"simples", "avancado"}:
+            return modo_fase
+
+        if fase_id == "grupos":
+            grupo = (partida.get("grupo") or "").strip().upper()
+            regra_grupo = (regras_avancadas.get("grupos") or {}).get(grupo) or {}
+            modo_grupo = (regra_grupo.get("modo_operacao") or "").strip().lower()
+            if modo_grupo in {"simples", "avancado"}:
+                return modo_grupo
+    except Exception as e:
+        print("AVISO resolver modo operação partida:", repr(e), flush=True)
+
+    return modo_final
 
 
 # =========================================================
@@ -1970,7 +2031,7 @@ def jogo_view(competicao, partida_id):
         papeleta_b=papeleta_b,
         atletas_a=atletas_a,
         atletas_b=atletas_b,
-        modo_operacao=(partida.get("modo_operacao") or "simples"),
+        modo_operacao=_resolver_modo_operacao_partida(competicao, partida),
         offline_habilitado=offline_global_habilitado(),
     ))
 

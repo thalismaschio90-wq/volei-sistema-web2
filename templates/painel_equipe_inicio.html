@@ -414,6 +414,15 @@
             font-size: 32px;
         }
     }
+
+    .escudo-equipe-hero { width: 118px; height: 118px; border-radius: 24px; object-fit: contain; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22); padding: 10px; box-shadow: 0 16px 35px rgba(0,0,0,.22); }
+    .escudo-equipe-linha { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+    .escudo-upload-box { margin-top:14px; display:grid; gap:8px; }
+    .escudo-upload-box input[type="file"] { width:100%; color:#fff; font-weight:800; }
+    .escudo-upload-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .btn-escudo { border:0; border-radius:12px; padding:10px 12px; font-weight:900; cursor:pointer; background:#0d9488; color:#fff; }
+    .btn-escudo-remover { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.22); }
+
 </style>
 
 <div class="equipe-dashboard">
@@ -436,12 +445,28 @@
         </div>
 
         <aside class="equipe-status-panel">
-            <div class="equipe-status-label">Equipe logada</div>
-            <div class="equipe-status-name">{{ equipe.nome if equipe else session.get('nome', session.get('usuario')) }}</div>
-            <span class="equipe-status-tag">{{ status_equipe or 'Equipe ativa' }}</span>
+            <div class="escudo-equipe-linha">
+                <img class="escudo-equipe-hero" src="{{ equipe.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}" alt="Escudo da equipe">
+                <div>
+                    <div class="equipe-status-label">Equipe logada</div>
+                    <div class="equipe-status-name">{{ equipe.nome if equipe else session.get('nome', session.get('usuario')) }}</div>
+                    <span class="equipe-status-tag">{{ status_equipe or 'Equipe ativa' }}</span>
+                </div>
+            </div>
             <div class="equipe-status-small">
                 {{ controle_inscricao.motivo if controle_inscricao and controle_inscricao.motivo else 'Cadastro liberado para a equipe.' }}
             </div>
+
+            <form class="escudo-upload-box" method="post" action="{{ url_for('equipes.atualizar_escudo_equipe_view') }}" enctype="multipart/form-data">
+                <div class="equipe-status-label">Escudo da equipe</div>
+                <input type="file" name="escudo" accept="image/png,image/jpeg,image/webp,image/svg+xml" required>
+                <div class="escudo-upload-actions">
+                    <button class="btn-escudo" type="submit">Atualizar escudo</button>
+                    {% if equipe and equipe.escudo %}
+                    <button class="btn-escudo btn-escudo-remover" type="submit" name="remover_escudo" value="1">Remover</button>
+                    {% endif %}
+                </div>
+            </form>
         </aside>
     </section>
 

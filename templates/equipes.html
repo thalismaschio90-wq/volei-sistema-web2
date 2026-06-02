@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+
+<style>
+.escudo-lista-equipe { width:42px; height:42px; border-radius:12px; object-fit:contain; background:#f8fbff; border:1px solid #d6e2f0; padding:4px; flex:0 0 auto; }
+.equipe-nome-com-escudo { display:flex; align-items:center; gap:10px; }
+</style>
+
 <div class="topo-secao">
     <div class="titulo-secao" style="margin-bottom: 0;">Equipes</div>
     <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Nova equipe</a>
@@ -74,7 +80,10 @@
 <div class="cards-competicoes">
     {% for equipe in equipes %}
     <div class="competicao-card">
-        <div class="competicao-nome">{{ equipe.nome }}</div>
+        <div class="competicao-nome equipe-nome-com-escudo">
+            <img class="escudo-lista-equipe" src="{{ equipe.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ equipe.nome }}">
+            <span>{{ equipe.nome }}</span>
+        </div>
         <div class="competicao-info"><strong>Login:</strong> {{ equipe.login }}</div>
         <div class="competicao-info"><strong>Senha atual:</strong> {{ equipe.senha }}</div>
         <div class="competicao-info"><strong>Competição:</strong> {{ equipe.competicao }}</div>

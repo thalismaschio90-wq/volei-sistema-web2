@@ -2753,6 +2753,7 @@ def buscar_equipe_por_login(login, competicao_atual=None):
                         e.telefone,
                         e.email,
                         e.instagram,
+                        e.escudo,
                         COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
 
                         ec.competicao,
@@ -3958,25 +3959,57 @@ def criar_tabela_partidas():
 
 
 def listar_partidas(competicao):
+    criar_campo_escudo_equipes()
+    criar_tabela_equipes_competicoes()
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT *
-                FROM partidas
-                WHERE competicao = %s
-                ORDER BY COALESCE(rodada, 999999), ordem, id
+                SELECT
+                    p.*,
+                    COALESCE(ea.escudo, '') AS escudo_a,
+                    COALESCE(eb.escudo, '') AS escudo_b
+                FROM partidas p
+                LEFT JOIN equipes_competicoes eca
+                  ON eca.competicao = p.competicao
+                 AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
+                LEFT JOIN equipes ea
+                  ON ea.login = eca.equipe_login
+                LEFT JOIN equipes_competicoes ecb
+                  ON ecb.competicao = p.competicao
+                 AND LOWER(TRIM(ecb.equipe_nome)) = LOWER(TRIM(p.equipe_b))
+                LEFT JOIN equipes eb
+                  ON eb.login = ecb.equipe_login
+                WHERE p.competicao = %s
+                ORDER BY COALESCE(p.rodada, 999999), p.ordem, p.id
             """, (competicao,))
             return cur.fetchall()
 
 
 def buscar_partida_por_id(partida_id, competicao):
+    criar_campo_escudo_equipes()
+    criar_tabela_equipes_competicoes()
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT *
-                FROM partidas
-                WHERE id = %s
-                  AND competicao = %s
+                SELECT
+                    p.*,
+                    COALESCE(ea.escudo, '') AS escudo_a,
+                    COALESCE(eb.escudo, '') AS escudo_b
+                FROM partidas p
+                LEFT JOIN equipes_competicoes eca
+                  ON eca.competicao = p.competicao
+                 AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
+                LEFT JOIN equipes ea
+                  ON ea.login = eca.equipe_login
+                LEFT JOIN equipes_competicoes ecb
+                  ON ecb.competicao = p.competicao
+                 AND LOWER(TRIM(ecb.equipe_nome)) = LOWER(TRIM(p.equipe_b))
+                LEFT JOIN equipes eb
+                  ON eb.login = ecb.equipe_login
+                WHERE p.id = %s
+                  AND p.competicao = %s
                 LIMIT 1
             """, (partida_id, competicao))
             return cur.fetchone()
@@ -10355,6 +10388,60 @@ def criar_campos_perfil_equipe(force=False):
 
     _CACHE_COLUNAS.pop("equipes", None)
     _marcar_schema_pronto(chave)
+
+
+def criar_campo_escudo_equipes(force=False):
+    """Garante o campo de escudo/logo da equipe."""
+    chave = "campo_escudo_equipes"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE equipes
+                ADD COLUMN IF NOT EXISTS escudo TEXT DEFAULT ''
+            """)
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("equipes", None)
+    _marcar_schema_pronto(chave)
+
+
+def atualizar_escudo_equipe_por_login(login, escudo):
+    login = (login or "").strip()
+    escudo = (escudo or "").strip()
+    if not login:
+        return False
+
+    criar_campo_escudo_equipes()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE equipes
+                SET escudo = %s
+                WHERE login = %s
+            """, (escudo, login))
+            alteradas = cur.rowcount
+        conn.commit()
+
+    return alteradas > 0
+
+
+def escudo_padrao_equipe():
+    return "/static/img/escudo_padrao.svg"
+
+
+def escudo_equipe_url(equipe):
+    if not equipe:
+        return escudo_padrao_equipe()
+    valor = ""
+    try:
+        valor = equipe.get("escudo") or equipe.get("escudo_url") or ""
+    except Exception:
+        valor = ""
+    return valor or escudo_padrao_equipe()
 
 
 def perfil_equipe_incompleto_por_login(login, conn=None):

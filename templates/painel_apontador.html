@@ -21,7 +21,9 @@
 .ap-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .ap-card { background:#fff; border:1px solid var(--border); border-radius:20px; padding:16px; box-shadow:var(--shadow); display:flex; justify-content:space-between; align-items:center; gap:14px; }
 .ap-info { min-width:0; }
-.ap-match-line { font-size:18px; font-weight:1000; color:var(--text); margin-bottom:6px; }
+.ap-match-line { font-size:18px; font-weight:1000; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ap-team-mini { display:inline-flex; align-items:center; gap:7px; min-width:0; }
+.ap-escudo-mini { width:32px; height:32px; border-radius:9px; object-fit:contain; background:#f8fbff; border:1px solid #dbe3ef; padding:3px; }
 .ap-meta { color:var(--muted); font-weight:800; font-size:13px; margin-bottom:8px; }
 .ap-badge { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:1000; text-transform:uppercase; white-space:nowrap; }
 .ap-live { background:#dcfce7; color:#166534; }
@@ -154,7 +156,11 @@
          data-status-categoria="{{ status_categoria }}"
          data-quadra-chave="{{ quadra_chave }}">
         <div class="ap-info">
-            <div class="ap-match-line">{{ p.equipe_a }} <span style="color:var(--muted);">x</span> {{ p.equipe_b }}</div>
+            <div class="ap-match-line">
+                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}">{{ p.equipe_a }}</span>
+                <span style="color:var(--muted);">x</span>
+                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}">{{ p.equipe_b }}</span>
+            </div>
             <div class="ap-meta">
                 Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {{ p.grupo or '-' }}
             </div>

@@ -147,6 +147,10 @@ body {
     animation: popPonto .24s ease-out;
 }
 
+
+.escudo-telao-wrap { display:flex; align-items:center; justify-content:center; padding:18px 18px 0; min-height:160px; }
+.escudo-telao { width:min(210px, 24vh); height:min(210px, 24vh); object-fit:contain; filter: drop-shadow(0 18px 28px rgba(0,0,0,.35)); }
+
 @keyframes popPonto {
     0% { transform: scale(1); }
     45% { transform: scale(1.07); }
@@ -379,6 +383,7 @@ body {
     <main class="miolo">
         <section id="cardA" class="equipe equipe-a">
             <div id="nomeA" class="nome-equipe">Equipe A</div>
+            <div class="escudo-telao-wrap"><img id="escudoA" class="escudo-telao" src="/static/img/escudo_padrao.svg" alt="Escudo Equipe A"></div>
             <div id="pontosA" class="pontos">0</div>
             <div id="saqueA" class="saque vazio">—</div>
         </section>
@@ -399,6 +404,7 @@ body {
 
         <section id="cardB" class="equipe equipe-b">
             <div id="nomeB" class="nome-equipe">Equipe B</div>
+            <div class="escudo-telao-wrap"><img id="escudoB" class="escudo-telao" src="/static/img/escudo_padrao.svg" alt="Escudo Equipe B"></div>
             <div id="pontosB" class="pontos">0</div>
             <div id="saqueB" class="saque vazio">—</div>
         </section>
@@ -435,6 +441,8 @@ const infoJogo = document.getElementById("infoJogo");
 
 const nomeA = document.getElementById("nomeA");
 const nomeB = document.getElementById("nomeB");
+const escudoA = document.getElementById("escudoA");
+const escudoB = document.getElementById("escudoB");
 const pontosA = document.getElementById("pontosA");
 const pontosB = document.getElementById("pontosB");
 
@@ -894,6 +902,8 @@ function aplicarEstado(dados) {
 
     nomeA.textContent = equipeA;
     nomeB.textContent = equipeB;
+    escudoA.src = dados.escudo_a_operacional || dados.escudo_a || dados.escudoA || "/static/img/escudo_padrao.svg";
+    escudoB.src = dados.escudo_b_operacional || dados.escudo_b || dados.escudoB || "/static/img/escudo_padrao.svg";
 
     pontosA.textContent = pA;
     pontosB.textContent = pB;

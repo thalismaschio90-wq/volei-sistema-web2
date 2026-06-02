@@ -15,6 +15,7 @@ from banco import (
     criar_tabela_atalhos_apontador,
     criar_tabela_equipes_competicoes,
     criar_campos_perfil_equipe,
+    criar_campo_escudo_equipes,
 )
 
 from routes.auth import auth_bp
@@ -96,6 +97,17 @@ try:
     criar_campos_perfil_equipe()
 except Exception as e:
     print("ERRO campos perfil equipe:", e)
+
+try:
+    criar_campo_escudo_equipes()
+except Exception as e:
+    print("ERRO campo escudo equipe:", e)
+
+try:
+    os.makedirs(os.path.join(app.static_folder, "uploads", "escudos"), exist_ok=True)
+    os.makedirs(os.path.join(app.static_folder, "img"), exist_ok=True)
+except Exception as e:
+    print("ERRO pastas upload escudos:", e)
 
 
 socketio.init_app(

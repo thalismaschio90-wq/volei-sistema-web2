@@ -551,6 +551,17 @@ def _bool_select_regras_avancadas(valor):
     return None
 
 
+def _modo_operacao_avancado_form(valor):
+    """Normaliza o modo de operação específico de grupo/fase.
+
+    Retorna None quando o organizador quer usar o padrão geral da competição.
+    """
+    valor = (valor or "padrao").strip().lower()
+    if valor in {"simples", "avancado"}:
+        return valor
+    return None
+
+
 @competicoes_bp.route("/competicoes/regras-avancadas", methods=["POST"])
 @exigir_perfil("organizador")
 def salvar_regras_avancadas_view():
@@ -574,8 +585,9 @@ def salvar_regras_avancadas_view():
         pontos_set = _to_int(request.form.get(f"grupo_{grupo}_pontos_set"), padrao=0, minimo=0)
         tem_tiebreak = _bool_select_regras_avancadas(request.form.get(f"grupo_{grupo}_tem_tiebreak"))
         pontos_tiebreak = _to_int(request.form.get(f"grupo_{grupo}_pontos_tiebreak"), padrao=0, minimo=0)
+        modo_operacao = _modo_operacao_avancado_form(request.form.get(f"grupo_{grupo}_modo_operacao"))
 
-        if ativo or pontos_set or pontos_tiebreak or tem_tiebreak is not None:
+        if ativo or pontos_set or pontos_tiebreak or tem_tiebreak is not None or modo_operacao:
             item = {
                 "ativo": ativo,
                 "sets_tipo": sets_tipo,
@@ -586,17 +598,20 @@ def salvar_regras_avancadas_view():
                 item["tem_tiebreak"] = tem_tiebreak
             if pontos_tiebreak:
                 item["pontos_tiebreak"] = pontos_tiebreak
+            if modo_operacao:
+                item["modo_operacao"] = modo_operacao
             regras_grupos[grupo] = item
 
     regras_fases = {}
-    for fase_id in ["oitavas", "quartas", "semifinal", "final"]:
+    for fase_id in ["grupos", "oitavas", "quartas", "semifinal", "final"]:
         ativo = request.form.get(f"fase_{fase_id}_ativo") == "on"
         sets_tipo = request.form.get(f"fase_{fase_id}_sets_tipo", "set_unico").strip() or "set_unico"
         pontos_set = _to_int(request.form.get(f"fase_{fase_id}_pontos_set"), padrao=0, minimo=0)
         tem_tiebreak = _bool_select_regras_avancadas(request.form.get(f"fase_{fase_id}_tem_tiebreak"))
         pontos_tiebreak = _to_int(request.form.get(f"fase_{fase_id}_pontos_tiebreak"), padrao=0, minimo=0)
+        modo_operacao = _modo_operacao_avancado_form(request.form.get(f"fase_{fase_id}_modo_operacao"))
 
-        if ativo or pontos_set or pontos_tiebreak or tem_tiebreak is not None:
+        if ativo or pontos_set or pontos_tiebreak or tem_tiebreak is not None or modo_operacao:
             item = {
                 "ativo": ativo,
                 "sets_tipo": sets_tipo,
@@ -607,6 +622,8 @@ def salvar_regras_avancadas_view():
                 item["tem_tiebreak"] = tem_tiebreak
             if pontos_tiebreak:
                 item["pontos_tiebreak"] = pontos_tiebreak
+            if modo_operacao:
+                item["modo_operacao"] = modo_operacao
             regras_fases[fase_id] = item
 
     series = {}

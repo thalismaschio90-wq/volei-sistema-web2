@@ -1,5 +1,5 @@
 print(">>> CARREGOU O ARQUIVO EQUIPES.PY CERTO <<<")
-from flask import Blueprint, render_template, request, redirect, session, url_for, flash
+from flask import Blueprint, render_template, request, redirect, session, url_for, flash, current_app
 from banco import (
     buscar_competicao_por_organizador,
     listar_equipes_da_competicao,
@@ -43,10 +43,44 @@ from banco import (
     validar_edicao_atletas_equipe,
     equipe_tem_partida_iniciada,
     listar_partidas,
+    atualizar_escudo_equipe_por_login,
+    escudo_padrao_equipe,
 )
 from routes.utils import exigir_perfil
+from werkzeug.utils import secure_filename
+import os
+import uuid
 
 equipes_bp = Blueprint("equipes", __name__)
+
+
+_EXTENSOES_ESCUDO_PERMITIDAS = {"png", "jpg", "jpeg", "webp", "svg"}
+
+
+def _extensao_arquivo(nome_arquivo):
+    nome_arquivo = nome_arquivo or ""
+    if "." not in nome_arquivo:
+        return ""
+    return nome_arquivo.rsplit(".", 1)[1].lower().strip()
+
+
+def _salvar_upload_escudo(arquivo, login):
+    if not arquivo or not getattr(arquivo, "filename", ""):
+        return None, "Selecione uma imagem para enviar."
+
+    extensao = _extensao_arquivo(arquivo.filename)
+    if extensao not in _EXTENSOES_ESCUDO_PERMITIDAS:
+        return None, "Formato inválido. Envie PNG, JPG, JPEG, WebP ou SVG."
+
+    pasta = os.path.join(current_app.static_folder, "uploads", "escudos")
+    os.makedirs(pasta, exist_ok=True)
+
+    nome_base = secure_filename((login or "equipe").replace("@", "_")) or "equipe"
+    nome_arquivo = f"{nome_base}_{uuid.uuid4().hex[:12]}.{extensao}"
+    caminho = os.path.join(pasta, nome_arquivo)
+    arquivo.save(caminho)
+
+    return f"/static/uploads/escudos/{nome_arquivo}", None
 
 
 def _equipe_logada_com_competicao():
@@ -373,6 +407,32 @@ def gerenciar_equipe_view(nome):
 # =========================
 # EQUIPE - PERFIL GLOBAL
 # =========================
+
+@equipes_bp.route("/minha-equipe/escudo", methods=["POST"])
+@exigir_perfil("equipe")
+def atualizar_escudo_equipe_view():
+    usuario = session.get("usuario")
+    if not usuario:
+        flash("Sessão expirada. Faça login novamente.", "erro")
+        return redirect(url_for("auth.login"))
+
+    remover = request.form.get("remover_escudo") == "1"
+
+    if remover:
+        ok = atualizar_escudo_equipe_por_login(usuario, "")
+        flash("Escudo removido com sucesso." if ok else "Não foi possível remover o escudo.", "sucesso" if ok else "erro")
+        return redirect(request.referrer or url_for("equipes.painel_equipe_inicio_view"))
+
+    escudo_url, erro = _salvar_upload_escudo(request.files.get("escudo"), usuario)
+    if erro:
+        flash(erro, "erro")
+        return redirect(request.referrer or url_for("equipes.painel_equipe_inicio_view"))
+
+    ok = atualizar_escudo_equipe_por_login(usuario, escudo_url)
+    flash("Escudo atualizado com sucesso." if ok else "Não foi possível salvar o escudo.", "sucesso" if ok else "erro")
+    return redirect(request.referrer or url_for("equipes.painel_equipe_inicio_view"))
+
+
 @equipes_bp.route("/perfil-equipe", methods=["GET", "POST"])
 @exigir_perfil("equipe")
 def perfil_equipe_view():
@@ -757,6 +817,7 @@ def painel_equipe_inicio_view():
         proxima_partida=proxima_partida,
         status_equipe=status_equipe,
         status_classe=status_classe,
+        escudo_padrao=escudo_padrao_equipe(),
     )
 
 # =========================
