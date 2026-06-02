@@ -163,6 +163,22 @@ def _json_safe(valor):
     return valor
 
 
+
+def _normalizar_url_escudo(valor):
+    valor = str(valor or "").strip()
+    if not valor:
+        return "/static/img/escudo_padrao.svg"
+    if valor.startswith(("http://", "https://", "/static/", "data:")):
+        return valor
+    valor = valor.replace("\\", "/")
+    if valor.startswith("static/"):
+        return "/" + valor
+    if valor.startswith("uploads/"):
+        return "/static/" + valor
+    if "/uploads/" in valor:
+        return "/static/uploads/" + valor.split("/uploads/", 1)[1]
+    return "/static/uploads/escudos/" + valor.lstrip("/")
+
 # =========================
 # CACHE
 # =========================
@@ -221,6 +237,21 @@ def _normalizar_payload(partida_id, dados=None):
 
         "equipe_a": dados.get("equipe_a") or dados.get("nome_a") or dados.get("time_a") or "",
         "equipe_b": dados.get("equipe_b") or dados.get("nome_b") or dados.get("time_b") or "",
+        "equipe_a_operacional": dados.get("equipe_a_operacional") or dados.get("equipe_a") or dados.get("nome_a") or dados.get("time_a") or "",
+        "equipe_b_operacional": dados.get("equipe_b_operacional") or dados.get("equipe_b") or dados.get("nome_b") or dados.get("time_b") or "",
+
+        "escudo_a": _normalizar_url_escudo(dados.get("escudo_a") or dados.get("equipe_a_escudo") or dados.get("escudoA")),
+        "escudo_b": _normalizar_url_escudo(dados.get("escudo_b") or dados.get("equipe_b_escudo") or dados.get("escudoB")),
+        "escudo_a_operacional": _normalizar_url_escudo(dados.get("escudo_a_operacional") or dados.get("escudo_a") or dados.get("equipe_a_escudo") or dados.get("escudoA")),
+        "escudo_b_operacional": _normalizar_url_escudo(dados.get("escudo_b_operacional") or dados.get("escudo_b") or dados.get("equipe_b_escudo") or dados.get("escudoB")),
+        "equipe_a_escudo": _normalizar_url_escudo(dados.get("equipe_a_escudo") or dados.get("escudo_a") or dados.get("escudoA")),
+        "equipe_b_escudo": _normalizar_url_escudo(dados.get("equipe_b_escudo") or dados.get("escudo_b") or dados.get("escudoB")),
+        "cor_a": dados.get("cor_a_operacional") or dados.get("cor_a") or dados.get("equipe_a_cor") or "#2E6BE6",
+        "cor_b": dados.get("cor_b_operacional") or dados.get("cor_b") or dados.get("equipe_b_cor") or "#E53935",
+        "cor_a_operacional": dados.get("cor_a_operacional") or dados.get("cor_a") or dados.get("equipe_a_cor") or "#2E6BE6",
+        "cor_b_operacional": dados.get("cor_b_operacional") or dados.get("cor_b") or dados.get("equipe_b_cor") or "#E53935",
+        "equipe_a_cor": dados.get("equipe_a_cor") or dados.get("cor_a_operacional") or dados.get("cor_a") or "#2E6BE6",
+        "equipe_b_cor": dados.get("equipe_b_cor") or dados.get("cor_b_operacional") or dados.get("cor_b") or "#E53935",
 
         "saque_atual": dados.get("saque_atual") or "",
         "sacador_nome": dados.get("sacador_nome") or dados.get("nome_sacador") or "",

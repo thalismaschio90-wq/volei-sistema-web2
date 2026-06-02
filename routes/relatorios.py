@@ -4,6 +4,7 @@ from pathlib import Path
 
 from flask import Blueprint, render_template, request, session, redirect, url_for, flash, send_file
 
+import banco as banco_mod
 from routes.utils import exigir_perfil
 from banco import (
     buscar_competicao_por_organizador,
@@ -26,6 +27,7 @@ RELATORIOS_ORGANIZADOR = [
     {"id": "melhor_atacante", "titulo": "Melhor atacante", "descricao": "Ranking dos atletas com mais pontos de ataque."},
     {"id": "ranking_equipes", "titulo": "Ranking das equipes", "descricao": "Vitórias, derrotas, sets pró, sets contra e saldo."},
     {"id": "estatisticas_competicao", "titulo": "Estatísticas gerais", "descricao": "Totais gerais de pontos, fundamentos, erros e faltas."},
+    {"id": "fichas_inscricao", "titulo": "Fichas de inscrição", "descricao": "Relação das equipes inscritas com dados cadastrais e atletas."},
     {"id": "relatorio_equipe", "titulo": "Relatório por equipe", "descricao": "Resumo completo da equipe selecionada."},
     {"id": "relatorio_partida", "titulo": "Relatório da partida", "descricao": "Resumo completo da partida selecionada."},
     {"id": "historico_partida", "titulo": "Histórico da partida", "descricao": "Linha do tempo dos eventos salvos da partida."},
@@ -235,10 +237,164 @@ def _agregar_atletas(competicao_nome, partidas, equipe_nome=None):
     return sorted(atletas.values(), key=lambda x: (x["Pontos"], x["Ataques"], x["Bloqueios"], x["Aces"]), reverse=True)
 
 
+
+def _como_dict(registro):
+    if registro is None:
+        return {}
+    if isinstance(registro, dict):
+        return dict(registro)
+    try:
+        return dict(registro)
+    except Exception:
+        return {k: getattr(registro, k) for k in dir(registro) if not k.startswith("_") and not callable(getattr(registro, k, None))}
+
+
+def _primeiro_valor(dados, *chaves, padrao="-"):
+    for chave in chaves:
+        if chave in dados and str(dados.get(chave) or "").strip():
+            return _txt(dados.get(chave), padrao)
+    return padrao
+
+
+def _chamar_banco(nomes_funcoes, *args):
+    for nome in nomes_funcoes:
+        func = getattr(banco_mod, nome, None)
+        if not callable(func):
+            continue
+        tentativas = [args]
+        if args:
+            tentativas.append(args[:1])
+        tentativas.append(tuple())
+        for tentativa in tentativas:
+            try:
+                return func(*tentativa) or []
+            except TypeError:
+                continue
+            except Exception as e:
+                print(f"ERRO relatório fichas ({nome}):", repr(e), flush=True)
+                break
+    return []
+
+
+def _listar_equipes_inscritas(competicao_nome):
+    registros = _chamar_banco([
+        "listar_equipes_competicao",
+        "listar_equipes_por_competicao",
+        "listar_equipes_da_competicao",
+        "listar_equipes",
+        "buscar_equipes_competicao",
+    ], competicao_nome)
+
+    equipes = []
+    for item in registros or []:
+        d = _como_dict(item)
+        if not d:
+            continue
+        comp = _txt(d.get("competicao") or d.get("competicao_nome") or d.get("nome_competicao"), "")
+        if comp and comp.lower() != _txt(competicao_nome, "").lower():
+            continue
+        nome = _primeiro_valor(d, "nome", "nome_equipe", "equipe", "time", padrao="")
+        if nome:
+            d["nome"] = nome
+            equipes.append(d)
+
+    if equipes:
+        return sorted(equipes, key=lambda x: _txt(x.get("nome"), "").lower())
+
+    # Fallback: se não existir função de equipes no banco.py, pega os nomes pelas partidas.
+    nomes = set()
+    for p in _todas_partidas(competicao_nome, somente_finalizadas=False):
+        if p.get("equipe_a"):
+            nomes.add(p.get("equipe_a"))
+        if p.get("equipe_b"):
+            nomes.add(p.get("equipe_b"))
+    return [{"nome": n} for n in sorted(nomes)]
+
+
+def _listar_atletas_inscritos(competicao_nome, equipe_nome):
+    registros = _chamar_banco([
+        "listar_atletas_equipe",
+        "listar_atletas_por_equipe",
+        "listar_atletas_da_equipe",
+        "buscar_atletas_equipe",
+        "listar_atletas",
+        "listar_jogadores_equipe",
+        "listar_jogadores_por_equipe",
+    ], equipe_nome, competicao_nome)
+
+    atletas = []
+    for item in registros or []:
+        d = _como_dict(item)
+        if not d:
+            continue
+        comp = _txt(d.get("competicao") or d.get("competicao_nome") or d.get("nome_competicao"), "")
+        eq = _txt(d.get("equipe") or d.get("nome_equipe") or d.get("time"), "")
+        if comp and comp.lower() != _txt(competicao_nome, "").lower():
+            continue
+        if eq and eq.lower() != _txt(equipe_nome, "").lower():
+            continue
+        atletas.append(d)
+
+    return sorted(atletas, key=lambda x: (_int(x.get("numero") or x.get("camisa")), _txt(x.get("nome"), "").lower()))
+
+
+def _montar_fichas_inscricao(competicao_nome, equipe_logada=None):
+    if equipe_logada:
+        return "Fichas de inscrição", ["Este relatório está disponível somente para o organizador."]
+
+    linhas = _linhas_titulo("Fichas de inscrição", competicao_nome)
+    equipes = _listar_equipes_inscritas(competicao_nome)
+
+    if not equipes:
+        linhas.append("Nenhuma equipe inscrita encontrada para esta competição.")
+        return "Fichas de inscrição", linhas
+
+    linhas.append(f"Total de equipes: {len(equipes)}")
+    linhas.append("")
+
+    for idx, equipe in enumerate(equipes, start=1):
+        nome_equipe = _primeiro_valor(equipe, "nome", "nome_equipe", "equipe", "time", padrao="Equipe sem nome")
+        atletas = _listar_atletas_inscritos(competicao_nome, nome_equipe)
+
+        linhas.append("=" * 70)
+        linhas.append(f"FICHA {idx} - {nome_equipe}")
+        linhas.append("=" * 70)
+        linhas.append(f"Equipe: {nome_equipe}")
+        linhas.append(f"Responsável/Técnico: {_primeiro_valor(equipe, 'responsavel', 'tecnico', 'treinador', 'nome_responsavel')}")
+        linhas.append(f"Telefone: {_primeiro_valor(equipe, 'telefone', 'celular', 'whatsapp', 'contato')}")
+        linhas.append(f"E-mail: {_primeiro_valor(equipe, 'email', 'e_mail', 'login')}")
+        linhas.append(f"Cidade: {_primeiro_valor(equipe, 'cidade', 'municipio')}")
+        linhas.append(f"Categoria: {_primeiro_valor(equipe, 'categoria', 'naipe')}")
+        linhas.append(f"Status da inscrição: {_primeiro_valor(equipe, 'status', 'status_inscricao', 'situacao')}")
+        linhas.append(f"Atletas inscritos: {len(atletas)}")
+        linhas.append("")
+        linhas.append("ATLETAS")
+
+        if not atletas:
+            linhas.append("Nenhum atleta cadastrado/encontrado para esta equipe.")
+        else:
+            for pos, atleta in enumerate(atletas, start=1):
+                numero = _primeiro_valor(atleta, "numero", "camisa", "n", padrao="-")
+                nome = _primeiro_valor(atleta, "nome", "nome_atleta", "atleta", "jogador", padrao="Sem identificação")
+                doc = _primeiro_valor(atleta, "documento", "cpf", "rg", padrao="-")
+                nasc = _primeiro_valor(atleta, "nascimento", "data_nascimento", "dt_nascimento", padrao="-")
+                posicao = _primeiro_valor(atleta, "posicao", "função", "funcao", padrao="-")
+                linhas.append(f"{pos}. Nº {numero} | {nome} | Doc: {doc} | Nasc.: {nasc} | Posição: {posicao}")
+
+        linhas.append("")
+        linhas.append("Assinatura do responsável: ______________________________________________")
+        linhas.append("")
+
+    return "Fichas de inscrição", linhas
+
+
 def _montar_relatorio(tipo, competicao_nome, equipe_logada=None, equipe_filtro=None, partida_id=None):
     equipe_restrita = equipe_logada.get("nome") if equipe_logada else None
     equipe_alvo = equipe_restrita or equipe_filtro
     partidas_finalizadas = _todas_partidas(competicao_nome, equipe_nome=equipe_restrita, somente_finalizadas=True)
+
+    if tipo == "fichas_inscricao":
+        return _montar_fichas_inscricao(competicao_nome, equipe_logada=equipe_logada)
 
     if tipo == "historico_jogos":
         linhas = _linhas_titulo("Histórico de jogos", competicao_nome)

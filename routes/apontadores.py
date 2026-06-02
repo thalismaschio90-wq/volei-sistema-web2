@@ -1,6 +1,13 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
 import threading
 import time
+import os
+from collections import Counter
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
 
 from banco import (
     criar_tabelas_oficiais,
@@ -436,6 +443,282 @@ def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, par
     else:
         estado["sets_para_vencer"] = _int_seguro(partida.get("sets_para_vencer") or estado.get("sets_para_vencer") or 2, 2)
 
+    return estado
+
+
+
+# =========================================================
+# ESCUDOS / IDENTIDADE VISUAL DAS EQUIPES
+# =========================================================
+ESCUDO_PADRAO_URL = "/static/img/escudo_padrao.svg"
+
+
+def _normalizar_url_escudo(valor):
+    valor = str(valor or "").strip()
+    if not valor:
+        return ESCUDO_PADRAO_URL
+
+    if valor.startswith(("http://", "https://", "/static/", "data:")):
+        return valor
+
+    valor = valor.replace("\\", "/")
+
+    if valor.startswith("static/"):
+        return "/" + valor
+
+    if valor.startswith("uploads/"):
+        return "/static/" + valor
+
+    if "/uploads/" in valor:
+        parte = valor.split("/uploads/", 1)[1]
+        return "/static/uploads/" + parte
+
+    return "/static/uploads/escudos/" + valor.lstrip("/")
+
+
+def _eh_escudo_padrao(valor):
+    normalizado = _normalizar_url_escudo(valor)
+    return (
+        not valor
+        or normalizado == ESCUDO_PADRAO_URL
+        or normalizado.endswith('/img/escudo_padrao.svg')
+    )
+
+
+def _buscar_colunas_escudo_equipe():
+    """Retorna todas as colunas possíveis de escudo existentes na tabela equipes.
+
+    Importante: algumas versões salvaram em escudo, outras em escudo_url.
+    Se buscarmos só a primeira coluna existente, podemos cair numa coluna vazia
+    e nunca chegar no arquivo real enviado pela equipe.
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'equipes'
+                      AND column_name IN ('escudo_url', 'escudo', 'logo_url', 'logo')
+                """)
+                existentes = {str(row.get('column_name') or '').strip() for row in (cur.fetchall() or [])}
+    except Exception as e:
+        print('AVISO colunas escudo equipes:', repr(e), flush=True)
+        existentes = set()
+
+    ordem = ['escudo_url', 'escudo', 'logo_url', 'logo']
+    return [c for c in ordem if c in existentes]
+
+
+def _buscar_escudos_equipes(competicao, equipe_a, equipe_b):
+    colunas = _buscar_colunas_escudo_equipe()
+    nomes = [str(equipe_a or '').strip(), str(equipe_b or '').strip()]
+    nomes_validos = [n for n in nomes if n]
+
+    resultado = {n: ESCUDO_PADRAO_URL for n in nomes_validos}
+
+    if not colunas or not nomes_validos:
+        return resultado
+
+    # Monta COALESCE(NULLIF(TRIM(escudo_url), ''), NULLIF(TRIM(escudo), ''), ...)
+    expr_escudo = 'COALESCE(' + ', '.join([f"NULLIF(TRIM({c}), '')" for c in colunas]) + ") AS escudo"
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT nome, competicao, {expr_escudo}
+                    FROM equipes
+                    WHERE LOWER(TRIM(nome)) = ANY(%s)
+                    ORDER BY
+                        CASE WHEN competicao = %s THEN 0 ELSE 1 END,
+                        CASE WHEN { 'COALESCE(' + ', '.join([f"NULLIF(TRIM({c}), '')" for c in colunas]) + ')' } IS NULL THEN 1 ELSE 0 END
+                """, ([n.lower() for n in nomes_validos], competicao))
+
+                for row in cur.fetchall() or []:
+                    nome_banco = str(row.get('nome') or '').strip()
+                    escudo = row.get('escudo')
+                    if not escudo:
+                        continue
+
+                    for original in nomes_validos:
+                        if original.lower().strip() == nome_banco.lower().strip():
+                            # A primeira linha útil é a da competição atual; depois fallback global.
+                            if _eh_escudo_padrao(resultado.get(original)):
+                                resultado[original] = _normalizar_url_escudo(escudo)
+    except Exception as e:
+        print('AVISO buscar escudos equipes:', repr(e), flush=True)
+
+    return resultado
+
+
+
+_COR_DOMINANTE_CACHE = {}
+
+
+def _url_escudo_para_caminho_local(url):
+    """Converte /static/... para caminho local no projeto.
+
+    URLs externas/data-uri não entram no cálculo de cor.
+    """
+    url = _normalizar_url_escudo(url)
+    if not url or url.startswith(("http://", "https://", "data:")):
+        return None
+
+    if url.startswith("/static/"):
+        relativo = url.lstrip("/")
+    elif url.startswith("static/"):
+        relativo = url
+    else:
+        return None
+
+    candidatos = [
+        os.path.join(os.getcwd(), relativo),
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), relativo) if "__file__" in globals() else "",
+    ]
+
+    for caminho in candidatos:
+        if caminho and os.path.exists(caminho):
+            return caminho
+
+    return candidatos[0] if candidatos else None
+
+
+def _cor_hex_valida(valor):
+    valor = str(valor or "").strip()
+    if len(valor) != 7 or not valor.startswith("#"):
+        return False
+    try:
+        int(valor[1:], 16)
+        return True
+    except Exception:
+        return False
+
+
+def _escurecer_cor(hex_cor, fator=0.82):
+    if not _cor_hex_valida(hex_cor):
+        return hex_cor
+    r = int(hex_cor[1:3], 16)
+    g = int(hex_cor[3:5], 16)
+    b = int(hex_cor[5:7], 16)
+    r = max(0, min(255, int(r * fator)))
+    g = max(0, min(255, int(g * fator)))
+    b = max(0, min(255, int(b * fator)))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _cor_dominante_escudo_url(url, fallback="#2E6BE6"):
+    """Extrai a cor dominante real do escudo.
+
+    Mantém preto/cinza como cores válidas. Ignora só transparência e branco
+    quase puro, porque fundo branco de PNG costuma atrapalhar a leitura.
+    """
+    url = _normalizar_url_escudo(url)
+    if _eh_escudo_padrao(url):
+        return fallback
+
+    chave = url
+    if chave in _COR_DOMINANTE_CACHE:
+        return _COR_DOMINANTE_CACHE[chave]
+
+    caminho = _url_escudo_para_caminho_local(url)
+    if Image is None or not caminho or not os.path.exists(caminho):
+        _COR_DOMINANTE_CACHE[chave] = fallback
+        return fallback
+
+    try:
+        with Image.open(caminho) as img:
+            img = img.convert("RGBA")
+            img.thumbnail((96, 96))
+
+            contagem = Counter()
+            for r, g, b, a in img.getdata():
+                if a < 135:
+                    continue
+                # ignora branco/quase branco, mas NÃO ignora preto.
+                if r > 235 and g > 235 and b > 235:
+                    continue
+
+                # Agrupa tons próximos para evitar antialias pegar uma variação isolada.
+                rq = int(round(r / 24.0) * 24)
+                gq = int(round(g / 24.0) * 24)
+                bq = int(round(b / 24.0) * 24)
+                rq = max(0, min(255, rq))
+                gq = max(0, min(255, gq))
+                bq = max(0, min(255, bq))
+                contagem[(rq, gq, bq)] += 1
+
+            if not contagem:
+                cor = fallback
+            else:
+                r, g, b = contagem.most_common(1)[0][0]
+
+                # Preto muito absoluto fica pesado; usa um preto de transmissão.
+                if r < 35 and g < 35 and b < 35:
+                    cor = "#111827"
+                else:
+                    cor = f"#{r:02x}{g:02x}{b:02x}"
+                    # Evita card claro demais quando o escudo tem amarelo/cinza claro.
+                    brilho = (r * 299 + g * 587 + b * 114) / 1000
+                    if brilho > 185:
+                        cor = _escurecer_cor(cor, 0.62)
+
+        _COR_DOMINANTE_CACHE[chave] = cor
+        return cor
+    except Exception as e:
+        print("AVISO cor dominante escudo:", repr(e), flush=True)
+        _COR_DOMINANTE_CACHE[chave] = fallback
+        return fallback
+
+
+def _cor_estado_ou_auto(estado, chave_cor, chave_cor_alt, escudo, fallback):
+    valor = str(estado.get(chave_cor) or estado.get(chave_cor_alt) or "").strip()
+    # Se veio o fallback antigo, deixa a cor automática do escudo assumir.
+    if valor and valor.upper() not in {"#2E6BE6", "#E53935"} and _cor_hex_valida(valor):
+        return valor
+    return _cor_dominante_escudo_url(escudo, fallback)
+
+
+def _aplicar_escudos_estado(estado, competicao, equipe_a, equipe_b):
+    estado = dict(estado or {})
+    equipe_a = str(equipe_a or '').strip()
+    equipe_b = str(equipe_b or '').strip()
+
+    escudos_banco = _buscar_escudos_equipes(competicao, equipe_a, equipe_b)
+
+    escudo_a_estado = (
+        estado.get('escudo_a_operacional')
+        or estado.get('escudo_a')
+        or estado.get('equipe_a_escudo')
+    )
+    escudo_b_estado = (
+        estado.get('escudo_b_operacional')
+        or estado.get('escudo_b')
+        or estado.get('equipe_b_escudo')
+    )
+
+    escudo_a_banco = escudos_banco.get(equipe_a)
+    escudo_b_banco = escudos_banco.get(equipe_b)
+
+    # Se o estado/cache já veio com escudo padrão, ele NÃO pode ganhar do banco.
+    # Isso era o motivo de aparecer o mesmo escudo padrão para os dois times.
+    escudo_a = escudo_a_estado if not _eh_escudo_padrao(escudo_a_estado) else escudo_a_banco
+    escudo_b = escudo_b_estado if not _eh_escudo_padrao(escudo_b_estado) else escudo_b_banco
+
+    estado['escudo_a'] = _normalizar_url_escudo(escudo_a)
+    estado['escudo_b'] = _normalizar_url_escudo(escudo_b)
+    estado['escudo_a_operacional'] = estado['escudo_a']
+    estado['escudo_b_operacional'] = estado['escudo_b']
+    estado['equipe_a_escudo'] = estado['escudo_a']
+    estado['equipe_b_escudo'] = estado['escudo_b']
+
+    estado['cor_a'] = _cor_estado_ou_auto(estado, 'cor_a', 'equipe_a_cor', estado['escudo_a'], '#2E6BE6')
+    estado['cor_b'] = _cor_estado_ou_auto(estado, 'cor_b', 'equipe_b_cor', estado['escudo_b'], '#E53935')
+    estado['cor_a_operacional'] = estado['cor_a']
+    estado['cor_b_operacional'] = estado['cor_b']
+    estado['equipe_a_cor'] = estado['cor_a']
+    estado['equipe_b_cor'] = estado['cor_b']
     return estado
 
 
@@ -877,6 +1160,8 @@ def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=No
         estado.get("set_atual") or 1,
     )
 
+    estado = _aplicar_escudos_estado(estado, competicao, estado.get("equipe_a"), estado.get("equipe_b"))
+
     return estado
 
 
@@ -903,6 +1188,7 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
     estado["equipe_b_operacional"] = equipe_b_op
     estado["equipe_a"] = equipe_a_op
     estado["equipe_b"] = equipe_b_op
+    estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
 
     estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
 
@@ -1966,6 +2252,7 @@ def jogo_view(competicao, partida_id):
     estado["equipe_b_operacional"] = equipe_b_op
     estado["equipe_a"] = equipe_a_op
     estado["equipe_b"] = equipe_b_op
+    estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
 
     for campo, padrao in (
         ("pontos_a", partida.get("pontos_a") or 0),
@@ -3028,6 +3315,9 @@ def estado_jogo_view(competicao, partida_id):
 
         estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
         estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+        equipe_a_op = partida.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
+        equipe_b_op = partida.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
+        estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
         pontos_a = int(estado.get("pontos_a") or estado.get("placar_a") or pontos_a or 0)
         pontos_b = int(estado.get("pontos_b") or estado.get("placar_b") or pontos_b or 0)
         tempos_a = estado.get("tempos_a", tempos_a)
@@ -3043,6 +3333,16 @@ def estado_jogo_view(competicao, partida_id):
             "sets_b": int(estado.get("sets_b") or 0),
             "set_atual": int(estado.get("set_atual") or 1),
             "saque_atual": estado.get("saque_atual") or "",
+            "equipe_a": equipe_a_op,
+            "equipe_b": equipe_b_op,
+            "equipe_a_operacional": equipe_a_op,
+            "equipe_b_operacional": equipe_b_op,
+            "escudo_a": estado.get("escudo_a") or ESCUDO_PADRAO_URL,
+            "escudo_b": estado.get("escudo_b") or ESCUDO_PADRAO_URL,
+            "escudo_a_operacional": estado.get("escudo_a_operacional") or estado.get("escudo_a") or ESCUDO_PADRAO_URL,
+            "escudo_b_operacional": estado.get("escudo_b_operacional") or estado.get("escudo_b") or ESCUDO_PADRAO_URL,
+            "cor_a": estado.get("cor_a") or "#2E6BE6",
+            "cor_b": estado.get("cor_b") or "#E53935",
             "tempos_a": tempos_a,
             "tempos_b": tempos_b,
             "subs_a": int(estado.get("subs_a") or 0),

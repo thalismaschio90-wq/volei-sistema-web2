@@ -1355,6 +1355,43 @@
     }
 }
 
+
+    .jogo-equipes-com-escudo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .jogo-equipe-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .jogo-equipe-chip.direita {
+        flex-direction: row-reverse;
+    }
+
+    .jogo-escudo-time {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+        border-radius: 12px;
+        background: #eef6ff;
+        border: 1px solid #d6e2f0;
+        padding: 5px;
+        flex: 0 0 auto;
+    }
+
+    .jogo-x-times {
+        color: #6b7c8c;
+        font-weight: 1000;
+        font-size: clamp(24px, 3vw, 38px);
+    }
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
@@ -1366,8 +1403,16 @@
         {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
     </div>
 
-    <div class="linha-principal">
-        <span id="nome-a">{{ partida.equipe_a_operacional or partida.equipe_a }}</span> x <span id="nome-b">{{ partida.equipe_b_operacional or partida.equipe_b }}</span>
+    <div class="linha-principal jogo-equipes-com-escudo">
+        <span class="jogo-equipe-chip">
+            <img id="escudo-a-jogo" class="jogo-escudo-time" src="{{ estado.escudo_a or estado.escudo_a_operacional or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ partida.equipe_a_operacional or partida.equipe_a }}">
+            <span id="nome-a">{{ partida.equipe_a_operacional or partida.equipe_a }}</span>
+        </span>
+        <span class="jogo-x-times">x</span>
+        <span class="jogo-equipe-chip direita">
+            <img id="escudo-b-jogo" class="jogo-escudo-time" src="{{ estado.escudo_b or estado.escudo_b_operacional or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ partida.equipe_b_operacional or partida.equipe_b }}">
+            <span id="nome-b">{{ partida.equipe_b_operacional or partida.equipe_b }}</span>
+        </span>
     </div>
 
 </div>
@@ -1878,6 +1923,11 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const COMPETICAO = {{ competicao_nome | tojson }};
     const NOME_EQUIPE_A = {{ (partida.equipe_a_operacional or partida.equipe_a) | tojson }};
     const NOME_EQUIPE_B = {{ (partida.equipe_b_operacional or partida.equipe_b) | tojson }};
+    const ESCUDO_PADRAO = "/static/img/escudo_padrao.svg";
+    let ESCUDO_EQUIPE_A = {{ (estado.escudo_a or estado.escudo_a_operacional or '/static/img/escudo_padrao.svg') | tojson }};
+    let ESCUDO_EQUIPE_B = {{ (estado.escudo_b or estado.escudo_b_operacional or '/static/img/escudo_padrao.svg') | tojson }};
+    const escudoAJogo = document.getElementById("escudo-a-jogo");
+    const escudoBJogo = document.getElementById("escudo-b-jogo");
     const CHAVE_INVERSAO_QUADRA = `quadra_invertida_{{ competicao_nome|replace(' ', '_') }}_{{ partida.id }}`;
 
     const modoOperacao = {{ modo_operacao_jogo | tojson }};
@@ -1888,6 +1938,11 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         diferenca_minima: {{ (estado.get('diferenca_minima') or partida.get('diferenca_minima') or 2) | tojson }},
         sets_para_vencer: {{ (estado.get('sets_para_vencer') or partida.get('sets_para_vencer') or 0) | tojson }}
     };
+
+    atualizarEscudosDoJogo({
+        escudo_a: ESCUDO_EQUIPE_A,
+        escudo_b: ESCUDO_EQUIPE_B
+    });
 
     let partidaFinalizada = false;
     let observacoesAbrindo = false;
@@ -2389,6 +2444,14 @@ function montarPayloadTempoReal(extra = {}) {
         if (normalizado && nomeB && normalizado === nomeB) return "B";
 
         return "";
+    }
+
+    function atualizarEscudosDoJogo(dados) {
+        dados = dados || {};
+        ESCUDO_EQUIPE_A = dados.escudo_a_operacional || dados.escudo_a || dados.equipe_a_escudo || ESCUDO_EQUIPE_A || ESCUDO_PADRAO;
+        ESCUDO_EQUIPE_B = dados.escudo_b_operacional || dados.escudo_b || dados.equipe_b_escudo || ESCUDO_EQUIPE_B || ESCUDO_PADRAO;
+        if (escudoAJogo) escudoAJogo.src = ESCUDO_EQUIPE_A;
+        if (escudoBJogo) escudoBJogo.src = ESCUDO_EQUIPE_B;
     }
 
     function textoSaqueAtual() {
@@ -3278,6 +3341,7 @@ function inverterLadosVisual() {
         estadoAtual.cartoes_verdes_a = verdesA;
         estadoAtual.cartoes_verdes_b = verdesB;
 
+        atualizarEscudosDoJogo(dados);
         if (dados.ultima_acao !== undefined) atualizarUltimaAcao(dados.ultima_acao || "-");
         if (Array.isArray(dados.historico)) renderHistoricoBackend(dados.historico);
         partidaFinalizada = !!dados.partida_finalizada;
