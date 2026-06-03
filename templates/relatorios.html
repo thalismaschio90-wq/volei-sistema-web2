@@ -56,7 +56,7 @@
     </div>
 
     <div style="margin-top: 10px; font-size: 13px; opacity: .78;">
-        Relatório por equipe usa o filtro de equipe. Relatórios de partida usam o filtro de partida.
+        Relatório por equipe e ficha de inscrição usam o filtro de equipe. Relatórios de partida usam o filtro de partida.
     </div>
 </div>
 
@@ -92,7 +92,7 @@
     document.querySelectorAll(".rel-link").forEach(function(link){
         link.addEventListener("click", function(e){
             const tipo = link.dataset.tipo || "";
-            const precisaEquipe = tipo === "relatorio_equipe";
+            const precisaEquipe = ["relatorio_equipe", "fichas_inscricao"].includes(tipo);
             const precisaPartida = ["relatorio_partida", "historico_partida", "atletas_partida"].includes(tipo);
 
             if (precisaEquipe && equipe && !equipe.value) {

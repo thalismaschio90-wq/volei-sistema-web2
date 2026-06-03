@@ -9,16 +9,14 @@
 
 :root {
     --text: #f8fafc;
-    --gold: #f6c945;
-    --cor-a: #2e6be6;
-    --cor-b: #e53935;
-    --ink: #0f2f4a;
+    --gold: #F6C945;
+    --cor-a: #0B54E8;
+    --cor-b: #111111;
+    --cor-a-glow: rgba(32, 132, 255, .55);
+    --cor-b-glow: rgba(0, 0, 0, .45);
 }
-
 * { box-sizing: border-box; }
-
-html,
-body {
+html, body {
     width: 100%;
     height: 100%;
     margin: 0;
@@ -26,369 +24,346 @@ body {
     color: var(--text);
     font-family: Arial, Helvetica, sans-serif;
     background:
-        radial-gradient(circle at 18% 10%, color-mix(in srgb, var(--cor-a) 26%, transparent), transparent 34%),
-        radial-gradient(circle at 82% 10%, color-mix(in srgb, var(--cor-b) 26%, transparent), transparent 34%),
-        linear-gradient(135deg, #f0f6ff 0%, #dfeaf6 48%, #fbfdff 100%);
+        radial-gradient(circle at 16% 15%, color-mix(in srgb, var(--cor-a) 30%, transparent), transparent 32%),
+        radial-gradient(circle at 84% 15%, color-mix(in srgb, var(--cor-b) 28%, transparent), transparent 34%),
+        linear-gradient(135deg, #07111f 0%, #101827 44%, #070b12 100%);
 }
-
 .telao {
     width: 100vw;
     height: 100vh;
-    aspect-ratio: 16 / 9;
     display: grid;
-    grid-template-rows: 70px minmax(0, 1fr);
+    grid-template-rows: 66px minmax(0, 1fr);
     gap: 12px;
-    padding: 16px 22px 20px;
+    padding: 14px 20px 18px;
 }
-
 .topo {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 16px;
 }
-
 .status {
     justify-self: center;
-    max-width: 1080px;
-    min-width: 470px;
+    min-width: min(940px, 64vw);
+    max-width: 1040px;
     padding: 10px 28px;
-    border: 2px solid rgba(255,255,255,.62);
+    border: 2px solid rgba(255,255,255,.30);
     border-radius: 999px;
-    background: rgba(15, 47, 74, .13);
-    color: var(--ink);
+    background: rgba(0,0,0,.46);
+    color: #fff;
     text-align: center;
-    font-size: clamp(21px, 1.9vw, 32px);
+    font-size: clamp(22px, 2vw, 34px);
     font-weight: 1000;
-    letter-spacing: .06em;
+    letter-spacing: .04em;
     text-transform: uppercase;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    backdrop-filter: blur(10px);
+    box-shadow: 0 0 26px rgba(40,150,255,.18), inset 0 0 0 1px rgba(255,255,255,.10);
 }
-
 .btn-inverter {
     justify-self: end;
-    border: 2px solid rgba(15,47,74,.18);
-    background: rgba(255,255,255,.80);
-    color: var(--ink);
+    border: 2px solid rgba(255,255,255,.18);
+    background: rgba(0,0,0,.48);
+    color: #fff;
     border-radius: 999px;
-    padding: 10px 16px;
-    font-size: 15px;
+    padding: 11px 17px;
+    font-size: 13px;
     font-weight: 900;
     cursor: pointer;
-    box-shadow: 0 10px 24px rgba(15,47,74,.10);
+    box-shadow: 0 14px 30px rgba(0,0,0,.22);
 }
-
 .miolo {
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 310px minmax(0, 1fr);
-    gap: 18px;
+    grid-template-columns: minmax(0, 1fr) 320px minmax(0, 1fr);
+    gap: 14px;
     align-items: stretch;
 }
-
 .equipe {
     min-width: 0;
-    border-radius: 34px;
+    border-radius: 30px;
     overflow: hidden;
-    border: 4px solid rgba(255,255,255,.40);
+    border: 3px solid rgba(255,255,255,.34);
     display: grid;
-    grid-template-rows: 148px minmax(0, 1fr);
-    box-shadow: 0 24px 62px rgba(15,23,42,.22);
+    grid-template-rows: 190px minmax(0, 1fr);
+    box-shadow: 0 26px 70px rgba(0,0,0,.38);
     position: relative;
 }
-
-.equipe::before {
+.equipe:before {
     content: "";
     position: absolute;
     inset: 0;
     background:
-        radial-gradient(circle at 50% 18%, rgba(255,255,255,.28), transparent 34%),
-        linear-gradient(180deg, rgba(255,255,255,.10), rgba(0,0,0,.10));
+        radial-gradient(circle at 28% 18%, rgba(255,255,255,.18), transparent 28%),
+        linear-gradient(135deg, rgba(255,255,255,.08), transparent 45%),
+        repeating-linear-gradient(135deg, transparent 0 22px, rgba(255,255,255,.025) 23px 24px);
     pointer-events: none;
 }
-
 .equipe-a {
-    background:
-        linear-gradient(145deg,
-            color-mix(in srgb, var(--cor-a) 90%, #ffffff 10%),
-            color-mix(in srgb, var(--cor-a) 68%, #071827 32%)
-        );
+    border-color: color-mix(in srgb, var(--cor-a) 62%, #fff 18%);
+    background: linear-gradient(145deg, color-mix(in srgb, var(--cor-a) 94%, #061629 6%), color-mix(in srgb, var(--cor-a) 62%, #020817 38%));
+    box-shadow: 0 0 22px color-mix(in srgb, var(--cor-a) 45%, transparent), 0 24px 70px rgba(0,0,0,.38);
 }
-
 .equipe-b {
-    background:
-        linear-gradient(145deg,
-            color-mix(in srgb, var(--cor-b) 90%, #ffffff 10%),
-            color-mix(in srgb, var(--cor-b) 68%, #071827 32%)
-        );
+    border-color: color-mix(in srgb, var(--cor-b) 58%, #fff 24%);
+    background: linear-gradient(145deg, color-mix(in srgb, var(--cor-b) 96%, #ffffff 4%), color-mix(in srgb, var(--cor-b) 70%, #020817 30%));
+    box-shadow: 0 0 22px color-mix(in srgb, var(--cor-b) 45%, transparent), 0 24px 70px rgba(0,0,0,.38);
 }
-
 .nome-linha {
     min-width: 0;
     position: relative;
     z-index: 1;
     display: grid;
-    grid-template-columns: 26px 118px minmax(0, 1fr);
+    grid-template-columns: 30px 112px minmax(0, 1fr);
     align-items: center;
-    gap: 18px;
-    padding: 18px 24px;
-    border-bottom: 4px solid rgba(255,255,255,.18);
-    background: rgba(0,0,0,.10);
+    gap: 16px;
+    padding: 22px 26px;
+    overflow: hidden;
+    border-bottom: 3px solid rgba(255,255,255,.20);
+    background: rgba(0,0,0,.16);
 }
-
 .nome-linha.direita {
-    grid-template-columns: minmax(0, 1fr) 118px 26px;
+    grid-template-columns: minmax(0, 1fr) 112px 30px;
     text-align: right;
+    overflow: hidden;
 }
-
 .bolinha-saque {
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
     border-radius: 999px;
-    background: rgba(255,255,255,.26);
-    box-shadow: inset 0 0 0 2px rgba(255,255,255,.24);
+    background: rgba(255,255,255,.20);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.20);
 }
-
 .bolinha-saque.ativo {
     background: var(--gold);
-    box-shadow: 0 0 0 6px rgba(246,201,69,.18), 0 0 32px rgba(246,201,69,.95);
+    box-shadow: 0 0 0 8px rgba(246,201,69,.16), 0 0 34px rgba(246,201,69,1);
 }
-
 .escudo-telao {
-    width: 108px;
-    height: 108px;
+    width: 104px;
+    height: 104px;
     object-fit: contain;
     border-radius: 24px;
-    background: rgba(255,255,255,.18);
-    padding: 10px;
-    filter: drop-shadow(0 14px 30px rgba(0,0,0,.30));
+    background: rgba(255,255,255,.14);
+    padding: 9px;
+    filter: drop-shadow(0 16px 28px rgba(0,0,0,.36));
 }
-
+.nome-linha > div { min-width: 0; overflow: hidden; }
 .nome-equipe {
     min-width: 0;
-    font-size: clamp(32px, 3.3vw, 62px);
+    font-size: clamp(34px, 3.2vw, 64px);
     line-height: .94;
     font-weight: 1000;
     text-transform: uppercase;
-    letter-spacing: -.035em;
+    letter-spacing: -.045em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-shadow: 0 8px 20px rgba(0,0,0,.24);
+    text-shadow: 0 10px 22px rgba(0,0,0,.38);
 }
-
 .pontos {
     position: relative;
     z-index: 1;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
-    padding-top: clamp(10px, 2.2vh, 26px);
-    font-size: clamp(280px, 27vw, 470px);
-    line-height: .80;
+    padding-bottom: 24px;
+    font-size: clamp(300px, 27vw, 520px);
+    line-height: .78;
     font-weight: 1000;
-    letter-spacing: -.08em;
+    letter-spacing: -.085em;
     color: #fff;
     font-variant-numeric: tabular-nums;
-    text-shadow: 0 18px 36px rgba(0,0,0,.26);
+    text-shadow: 0 22px 40px rgba(0,0,0,.32);
 }
-
 .pontos.animar { animation: popPonto .24s ease-out; }
-
-@keyframes popPonto {
-    0% { transform: scale(1); }
-    45% { transform: scale(1.06); }
-    100% { transform: scale(1); }
-}
-
+@keyframes popPonto { 0%{transform:scale(1)}45%{transform:scale(1.06)}100%{transform:scale(1)} }
 .centro-vertical {
     min-width: 0;
     display: grid;
-    grid-template-rows: 190px minmax(0, 1fr);
-    gap: 14px;
-}
-
-.sets-box,
-.evolucao-vertical {
-    border: 2px solid rgba(15,47,74,.12);
-    border-radius: 30px;
-    background: rgba(255,255,255,.78);
-    box-shadow: 0 18px 44px rgba(15,47,74,.13);
-    backdrop-filter: blur(12px);
-    color: var(--ink);
-}
-
-.sets-box {
-    padding: 16px;
-    text-align: center;
-    display: grid;
-    align-content: center;
-}
-
-.set-label,
-.evolucao-titulo {
-    color: var(--ink);
-    font-size: 14px;
-    font-weight: 1000;
-    letter-spacing: .13em;
-    text-transform: uppercase;
-}
-
-.sets-valor {
-    margin: 12px 0;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
+    grid-template-rows: 174px minmax(0, 1fr);
     gap: 10px;
 }
-
-.set-num {
-    height: 68px;
-    border-radius: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 46px;
-    line-height: 1;
-    font-weight: 1000;
-    color: #fff;
-    font-variant-numeric: tabular-nums;
-    box-shadow: inset 0 0 0 2px rgba(255,255,255,.20);
+.sets-box,
+.evolucao-vertical {
+    border: 2px solid rgba(15,47,74,.15);
+    border-radius: 26px;
+    background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(245,248,252,.94));
+    box-shadow: 0 20px 48px rgba(0,0,0,.24), inset 0 0 0 1px rgba(255,255,255,.65);
+    color: #10283d;
 }
-
-.set-a { background: var(--cor-a); }
-.set-b { background: var(--cor-b); }
-
-.set-x {
-    font-size: 28px;
-    font-weight: 1000;
-    color: rgba(15,47,74,.62);
+.sets-box {
+    padding: 13px 18px;
+    text-align: center;
 }
-
-.set-atual {
-    display: inline-flex;
-    justify-content: center;
-    justify-self: center;
-    min-width: 138px;
-    border: 2px solid rgba(246,201,69,.62);
-    background: rgba(246,201,69,.18);
-    border-radius: 999px;
-    padding: 8px 16px;
-    color: #8a6500;
+.set-label,
+.evolucao-titulo {
+    color: #0f2f4a;
     font-size: 20px;
     font-weight: 1000;
     letter-spacing: .08em;
     text-transform: uppercase;
 }
-
+.sets-valor {
+    margin: 10px 0 8px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 14px;
+}
+.set-num {
+    height: 62px;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    line-height: 1;
+    font-weight: 1000;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.22), 0 10px 20px rgba(0,0,0,.14);
+}
+.set-a { background: var(--cor-a); }
+.set-b { background: var(--cor-b); }
+.set-x { font-size: 32px; font-weight: 1000; color: #0b1320; }
+.set-atual {
+    display: inline-flex;
+    justify-content: center;
+    min-width: 132px;
+    border: 2px solid rgba(246,201,69,.72);
+    background: rgba(246,201,69,.18);
+    border-radius: 999px;
+    padding: 8px 18px;
+    color: #8a6500;
+    font-size: 19px;
+    font-weight: 1000;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
 .evolucao-vertical {
     min-height: 0;
-    padding: 16px 15px;
+    padding: 12px 16px 14px;
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
-    gap: 12px;
+    grid-template-rows: 34px 28px minmax(0, 1fr);
+    gap: 8px;
+    overflow: hidden;
 }
-
 .evolucao-head {
     display: flex;
     justify-content: space-between;
     gap: 10px;
     align-items: center;
 }
-
 .evolucao-contador {
     color: rgba(15,47,74,.70);
     font-size: 13px;
     font-weight: 1000;
     white-space: nowrap;
 }
-
 .evolucao-legenda {
     display: grid;
-    grid-template-columns: 1fr 36px 1fr;
-    gap: 8px;
+    grid-template-columns: 1fr 28px 1fr;
+    gap: 6px;
     align-items: center;
     color: rgba(15,47,74,.78);
-    font-size: 13px;
+    font-size: 16px;
     font-weight: 1000;
     text-transform: uppercase;
 }
-
-.evolucao-legenda .lado-a { text-align: right; color: var(--cor-a); }
-.evolucao-legenda .lado-b { text-align: left; color: var(--cor-b); }
-.evolucao-legenda .meio { text-align: center; opacity: .55; }
-
+.evolucao-legenda .lado-a { text-align: center; color: var(--cor-a); }
+.evolucao-legenda .lado-b { text-align: center; color: var(--cor-b); }
+.evolucao-legenda .meio { text-align: center; opacity: .60; }
 .timeline-vertical {
     min-height: 0;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    gap: 8px;
-    padding-top: 4px;
+    display: grid;
+    grid-template-rows: repeat(10, minmax(0, 1fr));
+    gap: 5px;
+    padding: 2px 8px 0;
 }
-
 .ponto-vertical {
     display: grid;
-    grid-template-columns: 1fr 26px 1fr;
+    grid-template-columns: 1fr 30px 1fr;
     align-items: center;
-    gap: 9px;
-    min-height: 24px;
-    font-size: 12px;
+    gap: 8px;
+    min-height: 0;
+    height: 100%;
     font-weight: 1000;
 }
-
 .ponto-vertical > span {
-    min-height: 22px;
+    min-height: 0;
+    height: 100%;
     display: flex;
     align-items: center;
 }
-
 .ponto-vertical .ponto-esq { justify-content: flex-end; }
 .ponto-vertical .ponto-dir { justify-content: flex-start; }
-.ponto-vertical .ponto-meio { justify-content: center; opacity: .22; }
-
+.ponto-vertical .ponto-meio { justify-content: center; opacity: .20; }
 .ponto-marcador {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     border-radius: 999px;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
     color: #fff;
-    font-size: 12px;
+    font-size: 16px;
     font-weight: 1000;
     line-height: 1;
-    box-shadow: 0 0 14px rgba(15,47,74,.20);
+    box-shadow: 0 8px 18px rgba(15,47,74,.22);
 }
-
 .ponto-marcador.a { background: var(--cor-a); }
 .ponto-marcador.b { background: var(--cor-b); }
-
 .ponto-vazio-dot {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: rgba(15,47,74,.10);
+    background: rgba(15,47,74,.08);
     display: inline-block;
 }
-
-.ponto-vertical.vazio { opacity: .42; }
+.ponto-vertical.vazio { opacity: .65; }
 .sem-jogo .equipe { opacity: .86; }
+@media (max-width: 1200px) {
+    .miolo { grid-template-columns: minmax(0,1fr) 280px minmax(0,1fr); }
+    .equipe { grid-template-rows: 150px minmax(0,1fr); }
+    .nome-linha { grid-template-columns: 24px 94px minmax(0,1fr); padding: 18px 22px; gap: 12px; }
+    .nome-linha.direita { grid-template-columns: minmax(0,1fr) 94px 24px; }
+    .escudo-telao { width: 90px; height: 90px; border-radius: 20px; }
+    .nome-equipe { font-size: clamp(34px, 3.5vw, 62px); }
+    .pontos { font-size: clamp(210px, 24vw, 360px); }
+    .footer-value { font-size: 14px; }
+}
 
-@media (max-width: 1150px) {
-    .telao { padding: 12px; gap: 10px; }
-    .miolo { grid-template-columns: minmax(0,1fr) 240px minmax(0,1fr); gap: 10px; }
-    .centro-vertical { grid-template-rows: 170px minmax(0,1fr); }
-    .nome-linha { grid-template-columns: 20px 76px minmax(0,1fr); padding: 12px; gap: 10px; }
-    .nome-linha.direita { grid-template-columns: minmax(0,1fr) 76px 20px; }
-    .escudo-telao { width: 72px; height: 72px; border-radius: 18px; padding: 7px; }
-    .pontos { font-size: clamp(170px, 24vw, 300px); }
-    .ponto-vertical { gap: 6px; min-height: 19px; }
-    .ponto-marcador { width: 19px; height: 19px; font-size: 10px; }
+
+/* Ajuste final: ponto a ponto compacto, sempre dentro da tela */
+.evolucao-titulo {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.evolucao-head { min-width: 0; }
+.evolucao-head > * { min-width: 0; }
+.timeline-vertical {
+    grid-template-rows: repeat(10, 1fr);
+}
+.ponto-vertical {
+    overflow: visible;
+}
+@media (max-height: 760px) {
+    .telao { grid-template-rows: 58px minmax(0, 1fr); padding: 10px 14px 12px; gap: 8px; }
+    .status { font-size: 22px; padding: 8px 20px; }
+    .miolo { grid-template-columns: minmax(0,1fr) 330px minmax(0,1fr); gap: 10px; }
+    .centro-vertical { grid-template-rows: 154px minmax(0, 1fr); gap: 8px; }
+    .sets-box { padding: 10px 14px; }
+    .set-label, .evolucao-titulo { font-size: 17px; }
+    .sets-valor { margin: 7px 0 5px; }
+    .set-num { height: 54px; font-size: 42px; }
+    .set-atual { font-size: 17px; padding: 6px 14px; }
+    .evolucao-vertical { padding: 9px 13px 10px; grid-template-rows: 30px 24px minmax(0,1fr); gap: 6px; }
+    .evolucao-legenda { font-size: 14px; }
+    .timeline-vertical { gap: 4px; padding-top: 0; }
+    .ponto-marcador { width: 24px; height: 24px; font-size: 14px; }
 }
 
 </style>
@@ -398,7 +373,7 @@ body {
     <div class="topo">
         <div></div>
         <div class="status" id="infoJogo">AGUARDANDO JOGO AO VIVO</div>
-        <button id="btnInverter" class="btn-inverter" type="button">↔ Inverter lados</button>
+        <button id="btnInverter" class="btn-inverter" type="button">↔ INVERTER LADOS</button>
     </div>
 
     <main class="miolo">
@@ -406,7 +381,9 @@ body {
             <div class="nome-linha">
                 <span id="saqueA" class="bolinha-saque"></span>
                 <img id="escudoA" class="escudo-telao" src="/static/img/escudo_padrao.svg" alt="Escudo Equipe A">
-                <div id="nomeA" class="nome-equipe">Equipe A</div>
+                <div>
+                    <div id="nomeA" class="nome-equipe">Equipe A</div>
+                </div>
             </div>
             <div id="pontosA" class="pontos">0</div>
         </section>
@@ -429,7 +406,7 @@ body {
                 </div>
                 <div class="evolucao-legenda">
                     <span id="labelVerticalA" class="lado-a">A</span>
-                    <span class="meio">●</span>
+                    <span class="meio">•</span>
                     <span id="labelVerticalB" class="lado-b">B</span>
                 </div>
                 <div id="timelineVertical" class="timeline-vertical"></div>
@@ -438,13 +415,16 @@ body {
 
         <section id="cardB" class="equipe equipe-b">
             <div class="nome-linha direita">
-                <div id="nomeB" class="nome-equipe">Equipe B</div>
+                <div>
+                    <div id="nomeB" class="nome-equipe">Equipe B</div>
+                </div>
                 <img id="escudoB" class="escudo-telao" src="/static/img/escudo_padrao.svg" alt="Escudo Equipe B">
                 <span id="saqueB" class="bolinha-saque"></span>
             </div>
             <div id="pontosB" class="pontos">0</div>
         </section>
     </main>
+
 </div>
 <script>
 const apontador = {{ (apontador if apontador is defined else '') | tojson }};
@@ -734,7 +714,7 @@ function registrarEvolucaoSeForPonto(dados, pAOriginal, pBOriginal, setAtual) {
 function renderizarLinhaVazia() {
     if (!timelineVertical) return;
     timelineVertical.innerHTML = "";
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 10; i++) {
         const item = document.createElement("div");
         item.className = "ponto-vertical vazio";
         item.innerHTML = `<span class="ponto-esq"></span><span class="ponto-meio"><i class="ponto-vazio-dot"></i></span><span class="ponto-dir"></span>`;
@@ -745,42 +725,64 @@ function renderizarLinhaVazia() {
 
 function renderizarEvolucao(mostrar) {
     if (!timelineVertical) return;
-    if (!mostrar) {
+
+    if (!mostrar || !evolucaoPontos.length) {
         renderizarLinhaVazia();
         return;
     }
 
     timelineVertical.innerHTML = "";
     const invertido = getInvertidoVisual(ultimoEstado || {});
-    const lista = evolucaoPontos.slice(-28);
-    let contadorA = 0;
-    let contadorB = 0;
 
+    let acumuladoA = 0;
+    let acumuladoB = 0;
+
+    const historico = evolucaoPontos.map((p) => {
+        const ladoOriginal = p && p.lado === "B" ? "B" : "A";
+
+        if (ladoOriginal === "A") acumuladoA += 1;
+        if (ladoOriginal === "B") acumuladoB += 1;
+
+        const valorA = Number(p && (p.pontos_a ?? p.placar_a));
+        const valorB = Number(p && (p.pontos_b ?? p.placar_b));
+
+        const pontosA = valorA > 0 ? valorA : acumuladoA;
+        const pontosB = valorB > 0 ? valorB : acumuladoB;
+
+        acumuladoA = Math.max(acumuladoA, pontosA);
+        acumuladoB = Math.max(acumuladoB, pontosB);
+
+        return {
+            ladoOriginal,
+            ladoVisual: invertido ? (ladoOriginal === "A" ? "B" : "A") : ladoOriginal,
+            valor: ladoOriginal === "A" ? pontosA : pontosB,
+        };
+    });
+
+    // Mostra SOMENTE os últimos 10 lances. Os antigos saem da tela.
+    const lista = historico.slice(-10);
     evolucaoContador.textContent = `${lista.length} ponto${lista.length === 1 ? "" : "s"}`;
 
-    for (let i = 0; i < Math.max(28, lista.length); i++) {
-        const ponto = lista[i];
+    for (const ponto of lista) {
+        const item = document.createElement("div");
+        item.className = "ponto-vertical";
+
+        if (ponto.ladoVisual === "A") {
+            item.classList.add("ponto-a");
+            item.innerHTML = `<span class="ponto-esq"><b class="ponto-marcador a">${ponto.valor}</b></span><span class="ponto-meio"></span><span class="ponto-dir"></span>`;
+        } else {
+            item.classList.add("ponto-b");
+            item.innerHTML = `<span class="ponto-esq"></span><span class="ponto-meio"></span><span class="ponto-dir"><b class="ponto-marcador b">${ponto.valor}</b></span>`;
+        }
+
+        timelineVertical.appendChild(item);
+    }
+
+    // Completa até 10 linhas sem estourar o painel.
+    for (let i = lista.length; i < 10; i++) {
         const item = document.createElement("div");
         item.className = "ponto-vertical vazio";
-
-        let lado = ponto ? ponto.lado : "";
-        if (invertido) {
-            if (lado === "A") lado = "B";
-            else if (lado === "B") lado = "A";
-        }
-
-        if (lado === "A") {
-            contadorA += 1;
-            item.className = "ponto-vertical ponto-a";
-            item.innerHTML = `<span class="ponto-esq"><b class="ponto-marcador a">${contadorA}</b></span><span class="ponto-meio"></span><span class="ponto-dir"></span>`;
-        } else if (lado === "B") {
-            contadorB += 1;
-            item.className = "ponto-vertical ponto-b";
-            item.innerHTML = `<span class="ponto-esq"></span><span class="ponto-meio"></span><span class="ponto-dir"><b class="ponto-marcador b">${contadorB}</b></span>`;
-        } else {
-            item.innerHTML = `<span class="ponto-esq"></span><span class="ponto-meio"><i class="ponto-vazio-dot"></i></span><span class="ponto-dir"></span>`;
-        }
-
+        item.innerHTML = `<span class="ponto-esq"></span><span class="ponto-meio"><i class="ponto-vazio-dot"></i></span><span class="ponto-dir"></span>`;
         timelineVertical.appendChild(item);
     }
 }
@@ -807,7 +809,11 @@ function normalizarListaEvolucaoBackend(lista) {
         .map((item) => {
             if (typeof item === "string") return { lado: normalizarLado(item) };
             if (item && typeof item === "object") {
-                return { lado: normalizarLado(item.lado || item.equipe || item.ponto || item.time) };
+                return {
+                    lado: normalizarLado(item.lado || item.equipe || item.ponto || item.time),
+                    pontos_a: item.pontos_a ?? item.placar_a,
+                    pontos_b: item.pontos_b ?? item.placar_b,
+                };
             }
             return { lado: "" };
         })
@@ -834,6 +840,8 @@ function aplicarEvolucaoBackendSeVier(dados, setAtual) {
     evolucaoSetAtual = setAtual;
     evolucaoPontos = calc.lista.slice(-50).map((p) => ({
         lado: p.lado,
+        pontos_a: p.pontos_a,
+        pontos_b: p.pontos_b,
         set_atual: setAtual
     }));
     evolucaoAtiva = true;
@@ -926,6 +934,7 @@ function aplicarEstado(dados) {
     } else {
         infoJogo.textContent = `${setAtual}º SET`;
     }
+
 
     renderizarEvolucao(evolucaoAtiva || evolucaoPontos.length > 0 || evolucaoCongelada);
 }
