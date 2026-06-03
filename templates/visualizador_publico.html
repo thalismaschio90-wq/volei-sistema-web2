@@ -247,9 +247,9 @@
                 </div>
 
                 <div class="placar" data-placar-wrap {% if not p.finalizada and not p.ao_vivo %}style="display:none;"{% endif %}>
-                    <span class="placar-numero" data-pontos-a>{{ p.placar_ao_vivo_a if p.ao_vivo else (p.sets_a or 0) }}</span>
+                    <span class="placar-numero" data-pontos-a>{{ p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.placar_ao_vivo_a if p.ao_vivo else (p.sets_a or 0)) }}</span>
                     <span>×</span>
-                    <span class="placar-numero" data-pontos-b>{{ p.placar_ao_vivo_b if p.ao_vivo else (p.sets_b or 0) }}</span>
+                    <span class="placar-numero" data-pontos-b>{{ p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.placar_ao_vivo_b if p.ao_vivo else (p.sets_b or 0)) }}</span>
                 </div>
 
                 <div class="sets-live" data-sets-wrap {% if not p.ao_vivo %}style="display:none;"{% endif %}>
@@ -381,8 +381,8 @@
 
         const equipeA = payload.equipe_a || payload.nome_a || payload.time_a;
         const equipeB = payload.equipe_b || payload.nome_b || payload.time_b;
-        const pontosA = payload.pontos_a ?? payload.placar_a ?? 0;
-        const pontosB = payload.pontos_b ?? payload.placar_b ?? 0;
+        const pontosA = payload.placar_exibicao_a ?? payload.pontos_a ?? payload.placar_a ?? 0;
+        const pontosB = payload.placar_exibicao_b ?? payload.pontos_b ?? payload.placar_b ?? 0;
         const setsA = payload.sets_a ?? 0;
         const setsB = payload.sets_b ?? 0;
         const setAtual = payload.set_atual ?? 1;

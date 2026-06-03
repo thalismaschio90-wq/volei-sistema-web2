@@ -517,12 +517,12 @@
                 </td>
 
                 <td id="sets-{{ p.id }}" style="font-weight:800;">
-                    {{ p.sets_a or 0 }} x {{ p.sets_b or 0 }}
+                    {{ p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.sets_a or 0) }} x {{ p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.sets_b or 0) }}
                 </td>
 
                 <td id="parciais-{{ p.id }}" style="font-size:13px; color:var(--muted);">
                     {% if p.ao_vivo %}
-                        {{ p.placar_ao_vivo_a or p.pontos_a or 0 }} x {{ p.placar_ao_vivo_b or p.pontos_b or 0 }}
+                        {{ p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.placar_ao_vivo_a or p.pontos_a or 0) }} x {{ p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.placar_ao_vivo_b or p.pontos_b or 0) }}
                     {% elif p.finalizada %}
                         {{ p.parciais_formatadas }}
                     {% else %}
@@ -694,12 +694,12 @@ async function atualizarPartidasAoVivoTabela() {
             }
 
             if (setsEl) {
-                setsEl.textContent = `${dados.sets_a || 0} x ${dados.sets_b || 0}`;
+                setsEl.textContent = `${dados.placar_exibicao_a ?? dados.sets_a ?? 0} x ${dados.placar_exibicao_b ?? dados.sets_b ?? 0}`;
             }
 
             if (parciaisEl) {
                 if (!dados.partida_finalizada) {
-                    parciaisEl.textContent = `${dados.pontos_a || 0} x ${dados.pontos_b || 0}`;
+                    parciaisEl.textContent = `${dados.placar_exibicao_a ?? dados.pontos_a ?? 0} x ${dados.placar_exibicao_b ?? dados.pontos_b ?? 0}`;
                 }
             }
         } catch (e) {

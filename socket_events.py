@@ -139,6 +139,36 @@ def _normalizar_rotacao_payload(valor):
 
 
 
+
+def _sets_tipo_normalizado_payload(dados):
+    texto = str(dados.get("sets_tipo") or dados.get("tipo_sets") or dados.get("formato_sets") or "").strip().lower()
+    texto = texto.replace("-", "_").replace(" ", "_")
+    if texto in {"set_unico", "único", "unico", "1_set", "melhor_de_1", "md1"}:
+        return "set_unico"
+    if texto in {"melhor_de_5", "md5", "5"}:
+        return "melhor_de_5"
+    return texto or "melhor_de_3"
+
+
+def _aplicar_placar_exibicao_payload(payload):
+    sets_tipo = _sets_tipo_normalizado_payload(payload)
+    set_unico = sets_tipo == "set_unico"
+    if set_unico:
+        a = _to_int(payload.get("pontos_a", payload.get("placar_a", 0)), 0)
+        b = _to_int(payload.get("pontos_b", payload.get("placar_b", 0)), 0)
+        tipo = "pontos"
+    else:
+        a = _to_int(payload.get("sets_a"), 0)
+        b = _to_int(payload.get("sets_b"), 0)
+        tipo = "sets"
+    payload["sets_tipo"] = sets_tipo
+    payload["set_unico"] = set_unico
+    payload["placar_exibicao_a"] = a
+    payload["placar_exibicao_b"] = b
+    payload["placar_exibicao_tipo"] = tipo
+    payload["placar_exibicao"] = f"{a} x {b}"
+    return payload
+
 def _primeiro_valor(dados, chaves, padrao=None):
     for chave in chaves:
         if chave in dados and dados.get(chave) is not None and dados.get(chave) != "":
@@ -330,6 +360,8 @@ def _normalizar_payload(partida_id, dados=None):
             False,
         ),
     }
+
+    payload = _aplicar_placar_exibicao_payload(payload)
 
     return _json_safe(payload)
 

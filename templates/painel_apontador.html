@@ -25,6 +25,8 @@
 .ap-team-mini { display:inline-flex; align-items:center; gap:7px; min-width:0; }
 .ap-escudo-mini { width:32px; height:32px; border-radius:9px; object-fit:contain; background:#f8fbff; border:1px solid #dbe3ef; padding:3px; }
 .ap-meta { color:var(--muted); font-weight:800; font-size:13px; margin-bottom:8px; }
+.ap-score-inline { display:inline-flex; align-items:center; gap:6px; margin:0 0 8px; padding:6px 10px; border-radius:12px; background:#f1f5f9; color:#0f2f4a; font-weight:1000; font-size:15px; }
+.ap-score-inline small { color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
 .ap-badge { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:1000; text-transform:uppercase; white-space:nowrap; }
 .ap-live { background:#dcfce7; color:#166534; }
 .ap-pre { background:#fef3c7; color:#92400e; }
@@ -253,6 +255,12 @@ document.addEventListener("keydown", function(e) {
             <div class="ap-meta">
                 Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {{ p.grupo or '-' }}
             </div>
+            {% if jogo_finalizado or jogo_iniciado or jogo_pausado %}
+                <div class="ap-score-inline">
+                    {{ p.placar_exibicao_a if p.placar_exibicao_a is defined else 0 }} x {{ p.placar_exibicao_b if p.placar_exibicao_b is defined else 0 }}
+                    <small>{{ 'pontos' if p.placar_exibicao_tipo == 'pontos' else 'sets' }}</small>
+                </div>
+            {% endif %}
             {% if jogo_finalizado %}<span class="ap-badge ap-done">Finalizado</span>
             {% elif jogo_pausado %}<span class="ap-badge ap-paused">Pausada</span>
             {% elif jogo_iniciado %}<span class="ap-badge ap-live">Ao vivo</span>
@@ -431,7 +439,7 @@ document.addEventListener("keydown", function(e) {
                     const chaveAtiva = chave || "TODAS";
                     const cards = Array.from(document.querySelectorAll("[data-partida-card='1']"));
                     const sections = Array.from(document.querySelectorAll("[data-ap-section]"));
-                    const counts = { live: 0, pre: 0, wait: 0, done: 0 };
+                    const counts = { live: 0, paused: 0, pre: 0, wait: 0, done: 0 };
 
                     cards.forEach(card => {
                         const mostrar = chaveAtiva === "TODAS" || card.dataset.quadraChave === chaveAtiva;
@@ -459,9 +467,11 @@ document.addEventListener("keydown", function(e) {
                     });
 
                     const live = document.getElementById("ap-count-live");
+                    const paused = document.getElementById("ap-count-paused");
                     const pre = document.getElementById("ap-count-pre");
                     const wait = document.getElementById("ap-count-wait");
                     if (live) live.textContent = counts.live;
+                    if (paused) paused.textContent = counts.paused;
                     if (pre) pre.textContent = counts.pre;
                     if (wait) wait.textContent = counts.wait;
                 }

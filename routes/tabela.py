@@ -30,7 +30,7 @@ from banco import (
     conectar,
 )
 
-from routes.utils import exigir_perfil
+from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
 
 tabela_bp = Blueprint("tabela", __name__)
 
@@ -515,7 +515,7 @@ def _montar_parciais(partida):
     return " / ".join(parciais) if parciais else "-"
 
 
-def _preparar_partidas(partidas, mapa_escudos=None):
+def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
     partidas_preparadas = []
 
     for p in partidas:
@@ -540,6 +540,8 @@ def _preparar_partidas(partidas, mapa_escudos=None):
             or partida.get("placar_b")
             or 0
         )
+
+        aplicar_placar_exibicao_partida(partida, competicao or {})
 
         partida["quadra_label"] = _quadra_label(partida)
         partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
@@ -1207,7 +1209,7 @@ def visualizador_publico(competicao_nome):
         "nome": competicao_nome
     }
 
-    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos)
+    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
     classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
@@ -1268,7 +1270,7 @@ def tabela_view():
             "quadra_id": _quadra_id_do_grupo(g),
         })
 
-    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos)
+    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
     partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
     classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
@@ -1675,7 +1677,7 @@ def gerar_automatico():
             grupos.append({"grupo": g, "equipes": listar_equipes_por_grupo(g["id"])})
 
         mapa_escudos = _mapa_escudos_equipes(listar_equipes_da_competicao(competicao["nome"]))
-        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos)
+        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
         classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
 
         def _vencedor_ou_placeholder(partida, prefixo, indice):
