@@ -2,7 +2,7 @@ from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 
-from flask import Blueprint, render_template, request, session, redirect, url_for, flash, send_file
+from flask import Blueprint, render_template, request, session, redirect, url_for, flash, send_file, current_app
 
 import banco as banco_mod
 from routes.utils import exigir_perfil
@@ -338,19 +338,20 @@ def _listar_atletas_inscritos(competicao_nome, equipe_nome):
     return sorted(atletas, key=lambda x: (_int(x.get("numero") or x.get("camisa")), _txt(x.get("nome"), "").lower()))
 
 
-def _montar_fichas_inscricao(competicao_nome, equipe_logada=None):
+def _montar_fichas_inscricao(competicao_nome, equipe_logada=None, equipe_filtro=None):
     if equipe_logada:
-        return "Fichas de inscrição", ["Este relatório está disponível somente para o organizador."]
+        return "Ficha de inscrição", ["Este relatório está disponível somente para o organizador."]
 
-    linhas = _linhas_titulo("Fichas de inscrição", competicao_nome)
+    if not _txt(equipe_filtro, ""):
+        return "Ficha de inscrição", ["Selecione uma equipe para gerar a ficha de inscrição."]
+
+    linhas = _linhas_titulo("Ficha de inscrição", competicao_nome)
     equipes = _listar_equipes_inscritas(competicao_nome)
+    equipes = [e for e in equipes if _txt(e.get("nome"), "").lower() == _txt(equipe_filtro, "").lower()]
 
     if not equipes:
-        linhas.append("Nenhuma equipe inscrita encontrada para esta competição.")
-        return "Fichas de inscrição", linhas
-
-    linhas.append(f"Total de equipes: {len(equipes)}")
-    linhas.append("")
+        linhas.append("Equipe não encontrada no cadastro desta competição.")
+        return "Ficha de inscrição", linhas
 
     for idx, equipe in enumerate(equipes, start=1):
         nome_equipe = _primeiro_valor(equipe, "nome", "nome_equipe", "equipe", "time", padrao="Equipe sem nome")
@@ -394,7 +395,7 @@ def _montar_relatorio(tipo, competicao_nome, equipe_logada=None, equipe_filtro=N
     partidas_finalizadas = _todas_partidas(competicao_nome, equipe_nome=equipe_restrita, somente_finalizadas=True)
 
     if tipo == "fichas_inscricao":
-        return _montar_fichas_inscricao(competicao_nome, equipe_logada=equipe_logada)
+        return _montar_fichas_inscricao(competicao_nome, equipe_logada=equipe_logada, equipe_filtro=equipe_filtro)
 
     if tipo == "historico_jogos":
         linhas = _linhas_titulo("Histórico de jogos", competicao_nome)
@@ -405,6 +406,17 @@ def _montar_relatorio(tipo, competicao_nome, equipe_logada=None, equipe_filtro=N
         return "Histórico de jogos", linhas
 
     if tipo == "ranking_equipes":
+        if equipe_filtro and not equipe_restrita:
+            partidas_base = _todas_partidas(competicao_nome, equipe_nome=equipe_filtro, somente_finalizadas=True)
+            linhas = _linhas_titulo(f"Ranking da equipe - {equipe_filtro}", competicao_nome)
+            ranking = _agregar_equipes(competicao_nome, partidas_base)
+            ranking = [(nome, d) for nome, d in ranking if nome.lower() == equipe_filtro.lower()]
+            if not ranking:
+                linhas.append("Esta equipe está cadastrada, mas ainda não possui partidas finalizadas.")
+            for pos, (nome, d) in enumerate(ranking, start=1):
+                linhas.append(f"{pos}. {nome} | J={d['Partidas']} | V={d['Vitórias']} | D={d['Derrotas']} | Sets={d['Sets Pró']}x{d['Sets Contra']} | Saldo={d['Saldo Sets']}")
+            return "Ranking da equipe", linhas
+
         linhas = _linhas_titulo("Ranking das equipes", competicao_nome)
         for pos, (nome, d) in enumerate(_agregar_equipes(competicao_nome, partidas_finalizadas), start=1):
             linhas.append(f"{pos}. {nome} | J={d['Partidas']} | V={d['Vitórias']} | D={d['Derrotas']} | Sets={d['Sets Pró']}x{d['Sets Contra']} | Saldo={d['Saldo Sets']}")
@@ -564,10 +576,13 @@ def _pdf_response(titulo, linhas, competicao_nome=None):
         from reportlab.lib.units import mm
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether
     except Exception:
         flash("Para gerar PDF, adicione reportlab no requirements.txt e faça deploy novamente.", "erro")
         return None
+
+    import os
+    import re
 
     def _registrar_fonte_moderna():
         fontes = [
@@ -598,95 +613,276 @@ def _pdf_response(titulo, linhas, competicao_nome=None):
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=16 * mm,
-        bottomMargin=14 * mm,
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
         title=f"{titulo} - {competicao_nome}",
     )
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(
-        name="TituloModerno",
-        parent=styles["Title"],
-        fontName=fonte_bold,
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor("#111827"),
-        spaceAfter=4,
-    ))
-    styles.add(ParagraphStyle(
-        name="CompeticaoModerna",
-        parent=styles["Normal"],
-        fontName=fonte_bold,
-        fontSize=11,
-        leading=14,
-        textColor=colors.HexColor("#2563eb"),
-        spaceAfter=8,
-    ))
-    styles.add(ParagraphStyle(
-        name="MetaModerna",
-        parent=styles["Normal"],
-        fontName=fonte,
-        fontSize=8.5,
-        leading=11,
-        textColor=colors.HexColor("#6b7280"),
-        spaceAfter=12,
-    ))
-    styles.add(ParagraphStyle(
-        name="LinhaRelatorio",
-        parent=styles["Normal"],
-        fontName=fonte,
-        fontSize=9.2,
-        leading=12.5,
-        textColor=colors.HexColor("#111827"),
-    ))
-    styles.add(ParagraphStyle(
-        name="LinhaTituloSecao",
-        parent=styles["Normal"],
-        fontName=fonte_bold,
-        fontSize=10.5,
-        leading=14,
-        textColor=colors.HexColor("#111827"),
-        spaceBefore=8,
-        spaceAfter=3,
-    ))
+    styles.add(ParagraphStyle(name="VTPTitle", parent=styles["Title"], fontName=fonte_bold, fontSize=18, leading=21, textColor=colors.white, alignment=0, spaceAfter=0))
+    styles.add(ParagraphStyle(name="VTPBrand", parent=styles["Normal"], fontName=fonte_bold, fontSize=10, leading=12, textColor=colors.HexColor("#f8fafc"), spaceAfter=2))
+    styles.add(ParagraphStyle(name="VTPMeta", parent=styles["Normal"], fontName=fonte, fontSize=8.5, leading=11, textColor=colors.HexColor("#64748b")))
+    styles.add(ParagraphStyle(name="Secao", parent=styles["Normal"], fontName=fonte_bold, fontSize=10.5, leading=13, textColor=colors.HexColor("#123852"), spaceBefore=8, spaceAfter=5))
+    styles.add(ParagraphStyle(name="Texto", parent=styles["Normal"], fontName=fonte, fontSize=8.4, leading=11, textColor=colors.HexColor("#0f172a")))
+    styles.add(ParagraphStyle(name="TextoBold", parent=styles["Normal"], fontName=fonte_bold, fontSize=8.4, leading=11, textColor=colors.HexColor("#0f172a")))
+    styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontName=fonte, fontSize=7.2, leading=9, textColor=colors.HexColor("#475569")))
 
-    story = []
-    story.append(Table(
-        [[Paragraph(str(titulo), styles["TituloModerno"])]],
-        colWidths=[180 * mm],
+    def esc(texto):
+        return str(texto or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def ptxt(texto, estilo="Texto"):
+        return Paragraph(esc(texto), styles[estilo])
+
+    def caminho_static(url_ou_path):
+        valor = (url_ou_path or "").strip()
+        if not valor:
+            return None
+        if valor.startswith("http://") or valor.startswith("https://"):
+            return None
+        if valor.startswith("/static/"):
+            rel = valor.replace("/static/", "", 1)
+            caminho = os.path.join(current_app.static_folder, rel)
+        elif valor.startswith("static/"):
+            caminho = os.path.join(current_app.root_path, valor)
+        elif valor.startswith("/"):
+            caminho = valor
+        else:
+            caminho = os.path.join(current_app.static_folder, valor)
+        return caminho if caminho and os.path.exists(caminho) else None
+
+    def img_safe(caminho, w, h):
+        try:
+            if caminho and os.path.exists(caminho):
+                im = Image(caminho, width=w, height=h)
+                im.hAlign = "CENTER"
+                return im
+        except Exception:
+            return None
+        return None
+
+    logo_path = caminho_static("/static/img/logo.png")
+    logo = img_safe(logo_path, 17 * mm, 17 * mm)
+    if logo is None:
+        logo = ptxt("VT", "TextoBold")
+
+    header = Table(
+        [[logo, Paragraph('Volley<font color="#d4a62a">Table</font> Pro', styles["VTPTitle"]), Paragraph(esc(titulo), styles["VTPBrand"])]],
+        colWidths=[21 * mm, 70 * mm, 85 * mm],
         style=TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f3f6fb")),
-            ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#dbeafe")),
-            ("LEFTPADDING", (0, 0), (-1, -1), 10),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0b3557")),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#0b3557")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
             ("TOPPADDING", (0, 0), (-1, -1), 9),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
         ])
-    ))
-    story.append(Spacer(1, 7))
-    story.append(Paragraph(f"Competição: {competicao_nome}", styles["CompeticaoModerna"]))
-    story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["MetaModerna"]))
+    )
 
-    # Evita repetir no corpo linhas de cabeçalho antigas, porque o PDF moderno já tem título e competição no topo.
-    pular_primeiras = {str(titulo).strip().upper(), f"COMPETIÇÃO: {competicao_nome}".upper()}
-    for linha in linhas:
-        texto = str(linha or "").strip()
-        if not texto:
-            story.append(Spacer(1, 5))
-            continue
-        if texto.upper() in pular_primeiras or texto.lower().startswith("gerado em:"):
-            continue
-        estilo = styles["LinhaTituloSecao"] if texto.isupper() and len(texto) <= 55 else styles["LinhaRelatorio"]
-        story.append(Paragraph(texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"), estilo))
+    story = [header, Spacer(1, 7)]
+    story.append(Paragraph(f"Competição: <b>{esc(competicao_nome)}</b>", styles["VTPMeta"]))
+    story.append(Paragraph(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["VTPMeta"]))
+    story.append(Spacer(1, 7))
+
+    def tabela(data, col_widths=None, repetir=True):
+        if not data:
+            return None
+        data_p = [[ptxt(c, "TextoBold" if r == 0 else "Texto") for c in row] for r, row in enumerate(data)]
+        t = Table(data_p, colWidths=col_widths, repeatRows=1 if repetir and len(data) > 1 else 0, hAlign="LEFT")
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#123852")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), fonte_bold),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#ffffff")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#dbe5ef")),
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cbd5e1")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        return t
+
+    def metric_cards(rows):
+        table_data = []
+        linha = []
+        for label, value in rows:
+            linha.append(Table([[ptxt(label, "Small")], [ptxt(value, "TextoBold")]], colWidths=[41 * mm], style=TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#dbe5ef")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ])))
+            if len(linha) == 4:
+                table_data.append(linha); linha = []
+        if linha:
+            while len(linha) < 4:
+                linha.append("")
+            table_data.append(linha)
+        if table_data:
+            story.append(Table(table_data, colWidths=[44 * mm] * 4, style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")])) )
+            story.append(Spacer(1, 7))
+
+    def equipe_por_nome(nome):
+        alvo = _txt(nome, "").lower()
+        for e in _listar_equipes_inscritas(competicao_nome):
+            if _txt(e.get("nome"), "").lower() == alvo:
+                return e
+        return None
+
+    def bloco_equipe(nome):
+        equipe = equipe_por_nome(nome)
+        escudo_path = caminho_static((equipe or {}).get("escudo") or "")
+        escudo = img_safe(escudo_path, 20 * mm, 20 * mm)
+        if not escudo:
+            escudo = ptxt("", "Texto")
+        dados = [[escudo, Paragraph(f"<b>{esc(nome)}</b><br/><font size='8'>Equipe da competição</font>", styles["Texto"] )]]
+        story.append(Table(dados, colWidths=[25 * mm, 151 * mm], style=TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#eef6ff")),
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#bfdbfe")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ])))
+        story.append(Spacer(1, 7))
+        return equipe or {}
+
+    def extrair_valor(linha, chave):
+        m = re.search(rf"{re.escape(chave)}[:=]\s*([^|]+)", linha, flags=re.I)
+        return m.group(1).strip() if m else "-"
+
+    linhas_limpas = [str(l or "").strip() for l in linhas]
+    linhas_corpo = [l for l in linhas_limpas if l and l.upper() != str(titulo).upper() and not l.lower().startswith("competição:") and not l.lower().startswith("gerado em:") and not set(l) <= {"="}]
+
+    if "ficha" in titulo.lower():
+        nome_equipe = None
+        for l in linhas_corpo:
+            if l.startswith("Equipe:"):
+                nome_equipe = l.split(":", 1)[1].strip(); break
+            if " - " in l and l.upper().startswith("FICHA"):
+                nome_equipe = l.split(" - ", 1)[1].strip(); break
+        if nome_equipe:
+            equipe = bloco_equipe(nome_equipe)
+            rows = [
+                ("Responsável/Técnico", _primeiro_valor(equipe, "responsavel", "tecnico", "treinador", "nome_responsavel")),
+                ("Telefone", _primeiro_valor(equipe, "telefone", "celular", "whatsapp", "contato")),
+                ("E-mail", _primeiro_valor(equipe, "email", "e_mail", "login")),
+                ("Cidade", _primeiro_valor(equipe, "cidade", "municipio")),
+                ("Status", _primeiro_valor(equipe, "status", "status_vinculo", "status_inscricao", "situacao")),
+                ("Atletas inscritos", str(len(_listar_atletas_inscritos(competicao_nome, nome_equipe)))),
+            ]
+            metric_cards(rows)
+            atletas = _listar_atletas_inscritos(competicao_nome, nome_equipe)
+            story.append(Paragraph("ATLETAS INSCRITOS", styles["Secao"]))
+            dados = [["Ordem", "Nº camisa", "Nome completo", "CPF", "Data nascimento"]]
+            for pos, atleta in enumerate(atletas, start=1):
+                dados.append([
+                    str(pos),
+                    _primeiro_valor(atleta, "numero", "camisa", "n", padrao="-"),
+                    _primeiro_valor(atleta, "nome", "nome_atleta", "atleta", "jogador", padrao="Sem identificação"),
+                    _primeiro_valor(atleta, "cpf", "documento", "rg", padrao="-"),
+                    _primeiro_valor(atleta, "data_nascimento", "nascimento", "dt_nascimento", padrao="-"),
+                ])
+            if len(dados) == 1:
+                story.append(Paragraph("Nenhum atleta cadastrado/encontrado para esta equipe.", styles["Texto"]))
+            else:
+                story.append(tabela(dados, [15 * mm, 22 * mm, 74 * mm, 35 * mm, 30 * mm]))
+            story.append(Spacer(1, 18))
+            story.append(Paragraph("Assinatura do responsável: ______________________________________________", styles["TextoBold"]))
+        else:
+            story.append(Paragraph("Selecione uma equipe para gerar a ficha de inscrição.", styles["Texto"]))
+
+    elif "ranking das equipes" in titulo.lower() or "ranking da equipe" in titulo.lower():
+        dados = [["Pos.", "Equipe", "Jogos", "Vitórias", "Derrotas", "Sets", "Saldo"]]
+        for l in linhas_corpo:
+            m = re.match(r"(\d+)\.\s*(.*?)\s*\|", l)
+            if not m: continue
+            dados.append([m.group(1), m.group(2), extrair_valor(l, "J"), extrair_valor(l, "V"), extrair_valor(l, "D"), extrair_valor(l, "Sets"), extrair_valor(l, "Saldo")])
+        story.append(tabela(dados, [13*mm, 57*mm, 19*mm, 20*mm, 20*mm, 28*mm, 19*mm]) or Paragraph("Nenhum dado encontrado.", styles["Texto"]))
+
+    elif "ranking" in titulo.lower() or "pontuador" in titulo.lower() or "sacador" in titulo.lower() or "bloqueador" in titulo.lower() or "atacante" in titulo.lower():
+        dados = [["Pos.", "Nº", "Atleta", "Equipe", "Pontos", "Ataques", "Bloqueios", "Aces", "Jogos"]]
+        for l in linhas_corpo:
+            m = re.match(r"(\d+)\.\s*(#([^\s]+)\s*)?(.+?)(?:\s*\((.*?)\))?\s*\|", l)
+            if not m: continue
+            atleta = (m.group(4) or "").strip()
+            equipe = (m.group(5) or "-").strip()
+            dados.append([m.group(1), m.group(3) or "-", atleta, equipe, extrair_valor(l, "Pontos"), extrair_valor(l, "Ataques"), extrair_valor(l, "Bloqueios"), extrair_valor(l, "Aces"), extrair_valor(l, "Jogos")])
+        story.append(tabela(dados, [12*mm, 13*mm, 47*mm, 35*mm, 17*mm, 17*mm, 18*mm, 14*mm, 13*mm]) or Paragraph("Nenhum dado encontrado.", styles["Texto"]))
+
+    elif "histórico de jogos" in titulo.lower():
+        dados = [["Jogo", "Partida", "Parciais/Sets", "Vencedor"]]
+        for l in linhas_corpo:
+            m = re.match(r"(\d+)\.\s*(.*?)\s*\|", l)
+            if not m: continue
+            dados.append([m.group(1), m.group(2), extrair_valor(l, "Sets"), extrair_valor(l, "Vencedor")])
+        story.append(tabela(dados, [14*mm, 88*mm, 44*mm, 30*mm]) or Paragraph("Nenhuma partida finalizada encontrada.", styles["Texto"]))
+
+    elif "estatísticas gerais" in titulo.lower() or "relatório da equipe" in titulo.lower():
+        # Relatório de equipe: destaca o escudo quando o nome estiver no título.
+        m = re.search(r"-\s*(.+)$", " ".join(linhas_limpas[:1]) or titulo)
+        if m:
+            bloco_equipe(m.group(1).strip())
+        dados = [["Indicador", "Valor"]]
+        for l in linhas_corpo:
+            if ":" in l and not l.upper().startswith("ESTAT"):
+                k, v = l.split(":", 1)
+                dados.append([k.strip(), v.strip()])
+        story.append(tabela(dados, [85*mm, 35*mm]) or Paragraph("Nenhum dado encontrado.", styles["Texto"]))
+
+    elif "relatório da partida" in titulo.lower():
+        partida_nome = next((l.split(":", 1)[1].strip() for l in linhas_corpo if l.startswith("Partida:")), "-")
+        story.append(Paragraph(f"<b>Partida:</b> {esc(partida_nome)}", styles["TextoBold"]))
+        meta = [["Fase", "Resultado", "Parciais", "Vencedor"]]
+        meta.append([next((l.split(":",1)[1].strip() for l in linhas_corpo if l.startswith("Fase:")), "-"), next((l.split(":",1)[1].strip() for l in linhas_corpo if l.startswith("Resultado:")), "-"), next((l.split(":",1)[1].strip() for l in linhas_corpo if l.startswith("Parciais:")), "-"), next((l.split(":",1)[1].strip() for l in linhas_corpo if l.startswith("Vencedor:")), "-")])
+        story.append(Spacer(1, 5)); story.append(tabela(meta, [35*mm, 35*mm, 70*mm, 36*mm])); story.append(Spacer(1, 7))
+        atual = None; dados = []
+        for l in linhas_corpo:
+            if l.startswith("ESTATÍSTICAS -"):
+                if atual and dados:
+                    story.append(Paragraph(atual, styles["Secao"])); story.append(tabela(dados, [70*mm, 30*mm])); story.append(Spacer(1, 6))
+                atual = l; dados = [["Fundamento", "Total"]]
+            elif atual and ":" in l:
+                k, v = l.split(":", 1); dados.append([k.strip(), v.strip()])
+        if atual and dados:
+            story.append(Paragraph(atual, styles["Secao"])); story.append(tabela(dados, [70*mm, 30*mm]))
+
+    elif "estatísticas dos atletas" in titulo.lower():
+        atual = None; dados = []
+        for l in linhas_corpo:
+            if l.startswith("ATLETAS -"):
+                if atual and dados:
+                    story.append(Paragraph(atual, styles["Secao"])); story.append(tabela(dados, [14*mm, 62*mm, 22*mm, 22*mm, 25*mm, 20*mm])); story.append(Spacer(1, 6))
+                atual = l; dados = [["Nº", "Atleta", "Pontos", "Ataques", "Bloqueios", "Aces"]]
+            elif atual and ":" in l:
+                nome, resto = l.split(":", 1)
+                num = "-"
+                m = re.match(r"#([^\s]+)\s+(.+)", nome.strip())
+                if m:
+                    num, nome = m.group(1), m.group(2)
+                dados.append([num, nome.strip(), extrair_valor(resto, "Pontos"), extrair_valor(resto, "Ataques"), extrair_valor(resto, "Bloqueios"), extrair_valor(resto, "Aces")])
+        if atual and dados:
+            story.append(Paragraph(atual, styles["Secao"])); story.append(tabela(dados, [14*mm, 62*mm, 22*mm, 22*mm, 25*mm, 20*mm]))
+
+    else:
+        for linha in linhas_corpo:
+            story.append(Paragraph(esc(linha), styles["Texto"]))
 
     def _rodape(canvas_obj, doc_obj):
         canvas_obj.saveState()
-        canvas_obj.setFont(fonte, 8)
-        canvas_obj.setFillColor(colors.HexColor("#6b7280"))
-        canvas_obj.drawString(15 * mm, 9 * mm, f"{competicao_nome} - {titulo}")
-        canvas_obj.drawRightString(195 * mm, 9 * mm, f"Página {doc_obj.page}")
+        canvas_obj.setFont(fonte, 7.5)
+        canvas_obj.setFillColor(colors.HexColor("#64748b"))
+        canvas_obj.drawString(12 * mm, 8 * mm, f"VolleyTable Pro • {competicao_nome}")
+        canvas_obj.drawRightString(198 * mm, 8 * mm, f"Página {doc_obj.page}")
         canvas_obj.restoreState()
 
     doc.build(story, onFirstPage=_rodape, onLaterPages=_rodape)
@@ -712,13 +908,7 @@ def relatorios_home():
 
     equipes = []
     if perfil == "organizador":
-        nomes = set()
-        for p in partidas:
-            if p.get("equipe_a"):
-                nomes.add(p.get("equipe_a"))
-            if p.get("equipe_b"):
-                nomes.add(p.get("equipe_b"))
-        equipes = sorted(nomes)
+        equipes = _listar_equipes_inscritas(competicao_nome)
 
     return render_template(
         "relatorios.html",

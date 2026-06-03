@@ -3,8 +3,220 @@
 {% block conteudo %}
 
 <style>
-.escudo-lista-equipe { width:42px; height:42px; border-radius:12px; object-fit:contain; background:#f8fbff; border:1px solid #d6e2f0; padding:4px; flex:0 0 auto; }
-.equipe-nome-com-escudo { display:flex; align-items:center; gap:10px; }
+.equipes-resumo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.equipes-lista {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+}
+
+.equipe-card-novo {
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    border: 1px solid #dbe6f0;
+    border-radius: 18px;
+    box-shadow: 0 12px 28px rgba(17, 41, 65, 0.07);
+    overflow: hidden;
+}
+
+.equipe-card-corpo {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 18px;
+    padding: 18px;
+    align-items: start;
+}
+
+.equipe-escudo-box {
+    width: 150px;
+    min-height: 150px;
+    border-radius: 18px;
+    border: 1px solid #d7e3ef;
+    background: #f8fbff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.equipe-escudo-grande {
+    width: 100%;
+    height: 120px;
+    object-fit: contain;
+    display: block;
+}
+
+.equipe-topo-novo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e4edf5;
+    margin-bottom: 12px;
+}
+
+.equipe-titulo-wrap {
+    min-width: 0;
+}
+
+.equipe-nome-novo {
+    font-size: 24px;
+    font-weight: 900;
+    color: #102f49;
+    line-height: 1.1;
+    word-break: break-word;
+}
+
+.equipe-login-pequeno {
+    margin-top: 4px;
+    color: #6b7c8c;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.equipe-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    padding: 5px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.equipe-status-ok {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.equipe-status-pendente {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.equipe-dados-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.equipe-dado {
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid #e5edf5;
+    border-radius: 14px;
+    background: #ffffff;
+}
+
+.equipe-dado-label {
+    color: #50677a;
+    font-size: 12px;
+    font-weight: 900;
+    margin-bottom: 4px;
+}
+
+.equipe-dado-valor {
+    color: #102f49;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.25;
+    word-break: break-word;
+}
+
+.equipe-card-acoes {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    border-top: 1px solid #e4edf5;
+    background: #f8fbff;
+}
+
+.equipe-card-acoes .btn-secundario,
+.equipe-card-acoes .btn-danger-outline {
+    min-width: 130px;
+}
+
+.btn-danger-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 16px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: 0.18s ease;
+    background: white;
+    color: #b42318;
+    border: 1px solid #f0b8b8;
+    font-family: inherit;
+}
+
+.btn-danger-outline:hover {
+    background: #fff5f5;
+}
+
+@media (max-width: 900px) {
+    .equipe-card-corpo {
+        grid-template-columns: 120px minmax(0, 1fr);
+    }
+
+    .equipe-escudo-box {
+        width: 120px;
+        min-height: 120px;
+        padding: 12px;
+    }
+
+    .equipe-escudo-grande {
+        height: 96px;
+    }
+
+    .equipe-dados-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    .equipe-card-corpo {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .equipe-escudo-box {
+        width: 100%;
+        min-height: 120px;
+    }
+
+    .equipe-escudo-grande {
+        height: 105px;
+    }
+
+    .equipe-topo-novo {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .equipe-dados-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .equipe-card-acoes .btn-secundario,
+    .equipe-card-acoes .btn-danger-outline,
+    .equipe-card-acoes form {
+        width: 100%;
+    }
+}
 </style>
 
 <div class="topo-secao">
@@ -12,9 +224,12 @@
     <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Nova equipe</a>
 </div>
 
-<div class="card-painel">
-    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ competicao.nome }}</div>
-    <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
+<div class="card-painel equipes-resumo">
+    <div>
+        <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ competicao.nome }}</div>
+        <div><strong>Status:</strong> {{ competicao.status or "-" }}</div>
+    </div>
+    <div class="tag tag-info">{{ equipes|length }} equipe{% if equipes|length != 1 %}s{% endif %}</div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -77,46 +292,63 @@
 </div>
 {% endif %}
 
-<div class="cards-competicoes">
+<div class="equipes-lista">
     {% for equipe in equipes %}
-    <div class="competicao-card">
-        <div class="competicao-nome equipe-nome-com-escudo">
-            <img class="escudo-lista-equipe" src="{{ equipe.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ equipe.nome }}">
-            <span>{{ equipe.nome }}</span>
+    <div class="equipe-card-novo">
+        <div class="equipe-card-corpo">
+            <div class="equipe-escudo-box">
+                <img class="equipe-escudo-grande" src="{{ equipe.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ equipe.nome }}">
+            </div>
+
+            <div>
+                <div class="equipe-topo-novo">
+                    <div class="equipe-titulo-wrap">
+                        <div class="equipe-nome-novo">{{ equipe.nome }}</div>
+                        <div class="equipe-login-pequeno">Login: {{ equipe.login }}</div>
+                    </div>
+
+                    {% if equipe.perfil_completo %}
+                        <span class="equipe-status-pill equipe-status-ok">Completo</span>
+                    {% else %}
+                        <span class="equipe-status-pill equipe-status-pendente">Incompleto</span>
+                    {% endif %}
+                </div>
+
+                <div class="equipe-dados-grid">
+                    <div class="equipe-dado">
+                        <div class="equipe-dado-label">Senha atual</div>
+                        <div class="equipe-dado-valor">{{ equipe.senha }}</div>
+                    </div>
+
+                    <div class="equipe-dado">
+                        <div class="equipe-dado-label">Responsável</div>
+                        <div class="equipe-dado-valor">{{ equipe.responsavel or "Não informado" }}</div>
+                    </div>
+
+                    <div class="equipe-dado">
+                        <div class="equipe-dado-label">Telefone</div>
+                        <div class="equipe-dado-valor">{{ equipe.telefone or "Não informado" }}</div>
+                    </div>
+
+                    <div class="equipe-dado">
+                        <div class="equipe-dado-label">Cidade</div>
+                        <div class="equipe-dado-valor">{{ equipe.cidade or "Não informada" }}</div>
+                    </div>
+
+                    <div class="equipe-dado">
+                        <div class="equipe-dado-label">E-mail</div>
+                        <div class="equipe-dado-valor">{{ equipe.email or "Não informado" }}</div>
+                    </div>
+
+                    <div class="equipe-dado">
+                        <div class="equipe-dado-label">Instagram</div>
+                        <div class="equipe-dado-valor">{{ equipe.instagram or "-" }}</div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="competicao-info"><strong>Login:</strong> {{ equipe.login }}</div>
-        <div class="competicao-info"><strong>Senha atual:</strong> {{ equipe.senha }}</div>
-        <div class="competicao-info"><strong>Competição:</strong> {{ equipe.competicao }}</div>
 
-        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
-
-        <div class="competicao-info"><strong>Cidade:</strong> {{ equipe.cidade or "Não informada" }}</div>
-        <div class="competicao-info"><strong>Responsável:</strong> {{ equipe.responsavel or "Não informado" }}</div>
-        <div class="competicao-info"><strong>Telefone:</strong> {{ equipe.telefone or "Não informado" }}</div>
-        <div class="competicao-info"><strong>E-mail:</strong> {{ equipe.email or "Não informado" }}</div>
-        <div class="competicao-info"><strong>Instagram:</strong> {{ equipe.instagram or "-" }}</div>
-
-        <div class="competicao-info" style="margin-top: 8px;">
-            <strong>Perfil:</strong>
-            {% if equipe.perfil_completo %}
-                <span style="display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; background:#dcfce7; color:#166534; font-size:12px; font-weight:900;">
-                    Completo
-                </span>
-            {% else %}
-                <span style="display:inline-flex; align-items:center; padding:3px 9px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:12px; font-weight:900;">
-                    Incompleto
-                </span>
-            {% endif %}
-        </div>
-
-        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
-
-        <div class="competicao-info"><strong>Treinador:</strong> {{ equipe.treinador or "-" }}</div>
-        <div class="competicao-info"><strong>Auxiliar técnico:</strong> {{ equipe.auxiliar_tecnico or "-" }}</div>
-        <div class="competicao-info"><strong>Preparador físico:</strong> {{ equipe.preparador_fisico or "-" }}</div>
-        <div class="competicao-info"><strong>Médico:</strong> {{ equipe.medico or "-" }}</div>
-
-        <div style="margin-top: 16px; display:flex; gap:10px; flex-wrap:wrap;">
+        <div class="equipe-card-acoes">
             <a href="{{ url_for('equipes.gerenciar_equipe_view', nome=equipe.nome) }}" class="btn-secundario">
                 Gerenciar
             </a>
@@ -126,7 +358,7 @@
             </form>
 
             <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja excluir esta equipe?');">
-                <button type="submit" class="btn-secundario">Excluir</button>
+                <button type="submit" class="btn-danger-outline">Excluir</button>
             </form>
         </div>
     </div>

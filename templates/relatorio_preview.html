@@ -3,98 +3,17 @@
 {% block titulo %}{{ titulo }}{% endblock %}
 
 {% block conteudo %}
-<style>
-    .preview-relatorio-wrap {
-        display: grid;
-        gap: 16px;
-    }
-    .preview-header-vtp {
-        background: linear-gradient(135deg, #07111f, #123c7c);
-        color: #fff;
-        border-radius: 24px;
-        padding: 22px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        box-shadow: 0 18px 35px rgba(15, 23, 42, .18);
-    }
-    .preview-brand {
-        font-size: 13px;
-        font-weight: 900;
-        letter-spacing: .14em;
-        text-transform: uppercase;
-        opacity: .82;
-    }
-    .preview-title {
-        font-size: clamp(24px, 3vw, 36px);
-        font-weight: 950;
-        line-height: 1.05;
-        margin-top: 6px;
-    }
-    .preview-actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
-    .preview-card-linhas {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 24px;
-        padding: 18px;
-        box-shadow: 0 14px 30px rgba(15, 23, 42, .08);
-    }
-    .linha-relatorio-preview {
-        padding: 10px 12px;
-        border-bottom: 1px solid #eef2f7;
-        line-height: 1.45;
-        font-size: 14px;
-        color: #0f172a;
-        white-space: pre-wrap;
-    }
-    .linha-relatorio-preview:last-child { border-bottom: 0; }
-    .linha-relatorio-preview.secao {
-        margin-top: 10px;
-        border-radius: 14px;
-        background: #f1f5f9;
-        font-weight: 950;
-        text-transform: uppercase;
-        color: #123c7c;
-        border-bottom: 0;
-    }
-    .linha-relatorio-preview.vazia {
-        height: 8px;
-        padding: 0;
-        border-bottom: 0;
-    }
-    @media (max-width: 720px) {
-        .preview-header-vtp { align-items: flex-start; flex-direction: column; }
-        .preview-actions { justify-content: flex-start; }
-    }
-</style>
-
 <div class="topo-secao">
     <div class="titulo-secao">{{ titulo }}</div>
 </div>
 
-<div class="preview-relatorio-wrap">
-    <div class="preview-header-vtp">
-        <div>
-            <div class="preview-brand">VolleyTablePro</div>
-            <div class="preview-title">{{ titulo }}</div>
-        </div>
-        <div class="preview-actions">
-            <a class="btn-secundario" href="{{ url_for('relatorios.relatorios_home') }}">Voltar</a>
-            <a class="btn-padrao" href="{{ url_for('relatorios.relatorios_pdf', tipo=tipo, equipe=equipe_filtro, partida_id=partida_id) }}">Gerar PDF moderno</a>
-        </div>
+<div class="card-painel">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+        <a class="btn-secundario" href="{{ url_for('relatorios.relatorios_home') }}">Voltar</a>
+        <a class="btn-padrao" href="{{ url_for('relatorios.relatorios_pdf', tipo=tipo, equipe=equipe_filtro, partida_id=partida_id) }}">Gerar PDF</a>
     </div>
 
-    <div class="preview-card-linhas">
-        {% for linha in linhas %}
-            {% set texto = linha|string %}
-            <div class="linha-relatorio-preview {{ 'vazia' if not texto.strip() else 'secao' if texto.strip().isupper() and texto.strip()|length <= 60 else '' }}">{{ linha }}</div>
-        {% endfor %}
-    </div>
+    <pre style="white-space: pre-wrap; background:#f8fafc; border:1px solid #e5e7eb; border-radius:16px; padding:18px; line-height:1.55; font-size:14px; overflow:auto;">{% for linha in linhas %}{{ linha }}
+{% endfor %}</pre>
 </div>
 {% endblock %}

@@ -3,6 +3,170 @@
 {% block titulo %}Relatórios{% endblock %}
 
 {% block conteudo %}
+<style>
+    .relatorios-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+    }
+    .rel-card {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 150px;
+        position: relative;
+        overflow: hidden;
+    }
+    .rel-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 5px;
+        background: linear-gradient(180deg, var(--primary), var(--accent));
+        opacity: .9;
+    }
+    .rel-card-title {
+        font-size: 18px;
+        font-weight: 950;
+        margin-bottom: 8px;
+        color: var(--primary);
+    }
+    .rel-card-desc {
+        color: var(--muted);
+        line-height: 1.42;
+        font-size: 14px;
+    }
+    .rel-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .rel-modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(8, 20, 30, .58);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        backdrop-filter: blur(4px);
+    }
+    .rel-modal-overlay.aberto { display: flex; }
+    .rel-modal {
+        width: min(720px, 100%);
+        max-height: min(760px, 90vh);
+        overflow: hidden;
+        border-radius: 26px;
+        background: #fff;
+        box-shadow: 0 28px 70px rgba(0,0,0,.28);
+        border: 1px solid rgba(255,255,255,.5);
+    }
+    .rel-modal-header {
+        padding: 22px;
+        color: #fff;
+        background: linear-gradient(135deg, #07111f, #123c7c);
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+    }
+    .rel-modal-brand {
+        font-size: 12px;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+        font-weight: 950;
+        opacity: .82;
+    }
+    .rel-modal-title {
+        font-size: 24px;
+        font-weight: 950;
+        margin-top: 6px;
+        line-height: 1.08;
+    }
+    .rel-modal-subtitle {
+        margin-top: 8px;
+        opacity: .78;
+        font-size: 14px;
+    }
+    .rel-modal-close {
+        border: 1px solid rgba(255,255,255,.24);
+        background: rgba(255,255,255,.12);
+        color: #fff;
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        cursor: pointer;
+        font-size: 22px;
+        line-height: 1;
+    }
+    .rel-modal-body {
+        padding: 18px;
+        max-height: 56vh;
+        overflow: auto;
+        background: #f7f9fc;
+    }
+    .rel-lista-opcoes {
+        display: grid;
+        gap: 10px;
+    }
+    .rel-opcao {
+        width: 100%;
+        border: 1px solid #dbe5ef;
+        background: #fff;
+        border-radius: 18px;
+        padding: 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-align: left;
+        cursor: pointer;
+        transition: .18s ease;
+        color: var(--text);
+        font-family: inherit;
+    }
+    .rel-opcao:hover {
+        transform: translateY(-1px);
+        border-color: #b8cce0;
+        box-shadow: 0 12px 24px rgba(18, 56, 82, .10);
+    }
+    .rel-escudo {
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        object-fit: contain;
+        background: #eef4fb;
+        border: 1px solid #dbe5ef;
+        padding: 5px;
+        flex: 0 0 auto;
+    }
+    .rel-opcao-titulo {
+        font-size: 15px;
+        font-weight: 950;
+    }
+    .rel-opcao-meta {
+        margin-top: 3px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.35;
+    }
+    .rel-vazio {
+        padding: 22px;
+        border-radius: 18px;
+        background: #fff;
+        border: 1px dashed #cbd5e1;
+        color: var(--muted);
+        text-align: center;
+        font-weight: 700;
+    }
+    @media (max-width: 720px) {
+        .rel-modal-header { padding: 18px; }
+        .rel-modal-title { font-size: 21px; }
+    }
+</style>
+
 <div class="topo-secao">
     <div class="titulo-secao">Relatórios</div>
 </div>
@@ -11,9 +175,9 @@
     <div class="hero-titulo">{{ competicao.nome if competicao else "Relatórios" }}</div>
     <p class="hero-texto">
         {% if perfil == "organizador" %}
-            Relatórios gerais da competição, equipes, partidas e atletas. Você pode visualizar ou gerar PDF.
+            Relatórios gerais da competição, equipes, partidas e atletas. Clique no relatório e selecione equipe ou partida somente quando for necessário.
         {% else %}
-            Relatórios da sua equipe, partidas e atletas. Você pode visualizar ou gerar PDF.
+            Relatórios da sua equipe, partidas e atletas. Clique no relatório e selecione a partida quando for necessário.
         {% endif %}
     </p>
 </div>
@@ -26,49 +190,15 @@
     {% endif %}
 {% endwith %}
 
-<div class="card-painel">
-    <div style="font-size: 20px; font-weight: 900; margin-bottom: 14px;">Filtros</div>
-
-    <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items:end;">
-        {% if perfil == "organizador" %}
-        <div>
-            <label>Equipe</label>
-            <select id="filtroEquipe">
-                <option value="">Todas / selecionar quando precisar</option>
-                {% for nome in equipes %}
-                    <option value="{{ nome }}">{{ nome }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        {% endif %}
-
-        <div>
-            <label>Partida</label>
-            <select id="filtroPartida">
-                <option value="">Selecionar quando precisar</option>
-                {% for p in partidas %}
-                    <option value="{{ p.id }}">
-                        {{ p.equipe_a or 'Equipe A' }} x {{ p.equipe_b or 'Equipe B' }} — {{ p.fase or 'fase' }}
-                    </option>
-                {% endfor %}
-            </select>
-        </div>
-    </div>
-
-    <div style="margin-top: 10px; font-size: 13px; opacity: .78;">
-        Relatório por equipe e ficha de inscrição usam o filtro de equipe. Relatórios de partida usam o filtro de partida.
-    </div>
-</div>
-
-<div class="cards-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+<div class="relatorios-grid">
     {% for rel in relatorios %}
-    <div class="card-painel" style="margin:0; display:flex; flex-direction:column; justify-content:space-between; gap:14px;">
+    <div class="card-painel rel-card">
         <div>
-            <div style="font-size:18px; font-weight:900; margin-bottom:8px;">{{ rel.titulo }}</div>
-            <div style="opacity:.78; line-height:1.35;">{{ rel.descricao }}</div>
+            <div class="rel-card-title">{{ rel.titulo }}</div>
+            <div class="rel-card-desc">{{ rel.descricao }}</div>
         </div>
 
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <div class="rel-actions">
             <a class="btn-padrao rel-link" data-tipo="{{ rel.id }}" data-acao="visualizar" href="{{ url_for('relatorios.relatorios_visualizar', tipo=rel.id) }}">Visualizar</a>
             <a class="btn-secundario rel-link" data-tipo="{{ rel.id }}" data-acao="pdf" href="{{ url_for('relatorios.relatorios_pdf', tipo=rel.id) }}">Gerar PDF</a>
         </div>
@@ -76,38 +206,155 @@
     {% endfor %}
 </div>
 
+<div class="rel-modal-overlay" id="modalSelecaoRelatorio" aria-hidden="true">
+    <div class="rel-modal" role="dialog" aria-modal="true" aria-labelledby="relModalTitulo">
+        <div class="rel-modal-header">
+            <div>
+                <div class="rel-modal-brand">VolleyTablePro</div>
+                <div class="rel-modal-title" id="relModalTitulo">Selecionar</div>
+                <div class="rel-modal-subtitle" id="relModalSubtitulo">Escolha uma opção para continuar.</div>
+            </div>
+            <button type="button" class="rel-modal-close" id="fecharModalRelatorio" aria-label="Fechar">×</button>
+        </div>
+        <div class="rel-modal-body">
+            <div class="rel-lista-opcoes" id="listaOpcoesRelatorio"></div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function(){
-    const equipe = document.getElementById("filtroEquipe");
-    const partida = document.getElementById("filtroPartida");
+    const equipes = [
+        {% for e in equipes %}
+        {
+            nome: {{ (e.nome if e.nome is defined else e['nome'])|tojson }},
+            cidade: {{ (e.cidade if e.cidade is defined else e.get('cidade', ''))|default('', true)|tojson }},
+            responsavel: {{ (e.responsavel if e.responsavel is defined else e.get('responsavel', ''))|default('', true)|tojson }},
+            escudo: {{ (e.escudo if e.escudo is defined else e.get('escudo', ''))|default('/static/img/escudo_padrao.svg', true)|tojson }}
+        }{{ "," if not loop.last }}
+        {% endfor %}
+    ];
 
-    function montarUrl(base, tipo){
+    const partidas = [
+        {% for p in partidas %}
+        {
+            id: {{ p.id|tojson }},
+            equipeA: {{ (p.equipe_a or 'Equipe A')|tojson }},
+            equipeB: {{ (p.equipe_b or 'Equipe B')|tojson }},
+            fase: {{ (p.fase or 'fase')|tojson }},
+            status: {{ (p.status or p.fase_partida or p.status_jogo or '')|tojson }}
+        }{{ "," if not loop.last }}
+        {% endfor %}
+    ];
+
+    const perfil = {{ perfil|tojson }};
+    const tiposComEquipe = perfil === "organizador"
+        ? new Set(["fichas_inscricao", "relatorio_equipe", "ranking_equipes"])
+        : new Set([]);
+    const tiposComPartida = new Set(["relatorio_partida", "historico_partida", "atletas_partida"]);
+
+    const modal = document.getElementById("modalSelecaoRelatorio");
+    const lista = document.getElementById("listaOpcoesRelatorio");
+    const titulo = document.getElementById("relModalTitulo");
+    const subtitulo = document.getElementById("relModalSubtitulo");
+    const fechar = document.getElementById("fecharModalRelatorio");
+    let urlBase = "";
+    let tipoAtual = "";
+
+    function abrirModal() {
+        modal.classList.add("aberto");
+        modal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+    }
+
+    function fecharModal() {
+        modal.classList.remove("aberto");
+        modal.setAttribute("aria-hidden", "true");
+        document.body.style.overflow = "";
+        lista.innerHTML = "";
+    }
+
+    function irComParametro(chave, valor) {
         const params = new URLSearchParams();
-        if (equipe && equipe.value) params.set("equipe", equipe.value);
-        if (partida && partida.value) params.set("partida_id", partida.value);
-        const qs = params.toString();
-        return base + (qs ? "?" + qs : "");
+        params.set(chave, valor);
+        window.location.href = urlBase + "?" + params.toString();
+    }
+
+    function renderEquipes() {
+        titulo.textContent = "Selecionar equipe";
+        subtitulo.textContent = "Escolha uma equipe cadastrada para gerar este relatório.";
+        lista.innerHTML = "";
+
+        if (!equipes.length) {
+            lista.innerHTML = '<div class="rel-vazio">Nenhuma equipe cadastrada encontrada nesta competição.</div>';
+            return;
+        }
+
+        equipes.forEach(function(eq){
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "rel-opcao";
+            btn.innerHTML = `
+                <img class="rel-escudo" src="${eq.escudo || '/static/img/escudo_padrao.svg'}" alt="Escudo ${eq.nome}">
+                <span>
+                    <span class="rel-opcao-titulo">${eq.nome}</span>
+                    <span class="rel-opcao-meta">${[eq.cidade, eq.responsavel ? 'Responsável: ' + eq.responsavel : ''].filter(Boolean).join(' • ') || 'Equipe cadastrada'}</span>
+                </span>
+            `;
+            btn.addEventListener("click", function(){ irComParametro("equipe", eq.nome); });
+            lista.appendChild(btn);
+        });
+    }
+
+    function renderPartidas() {
+        titulo.textContent = "Selecionar partida";
+        subtitulo.textContent = "Escolha uma partida cadastrada para gerar este relatório.";
+        lista.innerHTML = "";
+
+        if (!partidas.length) {
+            lista.innerHTML = '<div class="rel-vazio">Nenhuma partida cadastrada encontrada nesta competição.</div>';
+            return;
+        }
+
+        partidas.forEach(function(p){
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "rel-opcao";
+            btn.innerHTML = `
+                <span style="width:46px;height:46px;border-radius:14px;background:#eef4fb;border:1px solid #dbe5ef;display:flex;align-items:center;justify-content:center;font-weight:950;color:var(--primary);">🏐</span>
+                <span>
+                    <span class="rel-opcao-titulo">${p.equipeA} x ${p.equipeB}</span>
+                    <span class="rel-opcao-meta">${[p.fase, p.status].filter(Boolean).join(' • ') || 'Partida cadastrada'}</span>
+                </span>
+            `;
+            btn.addEventListener("click", function(){ irComParametro("partida_id", p.id); });
+            lista.appendChild(btn);
+        });
     }
 
     document.querySelectorAll(".rel-link").forEach(function(link){
         link.addEventListener("click", function(e){
-            const tipo = link.dataset.tipo || "";
-            const precisaEquipe = ["relatorio_equipe", "fichas_inscricao"].includes(tipo);
-            const precisaPartida = ["relatorio_partida", "historico_partida", "atletas_partida"].includes(tipo);
+            tipoAtual = link.dataset.tipo || "";
+            urlBase = link.getAttribute("href").split("?")[0];
 
-            if (precisaEquipe && equipe && !equipe.value) {
+            if (tiposComEquipe.has(tipoAtual)) {
                 e.preventDefault();
-                alert("Selecione uma equipe no filtro para esse relatório.");
+                renderEquipes();
+                abrirModal();
                 return;
             }
-            if (precisaPartida && partida && !partida.value) {
+
+            if (tiposComPartida.has(tipoAtual)) {
                 e.preventDefault();
-                alert("Selecione uma partida no filtro para esse relatório.");
-                return;
+                renderPartidas();
+                abrirModal();
             }
-            link.href = montarUrl(link.getAttribute("href").split("?")[0], tipo);
         });
     });
+
+    fechar.addEventListener("click", fecharModal);
+    modal.addEventListener("click", function(e){ if (e.target === modal) fecharModal(); });
+    document.addEventListener("keydown", function(e){ if (e.key === "Escape" && modal.classList.contains("aberto")) fecharModal(); });
 })();
 </script>
 {% endblock %}
