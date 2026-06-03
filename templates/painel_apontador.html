@@ -93,6 +93,23 @@
 .ap-pin-local { color:#64748b; font-size:12px; font-weight:800; margin-top:3px; }
 .ap-pin-numero { font-size:28px; letter-spacing:4px; font-weight:1000; color:#123852; background:#f8fafc; border:1px solid #cbd5e1; border-radius:14px; padding:8px 12px; min-width:104px; text-align:center; }
 .ap-pin-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+
+.ap-btn-result { background:#0f766e !important; color:#fff !important; border:0; cursor:pointer; }
+.ap-btn-scout { background:#4338ca !important; color:#fff !important; border:0; text-decoration:none; }
+.ap-modal-resultado { position:fixed; inset:0; z-index:100000; display:none; align-items:center; justify-content:center; padding:16px; background:rgba(15,23,42,.72); }
+.ap-modal-resultado.aberto { display:flex; }
+.ap-modal-resultado-card { width:min(620px,96vw); max-height:92vh; overflow:auto; background:#fff; color:#0f172a; border-radius:22px; border:1px solid var(--border); box-shadow:0 24px 70px rgba(0,0,0,.28); padding:18px; }
+.ap-modal-resultado-topo { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.ap-modal-resultado-topo h3 { margin:0; font-size:22px; font-weight:1000; color:#0f2f4a; }
+.ap-modal-resultado-fechar { width:38px; height:38px; border:0; border-radius:12px; background:#e5e7eb; color:#111827; font-size:24px; font-weight:900; cursor:pointer; }
+.ap-resultado-times { font-weight:1000; color:#123852; margin-bottom:10px; }
+.ap-resultado-hint { color:#64748b; font-weight:750; font-size:13px; line-height:1.45; margin-bottom:14px; }
+.ap-set-row { display:grid; grid-template-columns:92px 1fr 28px 1fr; gap:10px; align-items:center; margin-bottom:10px; }
+.ap-set-row label { font-weight:900; color:#183247; }
+.ap-set-row input { width:100%; border:1px solid #cbd5e1; border-radius:12px; padding:11px 12px; font-weight:900; text-align:center; }
+.ap-modal-resultado-actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:14px; }
+@media (max-width:620px) { .ap-set-row { grid-template-columns:1fr 1fr; } .ap-set-row label { grid-column:1 / -1; } .ap-set-row span { display:none; } }
+
 @media (max-width:850px) { .ap-pins-grid { grid-template-columns:1fr; } .ap-pin-card { flex-direction:column; align-items:flex-start; } .ap-pin-actions { width:100%; justify-content:flex-start; } }
 @media (max-width:850px) { .ap-grid { grid-template-columns:1fr; } .ap-card { flex-direction:column; align-items:flex-start; } .ap-card-actions { width:100%; justify-content:flex-start; } .ap-actions { width:100%; } .ap-actions .btn-padrao { width:100%; justify-content:center; } .ap-hero { padding:22px; } }
 </style>
@@ -100,6 +117,42 @@
 {% set nome_usuario_offline = session.get('nome') or session.get('usuario_nome') or session.get('usuario') or 'Apontador' %}
 {% set usuario_login_offline = session.get('usuario') or '' %}
 {% set offline_habilitado_tpl = offline_habilitado if offline_habilitado is defined else false %}
+
+
+<div id="modal-resultado-manual" class="ap-modal-resultado" aria-hidden="true">
+    <div class="ap-modal-resultado-card">
+        <div class="ap-modal-resultado-topo">
+            <div>
+                <h3 id="resultado-manual-titulo">Lançar resultado</h3>
+                <div id="resultado-manual-times" class="ap-resultado-times"></div>
+            </div>
+            <button type="button" class="ap-modal-resultado-fechar" onclick="fecharResultadoManual()">×</button>
+        </div>
+
+        <div class="ap-resultado-hint">
+            Preencha somente os sets jogados. O scout é opcional e não trava a classificação.
+            Ao salvar, a partida fica finalizada e a tabela passa a usar esse resultado.
+        </div>
+
+        <form id="form-resultado-manual" method="post">
+            <input type="hidden" name="origem_resultado" id="resultado-origem" value="manual">
+            {% set total_sets_modal = sets_max_manual if sets_max_manual is defined else 3 %}
+            {% for i in range(1, (total_sets_modal|int) + 1) %}
+                <div class="ap-set-row">
+                    <label>{{ i }}º set</label>
+                    <input type="number" min="0" inputmode="numeric" name="set{{ i }}_a" id="resultado-set{{ i }}-a" placeholder="Equipe A">
+                    <span style="text-align:center;font-weight:1000;color:#64748b;">x</span>
+                    <input type="number" min="0" inputmode="numeric" name="set{{ i }}_b" id="resultado-set{{ i }}-b" placeholder="Equipe B">
+                </div>
+            {% endfor %}
+
+            <div class="ap-modal-resultado-actions">
+                <button type="button" class="btn-secundario" onclick="fecharResultadoManual()">Cancelar</button>
+                <button type="submit" class="btn-padrao ap-btn-result" onclick="return confirm('Salvar este resultado e recalcular a tabela?');">Salvar resultado</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <div class="ap-hero">
     <div>
@@ -110,6 +163,42 @@
 </div>
 
 
+
+
+<script>
+function fecharResultadoManual() {
+    const modal = document.getElementById("modal-resultado-manual");
+    if (modal) {
+        modal.classList.remove("aberto");
+        modal.setAttribute("aria-hidden", "true");
+    }
+}
+
+function abrirResultadoManual(botao) {
+    const modal = document.getElementById("modal-resultado-manual");
+    const form = document.getElementById("form-resultado-manual");
+    if (!modal || !form || !botao) return;
+
+    form.action = botao.dataset.url || "";
+    document.getElementById("resultado-origem").value = botao.dataset.origem || "manual";
+    document.getElementById("resultado-manual-titulo").textContent = botao.dataset.origem === "edicao_manual" ? "Editar resultado" : "Lançar resultado";
+    document.getElementById("resultado-manual-times").textContent = `${botao.dataset.equipeA || "Equipe A"} x ${botao.dataset.equipeB || "Equipe B"}`;
+
+    for (let i = 1; i <= 5; i++) {
+        const a = document.getElementById(`resultado-set${i}-a`);
+        const b = document.getElementById(`resultado-set${i}-b`);
+        if (a) a.value = botao.dataset[`set${i}A`] || "";
+        if (b) b.value = botao.dataset[`set${i}B`] || "";
+    }
+
+    modal.classList.add("aberto");
+    modal.setAttribute("aria-hidden", "false");
+}
+
+document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") fecharResultadoManual();
+});
+</script>
 
 {% macro quadra_label(numero, nome) %}
     {% set qtxt = (numero or '')|string|trim %}
@@ -174,13 +263,38 @@
         </div>
         <div class="ap-card-actions">
             {% if jogo_finalizado %}
-                <span class="ap-badge ap-done">Encerrado</span>
+                <button type="button"
+                        class="btn-padrao ap-btn-result"
+                        onclick="abrirResultadoManual(this)"
+                        data-url="{{ url_for('apontadores.salvar_resultado_manual_view', competicao=competicao_nome, partida_id=p.id) }}"
+                        data-origem="edicao_manual"
+                        data-equipe-a="{{ p.equipe_a }}"
+                        data-equipe-b="{{ p.equipe_b }}"
+                        data-set1-a="{{ p.set1_a if p.set1_a is not none else '' }}" data-set1-b="{{ p.set1_b if p.set1_b is not none else '' }}"
+                        data-set2-a="{{ p.set2_a if p.set2_a is not none else '' }}" data-set2-b="{{ p.set2_b if p.set2_b is not none else '' }}"
+                        data-set3-a="{{ p.set3_a if p.set3_a is not none else '' }}" data-set3-b="{{ p.set3_b if p.set3_b is not none else '' }}"
+                        data-set4-a="{{ p.set4_a if p.set4_a is not none else '' }}" data-set4-b="{{ p.set4_b if p.set4_b is not none else '' }}"
+                        data-set5-a="{{ p.set5_a if p.set5_a is not none else '' }}" data-set5-b="{{ p.set5_b if p.set5_b is not none else '' }}">
+                    Editar resultado
+                </button>
+                {% if p.permite_scout %}
+                    <a class="btn-padrao ap-btn-scout" href="{{ url_for('apontadores.editar_scout_partida_view', competicao=competicao_nome, partida_id=p.id) }}">Editar scout</a>
+                {% endif %}
             {% elif jogo_pausado %}
                 <a class="btn-padrao" href="{{ url_operacao }}">Retomar partida</a>
             {% elif jogo_iniciado %}
                 <a class="btn-padrao" href="{{ url_operacao }}">Entrar no jogo</a>
             {% else %}
                 <a class="btn-padrao" href="{{ url_operacao }}">{% if p.operador_login == session.get('usuario') %}Continuar{% else %}Abrir pré-jogo{% endif %}</a>
+                <button type="button"
+                        class="btn-padrao ap-btn-result"
+                        onclick="abrirResultadoManual(this)"
+                        data-url="{{ url_for('apontadores.salvar_resultado_manual_view', competicao=competicao_nome, partida_id=p.id) }}"
+                        data-origem="manual"
+                        data-equipe-a="{{ p.equipe_a }}"
+                        data-equipe-b="{{ p.equipe_b }}">
+                    Lançar resultado
+                </button>
             {% endif %}
             {% if offline_habilitado_tpl and not jogo_finalizado %}
                 <button type="button" id="btn-offline-partida-{{ p.id }}" class="btn-padrao ap-btn-offline-card" onclick="baixarPartidaOffline('{{ p.id }}')">⬇️ Offline</button>

@@ -212,17 +212,6 @@
         line-height: 1.45;
     }
 
-    .criterio-item.criterio-ignorado {
-        opacity: 0.48;
-        background: #fff8e7;
-        border-style: dashed;
-    }
-
-    .criterio-item.criterio-ignorado .criterio-desc::after {
-        content: " Critério ignorado porque está abaixo do sorteio.";
-        color: #8a6512;
-        font-weight: 800;
-    }
 
     .helper-text {
         color: #6b7c8c;
@@ -811,7 +800,7 @@
                             'fair_play': 'Menor pontuação disciplinar, quando existir.',
                             'sorteio': 'Último recurso quando o empate permanecer.'
                         } %}
-                        {% set criterios_padrao = ['pontos', 'vitorias', 'saldo_sets', 'sets_average', 'saldo_pontos', 'pontos_average', 'confronto_direto', 'sorteio'] %}
+                        {% set criterios_padrao = ['pontos', 'vitorias', 'saldo_sets', 'sets_average', 'saldo_pontos', 'pontos_average', 'sets_pro', 'sets_contra', 'pontos_pro', 'pontos_contra', 'confronto_direto', 'menor_wo', 'fair_play', 'sorteio'] %}
 
                         <input type="hidden" id="criterios_ordenados" name="criterios_ordenados" value="">
 
@@ -1238,11 +1227,9 @@
             const itens = Array.from(listaCriterios.querySelectorAll('[data-criterio]'));
             const valores = [];
             const nomes = [];
-            const ignorados = [];
-            let sorteioEncontrado = false;
-            let ordemEfetiva = 1;
+            let posicaoSorteio = null;
 
-            itens.forEach((item) => {
+            itens.forEach((item, index) => {
                 const criterio = item.getAttribute('data-criterio');
                 const titulo = item.querySelector('.criterio-titulo');
                 const ordem = item.querySelector('.criterio-ordem');
@@ -1254,36 +1241,25 @@
                     return;
                 }
 
-                if (!sorteioEncontrado) {
-                    valores.push(criterio);
-                    nomes.push(`${ordemEfetiva}º ${nomeTitulo}`);
+                valores.push(criterio);
+                nomes.push(`${index + 1}º ${nomeTitulo}`);
 
-                    if (ordem) {
-                        ordem.textContent = ordemEfetiva;
-                    }
+                if (ordem) {
+                    ordem.textContent = index + 1;
+                }
 
-                    ordemEfetiva += 1;
-
-                    if (criterio === 'sorteio') {
-                        sorteioEncontrado = true;
-                    }
-                } else {
-                    item.classList.add('criterio-ignorado');
-                    ignorados.push(nomeTitulo);
-
-                    if (ordem) {
-                        ordem.textContent = '—';
-                    }
+                if (criterio === 'sorteio') {
+                    posicaoSorteio = index + 1;
                 }
             });
 
             inputCriterios.value = valores.join(',');
 
             if (previewCriterios) {
-                let html = `<strong>Ordem atual:</strong> ${nomes.join(' › ')}`;
+                let html = `<strong>Ordem salva:</strong> ${nomes.join(' › ')}`;
 
-                if (ignorados.length) {
-                    html += `<br><span style="color:#8a6512;font-weight:700;">Ignorados após o sorteio:</span> ${ignorados.join(' › ')}`;
+                if (posicaoSorteio !== null) {
+                    html += `<br><span style="color:#8a6512;font-weight:700;">Observação:</span> se a classificação chegar no Sorteio, ele encerra o desempate naquele ponto. Os critérios abaixo dele continuam salvos e disponíveis para reordenação.`;
                 }
 
                 previewCriterios.innerHTML = html;

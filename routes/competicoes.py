@@ -97,13 +97,14 @@ def _normalizar_criterios_classificacao_form(valor):
     if not criterios:
         criterios = list(CRITERIOS_CLASSIFICACAO_PADRAO)
 
-    # REGRA OFICIAL:
-    # Sorteio é sempre o último critério efetivo.
-    # Se o organizador colocar qualquer critério abaixo dele na tela,
-    # esses critérios são ignorados/removidos no salvamento.
-    if "sorteio" in criterios:
-        indice_sorteio = criterios.index("sorteio")
-        criterios = criterios[:indice_sorteio + 1]
+    # IMPORTANTE:
+    # Não removemos mais os critérios que ficarem abaixo de "sorteio".
+    # A ordem completa precisa ficar salva para a tela continuar mostrando
+    # todos os critérios disponíveis para o organizador arrastar/reordenar.
+    #
+    # O "sorteio" continua encerrando o cálculo efetivo da classificação
+    # dentro do motor da tabela, mas isso NÃO deve apagar nem esconder
+    # os critérios posicionados abaixo dele na configuração.
 
     return ",".join(criterios)
 

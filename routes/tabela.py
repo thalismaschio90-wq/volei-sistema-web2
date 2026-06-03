@@ -67,6 +67,28 @@ def exigir_organizador_da_competicao(func):
     return wrapper
 
 
+
+
+def _remover_flash_permissao_falso():
+    """Remove aviso antigo de permissão quando a tela da tabela foi carregada com acesso válido.
+
+    Esse flash pode ficar pendurado na sessão quando alguma rota anterior gerou
+    o aviso, mas a tela atual foi liberada corretamente pelo organizador.
+    """
+    flashes = session.get("_flashes") or []
+    if not flashes:
+        return
+
+    session["_flashes"] = [
+        item for item in flashes
+        if not (
+            isinstance(item, (list, tuple))
+            and len(item) >= 2
+            and str(item[1]).strip() == "Você não tem permissão para acessar esta área."
+        )
+    ]
+
+
 # =========================================================
 # HELPERS
 # =========================================================
@@ -112,6 +134,70 @@ def _to_int_or_none(valor):
         return None
 
 
+def _normalizar_url_escudo_tabela(valor):
+    valor = str(valor or "").strip()
+
+    if not valor:
+        return "/static/img/escudo_padrao.svg"
+
+    if valor.startswith(("http://", "https://", "/static/", "data:")):
+        return valor
+
+    valor = valor.replace("\\", "/")
+
+    if valor.startswith("static/"):
+        return "/" + valor
+
+    if valor.startswith("uploads/"):
+        return "/static/" + valor
+
+    if "/uploads/" in valor:
+        return "/static/uploads/" + valor.split("/uploads/", 1)[1]
+
+    return "/static/uploads/escudos/" + valor.lstrip("/")
+
+
+def _mapa_escudos_equipes(equipes):
+    mapa = {}
+
+    for equipe in equipes or []:
+        nome = (
+            equipe.get("nome")
+            or equipe.get("equipe")
+            or equipe.get("nome_equipe")
+            or ""
+        ).strip()
+
+        if not nome:
+            continue
+
+        escudo = (
+            equipe.get("escudo")
+            or equipe.get("escudo_url")
+            or equipe.get("logo")
+            or equipe.get("imagem")
+            or ""
+        )
+
+        mapa[nome] = _normalizar_url_escudo_tabela(escudo)
+        mapa[nome.lower()] = mapa[nome]
+        mapa[nome.upper()] = mapa[nome]
+
+    return mapa
+
+
+def _buscar_escudo_mapa(mapa_escudos, nome_equipe):
+    nome = str(nome_equipe or "").strip()
+    if not nome:
+        return _normalizar_url_escudo_tabela("")
+    return (
+        (mapa_escudos or {}).get(nome)
+        or (mapa_escudos or {}).get(nome.lower())
+        or (mapa_escudos or {}).get(nome.upper())
+        or _normalizar_url_escudo_tabela("")
+    )
+
+
 def _quadra_label(item):
     if not item:
         return "Sem quadra"
@@ -145,28 +231,101 @@ def _dados_quadra(nome_competicao, quadra_id):
     return int(quadra["id"]), (quadra.get("nome") or f"Quadra {quadra.get('ordem') or ''}").strip()
 
 
+def _status_texto(valor):
+    return str(valor or "").strip().lower().replace("-", "_")
+
+
+STATUS_FINALIZADO = {
+    "finalizada",
+    "finalizado",
+    "encerrado",
+    "encerrada",
+    "partida_encerrada",
+}
+
+STATUS_AO_VIVO = {
+    "ao_vivo",
+    "ao vivo",
+    "em_andamento",
+    "em andamento",
+    "andamento",
+    "iniciada",
+    "iniciado",
+}
+
+STATUS_PRE_JOGO = {
+    "pre_jogo",
+    "pré_jogo",
+    "pre jogo",
+    "pré jogo",
+}
+
+
+def _partida_tem_flag_finalizada(partida):
+    """Finalizado sempre tem prioridade máxima sobre qualquer status ao vivo.
+
+    Em algumas telas o jogo pode continuar com status/status_jogo antigo como
+    em_andamento, mesmo depois de ter sido encerrado pelo apontador. Por isso
+    verificamos todos os campos possíveis antes de classificar como AO VIVO.
+    """
+    if not partida:
+        return False
+
+    for campo in (
+        "status",
+        "status_jogo",
+        "fase_partida",
+        "situacao",
+        "estado",
+        "estado_jogo",
+    ):
+        if _status_texto(partida.get(campo)) in STATUS_FINALIZADO:
+            return True
+
+    for campo in ("finalizada", "partida_encerrada", "encerrada"):
+        valor = partida.get(campo)
+        if isinstance(valor, bool) and valor:
+            return True
+        if isinstance(valor, (int, float)) and int(valor) == 1:
+            return True
+        if isinstance(valor, str) and valor.strip().lower() in {"1", "true", "sim", "yes", "on"}:
+            return True
+
+    return bool(partida.get("finalizado_em") or partida.get("encerrado_em"))
+
+
 def _status_tabela_para_trava(partida):
+    """Status consolidado da tabela.
+
+    A prioridade correta é:
+    1. finalizada/encerrado;
+    2. ao vivo/em andamento;
+    3. pré-jogo/agendada.
+
+    Isso evita o erro em que uma partida encerrada pelo apontador continuava
+    aparecendo como AO VIVO na tabela ou no visualizador público porque algum
+    campo antigo ainda estava salvo como em_andamento.
     """
-    Usa primeiro o campo status da tabela de partidas.
+    if _partida_tem_flag_finalizada(partida):
+        return "finalizada"
 
-    IMPORTANTE: no banco atual existe status_jogo com DEFAULT 'pre_jogo'.
-    Então uma partida recém-criada pode nascer com status_jogo='pre_jogo' mesmo sem ter sido iniciada.
-    Por isso status_jogo NÃO pode ser usado sozinho para bloquear criação/exclusão na tela da tabela.
-    """
-    status = str(partida.get("status") or "").strip().lower()
+    status = _status_texto(partida.get("status"))
+    fase_partida = _status_texto(partida.get("fase_partida"))
+    status_jogo = _status_texto(partida.get("status_jogo"))
 
-    if status:
-        return status
+    for valor in (status, fase_partida, status_jogo):
+        if valor in STATUS_AO_VIVO:
+            return valor
 
-    fase_partida = str(partida.get("fase_partida") or "").strip().lower()
-    if fase_partida in {"ao_vivo", "em_andamento", "em andamento", "finalizada", "finalizado", "encerrado"}:
-        return fase_partida
+    for valor in (status, fase_partida, status_jogo):
+        if valor in STATUS_PRE_JOGO:
+            return "pre_jogo"
 
-    status_jogo = str(partida.get("status_jogo") or "").strip().lower()
-    if status_jogo in {"ao_vivo", "em_andamento", "em andamento", "finalizada", "finalizado", "encerrado"}:
-        return status_jogo
+    for valor in (status, fase_partida, status_jogo):
+        if valor:
+            return valor
 
-    return status or "agendada"
+    return "agendada"
 
 
 def _partida_conta_como_iniciada_para_trava(partida):
@@ -181,14 +340,10 @@ def _partida_conta_como_iniciada_para_trava(partida):
     """
     status = _status_tabela_para_trava(partida)
 
-    if status in {"finalizada", "finalizado", "encerrado", "ao vivo", "em andamento", "andamento", "em_andamento"}:
+    if status in STATUS_FINALIZADO or status in STATUS_AO_VIVO:
         return True
 
-    fase_partida = str(partida.get("fase_partida") or "").strip().lower()
-    if fase_partida in {"ao_vivo", "ao vivo", "em_andamento", "em andamento", "finalizada", "finalizado", "encerrado"}:
-        return True
-
-    if partida.get("pre_jogo_iniciado_em") or partida.get("jogo_iniciado_em") or partida.get("finalizado_em"):
+    if partida.get("pre_jogo_iniciado_em") or partida.get("jogo_iniciado_em") or partida.get("finalizado_em") or partida.get("encerrado_em"):
         return True
 
     for campo in ("pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b"):
@@ -311,8 +466,6 @@ def _filtrar_partidas_por_fase(partidas, fase_subaba):
 
 
 def _status_normalizado(partida):
-    # Para a tela da tabela, o campo status é o mais confiável.
-    # status_jogo pode nascer como pre_jogo por DEFAULT do banco antigo e não significa partida iniciada.
     return _status_tabela_para_trava(partida)
 
 
@@ -324,22 +477,26 @@ def _status_exibicao(partida):
         "agendada": "AGENDADA",
         "em andamento": "AO VIVO",
         "ao vivo": "AO VIVO",
+        "ao_vivo": "AO VIVO",
         "andamento": "AO VIVO",
         "em_andamento": "AO VIVO",
         "finalizada": "FINALIZADO",
         "finalizado": "FINALIZADO",
         "encerrado": "FINALIZADO",
+        "encerrada": "FINALIZADO",
     }
 
     return mapa.get(status, (status or "AGUARDANDO").replace("_", " ").upper())
 
 
 def _partida_esta_finalizada(partida):
-    return _status_normalizado(partida) in {"finalizada", "finalizado", "encerrado"}
+    return _partida_tem_flag_finalizada(partida) or _status_normalizado(partida) in STATUS_FINALIZADO
 
 
 def _partida_esta_ao_vivo(partida):
-    return _status_normalizado(partida) in {"em andamento", "ao vivo", "andamento", "em_andamento"}
+    if _partida_esta_finalizada(partida):
+        return False
+    return _status_normalizado(partida) in STATUS_AO_VIVO
 
 
 def _montar_parciais(partida):
@@ -358,7 +515,7 @@ def _montar_parciais(partida):
     return " / ".join(parciais) if parciais else "-"
 
 
-def _preparar_partidas(partidas):
+def _preparar_partidas(partidas, mapa_escudos=None):
     partidas_preparadas = []
 
     for p in partidas:
@@ -386,6 +543,11 @@ def _preparar_partidas(partidas):
 
         partida["quadra_label"] = _quadra_label(partida)
         partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
+
+        partida["escudo_a"] = _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_a"))
+        partida["escudo_b"] = _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_b"))
+        partida["equipe_a_escudo"] = partida["escudo_a"]
+        partida["equipe_b_escudo"] = partida["escudo_b"]
 
         partidas_preparadas.append(partida)
 
@@ -459,6 +621,123 @@ CRITERIOS_CLASSIFICACAO_SUPORTADOS = {
 CRITERIOS_MENOR_MELHOR = {"sets_contra", "pontos_contra", "fair_play", "menor_wo"}
 
 
+CRITERIOS_CLASSIFICACAO_COLUNAS = {
+    "pontos": {"campo": "pontos", "titulo": "Pts"},
+    "vitorias": {"campo": "vitorias", "titulo": "V"},
+    "saldo_sets": {"campo": "saldo_sets", "titulo": "Saldo sets"},
+    "sets_average": {"campo": "sets_average_exibicao", "titulo": "Sets avg"},
+    "coef_sets": {"campo": "sets_average_exibicao", "titulo": "Sets avg"},
+    "saldo_pontos": {"campo": "saldo_pontos", "titulo": "Saldo pontos"},
+    "pontos_average": {"campo": "pontos_average_exibicao", "titulo": "Pontos avg"},
+    "coef_pontos": {"campo": "pontos_average_exibicao", "titulo": "Pontos avg"},
+    "sets_pro": {"campo": "sets_pro", "titulo": "Sets pró"},
+    "sets_contra": {"campo": "sets_contra", "titulo": "Sets contra"},
+    "pontos_pro": {"campo": "pontos_pro", "titulo": "Pontos pró"},
+    "pontos_contra": {"campo": "pontos_contra", "titulo": "Pontos contra"},
+    "fair_play": {"campo": "fair_play", "titulo": "Fair play"},
+    "menor_wo": {"campo": "wo", "titulo": "W.O."},
+}
+
+
+def _formatar_numero_decimal(valor):
+    try:
+        valor = float(valor or 0)
+    except (TypeError, ValueError):
+        valor = 0.0
+
+    texto = f"{valor:.3f}".rstrip("0").rstrip(".")
+    return texto or "0"
+
+
+def _calcular_sets_average_valor(sets_pro, sets_contra):
+    """Calcula sets average pelo acumulado da equipe.
+
+    Regra técnica adotada no sistema:
+    - enquanto a equipe não sofreu sets, usa divisor 0.5;
+    - depois que sofreu pelo menos 1 set, usa o valor real acumulado.
+    """
+    try:
+        sets_pro = int(sets_pro or 0)
+    except (TypeError, ValueError):
+        sets_pro = 0
+
+    try:
+        sets_contra = int(sets_contra or 0)
+    except (TypeError, ValueError):
+        sets_contra = 0
+
+    if sets_pro <= 0:
+        return 0.0
+
+    divisor = sets_contra if sets_contra > 0 else 0.5
+    return sets_pro / divisor
+
+
+def _calcular_pontos_average_valor(pontos_pro, pontos_contra):
+    """Calcula pontos average pelo acumulado da equipe.
+
+    Regra técnica adotada no sistema:
+    - enquanto a equipe não sofreu pontos, usa divisor 1;
+    - depois que sofreu pelo menos 1 ponto, usa o valor real acumulado.
+    """
+    try:
+        pontos_pro = int(pontos_pro or 0)
+    except (TypeError, ValueError):
+        pontos_pro = 0
+
+    try:
+        pontos_contra = int(pontos_contra or 0)
+    except (TypeError, ValueError):
+        pontos_contra = 0
+
+    if pontos_pro <= 0:
+        return 0.0
+
+    divisor = pontos_contra if pontos_contra > 0 else 1
+    return pontos_pro / divisor
+
+
+def _formatar_sets_average_exibicao(sets_pro, sets_contra):
+    return _formatar_numero_decimal(_calcular_sets_average_valor(sets_pro, sets_contra))
+
+
+def _formatar_pontos_average_exibicao(pontos_pro, pontos_contra):
+    return _formatar_numero_decimal(_calcular_pontos_average_valor(pontos_pro, pontos_contra))
+
+
+def _criterios_efetivos_ate_sorteio(criterios):
+    criterios = list(criterios or [])
+    if "sorteio" in criterios:
+        return criterios[:criterios.index("sorteio") + 1]
+    return criterios
+
+
+def _colunas_classificacao_por_criterios(criterios):
+    colunas = []
+    vistos = set()
+
+    for criterio in _criterios_efetivos_ate_sorteio(criterios):
+        cfg = CRITERIOS_CLASSIFICACAO_COLUNAS.get(criterio)
+        if not cfg:
+            continue
+
+        campo = cfg["campo"]
+        if campo in vistos:
+            continue
+
+        colunas.append({
+            "criterio": criterio,
+            "campo": campo,
+            "titulo": cfg["titulo"],
+        })
+        vistos.add(campo)
+
+    if not colunas:
+        colunas.append({"criterio": "pontos", "campo": "pontos", "titulo": "Pts"})
+
+    return colunas
+
+
 def _normalizar_criterios_classificacao(valor):
     """
     Lê a ordem salva em competicoes.criterios_desempate.
@@ -510,14 +789,36 @@ def _normalizar_criterios_classificacao(valor):
     if not criterios:
         criterios = list(CRITERIOS_CLASSIFICACAO_PADRAO)
 
-    # Sorteio, quando existir, fica por último para evitar embaralhar antes dos critérios técnicos.
-    # Sorteio encerra a lista de critérios.
-    # Qualquer critério configurado depois dele é desconsiderado.
-    if "sorteio" in criterios:
-        indice_sorteio = criterios.index("sorteio")
-        criterios = criterios[:indice_sorteio + 1]
-
+    # Não corta os critérios abaixo do sorteio.
+    # O sorteio encerra o desempate apenas no momento do cálculo, dentro de
+    # _aplicar_criterios_classificacao. Assim a tela continua podendo salvar
+    # e reordenar todos os critérios escolhidos pelo organizador.
     return criterios
+
+
+def _sets_para_vitoria_classificacao(competicao):
+    """Define quantos sets o vencedor precisa fazer conforme a regra da competição."""
+    texto = " ".join(
+        str(competicao.get(chave) or "")
+        for chave in ("sets_tipo", "tipo_sets", "formato_sets", "melhor_de")
+    ).strip().lower()
+
+    if "5" in texto or "cinco" in texto:
+        return 3
+
+    if "unico" in texto or "único" in texto or "1" in texto:
+        return 1
+
+    return 2
+
+
+def _resultado_foi_tiebreak(sets_vencedor, sets_perdedor, competicao):
+    sets_para_vitoria = _sets_para_vitoria_classificacao(competicao)
+
+    if sets_para_vitoria <= 1:
+        return False
+
+    return int(sets_vencedor or 0) == sets_para_vitoria and int(sets_perdedor or 0) == (sets_para_vitoria - 1)
 
 
 def _obter_regras_classificacao(competicao):
@@ -560,16 +861,16 @@ def _valor_criterio(linha, nome):
         return linha.get("vitorias", 0)
 
     if nome in {"sets_average", "coef_sets"}:
-        sets_contra = linha.get("sets_contra", 0)
-        if sets_contra > 0:
-            return linha.get("sets_pro", 0) / sets_contra
-        return float(linha.get("sets_pro", 0))
+        return linha.get(
+            "sets_average_valor",
+            _calcular_sets_average_valor(linha.get("sets_pro", 0), linha.get("sets_contra", 0))
+        )
 
     if nome in {"pontos_average", "coef_pontos"}:
-        pontos_contra = linha.get("pontos_contra", 0)
-        if pontos_contra > 0:
-            return linha.get("pontos_pro", 0) / pontos_contra
-        return float(linha.get("pontos_pro", 0))
+        return linha.get(
+            "pontos_average_valor",
+            _calcular_pontos_average_valor(linha.get("pontos_pro", 0), linha.get("pontos_contra", 0))
+        )
 
     if nome == "saldo_sets":
         return linha.get("saldo_sets", 0)
@@ -748,7 +1049,7 @@ def _aplicar_desempates_profissional(linhas, partidas, grupo, criterios):
     return _aplicar_criterios_classificacao(linhas, partidas, grupo, criterios)
 
 
-def _calcular_classificacao(partidas, grupos, competicao):
+def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
     regras = _obter_regras_classificacao(competicao)
     classificacao = {}
 
@@ -764,6 +1065,7 @@ def _calcular_classificacao(partidas, grupos, competicao):
         for e in equipes_ordenadas:
             classificacao[nome_grupo].append({
                 "equipe": e["equipe"],
+                "escudo": _buscar_escudo_mapa(mapa_escudos, e.get("equipe")),
                 "jogos": 0,
                 "vitorias": 0,
                 "derrotas": 0,
@@ -840,7 +1142,7 @@ def _calcular_classificacao(partidas, grupos, competicao):
             linha_a["vitorias"] += 1
             linha_b["derrotas"] += 1
 
-            if sets_b >= 1:
+            if _resultado_foi_tiebreak(sets_a, sets_b, competicao):
                 linha_a["pontos"] += regras["pontos_tiebreak_vitoria"]
                 linha_b["pontos"] += regras["pontos_tiebreak_derrota"]
             else:
@@ -850,7 +1152,7 @@ def _calcular_classificacao(partidas, grupos, competicao):
             linha_b["vitorias"] += 1
             linha_a["derrotas"] += 1
 
-            if sets_a >= 1:
+            if _resultado_foi_tiebreak(sets_b, sets_a, competicao):
                 linha_b["pontos"] += regras["pontos_tiebreak_vitoria"]
                 linha_a["pontos"] += regras["pontos_tiebreak_derrota"]
             else:
@@ -861,6 +1163,12 @@ def _calcular_classificacao(partidas, grupos, competicao):
         for linha in linhas:
             linha["saldo_sets"] = linha["sets_pro"] - linha["sets_contra"]
             linha["saldo_pontos"] = linha["pontos_pro"] - linha["pontos_contra"]
+            linha["sets_average_valor"] = _calcular_sets_average_valor(linha["sets_pro"], linha["sets_contra"])
+            linha["pontos_average_valor"] = _calcular_pontos_average_valor(linha["pontos_pro"], linha["pontos_contra"])
+            linha["sets_average_exibicao"] = _formatar_numero_decimal(linha["sets_average_valor"])
+            linha["pontos_average_exibicao"] = _formatar_numero_decimal(linha["pontos_average_valor"])
+            linha.setdefault("fair_play", 0)
+            linha.setdefault("wo", 0)
 
     criterios_ativos = regras.get("criterios") or list(CRITERIOS_CLASSIFICACAO_PADRAO)
 
@@ -882,6 +1190,8 @@ def _calcular_classificacao(partidas, grupos, competicao):
 def visualizador_publico(competicao_nome):
     grupos_raw = listar_grupos(competicao_nome)
     partidas = listar_partidas(competicao_nome)
+    equipes_competicao = listar_equipes_da_competicao(competicao_nome)
+    mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
 
     grupos = []
     for g in grupos_raw:
@@ -897,8 +1207,11 @@ def visualizador_publico(competicao_nome):
         "nome": competicao_nome
     }
 
-    partidas_preparadas = _preparar_partidas(partidas)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao)
+    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
+    regras_classificacao = _obter_regras_classificacao(competicao)
+    criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
+    colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
 
     return render_template(
         "visualizador_publico.html",
@@ -906,6 +1219,8 @@ def visualizador_publico(competicao_nome):
         grupos=grupos,
         classificacao=classificacao,
         partidas=partidas_preparadas,
+        criterios_classificacao=criterios_classificacao,
+        colunas_classificacao=colunas_classificacao,
     )
 
 
@@ -927,6 +1242,8 @@ def tabela_view():
         flash("Nenhuma competição vinculada a este organizador.", "erro")
         return redirect(url_for("painel.inicio"))
 
+    _remover_flash_permissao_falso()
+
     aba = (request.args.get("aba") or "geracao").strip().lower()
     if aba not in {"geracao", "partidas", "classificacao", "visualizador"}:
         aba = "geracao"
@@ -938,6 +1255,7 @@ def tabela_view():
     quadras = garantir_quadras_competicao(competicao["nome"], competicao.get("qtd_quadras") or 1)
     grupos_raw = listar_grupos(competicao["nome"])
     equipes = listar_equipes_da_competicao(competicao["nome"])
+    mapa_escudos = _mapa_escudos_equipes(equipes)
     partidas = listar_partidas(competicao["nome"])
 
     grupos = []
@@ -950,9 +1268,12 @@ def tabela_view():
             "quadra_id": _quadra_id_do_grupo(g),
         })
 
-    partidas_preparadas = _preparar_partidas(partidas)
+    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos)
     partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao)
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
+    regras_classificacao = _obter_regras_classificacao(competicao)
+    criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
+    colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
 
     fases = _fases_disponiveis(competicao)
 
@@ -965,6 +1286,8 @@ def tabela_view():
         partidas=partidas_preparadas,
         partidas_fase=partidas_fase,
         classificacao=classificacao,
+        criterios_classificacao=criterios_classificacao,
+        colunas_classificacao=colunas_classificacao,
         aba_ativa=aba,
         fase_ativa=fase_subaba,
         competicao_travada=competicao_esta_travada(competicao["nome"]),
@@ -1351,8 +1674,9 @@ def gerar_automatico():
         for g in grupos_raw:
             grupos.append({"grupo": g, "equipes": listar_equipes_por_grupo(g["id"])})
 
-        partidas_preparadas = _preparar_partidas(partidas)
-        classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao)
+        mapa_escudos = _mapa_escudos_equipes(listar_equipes_da_competicao(competicao["nome"]))
+        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos)
+        classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
 
         def _vencedor_ou_placeholder(partida, prefixo, indice):
             if partida and _partida_esta_finalizada(partida):

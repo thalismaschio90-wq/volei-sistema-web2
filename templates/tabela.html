@@ -16,25 +16,29 @@
 }
 .tabela-tab {
     padding:10px 16px;
-    border-radius:12px;
+    border-radius:999px;
     border:1px solid var(--border);
     text-decoration:none;
-    font-weight:800;
+    font-weight:900;
     transition:.18s ease;
     background: var(--card-bg, transparent);
+    color: inherit;
 }
-.tabela-tab:hover {
-    transform: translateY(-1px);
-}
+.tabela-tab:hover { transform: translateY(-1px); }
 .tabela-tab.ativa {
-    background: var(--card-bg-hover, rgba(255,255,255,.06));
-    box-shadow: 0 4px 16px rgba(0,0,0,.08);
+    background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(34,197,94,.12));
+    box-shadow: 0 10px 24px rgba(0,0,0,.10);
+    border-color: rgba(37,99,235,.35);
 }
 .tabela-grid {
     display:grid;
     grid-template-columns:1fr 1fr;
     gap:16px;
 }
+.tabela-danger-button,
+.tabela-danger-outline,
+.btn-padrao,
+.btn-secundario { white-space: nowrap; }
 .tabela-danger-button {
     background:#8b1e1e;
     color:white;
@@ -46,31 +50,40 @@
 }
 .tabela-danger-outline {
     background:transparent;
-    color:#8b1e1e;
-    border:1px solid #8b1e1e;
+    color:#b91c1c;
+    border:1px solid #b91c1c;
     border-radius:10px;
-    padding:6px 10px;
-    font-weight:700;
+    padding:7px 10px;
+    font-weight:800;
     cursor:pointer;
+}
+.tabela-danger-button:disabled,
+.tabela-danger-outline:disabled,
+.btn-padrao:disabled,
+.btn-secundario:disabled {
+    opacity:.45;
+    cursor:not-allowed;
 }
 .tabela-link-box {
     width:100%;
-    padding:10px 12px;
-    border-radius:10px;
+    padding:12px 14px;
+    border-radius:12px;
     border:1px solid var(--border);
     background: var(--card-bg, transparent);
     color: inherit;
+    font-weight:800;
 }
 .visualizador-preview {
     margin-top: 16px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     overflow: hidden;
-    min-height: 540px;
+    min-height: 620px;
+    box-shadow: 0 14px 34px rgba(0,0,0,.14);
 }
 .visualizador-preview iframe {
     width: 100%;
-    min-height: 540px;
+    min-height: 620px;
     border: none;
     background: #0f172a;
 }
@@ -78,8 +91,128 @@
     color: var(--muted);
     margin-bottom: 14px;
 }
+.tabela-scroll {
+    width:100%;
+    overflow-x:auto;
+    border:1px solid var(--border);
+    border-radius:14px;
+}
+.tabela-pro {
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    min-width:860px;
+}
+.tabela-pro th,
+.tabela-pro td {
+    padding:11px 10px;
+    text-align:center;
+    vertical-align:middle;
+    border-bottom:1px solid var(--border);
+}
+.tabela-pro th {
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--muted);
+    background:rgba(148,163,184,.12);
+    font-weight:900;
+}
+.tabela-pro tr:last-child td { border-bottom:0; }
+.tabela-pro tbody tr:hover { background:rgba(148,163,184,.08); }
+.tabela-pro .col-equipe {
+    text-align:left;
+    font-weight:900;
+    min-width:210px;
+}
+.tabela-pro .posicao {
+    width:38px;
+    height:30px;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:900;
+    background:rgba(37,99,235,.14);
+}
+.badge-status {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:5px 9px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:900;
+    white-space:nowrap;
+}
+.badge-ao-vivo { color:#16a34a; background:rgba(34,197,94,.12); }
+.badge-finalizado { color:#64748b; background:rgba(148,163,184,.16); }
+.badge-agendada { color:#2563eb; background:rgba(37,99,235,.12); }
+.jogo-nome { font-weight:900; }
+.acoes-partida form { margin:0; }
+.acoes-partida .edicao-mata-mata {
+    display:grid;
+    grid-template-columns:minmax(150px,1fr) minmax(150px,1fr) minmax(130px,.8fr) auto;
+    gap:6px;
+    align-items:center;
+    margin-bottom:6px;
+}
+.card-grupo-equipe {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    margin-bottom:8px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:rgba(148,163,184,.06);
+}
+.equipe-inline {
+    display:inline-flex;
+    align-items:center;
+    gap:9px;
+    min-width:0;
+}
+.equipe-inline .escudo-mini {
+    width:32px;
+    height:32px;
+    border-radius:50%;
+    object-fit:contain;
+    background:rgba(148,163,184,.12);
+    border:1px solid rgba(148,163,184,.26);
+    padding:2px;
+    flex:0 0 auto;
+}
+.confronto-com-escudos {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+}
+.confronto-time {
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+}
+.confronto-time img {
+    width:30px;
+    height:30px;
+    border-radius:50%;
+    object-fit:contain;
+    background:rgba(148,163,184,.12);
+    border:1px solid rgba(148,163,184,.26);
+    padding:2px;
+    flex:0 0 auto;
+}
+
 @media (max-width: 900px) {
     .tabela-grid { grid-template-columns:1fr; }
+    .tabela-tabs { gap:8px; }
+    .tabela-tab { padding:9px 12px; font-size:13px; }
+    .visualizador-preview, .visualizador-preview iframe { min-height:520px; }
+    .acoes-partida .edicao-mata-mata { grid-template-columns:1fr; }
 }
 </style>
 
@@ -195,8 +328,8 @@
 
                 {% if g.equipes %}
                     {% for e in g.equipes %}
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom: 6px;">
-                            <span>{{ e.equipe }}</span>
+                        <div class="card-grupo-equipe">
+                            <strong>{{ e.equipe }}</strong>
                             <form method="post" action="{{ url_for('tabela.remover_equipe_grupo_view') }}" onsubmit="return confirm('Remover esta equipe do grupo? Os jogos desse grupo envolvendo ela também serão apagados.');">
                                 <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
                                 <input type="hidden" name="equipe" value="{{ e.equipe }}">
@@ -333,7 +466,8 @@
     </h3>
 
     {% if partidas_fase %}
-    <table>
+    <div class="tabela-scroll">
+    <table class="tabela-pro">
         <thead>
             <tr>
                 <th>#</th>
@@ -354,19 +488,31 @@
                 data-competicao="{{ competicao.nome }}"
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
             >
-                <td>{{ p.ordem }}</td>
+                <td><span class="posicao">{{ p.ordem }}</span></td>
                 <td>{% if p.fase_normalizada == 'grupos' %}{{ p.grupo }}{% else %}-{% endif %}</td>
-                <td>{{ p.quadra_label or '-' }}</td>
-                <td>{{ p.equipe_a }} x {{ p.equipe_b }}</td>
+                <td><strong>{{ p.quadra_label or '-' }}</strong></td>
+                <td class="col-equipe jogo-nome">
+                    <div class="confronto-com-escudos">
+                        <span class="confronto-time">
+                            <img src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}">
+                            <span>{{ p.equipe_a or 'A definir' }}</span>
+                        </span>
+                        <span style="color:var(--muted); font-weight:900;">x</span>
+                        <span class="confronto-time">
+                            <img src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}">
+                            <span>{{ p.equipe_b or 'A definir' }}</span>
+                        </span>
+                    </div>
+                </td>
                 <td>{{ p.fase_normalizada or 'grupos' }}</td>
 
                 <td id="status-{{ p.id }}">
                     {% if p.ao_vivo %}
-                        <span style="color:#22c55e; font-weight:800;">AO VIVO</span>
+                        <span class="badge-status badge-ao-vivo">AO VIVO</span>
                     {% elif p.finalizada %}
-                        <span style="color:#94a3b8; font-weight:800;">FINALIZADO</span>
+                        <span class="badge-status badge-finalizado">FINALIZADO</span>
                     {% else %}
-                        {{ p.status_exibicao }}
+                        <span class="badge-status badge-agendada">{{ p.status_exibicao }}</span>
                     {% endif %}
                 </td>
 
@@ -383,10 +529,10 @@
                         -
                     {% endif %}
                 </td>
-                <td>
+                <td class="acoes-partida">
                     {% if p.pode_excluir and not fase_atual_travada %}
                         {% if fase_ativa != 'classificatorias' %}
-                        <form method="post" action="{{ url_for('tabela.atualizar_partida_view', partida_id=p.id) }}" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+                        <form class="edicao-mata-mata" method="post" action="{{ url_for('tabela.atualizar_partida_view', partida_id=p.id) }}">
                             <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
                             <select name="equipe_a" style="min-width:150px;">
                                 <option value="">A definir</option>
@@ -421,6 +567,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
         <div>Nenhum jogo criado nesta fase.</div>
     {% endif %}
@@ -432,7 +579,16 @@
     <h3 style="margin-top: 0;">Classificação</h3>
     <div class="classificacao-hint">
         A tabela usa a pontuação e os critérios configurados nas regras da competição.
+        As colunas exibidas abaixo acompanham somente os critérios ativos antes do sorteio.
     </div>
+    {% if colunas_classificacao %}
+        <div class="classificacao-hint" style="font-size:13px; margin-top:-8px;">
+            Colunas ativas:
+            {% for coluna in colunas_classificacao %}
+                <strong>{{ coluna.titulo }}</strong>{% if not loop.last %} › {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
 
     {% if classificacao %}
         {% for nome_grupo, linhas in classificacao.items() %}
@@ -441,42 +597,35 @@
                     Grupo {{ nome_grupo }}
                 </div>
 
-                <table>
+                <div class="tabela-scroll">
+                <table class="tabela-pro">
                     <thead>
                         <tr>
                             <th>#</th>
                             <th>Equipe</th>
-                            <th>Pts</th>
-                            <th>J</th>
-                            <th>V</th>
-                            <th>D</th>
-                            <th>Sets pró</th>
-                            <th>Sets contra</th>
-                            <th>Saldo sets</th>
-                            <th>Pontos pró</th>
-                            <th>Pontos contra</th>
-                            <th>Saldo pontos</th>
+                            {% for coluna in colunas_classificacao %}
+                                <th>{{ coluna.titulo }}</th>
+                            {% endfor %}
                         </tr>
                     </thead>
                     <tbody>
                         {% for linha in linhas %}
                         <tr>
-                            <td>{{ loop.index }}</td>
-                            <td>{{ linha.equipe }}</td>
-                            <td>{{ linha.pontos }}</td>
-                            <td>{{ linha.jogos }}</td>
-                            <td>{{ linha.vitorias }}</td>
-                            <td>{{ linha.derrotas }}</td>
-                            <td>{{ linha.sets_pro }}</td>
-                            <td>{{ linha.sets_contra }}</td>
-                            <td>{{ linha.saldo_sets }}</td>
-                            <td>{{ linha.pontos_pro }}</td>
-                            <td>{{ linha.pontos_contra }}</td>
-                            <td>{{ linha.saldo_pontos }}</td>
+                            <td><span class="posicao">{{ loop.index }}</span></td>
+                            <td class="col-equipe">
+                                <div class="equipe-inline">
+                                    <img class="escudo-mini" src="{{ linha.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ linha.equipe }}">
+                                    <span>{{ linha.equipe }}</span>
+                                </div>
+                            </td>
+                            {% for coluna in colunas_classificacao %}
+                                <td>{{ linha[coluna.campo] }}</td>
+                            {% endfor %}
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
         {% endfor %}
     {% else %}
@@ -537,10 +686,10 @@ async function atualizarPartidasAoVivoTabela() {
 
             if (statusEl) {
                 if (dados.partida_finalizada) {
-                    statusEl.innerHTML = '<span style="color:#94a3b8; font-weight:800;">FINALIZADO</span>';
+                    statusEl.innerHTML = '<span class="badge-status badge-finalizado">FINALIZADO</span>';
                     linha.dataset.aoVivo = "0";
                 } else {
-                    statusEl.innerHTML = '<span style="color:#22c55e; font-weight:800;">AO VIVO</span>';
+                    statusEl.innerHTML = '<span class="badge-status badge-ao-vivo">AO VIVO</span>';
                 }
             }
 

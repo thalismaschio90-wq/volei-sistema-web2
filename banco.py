@@ -3929,6 +3929,13 @@ def criar_tabela_partidas():
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set2_b INTEGER")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set3_a INTEGER")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set3_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set4_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set4_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set5_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set5_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS origem_resultado TEXT DEFAULT 'apontada'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS scout_preenchido BOOLEAN DEFAULT FALSE")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS vencedor TEXT")
 
             # operação do apontador / pré-jogo
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT")
@@ -5686,6 +5693,19 @@ def criar_campos_sets_partida(force=False):
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS observacoes TEXT")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS data_fim TIMESTAMP")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS tipo_encerramento TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set1_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set1_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set2_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set2_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set3_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set3_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set4_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set4_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set5_a INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set5_b INTEGER")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS origem_resultado TEXT DEFAULT 'apontada'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS scout_preenchido BOOLEAN DEFAULT FALSE")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS vencedor TEXT")
 
         conn.commit()
 
@@ -6000,6 +6020,123 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
     if fluxo and fluxo["fase_partida"] == "encerrado":
         return True, "Partida finalizada com sucesso."
     return True, "Set atualizado com sucesso."
+
+
+
+def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login=None, origem="manual"):
+    """Salva/edita o resultado de uma partida sem exigir scout.
+
+    sets deve ser uma lista de dicts: [{"a": 25, "b": 20}, ...].
+    Sets vazios devem ser removidos antes ou enviados como None.
+    A classificação usa somente placar/sets/status; scout fica opcional.
+    """
+    criar_campos_sets_partida()
+    criar_campos_jogo_partida()
+
+    sets_validos = []
+    for item in sets or []:
+        if not isinstance(item, dict):
+            continue
+        a = item.get("a")
+        b = item.get("b")
+        if a in (None, "") and b in (None, ""):
+            continue
+        try:
+            a = int(a)
+            b = int(b)
+        except Exception:
+            return False, "Informe apenas números nos placares dos sets."
+        if a < 0 or b < 0:
+            return False, "Placares não podem ser negativos."
+        if a == b:
+            return False, "Um set não pode terminar empatado."
+        sets_validos.append({"a": a, "b": b})
+
+    comp = buscar_competicao_por_nome(competicao) or {}
+    formato = _normalizar_formato_sets(comp.get("sets_tipo"))
+    sets_max = calcular_sets_max(formato)
+    sets_para_vencer = calcular_sets_para_vencer(formato)
+
+    if not sets_validos:
+        return False, "Preencha pelo menos um set."
+    if len(sets_validos) > sets_max:
+        return False, f"Esta competição permite no máximo {sets_max} set(s)."
+
+    sets_a = sum(1 for st in sets_validos if st["a"] > st["b"])
+    sets_b = sum(1 for st in sets_validos if st["b"] > st["a"])
+
+    if sets_a == sets_b:
+        return False, "O resultado precisa ter um vencedor."
+    if max(sets_a, sets_b) < sets_para_vencer:
+        return False, f"O vencedor precisa vencer {sets_para_vencer} set(s)."
+    if max(sets_a, sets_b) > sets_para_vencer:
+        return False, "Quantidade de sets vencidos inválida para a regra da competição."
+
+    vencedor_lado = "A" if sets_a > sets_b else "B"
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT equipe_a, equipe_b
+                FROM partidas
+                WHERE id = %s AND competicao = %s
+                LIMIT 1
+            """, (partida_id, competicao))
+            partida = cur.fetchone()
+            if not partida:
+                return False, "Partida não encontrada."
+
+            vencedor_nome = partida.get("equipe_a") if vencedor_lado == "A" else partida.get("equipe_b")
+
+            valores_sets = {}
+            for i in range(1, 6):
+                if i <= len(sets_validos):
+                    valores_sets[f"set{i}_a"] = sets_validos[i - 1]["a"]
+                    valores_sets[f"set{i}_b"] = sets_validos[i - 1]["b"]
+                else:
+                    valores_sets[f"set{i}_a"] = None
+                    valores_sets[f"set{i}_b"] = None
+
+            cur.execute("""
+                UPDATE partidas
+                SET sets_a = %s,
+                    sets_b = %s,
+                    set_atual = %s,
+                    sets_max = %s,
+                    sets_para_vencer = %s,
+                    pontos_a = 0,
+                    pontos_b = 0,
+                    set1_a = %s, set1_b = %s,
+                    set2_a = %s, set2_b = %s,
+                    set3_a = %s, set3_b = %s,
+                    set4_a = %s, set4_b = %s,
+                    set5_a = %s, set5_b = %s,
+                    status = 'finalizada',
+                    status_jogo = 'finalizada',
+                    status_operacao = 'finalizada',
+                    fase_partida = 'encerrado',
+                    pre_jogo_finalizado = TRUE,
+                    tiebreak_pendente = FALSE,
+                    tipo_encerramento = %s,
+                    origem_resultado = %s,
+                    vencedor = %s,
+                    operador_login = COALESCE(operador_login, %s),
+                    apontador_login = COALESCE(apontador_login, %s),
+                    data_fim = NOW()
+                WHERE id = %s AND competicao = %s
+            """, (
+                sets_a, sets_b, len(sets_validos), sets_max, sets_para_vencer,
+                valores_sets["set1_a"], valores_sets["set1_b"],
+                valores_sets["set2_a"], valores_sets["set2_b"],
+                valores_sets["set3_a"], valores_sets["set3_b"],
+                valores_sets["set4_a"], valores_sets["set4_b"],
+                valores_sets["set5_a"], valores_sets["set5_b"],
+                origem, origem, vencedor_nome, operador_login, operador_login,
+                partida_id, competicao,
+            ))
+        conn.commit()
+
+    return True, "Resultado salvo e partida finalizada com sucesso."
 
 # =========================================================
 # EVENTOS DA PARTIDA (AO VIVO)

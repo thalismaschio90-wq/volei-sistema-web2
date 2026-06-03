@@ -67,6 +67,7 @@ from banco import (
     garantir_pin_operacional_apontador,
     normalizar_status_partidas_apontador,
     salvar_estado_manual_partida,
+    salvar_resultado_manual_partida,
 )
 from routes.utils import exigir_perfil
 from socket_events import (
@@ -172,6 +173,40 @@ def _resolver_modo_operacao_partida(competicao, partida=None):
 
     return modo_final
 
+
+
+def _sets_max_competicao(competicao):
+    try:
+        comp = buscar_competicao_por_nome(competicao) or {}
+        sets_tipo = str(comp.get("sets_tipo") or "melhor_de_3").strip().lower()
+    except Exception:
+        sets_tipo = "melhor_de_3"
+
+    if sets_tipo == "set_unico":
+        return 1
+    if sets_tipo == "melhor_de_5":
+        return 5
+    return 3
+
+
+def _sets_para_vencer_competicao(competicao):
+    sets_max = _sets_max_competicao(competicao)
+    if sets_max == 5:
+        return 3
+    if sets_max == 3:
+        return 2
+    return 1
+
+
+def _coletar_sets_form_manual():
+    sets = []
+    for i in range(1, 6):
+        a = request.form.get(f"set{i}_a")
+        b = request.form.get(f"set{i}_b")
+        if (a is None or str(a).strip() == "") and (b is None or str(b).strip() == ""):
+            continue
+        sets.append({"a": a, "b": b})
+    return sets
 
 # =========================================================
 # TECLAS DE ATALHO DO APONTADOR
@@ -1429,6 +1464,16 @@ def entrar_competicao_apontador(competicao):
     partidas = normalizar_status_partidas_apontador(partidas, competicao)
     partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
 
+    sets_max_manual = _sets_max_competicao(competicao)
+    sets_para_vencer_manual = _sets_para_vencer_competicao(competicao)
+
+    for p in partidas:
+        try:
+            p["modo_operacao_resolvido"] = _resolver_modo_operacao_partida(competicao, p)
+        except Exception:
+            p["modo_operacao_resolvido"] = "simples"
+        p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
+
     try:
         pin_operacional = garantir_pin_operacional_apontador(competicao, session.get("usuario"))
     except Exception as e:
@@ -1443,6 +1488,8 @@ def entrar_competicao_apontador(competicao):
         pin_operacional=pin_operacional,
         pode_jogo_avulso=apontador_pode_criar_jogo_avulso(session.get("usuario")),
         offline_habilitado=offline_global_habilitado(),
+        sets_max_manual=sets_max_manual,
+        sets_para_vencer_manual=sets_para_vencer_manual,
     )
 
 
@@ -1658,6 +1705,51 @@ def offline_apontador_view():
         return redirect(url_for("apontadores.painel_apontador"))
 
     return render_template("offline_apontador.html")
+
+
+
+@apontadores_bp.route("/apontador/resultado-manual/<competicao>/<int:partida_id>", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_resultado_manual_view(competicao, partida_id):
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    sets = _coletar_sets_form_manual()
+    origem = (request.form.get("origem_resultado") or "manual").strip().lower()
+    if origem not in {"manual", "edicao_manual"}:
+        origem = "manual"
+
+    ok, msg = salvar_resultado_manual_partida(
+        partida_id,
+        competicao,
+        sets,
+        operador_login=session.get("usuario"),
+        origem=origem,
+    )
+
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+
+@apontadores_bp.route("/apontador/scout/<competicao>/<int:partida_id>")
+@exigir_perfil("apontador")
+def editar_scout_partida_view(competicao, partida_id):
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    modo = _resolver_modo_operacao_partida(competicao, partida)
+    if modo != "avancado":
+        flash("Scout disponível apenas em partidas configuradas no modo avançado.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    flash("Scout opcional: abra a partida para consultar/preencher as ações por atleta.", "sucesso")
+    return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id, editar_scout="1"))
 
 
 # =========================================================
@@ -2214,12 +2306,15 @@ def jogo_view(competicao, partida_id):
     status_jogo = (partida.get("status_jogo") or "").strip().lower()
     status_operacao = (partida.get("status_operacao") or "").strip().lower()
 
+    editar_scout_finalizada = request.args.get("editar_scout") == "1"
     if status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}:
-        flash("A partida já está finalizada.", "erro")
-        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+        modo_finalizada = _resolver_modo_operacao_partida(competicao, partida)
+        if not (editar_scout_finalizada and modo_finalizada == "avancado"):
+            flash("A partida já está finalizada.", "erro")
+            return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
     # Não reinicializa partida pausada. Apenas abre do ponto salvo.
-    if status_jogo not in {"em_andamento", "entre_sets", "pausada", "pausado"} and status_operacao not in {"pausada", "pausado"}:
+    if (not editar_scout_finalizada) and status_jogo not in {"em_andamento", "entre_sets", "pausada", "pausado"} and status_operacao not in {"pausada", "pausado"}:
         try:
             partida = inicializar_jogo_partida(partida_id, competicao) or partida
         except Exception as e:
