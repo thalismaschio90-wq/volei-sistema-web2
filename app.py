@@ -16,6 +16,7 @@ from banco import (
     criar_tabela_equipes_competicoes,
     criar_campos_perfil_equipe,
     criar_campo_escudo_equipes,
+    criar_indices_desempenho,
 )
 
 from routes.auth import auth_bp
@@ -52,26 +53,32 @@ app.secret_key = os.environ.get(
     "voleitablepro"
 )
 
-# 🔥 Evita cache quebrado em iPhone/Safari/PWA
-app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+# PERFORMANCE:
+# Arquivos estáticos (css/js/imagens) podem ficar em cache no navegador.
+# Antes estava 0 + no-store para tudo, então cada clique baixava o site inteiro de novo.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 31536000
 
 
 @app.after_request
 def aplicar_headers_cache(response):
     path = request.path or ""
 
-    if (
-        path.endswith(".css")
-        or path.endswith(".js")
-        or path.endswith(".json")
-        or path == "/sw.js"
-        or path == "/manifest.json"
-        or path == "/app-login"
-        or path == "/app"
-    ):
-        response.headers["Cache-Control"] = (
-            "no-cache, no-store, must-revalidate, max-age=0"
-        )
+    # HTML e rotas dinâmicas continuam sem cache agressivo para não mostrar dados velhos.
+    # Arquivos versionáveis/estáticos ficam em cache longo para deixar o site rápido.
+    if path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        response.headers.pop("Pragma", None)
+        response.headers.pop("Expires", None)
+        return response
+
+    # Service worker e manifest precisam revalidar, mas não devem usar no-store.
+    if path in {"/sw.js", "/manifest.json"}:
+        response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+        response.headers.pop("Pragma", None)
+        return response
+
+    if request.method == "GET" and response.content_type and "text/html" in response.content_type:
+        response.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
 
@@ -102,6 +109,11 @@ try:
     criar_campo_escudo_equipes()
 except Exception as e:
     print("ERRO campo escudo equipe:", e)
+
+try:
+    criar_indices_desempenho()
+except Exception as e:
+    print("ERRO índices desempenho:", e)
 
 try:
     os.makedirs(os.path.join(app.static_folder, "uploads", "escudos"), exist_ok=True)

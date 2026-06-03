@@ -88,6 +88,13 @@ except Exception:
 
 apontadores_bp = Blueprint("apontadores", __name__)
 
+# Pequenos caches em memória para rotas quentes.
+# Eles reduzem consultas repetidas ao banco sem alterar a regra do jogo.
+_CACHE_COLUNAS_ESCUDO = {"expira": 0, "valor": []}
+_CACHE_REGRAS_COMPETICAO = {}
+_CACHE_TTL_REGRAS = 30
+_CACHE_TTL_COLUNAS = 300
+
 _CACHE_ARBITROS_COMPETICAO = {}
 _CACHE_ATLETAS_EQUIPE = {}
 
@@ -423,7 +430,15 @@ def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, par
     # Quando esta função é chamada por ações rápidas, muitas vezes vinha partida={}
     # e a tela caía sempre no padrão 2 tempos / 6 substituições.
     try:
-        comp = buscar_competicao_por_nome(competicao) or {}
+        agora = time.time()
+        chave_cache = str(competicao or "")
+        item_cache = _CACHE_REGRAS_COMPETICAO.get(chave_cache) or {}
+        if item_cache.get("expira", 0) > agora:
+            comp = dict(item_cache.get("valor") or {})
+        else:
+            comp = buscar_competicao_por_nome(competicao) or {}
+            _CACHE_REGRAS_COMPETICAO[chave_cache] = {"valor": dict(comp), "expira": agora + _CACHE_TTL_REGRAS}
+
         for campo in ("tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes", "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo"):
             if partida.get(campo) in (None, "") and comp.get(campo) not in (None, ""):
                 partida[campo] = comp.get(campo)
@@ -521,12 +536,15 @@ def _eh_escudo_padrao(valor):
 
 
 def _buscar_colunas_escudo_equipe():
-    """Retorna todas as colunas possíveis de escudo existentes na tabela equipes.
+    """Retorna colunas de escudo existentes, com cache.
 
-    Importante: algumas versões salvaram em escudo, outras em escudo_url.
-    Se buscarmos só a primeira coluna existente, podemos cair numa coluna vazia
-    e nunca chegar no arquivo real enviado pela equipe.
+    A consulta em information_schema é lenta e não precisa acontecer em toda
+    atualização de placar. O schema muda raramente, então cache de 5 minutos é seguro.
     """
+    agora = time.time()
+    if _CACHE_COLUNAS_ESCUDO.get("expira", 0) > agora:
+        return list(_CACHE_COLUNAS_ESCUDO.get("valor") or [])
+
     try:
         with conectar() as conn:
             with conn.cursor() as cur:
@@ -543,7 +561,10 @@ def _buscar_colunas_escudo_equipe():
         existentes = set()
 
     ordem = ['escudo_url', 'escudo', 'logo_url', 'logo']
-    return [c for c in ordem if c in existentes]
+    valor = [c for c in ordem if c in existentes]
+    _CACHE_COLUNAS_ESCUDO["valor"] = valor
+    _CACHE_COLUNAS_ESCUDO["expira"] = agora + _CACHE_TTL_COLUNAS
+    return valor
 
 
 def _buscar_escudos_equipes(competicao, equipe_a, equipe_b):
@@ -3371,6 +3392,38 @@ def sincronizar_acao_view(competicao, partida_id):
         }, 200)
     
 
+def _resposta_estado_leve(partida_id, competicao, partida, estado):
+    """Resposta pequena para listagens/tabelas que só precisam do placar.
+
+    Evita papeleta, escudos, contadores, eventos e regras completas a cada polling.
+    """
+    estado = dict(estado or {})
+    fase = str(estado.get("fase_partida") or estado.get("status_jogo") or partida.get("status_jogo") or partida.get("status") or "").strip().lower()
+    finalizada = fase in {"encerrado", "finalizada", "finalizado", "finalizada_manual", "wo"}
+
+    pontos_a = _int_seguro(estado.get("pontos_a") or estado.get("placar_a") or partida.get("pontos_a") or partida.get("placar_a"), 0)
+    pontos_b = _int_seguro(estado.get("pontos_b") or estado.get("placar_b") or partida.get("pontos_b") or partida.get("placar_b"), 0)
+
+    payload = {
+        "ok": True,
+        "leve": True,
+        "pontos_a": pontos_a,
+        "pontos_b": pontos_b,
+        "placar_a": pontos_a,
+        "placar_b": pontos_b,
+        "sets_a": _int_seguro(estado.get("sets_a") or partida.get("sets_a"), 0),
+        "sets_b": _int_seguro(estado.get("sets_b") or partida.get("sets_b"), 0),
+        "set_atual": _int_seguro(estado.get("set_atual") or partida.get("set_atual"), 1),
+        "status": fase or "ao_vivo",
+        "partida_finalizada": finalizada,
+        "atualizado_em": estado.get("atualizado_em") or estado.get("updated_at") or partida.get("updated_at") or partida.get("atualizado_em"),
+    }
+
+    resposta = jsonify(payload)
+    resposta.headers["Cache-Control"] = "no-cache, max-age=1, must-revalidate"
+    return resposta
+
+
 @apontadores_bp.route("/apontador/estado/<competicao>/<int:partida_id>")
 @exigir_perfil("apontador")
 def estado_jogo_view(competicao, partida_id):
@@ -3385,6 +3438,9 @@ def estado_jogo_view(competicao, partida_id):
         if not estado:
             garantir_estado_partida(partida_id, competicao)
             estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+        if request.args.get("leve") in {"1", "true", "sim"}:
+            return _resposta_estado_leve(partida_id, competicao, partida, estado)
 
         equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
             partida_id, competicao, partida, estado

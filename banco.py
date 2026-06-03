@@ -3966,9 +3966,8 @@ def criar_tabela_partidas():
 
 
 def listar_partidas(competicao):
-    criar_campo_escudo_equipes()
-    criar_tabela_equipes_competicoes()
-
+    # PERFORMANCE: schema/migrations não devem rodar em toda listagem.
+    # A criação/verificação das tabelas já é feita no boot do app.py.
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -3994,9 +3993,7 @@ def listar_partidas(competicao):
 
 
 def buscar_partida_por_id(partida_id, competicao):
-    criar_campo_escudo_equipes()
-    criar_tabela_equipes_competicoes()
-
+    # PERFORMANCE: evita ALTER/CREATE/check de schema durante request quente.
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -11078,67 +11075,244 @@ def _partida_tem_placar_ou_estado(partida):
 def normalizar_status_partidas_apontador(partidas, competicao):
     """
     Corrige a lista que aparece no painel do apontador.
-    Se a partida já tem placar/sets/eventos/snapshot, ela não pode voltar para pré-jogo.
-    Também reconhece partidas pausadas manualmente.
+
+    REGRAS:
+    - Não consulta schema/tabelas durante request.
+    - Não recalcula partidas finalizadas.
+    - Reutiliza eventos_total quando já veio da listagem.
+    - Evita funções pesadas por partida.
+    - Não consulta snapshot/scout/JSON.
     """
+
     partidas = [dict(p or {}) for p in (partidas or [])]
+
     if not partidas:
         return []
 
-    ids = [p.get("id") for p in partidas if p.get("id") is not None]
     eventos_por_id = {}
+    ids_consulta = []
 
-    try:
-        criar_tabela_eventos()
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT partida_id, COUNT(*) AS total
-                    FROM eventos
-                    WHERE competicao = %s
-                      AND partida_id = ANY(%s)
-                    GROUP BY partida_id
-                """, (competicao, ids))
-                for row in cur.fetchall() or []:
-                    eventos_por_id[int(row["partida_id"])] = int(row["total"] or 0)
-    except Exception as e:
-        print("ERRO normalizar_status_partidas_apontador/eventos:", e, flush=True)
-
+    # =====================================================
+    # DEFINE QUAIS PARTIDAS REALMENTE PRECISAM CONSULTAR
+    # EVENTOS
+    # =====================================================
     for p in partidas:
         status = str(p.get("status") or "").strip().lower()
         status_jogo = str(p.get("status_jogo") or "").strip().lower()
-        status_op = str(p.get("status_operacao") or "livre").strip().lower()
-        total_eventos = eventos_por_id.get(int(p.get("id") or 0), 0)
+        status_op = str(p.get("status_operacao") or "").strip().lower()
 
-        finalizada = status in {"finalizada", "finalizado", "encerrada", "encerrado"} or status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"} or status_op in {"finalizada", "finalizado"}
-        pausada = status_jogo in {"pausada", "pausado", "salva", "salvo"} or status_op in {"pausada", "pausado"}
+        finalizada = (
+            status in {"finalizada", "finalizado", "encerrada", "encerrado"}
+            or status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}
+            or status_op in {"finalizada", "finalizado"}
+        )
+
+        # Não consulta partidas encerradas
+        if finalizada:
+            continue
+
+        # Se já veio da query principal, reutiliza
+        if p.get("eventos_total") is not None:
+            continue
+
+        pid = p.get("id")
+
+        if pid is not None:
+            ids_consulta.append(pid)
+
+    # =====================================================
+    # CONSULTA EVENTOS SOMENTE DO NECESSÁRIO
+    # =====================================================
+    if ids_consulta:
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+
+                    cur.execute("""
+                        SELECT
+                            partida_id,
+                            COUNT(*) AS total
+                        FROM eventos
+                        WHERE competicao = %s
+                          AND partida_id = ANY(%s)
+                        GROUP BY partida_id
+                    """, (competicao, ids_consulta))
+
+                    for row in cur.fetchall() or []:
+                        eventos_por_id[
+                            int(row["partida_id"])
+                        ] = int(row["total"] or 0)
+
+        except Exception as e:
+            print(
+                "ERRO normalizar_status_partidas_apontador:",
+                repr(e),
+                flush=True
+            )
+
+    # =====================================================
+    # NORMALIZA STATUS
+    # =====================================================
+    for p in partidas:
+
+        status = str(p.get("status") or "").strip().lower()
+        status_jogo = str(p.get("status_jogo") or "").strip().lower()
+        status_op = str(
+            p.get("status_operacao") or "livre"
+        ).strip().lower()
+
+        total_eventos = int(
+            p.get("eventos_total")
+            or eventos_por_id.get(
+                int(p.get("id") or 0),
+                0
+            )
+            or 0
+        )
+
+        # =================================================
+        # STATUS BASE
+        # =================================================
+        finalizada = (
+            status in {
+                "finalizada",
+                "finalizado",
+                "encerrada",
+                "encerrado"
+            }
+            or status_jogo in {
+                "finalizada",
+                "finalizado",
+                "encerrada",
+                "encerrado"
+            }
+            or status_op in {
+                "finalizada",
+                "finalizado"
+            }
+        )
+
+        pausada = (
+            status_jogo in {
+                "pausada",
+                "pausado",
+                "salva",
+                "salvo"
+            }
+            or status_op in {
+                "pausada",
+                "pausado"
+            }
+        )
+
+        # =================================================
+        # DETECÇÃO LEVE DE PARTIDA INICIADA
+        # =================================================
+        possui_placar = any([
+            int(p.get("sets_a") or 0) > 0,
+            int(p.get("sets_b") or 0) > 0,
+            int(p.get("pontos_a") or 0) > 0,
+            int(p.get("pontos_b") or 0) > 0,
+
+            bool(p.get("set1_a")),
+            bool(p.get("set1_b")),
+
+            bool(p.get("set2_a")),
+            bool(p.get("set2_b")),
+
+            bool(p.get("set3_a")),
+            bool(p.get("set3_b")),
+
+            bool(p.get("set4_a")),
+            bool(p.get("set4_b")),
+
+            bool(p.get("set5_a")),
+            bool(p.get("set5_b")),
+        ])
+
         iniciada = (
-            status in {"em andamento", "em_andamento", "ao vivo", "ao_vivo", "iniciada", "iniciado"}
-            or status_jogo in {"em_andamento", "em andamento", "entre_sets", "tiebreak_sorteio"}
-            or status_op in {"em_andamento", "ao_vivo", "jogo", "iniciada", "iniciado"}
-            or _partida_tem_placar_ou_estado(p)
+            status in {
+                "em andamento",
+                "em_andamento",
+                "ao vivo",
+                "ao_vivo",
+                "iniciada",
+                "iniciado"
+            }
+
+            or status_jogo in {
+                "em_andamento",
+                "em andamento",
+                "entre_sets",
+                "tiebreak_sorteio"
+            }
+
+            or status_op in {
+                "em_andamento",
+                "ao_vivo",
+                "jogo",
+                "iniciada",
+                "iniciado"
+            }
+
+            or possui_placar
             or total_eventos > 0
         )
 
+        # =================================================
+        # FLAGS
+        # =================================================
         p["eventos_total"] = total_eventos
-        p["tem_jogo_iniciado"] = bool(iniciada and not finalizada and not pausada)
-        p["tem_jogo_pausado"] = bool(pausada and not finalizada)
+
+        p["tem_jogo_iniciado"] = bool(
+            iniciada
+            and not finalizada
+            and not pausada
+        )
+
+        p["tem_jogo_pausado"] = bool(
+            pausada
+            and not finalizada
+        )
+
         p["tem_jogo_finalizado"] = bool(finalizada)
 
+        # =================================================
+        # STATUS FINAL
+        # =================================================
         if finalizada:
+
             p["status_operacao"] = "finalizada"
+
         elif pausada:
+
             p["status_operacao"] = "pausada"
+
         elif iniciada:
+
             p["status_operacao"] = "em_andamento"
-            if not p.get("status_jogo") or str(p.get("status_jogo")).lower() == "pre_jogo":
+
+            if (
+                not p.get("status_jogo")
+                or str(
+                    p.get("status_jogo")
+                ).lower() == "pre_jogo"
+            ):
                 p["status_jogo"] = "em_andamento"
-        elif status_op in {"pre_jogo", "reservado"}:
+
+        elif status_op in {
+            "pre_jogo",
+            "reservado"
+        }:
+
             p["status_operacao"] = status_op
+
         else:
+
             p["status_operacao"] = "livre"
 
     return partidas
+
 
 
 def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, pausar=False):

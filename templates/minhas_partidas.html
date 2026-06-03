@@ -269,8 +269,8 @@ async function atualizarPartidasEquipeAoVivo() {
         const competicao = card.dataset.competicao;
 
         try {
-            const resp = await fetch(`/apontador/estado/${encodeURIComponent(competicao)}/${partidaId}`, {
-                cache: "no-store"
+            const resp = await fetch(`/apontador/estado/${encodeURIComponent(competicao)}/${partidaId}?leve=1`, {
+                cache: "no-cache"
             });
 
             if (!resp.ok) continue;
@@ -307,7 +307,7 @@ async function atualizarPartidasEquipeAoVivo() {
     }
 }
 
-setInterval(atualizarPartidasEquipeAoVivo, 2500);
+setInterval(atualizarPartidasEquipeAoVivo, 7000);
 document.addEventListener("DOMContentLoaded", atualizarPartidasEquipeAoVivo);
 </script>
 {% endblock %}
