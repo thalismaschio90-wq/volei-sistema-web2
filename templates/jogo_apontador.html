@@ -2147,6 +2147,7 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     }
 
 function montarPayloadTempoReal(extra = {}) {
+        sincronizarRotacaoNoEstado();
         const infoSaque = (function () {
             try { return infoSacadorDoLado(saqueAtual); } catch (e) { return {}; }
         })();
@@ -3337,8 +3338,7 @@ function inverterLadosVisual() {
             if (podeAceitarRotacaoExterna && Array.isArray(dados.rotacao_b) && dados.rotacao_b.length === 6) rotB = normalizarRotacao(dados.rotacao_b, fallbackRotB, rotB);
         }
 
-        estadoAtual.rotacao_a = rotA;
-        estadoAtual.rotacao_b = rotB;
+        sincronizarRotacaoNoEstado();
         if (setAtual) setAtual.textContent = `${estadoAtual.set_atual ?? 1}º SET`;
 
         if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
@@ -4421,6 +4421,17 @@ function assinaturaRotacao(rotacao) {
     return Array.isArray(rotacao) ? rotacao.map((n) => String(n || "")).join("|") : "";
 }
 
+function sincronizarRotacaoNoEstado() {
+    // Fonte única da quadra no navegador: rotA/rotB.
+    // Sempre copia para estadoAtual antes de renderizar, salvar, emitir socket ou mandar ao banco.
+    if (!estadoAtual || typeof estadoAtual !== "object") estadoAtual = {};
+    rotA = normalizarRotacao(rotA, fallbackRotA, estadoAtual.rotacao_a);
+    rotB = normalizarRotacao(rotB, fallbackRotB, estadoAtual.rotacao_b);
+    estadoAtual.rotacao_a = Array.isArray(rotA) ? [...rotA] : [];
+    estadoAtual.rotacao_b = Array.isArray(rotB) ? [...rotB] : [];
+    estadoAtual.saque_atual = ladoPorEquipeOuNome(saqueAtual || estadoAtual.saque_atual || "") || estadoAtual.saque_atual || "";
+}
+
 function rotacionarArrayOficial(rotacao) {
     // A lista da tela é sempre: [P4, P3, P2, P5, P6, P1].
     // Pela regra oficial, quando a equipe GANHA o saque:
@@ -4434,12 +4445,12 @@ function rotacionarEquipeLocal(lado) {
     lado = String(lado || "").toUpperCase();
     if (lado === "A") {
         rotA = rotacionarArrayOficial(copiaRotacaoSegura(rotA, fallbackRotA));
-        estadoAtual.rotacao_a = [...rotA];
+        sincronizarRotacaoNoEstado();
         return true;
     }
     if (lado === "B") {
         rotB = rotacionarArrayOficial(copiaRotacaoSegura(rotB, fallbackRotB));
-        estadoAtual.rotacao_b = [...rotB];
+        sincronizarRotacaoNoEstado();
         return true;
     }
     return false;
@@ -4480,6 +4491,7 @@ function atualizarSaqueLocal(novoSaque, deveMostrarAviso) {
 
     saqueAtual = equipe;
     if (estadoAtual) estadoAtual.saque_atual = equipe;
+    sincronizarRotacaoNoEstado();
 
     if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
     if (mobileEls && mobileEls.saque) mobileEls.saque.textContent = textoSaqueAtual();
@@ -4571,6 +4583,7 @@ const btnSalvarPartida = document.getElementById("btn-salvar-partida");
 const btnSalvarSairPartida = document.getElementById("btn-salvar-sair-partida");
 
 function montarEstadoManualParaBanco() {
+    sincronizarRotacaoNoEstado();
     return {
         ...(estadoAtual || {}),
         pontos_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
@@ -5866,16 +5879,48 @@ modalSubExFundo.addEventListener("click", function (event) {
 
 
 <script>
-/* CORREÇÃO MOBILE: ponte final de cliques */
+/* CORREÇÃO MOBILE: ponte final de cliques
+   - usa pointerup quando disponível;
+   - deduplica o click sintético que o celular dispara depois do toque;
+   - evita ponto/substituição duplicados e mantém a rotação estável no mobile. */
 document.addEventListener("DOMContentLoaded", function () {
+    const ultimoAcionamentoMobile = new Map();
+
     function clicar(id) {
         const el = document.getElementById(id);
-        if (el) el.click();
+        if (el && !el.disabled) el.click();
     }
 
     function fecharMenus() {
         document.getElementById("mobile-menu-esq")?.classList.remove("aberto");
         document.getElementById("mobile-menu-dir")?.classList.remove("aberto");
+    }
+
+    function executarUmaVez(chave, ev, fn) {
+        const agora = Date.now();
+        const anterior = ultimoAcionamentoMobile.get(chave) || 0;
+        if ((agora - anterior) < 450) {
+            if (ev) ev.preventDefault();
+            return;
+        }
+        ultimoAcionamentoMobile.set(chave, agora);
+        if (ev) ev.preventDefault();
+        fn();
+    }
+
+    function ligarBotaoMobile(mobileId, realId) {
+        const el = document.getElementById(mobileId);
+        if (!el) return;
+        const chave = `direto:${mobileId}`;
+        const handler = function (ev) {
+            executarUmaVez(chave, ev, function () { clicar(realId); });
+        };
+        if (window.PointerEvent) {
+            el.addEventListener("pointerup", handler);
+        } else {
+            el.addEventListener("touchend", handler, { passive: false });
+        }
+        el.addEventListener("click", handler);
     }
 
     const mapaDireto = {
@@ -5889,18 +5934,7 @@ document.addEventListener("DOMContentLoaded", function () {
         "mobile-salvar-sair": "btn-salvar-sair-partida"
     };
 
-    Object.entries(mapaDireto).forEach(([mobileId, realId]) => {
-        const el = document.getElementById(mobileId);
-        if (!el) return;
-        el.addEventListener("touchend", function (ev) {
-            ev.preventDefault();
-            clicar(realId);
-        }, { passive: false });
-        el.addEventListener("click", function (ev) {
-            ev.preventDefault();
-            clicar(realId);
-        });
-    });
+    Object.entries(mapaDireto).forEach(([mobileId, realId]) => ligarBotaoMobile(mobileId, realId));
 
     document.addEventListener("click", function (ev) {
         const btn = ev.target.closest("[data-mobile-action]");
@@ -5908,8 +5942,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const action = btn.dataset.mobileAction;
         const side = btn.dataset.side || "";
-        fecharMenus();
-
         const esquerda = side === "esq";
         const realId = {
             tempo: esquerda ? "btn-tempo-a" : "btn-tempo-b",
@@ -5922,8 +5954,8 @@ document.addEventListener("DOMContentLoaded", function () {
         }[action];
 
         if (realId) {
-            ev.preventDefault();
-            clicar(realId);
+            fecharMenus();
+            executarUmaVez(`acao:${action}:${side}`, ev, function () { clicar(realId); });
         }
     }, true);
 
@@ -5931,12 +5963,9 @@ document.addEventListener("DOMContentLoaded", function () {
         const pos = ev.target.closest(".mobile-pos");
         if (!pos) return;
 
-        const quadraEsq = pos.closest("#mobile-quadra-esq");
-        const quadraDir = pos.closest("#mobile-quadra-dir");
-
-        ev.preventDefault();
-        if (quadraEsq) clicar("btn-sub-a");
-        if (quadraDir) clicar("btn-sub-b");
+        const lado = String(pos.dataset.equipe || "").toUpperCase();
+        const realId = lado === "B" ? "btn-sub-b" : "btn-sub-a";
+        executarUmaVez(`quadra:${lado}:${pos.dataset.posicao || ""}`, ev, function () { clicar(realId); });
     }, true);
 });
 </script>
