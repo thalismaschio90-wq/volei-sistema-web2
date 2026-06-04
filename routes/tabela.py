@@ -624,21 +624,49 @@ CRITERIOS_MENOR_MELHOR = {"sets_contra", "pontos_contra", "fair_play", "menor_wo
 
 
 CRITERIOS_CLASSIFICACAO_COLUNAS = {
-    "pontos": {"campo": "pontos", "titulo": "Pts"},
+    "pontos": {"campo": "pontos", "titulo": "P"},
     "vitorias": {"campo": "vitorias", "titulo": "V"},
-    "saldo_sets": {"campo": "saldo_sets", "titulo": "Saldo sets"},
-    "sets_average": {"campo": "sets_average_exibicao", "titulo": "Sets avg"},
-    "coef_sets": {"campo": "sets_average_exibicao", "titulo": "Sets avg"},
-    "saldo_pontos": {"campo": "saldo_pontos", "titulo": "Saldo pontos"},
-    "pontos_average": {"campo": "pontos_average_exibicao", "titulo": "Pontos avg"},
-    "coef_pontos": {"campo": "pontos_average_exibicao", "titulo": "Pontos avg"},
-    "sets_pro": {"campo": "sets_pro", "titulo": "Sets pró"},
-    "sets_contra": {"campo": "sets_contra", "titulo": "Sets contra"},
-    "pontos_pro": {"campo": "pontos_pro", "titulo": "Pontos pró"},
-    "pontos_contra": {"campo": "pontos_contra", "titulo": "Pontos contra"},
-    "fair_play": {"campo": "fair_play", "titulo": "Fair play"},
-    "menor_wo": {"campo": "wo", "titulo": "W.O."},
+    "derrotas": {"campo": "derrotas", "titulo": "D"},
+    "jogos": {"campo": "jogos", "titulo": "J"},
+    "saldo_sets": {"campo": "saldo_sets", "titulo": "DS"},
+    "sets_average": {"campo": "sets_average_exibicao", "titulo": "SA"},
+    "coef_sets": {"campo": "sets_average_exibicao", "titulo": "SA"},
+    "saldo_pontos": {"campo": "saldo_pontos", "titulo": "DP"},
+    "pontos_average": {"campo": "pontos_average_exibicao", "titulo": "PA"},
+    "coef_pontos": {"campo": "pontos_average_exibicao", "titulo": "PA"},
+    "sets_pro": {"campo": "sets_pro", "titulo": "SP"},
+    "sets_contra": {"campo": "sets_contra", "titulo": "SC"},
+    "pontos_pro": {"campo": "pontos_pro", "titulo": "PF"},
+    "pontos_contra": {"campo": "pontos_contra", "titulo": "PC"},
+    "fair_play": {"campo": "fair_play", "titulo": "FP"},
+    "menor_wo": {"campo": "wo", "titulo": "WO"},
 }
+
+COLUNAS_PUBLICAS_SET_UNICO = [
+    {"campo": "pontos", "titulo": "P", "descricao": "Pontos na classificação"},
+    {"campo": "jogos", "titulo": "J", "descricao": "Jogos disputados"},
+    {"campo": "vitorias", "titulo": "V", "descricao": "Vitórias"},
+    {"campo": "derrotas", "titulo": "D", "descricao": "Derrotas"},
+    {"campo": "pontos_average_exibicao", "titulo": "PA", "descricao": "Pontos average: PF dividido por PC"},
+    {"campo": "saldo_pontos", "titulo": "DP", "descricao": "Diferença de pontos: PF menos PC"},
+    {"campo": "pontos_pro", "titulo": "PF", "descricao": "Pontos feitos"},
+    {"campo": "pontos_contra", "titulo": "PC", "descricao": "Pontos cedidos"},
+]
+
+COLUNAS_PUBLICAS_SETS = [
+    {"campo": "pontos", "titulo": "P", "descricao": "Pontos na classificação"},
+    {"campo": "jogos", "titulo": "J", "descricao": "Jogos disputados"},
+    {"campo": "vitorias", "titulo": "V", "descricao": "Vitórias"},
+    {"campo": "derrotas", "titulo": "D", "descricao": "Derrotas"},
+    {"campo": "sets_pro", "titulo": "SP", "descricao": "Sets pró"},
+    {"campo": "sets_contra", "titulo": "SC", "descricao": "Sets contra"},
+    {"campo": "saldo_sets", "titulo": "DS", "descricao": "Diferença de sets: SP menos SC"},
+    {"campo": "sets_average_exibicao", "titulo": "SA", "descricao": "Sets average: SP dividido por SC"},
+    {"campo": "pontos_average_exibicao", "titulo": "PA", "descricao": "Pontos average: PF dividido por PC"},
+    {"campo": "saldo_pontos", "titulo": "DP", "descricao": "Diferença de pontos: PF menos PC"},
+    {"campo": "pontos_pro", "titulo": "PF", "descricao": "Pontos feitos"},
+    {"campo": "pontos_contra", "titulo": "PC", "descricao": "Pontos cedidos"},
+]
 
 
 def _formatar_numero_decimal(valor):
@@ -646,6 +674,9 @@ def _formatar_numero_decimal(valor):
         valor = float(valor or 0)
     except (TypeError, ValueError):
         valor = 0.0
+
+    if valor == float("inf"):
+        return "∞"
 
     texto = f"{valor:.3f}".rstrip("0").rstrip(".")
     return texto or "0"
@@ -671,8 +702,10 @@ def _calcular_sets_average_valor(sets_pro, sets_contra):
     if sets_pro <= 0:
         return 0.0
 
-    divisor = sets_contra if sets_contra > 0 else 0.5
-    return sets_pro / divisor
+    if sets_contra <= 0:
+        return float("inf")
+
+    return sets_pro / sets_contra
 
 
 def _calcular_pontos_average_valor(pontos_pro, pontos_contra):
@@ -695,8 +728,10 @@ def _calcular_pontos_average_valor(pontos_pro, pontos_contra):
     if pontos_pro <= 0:
         return 0.0
 
-    divisor = pontos_contra if pontos_contra > 0 else 1
-    return pontos_pro / divisor
+    if pontos_contra <= 0:
+        return float("inf")
+
+    return pontos_pro / pontos_contra
 
 
 def _formatar_sets_average_exibicao(sets_pro, sets_contra):
@@ -714,7 +749,29 @@ def _criterios_efetivos_ate_sorteio(criterios):
     return criterios
 
 
+def _competicao_eh_set_unico_tabela(competicao):
+    competicao = competicao or {}
+    texto = " ".join(
+        str(competicao.get(chave) or "")
+        for chave in ("sets_tipo", "tipo_sets", "formato_sets", "melhor_de")
+    ).strip().lower().replace("-", "_").replace(" ", "_")
+
+    return texto in {"set_unico", "único", "unico", "1_set", "melhor_de_1", "md1", "1"} or "set_unico" in texto
+
+
+def _colunas_classificacao_publica(competicao):
+    """Colunas exibidas no link público.
+
+    A exibição é independente da ordem de desempate. A classificação continua
+    sendo ordenada por _aplicar_criterios_classificacao usando os critérios
+    configurados pelo organizador.
+    """
+    colunas = COLUNAS_PUBLICAS_SET_UNICO if _competicao_eh_set_unico_tabela(competicao) else COLUNAS_PUBLICAS_SETS
+    return [dict(c) for c in colunas]
+
+
 def _colunas_classificacao_por_criterios(criterios):
+    """Compatibilidade com telas antigas que exibem apenas critérios ativos."""
     colunas = []
     vistos = set()
 
@@ -731,11 +788,12 @@ def _colunas_classificacao_por_criterios(criterios):
             "criterio": criterio,
             "campo": campo,
             "titulo": cfg["titulo"],
+            "descricao": cfg.get("descricao", cfg["titulo"]),
         })
         vistos.add(campo)
 
     if not colunas:
-        colunas.append({"criterio": "pontos", "campo": "pontos", "titulo": "Pts"})
+        colunas.append({"criterio": "pontos", "campo": "pontos", "titulo": "P", "descricao": "Pontos"})
 
     return colunas
 
@@ -1213,7 +1271,8 @@ def visualizador_publico(competicao_nome):
     classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
-    colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
+    colunas_classificacao = _colunas_classificacao_publica(competicao)
+    set_unico = _competicao_eh_set_unico_tabela(competicao)
 
     return render_template(
         "visualizador_publico.html",
@@ -1223,6 +1282,7 @@ def visualizador_publico(competicao_nome):
         partidas=partidas_preparadas,
         criterios_classificacao=criterios_classificacao,
         colunas_classificacao=colunas_classificacao,
+        set_unico=set_unico,
     )
 
 

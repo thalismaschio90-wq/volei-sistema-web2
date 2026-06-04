@@ -2,6 +2,7 @@ print(">>> CARREGOU O ARQUIVO EQUIPES.PY CERTO <<<")
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, current_app
 from banco import (
     buscar_competicao_por_organizador,
+    buscar_competicao_por_nome,
     listar_equipes_da_competicao,
     equipe_existe_na_competicao,
     criar_equipe_com_credenciais,
@@ -45,10 +46,19 @@ from banco import (
     validar_edicao_atletas_equipe,
     equipe_tem_partida_iniciada,
     listar_partidas,
+    listar_grupos,
+    listar_equipes_por_grupo,
     atualizar_escudo_equipe_por_login,
     escudo_padrao_equipe,
 )
-from routes.utils import exigir_perfil
+from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
+from routes.tabela import (
+    _calcular_classificacao,
+    _obter_regras_classificacao,
+    _criterios_efetivos_ate_sorteio,
+    _colunas_classificacao_por_criterios,
+    _mapa_escudos_equipes,
+)
 from werkzeug.utils import secure_filename
 import os
 import uuid
@@ -445,6 +455,13 @@ def perfil_equipe_view():
         flash("Equipe não encontrada. Faça login novamente.", "erro")
         return redirect(url_for("auth.logout"))
 
+    # Essa tela continua existindo para o PRIMEIRO ACESSO da equipe.
+    # Depois que cidade, responsável e telefone já estiverem preenchidos,
+    # ela não fica mais como uma página normal do menu; Minha Conta passa
+    # a ser a tela única para dados, login e escudo.
+    if request.method == "GET" and not perfil_equipe_incompleto_por_login(usuario):
+        return redirect("/minha-conta")
+
     if request.method == "POST":
         cidade = request.form.get("cidade", "").strip()
         responsavel = request.form.get("responsavel", "").strip()
@@ -605,18 +622,86 @@ def _parciais_partida_equipe(partida):
     return " / ".join(parciais) if parciais else "-"
 
 
-def _preparar_partidas_para_equipe(equipe):
-    nome_equipe = (equipe.get("nome") or "").strip()
-    competicao = (equipe.get("competicao") or "").strip()
+def _escudo_padrao_url_equipe():
+    return escudo_padrao_equipe() or "/static/img/escudo_padrao.svg"
 
-    if not nome_equipe or not competicao:
+
+def _buscar_escudo_equipe_mapa(mapa_escudos, nome_equipe):
+    nome = str(nome_equipe or "").strip()
+    if not nome:
+        return _escudo_padrao_url_equipe()
+
+    return (
+        (mapa_escudos or {}).get(nome)
+        or (mapa_escudos or {}).get(nome.lower())
+        or (mapa_escudos or {}).get(nome.upper())
+        or _escudo_padrao_url_equipe()
+    )
+
+
+def _montar_grupos_classificacao_equipe(nome_competicao):
+    grupos = []
+
+    for grupo in listar_grupos(nome_competicao) or []:
+        grupos.append({
+            "grupo": grupo,
+            "equipes": listar_equipes_por_grupo(grupo["id"]) or [],
+        })
+
+    return grupos
+
+
+def _montar_classificacao_para_equipe(nome_competicao, partidas_preparadas, mapa_escudos):
+    competicao = buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
+    grupos = _montar_grupos_classificacao_equipe(nome_competicao)
+
+    if not grupos:
+        return {
+            "competicao": competicao,
+            "grupos": [],
+            "classificacao": {},
+            "criterios_classificacao": [],
+            "colunas_classificacao": [],
+        }
+
+    classificacao = _calcular_classificacao(
+        partidas_preparadas,
+        grupos,
+        competicao,
+        mapa_escudos,
+    )
+
+    regras_classificacao = _obter_regras_classificacao(competicao)
+    criterios_classificacao = _criterios_efetivos_ate_sorteio(
+        regras_classificacao.get("criterios")
+    )
+    colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
+
+    return {
+        "competicao": competicao,
+        "grupos": grupos,
+        "classificacao": classificacao,
+        "criterios_classificacao": criterios_classificacao,
+        "colunas_classificacao": colunas_classificacao,
+    }
+
+
+def _preparar_partidas_para_equipe(equipe, competicao=None, mapa_escudos=None):
+    nome_equipe = (equipe.get("nome") or "").strip()
+    nome_competicao = (equipe.get("competicao") or "").strip()
+
+    if not nome_equipe or not nome_competicao:
         return []
 
-    partidas = listar_partidas(competicao)
+    competicao = competicao or buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
+    equipes_competicao = listar_equipes_da_competicao(nome_competicao) or []
+    mapa_escudos = mapa_escudos or _mapa_escudos_equipes(equipes_competicao)
+
+    partidas = listar_partidas(nome_competicao)
     resultado = []
 
     for p in partidas:
-        partida = dict(p)
+        partida = aplicar_placar_exibicao_partida(dict(p or {}), competicao)
         equipe_a = (partida.get("equipe_a") or "").strip()
         equipe_b = (partida.get("equipe_b") or "").strip()
         fase = (partida.get("fase") or "grupos").strip().lower()
@@ -626,9 +711,6 @@ def _preparar_partidas_para_equipe(equipe):
             or equipe_b.lower() == nome_equipe.lower()
         )
 
-        # Visualizador geral da equipe:
-        # mostra TODAS as partidas da competição, não só as partidas da equipe.
-        # O campo minha_partida continua marcado para destacar quando o jogo é dela.
         partida["fase_label"] = _fase_label_partida_equipe(fase)
         partida["fase_ordem"] = _ordem_fase_partida_equipe(fase)
         partida["status_visual"] = _status_visual_partida_equipe(partida)
@@ -636,8 +718,16 @@ def _preparar_partidas_para_equipe(equipe):
         partida["finalizada"] = _partida_finalizada_equipe(partida)
         partida["parciais_formatadas"] = _parciais_partida_equipe(partida)
         partida["minha_partida"] = minha_partida
+        partida["escudo_a"] = _buscar_escudo_equipe_mapa(mapa_escudos, equipe_a)
+        partida["escudo_b"] = _buscar_escudo_equipe_mapa(mapa_escudos, equipe_b)
         partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
         partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
+
+        if partida.get("ao_vivo") and partida.get("set_unico"):
+            partida["placar_exibicao_a"] = partida["placar_ao_vivo_a"]
+            partida["placar_exibicao_b"] = partida["placar_ao_vivo_b"]
+            partida["placar_exibicao"] = f'{partida["placar_exibicao_a"]} x {partida["placar_exibicao_b"]}'
+
         resultado.append(partida)
 
     return sorted(
@@ -696,12 +786,26 @@ def minhas_partidas_view():
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    partidas = _preparar_partidas_para_equipe(equipe)
+    nome_competicao = (equipe.get("competicao") or "").strip()
+    competicao = buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
+    equipes_competicao = listar_equipes_da_competicao(nome_competicao) or []
+    mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
+    partidas = _preparar_partidas_para_equipe(equipe, competicao, mapa_escudos)
+    dados_classificacao = _montar_classificacao_para_equipe(
+        nome_competicao,
+        partidas,
+        mapa_escudos,
+    )
 
     return render_template(
         "minhas_partidas.html",
         equipe=equipe,
         partidas=partidas,
+        competicao=dados_classificacao.get("competicao") or competicao,
+        grupos=dados_classificacao.get("grupos") or [],
+        classificacao=dados_classificacao.get("classificacao") or {},
+        criterios_classificacao=dados_classificacao.get("criterios_classificacao") or [],
+        colunas_classificacao=dados_classificacao.get("colunas_classificacao") or [],
     )
 
 

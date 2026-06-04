@@ -10,42 +10,43 @@
 <style>
 .partidas-equipe-resumo {
     display: grid;
-    grid-template-columns: repeat(4, minmax(140px, 1fr));
-    gap: 12px;
-    margin-bottom: 16px;
+    grid-template-columns: repeat(4, minmax(110px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
 }
 
 .partidas-equipe-kpi {
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 14px;
+    border-radius: 14px;
+    padding: 12px;
     background: var(--surface, #fff);
-    box-shadow: 0 8px 20px rgba(17, 41, 65, 0.06);
+    box-shadow: 0 6px 16px rgba(17, 41, 65, 0.05);
 }
 
 .partidas-equipe-kpi strong {
     display: block;
-    font-size: 22px;
+    font-size: 20px;
     line-height: 1;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
 }
 
 .partidas-equipe-kpi span {
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
 }
 
-.partidas-equipe-card {
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 16px;
-    background: var(--surface, #fff);
-    box-shadow: 0 10px 24px rgba(17, 41, 65, 0.06);
-    margin-bottom: 12px;
+.partidas-equipe-aviso {
+    color: var(--muted);
+    line-height: 1.4;
+    font-size: 14px;
 }
 
-.partidas-equipe-topo {
+.classificacao-equipe-card {
+    margin-bottom: 14px;
+}
+
+.classificacao-equipe-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -54,18 +55,151 @@
     margin-bottom: 12px;
 }
 
-.partidas-equipe-fase {
+.classificacao-equipe-titulo {
+    font-size: 21px;
+    font-weight: 1000;
+    color: var(--text);
+}
+
+.classificacao-equipe-subtitulo {
+    color: var(--muted);
     font-size: 13px;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.classificacao-grupo {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    background: #fff;
+    margin-bottom: 12px;
+}
+
+.classificacao-grupo-topo {
+    padding: 11px 12px;
+    background: var(--surface-soft, #f8fbff);
+    border-bottom: 1px solid var(--border);
+    font-weight: 1000;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: var(--text);
+    font-size: 13px;
+}
+
+.classificacao-tabela-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.classificacao-tabela {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 680px;
+}
+
+.classificacao-tabela th,
+.classificacao-tabela td {
+    padding: 9px 8px;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.classificacao-tabela th {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    font-size: 11px;
+    background: #fff;
+}
+
+.classificacao-tabela tr:last-child td {
+    border-bottom: 0;
+}
+
+.classificacao-posicao {
+    width: 40px;
+    font-weight: 1000;
+    color: var(--muted);
+}
+
+.classificacao-equipe-nome {
+    text-align: left !important;
+    min-width: 190px;
+}
+
+.classificacao-equipe-identidade {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.classificacao-escudo {
+    width: 30px;
+    height: 30px;
+    object-fit: contain;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fff;
+    padding: 3px;
+    flex: 0 0 auto;
+}
+
+.classificacao-equipe-texto {
+    min-width: 0;
+    font-weight: 900;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.classificacao-minha-equipe {
+    background: #f0fdfa;
+}
+
+.classificacao-minha-equipe .classificacao-equipe-texto {
+    color: #0f766e;
+}
+
+.partidas-equipe-card {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px;
+    background: var(--surface, #fff);
+    box-shadow: 0 8px 20px rgba(17, 41, 65, 0.05);
+    margin-bottom: 10px;
+}
+
+.partidas-equipe-card.minha-partida {
+    border-color: rgba(15, 118, 110, .28);
+    box-shadow: 0 10px 22px rgba(15, 118, 110, 0.07);
+}
+
+.partidas-equipe-topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.partidas-equipe-fase {
+    font-size: 12px;
     color: var(--muted);
     font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: .4px;
+    letter-spacing: .35px;
 }
 
 .partidas-equipe-status {
     border-radius: 999px;
-    padding: 7px 10px;
-    font-size: 12px;
+    padding: 6px 9px;
+    font-size: 11px;
     font-weight: 900;
     border: 1px solid var(--border);
     background: var(--surface-soft, #f8fbff);
@@ -85,63 +219,189 @@
 
 .partidas-equipe-jogo {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 14px;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 12px;
     align-items: center;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    background: linear-gradient(180deg, #fbfdff 0%, #f7fbff 100%);
 }
 
-.partidas-equipe-time {
-    min-height: 64px;
+.partidas-time-bloco {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.partidas-time-bloco.direita {
+    flex-direction: row-reverse;
+    text-align: right;
+}
+
+.placar-escudo-time {
+    width: 46px;
+    height: 46px;
+    object-fit: contain;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+    padding: 4px;
+    flex: 0 0 auto;
+}
+
+.placar-nome-time {
+    max-width: 100%;
+    font-size: 15px;
+    font-weight: 1000;
+    line-height: 1.12;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.placar-label-time {
+    display: none;
+}
+
+.placar-central-jogo {
+    min-width: 112px;
     display: flex;
     flex-direction: column;
+    align-items: center;
     justify-content: center;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 12px;
-    background: var(--surface-soft, #f8fbff);
+    text-align: center;
 }
 
-.partidas-equipe-time strong {
-    font-size: 16px;
+.placar-valor-central {
+    font-size: clamp(30px, 5vw, 44px);
+    font-weight: 1000;
+    line-height: 1;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
 }
 
-.partidas-equipe-time small {
-    margin-top: 4px;
+.placar-valor-central span {
+    opacity: .42;
+    font-size: .62em;
+}
+
+.placar-subinfo-central {
+    margin-top: 5px;
+    font-size: 10px;
+    font-weight: 1000;
+    letter-spacing: .6px;
     color: var(--muted);
-    font-weight: 700;
-}
-
-.partidas-equipe-versus {
-    font-weight: 900;
-    color: var(--muted);
+    text-transform: uppercase;
 }
 
 .partidas-equipe-info {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
-    margin-top: 12px;
+    margin-top: 9px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
 }
 
-.partidas-equipe-aviso {
-    color: var(--muted);
-    line-height: 1.45;
-}
-
-@media (max-width: 800px) {
+@media (max-width: 700px) {
     .partidas-equipe-resumo {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .partidas-equipe-kpi {
+        padding: 10px;
+        border-radius: 13px;
+    }
+
+    .partidas-equipe-kpi strong {
+        font-size: 18px;
+    }
+
+    .partidas-equipe-kpi span {
+        font-size: 11px;
+    }
+
+    .card-painel {
+        padding: 14px;
+    }
+
+    .classificacao-equipe-titulo {
+        font-size: 19px;
+    }
+
+    .classificacao-equipe-subtitulo {
+        font-size: 12px;
+    }
+
+    .classificacao-tabela {
+        min-width: 620px;
+    }
+
+    .classificacao-tabela th,
+    .classificacao-tabela td {
+        padding: 8px 7px;
+        font-size: 11px;
+    }
+
+    .classificacao-equipe-nome {
+        min-width: 160px;
+    }
+
+    .partidas-equipe-card {
+        padding: 10px;
+        border-radius: 14px;
     }
 
     .partidas-equipe-jogo {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) 92px minmax(0, 1fr);
+        gap: 7px;
+        padding: 8px;
     }
 
-    .partidas-equipe-versus {
+    .partidas-time-bloco,
+    .partidas-time-bloco.direita {
+        flex-direction: column;
         text-align: center;
+        justify-content: center;
+        gap: 5px;
+    }
+
+    .placar-escudo-time {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+    }
+
+    .placar-nome-time {
+        font-size: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .placar-central-jogo {
+        min-width: 92px;
+    }
+
+    .placar-valor-central {
+        font-size: 28px;
+        gap: 5px;
+    }
+
+    .placar-subinfo-central {
+        font-size: 9px;
+    }
+
+    .partidas-equipe-info {
+        font-size: 11px;
+        gap: 7px;
     }
 }
 </style>
@@ -159,12 +419,12 @@
 <div class="partidas-equipe-resumo">
     <div class="partidas-equipe-kpi">
         <strong>{{ total }}</strong>
-        <span>Jogos no visualizador</span>
+        <span>Jogos</span>
     </div>
 
     <div class="partidas-equipe-kpi">
         <strong>{{ pendentes }}</strong>
-        <span>Agendados / pré-jogo</span>
+        <span>Agendados</span>
     </div>
 
     <div class="partidas-equipe-kpi">
@@ -178,33 +438,105 @@
     </div>
 </div>
 
+<div class="card-painel classificacao-equipe-card">
+    <div class="classificacao-equipe-header">
+        <div>
+            <div class="classificacao-equipe-titulo">Classificação</div>
+            <div class="classificacao-equipe-subtitulo">
+                Tabela da competição antes da lista de partidas.
+            </div>
+        </div>
+    </div>
+
+    {% if classificacao %}
+        {% for nome_grupo, linhas in classificacao.items() %}
+            <div class="classificacao-grupo">
+                <div class="classificacao-grupo-topo">Grupo {{ nome_grupo }}</div>
+
+                <div class="classificacao-tabela-wrap">
+                    <table class="classificacao-tabela">
+                        <thead>
+                            <tr>
+                                <th class="classificacao-posicao">#</th>
+                                <th class="classificacao-equipe-nome">Equipe</th>
+                                <th>J</th>
+                                <th>V</th>
+                                <th>D</th>
+                                {% for coluna in colunas_classificacao %}
+                                    <th>{{ coluna.titulo }}</th>
+                                {% endfor %}
+                                <th>SP</th>
+                                <th>SC</th>
+                                <th>PP</th>
+                                <th>PC</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for linha in linhas %}
+                                {% set nome_linha = linha.equipe or '' %}
+                                <tr class="{% if nome_linha|lower == equipe.nome|lower %}classificacao-minha-equipe{% endif %}">
+                                    <td class="classificacao-posicao">{{ loop.index }}</td>
+                                    <td class="classificacao-equipe-nome">
+                                        <div class="classificacao-equipe-identidade">
+                                            <img
+                                                class="classificacao-escudo"
+                                                src="{{ linha.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}"
+                                                alt="Escudo {{ linha.equipe }}"
+                                            >
+                                            <span class="classificacao-equipe-texto">{{ linha.equipe }}</span>
+                                        </div>
+                                    </td>
+                                    <td>{{ linha.jogos or 0 }}</td>
+                                    <td>{{ linha.vitorias or 0 }}</td>
+                                    <td>{{ linha.derrotas or 0 }}</td>
+                                    {% for coluna in colunas_classificacao %}
+                                        <td>{{ linha.get(coluna.campo, 0) }}</td>
+                                    {% endfor %}
+                                    <td>{{ linha.sets_pro or 0 }}</td>
+                                    <td>{{ linha.sets_contra or 0 }}</td>
+                                    <td>{{ linha.pontos_pro or 0 }}</td>
+                                    <td>{{ linha.pontos_contra or 0 }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="partidas-equipe-aviso">
+            A classificação ainda não está disponível. Ela aparece quando houver grupos montados na competição.
+        </div>
+    {% endif %}
+</div>
+
 <div class="card-painel">
-    <div style="font-weight:900; margin-bottom: 6px;">Visualizador geral de partidas</div>
+    <div style="font-weight:900; margin-bottom: 6px;">Partidas da competição</div>
     <div class="partidas-equipe-aviso">
-        Esta tela é apenas para consulta. A equipe visualiza todas as partidas da competição,
-        incluindo classificatórias, quartas, semifinais e final, sem poder alterar confrontos ou placares.
+        Visualização somente para consulta. A equipe não altera confrontos ou placares por esta tela.
     </div>
 </div>
 
 {% if partidas %}
     {% for p in partidas %}
         <div
-            class="partidas-equipe-card"
+            class="partidas-equipe-card {% if p.minha_partida %}minha-partida{% endif %}"
             data-partida-id="{{ p.id }}"
             data-competicao="{{ equipe.competicao }}"
             data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
+            data-set-unico="{{ '1' if p.set_unico else '0' }}"
         >
             <div class="partidas-equipe-topo">
                 <div>
                     <div class="partidas-equipe-fase">{{ p.fase_label }}</div>
 
                     {% if p.minha_partida %}
-                        <div style="margin-top:6px; font-size:12px; font-weight:900; color:#0f766e;">
+                        <div style="margin-top:5px; font-size:11px; font-weight:900; color:#0f766e;">
                             JOGO DA SUA EQUIPE
                         </div>
                     {% endif %}
 
-                    <div style="font-size:13px; color:var(--muted); margin-top:4px;">
+                    <div style="font-size:12px; color:var(--muted); margin-top:3px;">
                         Jogo #{{ p.ordem or p.id }}
                     </div>
                 </div>
@@ -218,16 +550,40 @@
             </div>
 
             <div class="partidas-equipe-jogo">
-                <div class="partidas-equipe-time">
-                    <strong>{{ p.equipe_a or 'A definir' }}</strong>
-                    <small>Equipe A</small>
+                <div class="partidas-time-bloco esquerda">
+                    <img
+                        class="placar-escudo-time"
+                        src="{{ p.escudo_a or escudo_padrao or '/static/img/escudo_padrao.svg' }}"
+                        alt="Escudo {{ p.equipe_a or 'Equipe A' }}"
+                    >
+                    <div>
+                        <div class="placar-nome-time">{{ p.equipe_a or 'A definir' }}</div>
+                        <div class="placar-label-time">Equipe A</div>
+                    </div>
                 </div>
 
-                <div class="partidas-equipe-versus">x</div>
+                <div class="placar-central-jogo">
+                    <div class="placar-valor-central">
+                        <strong id="placar-a-{{ p.id }}">{{ p.placar_exibicao_a or 0 }}</strong>
+                        <span>x</span>
+                        <strong id="placar-b-{{ p.id }}">{{ p.placar_exibicao_b or 0 }}</strong>
+                    </div>
 
-                <div class="partidas-equipe-time">
-                    <strong>{{ p.equipe_b or 'A definir' }}</strong>
-                    <small>Equipe B</small>
+                    <div class="placar-subinfo-central">
+                        {{ p.placar_exibicao_rotulo or ('Pontos' if p.set_unico else 'Sets') }}
+                    </div>
+                </div>
+
+                <div class="partidas-time-bloco direita">
+                    <img
+                        class="placar-escudo-time"
+                        src="{{ p.escudo_b or escudo_padrao or '/static/img/escudo_padrao.svg' }}"
+                        alt="Escudo {{ p.equipe_b or 'Equipe B' }}"
+                    >
+                    <div>
+                        <div class="placar-nome-time">{{ p.equipe_b or 'A definir' }}</div>
+                        <div class="placar-label-time">Equipe B</div>
+                    </div>
                 </div>
             </div>
 
@@ -240,7 +596,7 @@
                 </div>
 
                 <div>
-                    <strong>Parciais / ao vivo:</strong>
+                    <strong>Parciais:</strong>
                     <span id="parciais-{{ p.id }}">
                         {% if p.ao_vivo %}
                             {{ p.placar_ao_vivo_a or 0 }} x {{ p.placar_ao_vivo_b or 0 }}
@@ -267,6 +623,7 @@ async function atualizarPartidasEquipeAoVivo() {
     for (const card of cards) {
         const partidaId = card.dataset.partidaId;
         const competicao = card.dataset.competicao;
+        const setUnico = card.dataset.setUnico === "1";
 
         try {
             const resp = await fetch(`/apontador/estado/${encodeURIComponent(competicao)}/${partidaId}?leve=1`, {
@@ -281,13 +638,30 @@ async function atualizarPartidasEquipeAoVivo() {
             const statusEl = document.getElementById(`status-${partidaId}`);
             const setsEl = document.getElementById(`sets-${partidaId}`);
             const parciaisEl = document.getElementById(`parciais-${partidaId}`);
+            const placarAEl = document.getElementById(`placar-a-${partidaId}`);
+            const placarBEl = document.getElementById(`placar-b-${partidaId}`);
+
+            const setsA = dados.sets_a || 0;
+            const setsB = dados.sets_b || 0;
+            const pontosA = dados.pontos_a || 0;
+            const pontosB = dados.pontos_b || 0;
 
             if (setsEl) {
-                setsEl.textContent = `${dados.sets_a || 0} x ${dados.sets_b || 0}`;
+                setsEl.textContent = `${setsA} x ${setsB}`;
             }
 
             if (parciaisEl && !dados.partida_finalizada) {
-                parciaisEl.textContent = `${dados.pontos_a || 0} x ${dados.pontos_b || 0}`;
+                parciaisEl.textContent = `${pontosA} x ${pontosB}`;
+            }
+
+            if (placarAEl && placarBEl) {
+                if (setUnico) {
+                    placarAEl.textContent = pontosA;
+                    placarBEl.textContent = pontosB;
+                } else {
+                    placarAEl.textContent = setsA;
+                    placarBEl.textContent = setsB;
+                }
             }
 
             if (statusEl) {
