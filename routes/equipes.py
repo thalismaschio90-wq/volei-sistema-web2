@@ -29,6 +29,7 @@ from banco import (
     # ATLETAS - ORGANIZADOR
     listar_atletas_da_competicao,
     atualizar_status_atleta,
+    aprovar_todos_atletas_pendentes,
 
     # EQUIPE - GERENCIAMENTO
     buscar_equipe_por_nome_e_competicao,
@@ -458,7 +459,7 @@ def perfil_equipe_view():
             equipe["telefone"] = telefone
             equipe["email"] = email
             equipe["instagram"] = instagram
-            return render_template("perfil_equipe.html", equipe=equipe)
+            return render_template("perfil_equipe.html", equipe=equipe, escudo_padrao=escudo_padrao_equipe())
 
         salvar_perfil_equipe_por_login(
             usuario,
@@ -472,7 +473,7 @@ def perfil_equipe_view():
         flash("Perfil da equipe atualizado com sucesso.", "sucesso")
         return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
-    return render_template("perfil_equipe.html", equipe=equipe)
+    return render_template("perfil_equipe.html", equipe=equipe, escudo_padrao=escudo_padrao_equipe())
 
 
 # =========================
@@ -511,7 +512,8 @@ def minha_equipe():
         "minha_equipe.html",
         equipe=equipe,
         erro=erro,
-        sucesso=sucesso
+        sucesso=sucesso,
+        escudo_padrao=escudo_padrao_equipe(),
     )
 
 
@@ -1059,6 +1061,19 @@ def reprovar_atleta(id):
     return redirect(url_for("equipes.listar_atletas_organizador"))
 
 
+@equipes_bp.route("/atletas/aprovar-todos-pendentes", methods=["POST"])
+@exigir_perfil("organizador")
+def aprovar_todos_pendentes():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    ok, msg = aprovar_todos_atletas_pendentes(competicao["nome"])
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
+
+
 @equipes_bp.route("/atletas/<int:id>/excluir-organizador", methods=["POST"])
 @exigir_perfil("organizador")
 def excluir_atleta_organizador(id):
@@ -1112,6 +1127,7 @@ def conferencia_atletas():
 def salvar_config_conferencia(competicao):
     prazo = request.form.get("prazo", "").strip()
     link = request.form.get("link", "").strip()
+    aprovacao_automatica = request.form.get("aprovacao_automatica_atletas") == "on"
     criar_campos_conferencia_atletas()
 
     with conectar() as conn:
@@ -1119,9 +1135,10 @@ def salvar_config_conferencia(competicao):
             cur.execute("""
                 UPDATE competicoes
                 SET conferencia_prazo = %s,
-                    conferencia_link = %s
+                    conferencia_link = %s,
+                    aprovacao_automatica_atletas = %s
                 WHERE nome = %s
-            """, (prazo, link, competicao))
+            """, (prazo, link, aprovacao_automatica, competicao))
         conn.commit()
 
     flash("Configuração da conferência salva com sucesso.", "sucesso")

@@ -190,6 +190,41 @@
         word-break: break-word;
     }
 
+
+    .escudo-conta-card {
+        display: grid;
+        gap: 14px;
+    }
+
+    .escudo-conta-preview {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .escudo-conta-img {
+        width: 118px;
+        height: 118px;
+        object-fit: contain;
+        border-radius: 24px;
+        border: 1px solid var(--border);
+        background: #f8fbff;
+        padding: 10px;
+        box-shadow: var(--shadow);
+    }
+
+    .escudo-conta-form {
+        display: grid;
+        gap: 10px;
+    }
+
+    .escudo-conta-botoes {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
     @media (max-width: 950px) {
         .conta-hero,
         .conta-grid,
@@ -219,7 +254,7 @@
         <div class="conta-kicker">Configurações da conta</div>
         <div class="conta-title">Minha Conta</div>
         <div class="conta-text">
-            Altere seu nome, login, senha e dados de contato. O perfil de acesso permanece bloqueado para segurança.
+            {% if perfil_base == 'equipe' %}Altere seu login, dados de contato e escudo. O nome da equipe fica bloqueado porque é definido pelo organizador ou pelo cadastro global.{% else %}Altere seu nome, login, senha e dados de contato. O perfil de acesso permanece bloqueado para segurança.{% endif %}
         </div>
     </div>
 
@@ -262,20 +297,26 @@
     <div class="card-painel">
         <div class="titulo-card">Dados da conta</div>
         <div class="subtexto-card">
-            O login só será salvo se estiver disponível no banco. O perfil não pode ser alterado por esta tela.
+            {% if perfil_base == 'equipe' %}O nome da equipe não pode ser alterado por esta tela. O login pode ser atualizado, desde que esteja disponível no banco.{% else %}O login só será salvo se estiver disponível no banco. O perfil não pode ser alterado por esta tela.{% endif %}
         </div>
 
         <form method="POST" action="{{ url_for('painel.salvar_dados_minha_conta') }}" class="form-conta">
             <div class="form-duplo">
                 <div>
                     <label>Nome exibido</label>
-                    <input type="text" name="nome" value="{{ nome or '' }}" class="input-estilizado" required>
+                    {% if perfil_base == 'equipe' %}
+                        <input type="text" value="{{ nome or '' }}" class="input-estilizado input-bloqueado" disabled>
+                        <input type="hidden" name="nome" value="{{ nome or '' }}">
+                        <div class="hint-conta">Bloqueado para equipes. O organizador pode alterar o nome da equipe, se necessário.</div>
+                    {% else %}
+                        <input type="text" name="nome" value="{{ nome or '' }}" class="input-estilizado" required>
+                    {% endif %}
                 </div>
 
                 <div>
                     <label>Login</label>
                     <input type="text" name="login" value="{{ usuario or '' }}" class="input-estilizado" required autocomplete="username">
-                    <div class="hint-conta">Use letras, números, ponto, hífen, underline ou @.</div>
+                    <div class="hint-conta">Use letras, números, ponto, hífen, underline ou @. Para equipes, isso altera apenas o acesso, não o nome da equipe.</div>
                 </div>
             </div>
 
@@ -324,6 +365,35 @@
             <button type="submit" class="btn-conta">💾 Salvar dados</button>
         </form>
     </div>
+
+    {% if perfil_base == 'equipe' %}
+    <div class="card-painel escudo-conta-card">
+        <div>
+            <div class="titulo-card">Escudo da equipe</div>
+            <div class="subtexto-card">Troque ou remova o escudo global da equipe. Esse escudo aparece nas competições e páginas da equipe.</div>
+        </div>
+
+        <div class="escudo-conta-preview">
+            <img class="escudo-conta-img" src="{{ dados_equipe.escudo if dados_equipe and dados_equipe.escudo else '/static/img/escudo_padrao.svg' }}" alt="Escudo da equipe">
+            <div>
+                <div class="info-label">Equipe</div>
+                <div class="info-valor">{{ nome }}</div>
+                <div class="hint-conta">O escudo pode ser alterado aqui ou clicando no escudo nas telas da equipe.</div>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('equipes.atualizar_escudo_equipe_view') }}" enctype="multipart/form-data" class="escudo-conta-form">
+            <label>Enviar novo escudo</label>
+            <input type="file" name="escudo" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="input-estilizado" required>
+            <div class="escudo-conta-botoes">
+                <button type="submit" class="btn-conta">🏐 Atualizar escudo</button>
+                {% if dados_equipe and dados_equipe.escudo %}
+                    <button type="submit" class="btn-conta" name="remover_escudo" value="1">Remover escudo</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+    {% endif %}
 
     <div class="card-painel">
         <div class="titulo-card">Alterar senha</div>

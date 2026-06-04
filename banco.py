@@ -384,6 +384,9 @@ def _campos_competicao(prefixo="", incluir_senha_organizador=False):
         _campo_ou_alias(colunas, "permitir_edicao_pos_prazo", "FALSE AS permitir_edicao_pos_prazo") if not prefixo else (
             f"{p}permitir_edicao_pos_prazo" if "permitir_edicao_pos_prazo" in colunas else "FALSE AS permitir_edicao_pos_prazo"
         ),
+        _campo_ou_alias(colunas, "aprovacao_automatica_atletas", "FALSE AS aprovacao_automatica_atletas") if not prefixo else (
+            f"{p}aprovacao_automatica_atletas" if "aprovacao_automatica_atletas" in colunas else "FALSE AS aprovacao_automatica_atletas"
+        ),
         _campo_ou_alias(colunas, "travada", "FALSE AS travada") if not prefixo else (
             f"{p}travada" if "travada" in colunas else "FALSE AS travada"
         ),
@@ -501,6 +504,8 @@ def atualizar_login_usuario(login_atual, novo_login):
                 WHERE organizador_login = %s
             """, (novo_login, login_atual))
 
+            _atualizar_vinculos_login_equipe(cur, login_atual, novo_login)
+
         conn.commit()
 
     return True
@@ -535,6 +540,59 @@ def _normalizar_login_conta(login):
     login = re.sub(r"\s+", "_", login)
     login = re.sub(r"[^A-Za-z0-9_.@-]", "", login)
     return login[:80]
+
+
+def _atualizar_vinculos_login_equipe(cur, login_atual, novo_login):
+    """
+    Mantém íntegros os vínculos da equipe quando o login da conta muda.
+
+    O sistema ainda usa o login como chave de compatibilidade em algumas telas
+    (principalmente equipes_competicoes). Se o login muda só em usuarios/equipes,
+    a equipe some do organizador e não carrega a competição selecionada.
+    """
+    login_atual = (login_atual or "").strip()
+    novo_login = (novo_login or "").strip()
+
+    if not login_atual or not novo_login or login_atual == novo_login:
+        return
+
+    tabelas_campos = [
+        ("equipes_competicoes", "equipe_login"),
+    ]
+
+    for tabela, campo in tabelas_campos:
+        try:
+            colunas = _buscar_colunas_tabela(tabela)
+            if campo not in colunas:
+                continue
+
+            cur.execute(
+                f"""
+                UPDATE {tabela}
+                SET {campo} = %s
+                WHERE {campo} = %s
+                """,
+                (novo_login, login_atual),
+            )
+        except Exception as e:
+            print(f"AVISO _atualizar_vinculos_login_equipe/{tabela}.{campo}:", repr(e))
+
+
+def _atualizar_vinculos_login_organizador(cur, login_atual, novo_login):
+    login_atual = (login_atual or "").strip()
+    novo_login = (novo_login or "").strip()
+
+    if not login_atual or not novo_login or login_atual == novo_login:
+        return
+
+    try:
+        cur.execute("""
+            UPDATE competicoes
+            SET organizador_login = %s
+            WHERE organizador_login = %s
+        """, (novo_login, login_atual))
+    except Exception as e:
+        print("AVISO _atualizar_vinculos_login_organizador/competicoes:", repr(e))
 
 
 def atualizar_dados_conta_usuario(login_atual, novo_login, nome):
@@ -584,25 +642,21 @@ def atualizar_dados_conta_usuario(login_atual, novo_login, nome):
                 WHERE login = %s
             """, (novo_login, nome, login_atual))
 
-            # Se for equipe, o login da tabela equipes também precisa acompanhar.
-            try:
-                cur.execute("""
-                    UPDATE equipes
-                    SET login = %s
-                    WHERE login = %s
-                """, (novo_login, login_atual))
-            except Exception as e:
-                print("AVISO atualizar_dados_conta_usuario/equipes:", repr(e))
+            # Se for equipe, o login da tabela equipes e dos vínculos também precisa acompanhar.
+            if usuario.get("perfil") == "equipe":
+                try:
+                    cur.execute("""
+                        UPDATE equipes
+                        SET login = %s
+                        WHERE login = %s
+                    """, (novo_login, login_atual))
+                    _atualizar_vinculos_login_equipe(cur, login_atual, novo_login)
+                except Exception as e:
+                    print("AVISO atualizar_dados_conta_usuario/equipes:", repr(e))
 
             # Se for organizador, as competições precisam continuar vinculadas.
-            try:
-                cur.execute("""
-                    UPDATE competicoes
-                    SET organizador_login = %s
-                    WHERE organizador_login = %s
-                """, (novo_login, login_atual))
-            except Exception as e:
-                print("AVISO atualizar_dados_conta_usuario/competicoes:", repr(e))
+            if usuario.get("perfil") == "organizador":
+                _atualizar_vinculos_login_organizador(cur, login_atual, novo_login)
 
         conn.commit()
 
@@ -730,9 +784,17 @@ def criar_campos_conferencia_atletas():
                 ADD COLUMN IF NOT EXISTS conferencia_liberada BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS conferencia_encerrada BOOLEAN DEFAULT FALSE,
                 ADD COLUMN IF NOT EXISTS conferencia_prazo TEXT,
-                ADD COLUMN IF NOT EXISTS conferencia_link TEXT;
+                ADD COLUMN IF NOT EXISTS conferencia_link TEXT,
+                ADD COLUMN IF NOT EXISTS aprovacao_automatica_atletas BOOLEAN DEFAULT FALSE;
             """)
         conn.commit()
+
+    # Depois de alterar a tabela, limpa o cache local de colunas para que
+    # _campos_competicao() e outras consultas enxerguem o campo novo.
+    try:
+        _CACHE_COLUNAS.pop("competicoes", None)
+    except Exception:
+        pass
 
 
 def listar_competicoes():
@@ -867,6 +929,7 @@ def criar_competicao_com_organizador(nome, data, status, modo_operacao="simples"
                 "bloquear_apos_inicio": False,
                 "limite_atletas": 0,
                 "permitir_edicao_pos_prazo": False,
+                "aprovacao_automatica_atletas": False,
                 "travada": False,
                 "motivo_travamento": "",
                 "travada_em": None,
@@ -2651,6 +2714,7 @@ def listar_equipes_da_competicao(nome_competicao):
                 FROM equipes_competicoes ec
                 JOIN equipes e
                   ON e.login = ec.equipe_login
+                  OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
                 WHERE ec.competicao = %s
                 ORDER BY e.login, ec.competicao, e.nome
             """, (nome_competicao,))
@@ -2771,10 +2835,21 @@ def buscar_equipe_por_login(login, competicao_atual=None):
                     FROM equipes e
                     JOIN equipes_competicoes ec
                       ON ec.equipe_login = e.login
-                    WHERE e.login = %s
+                      OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
+                    WHERE (
+                            e.login = %s
+                         OR ec.equipe_login = %s
+                         OR LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(COALESCE((
+                                SELECT u.equipe
+                                FROM usuarios u
+                                WHERE u.login = %s
+                                LIMIT 1
+                            ), '')))
+                    )
                       AND ec.competicao = %s
+                      AND COALESCE(ec.status, 'ativa') = 'ativa'
                     LIMIT 1
-                """, (login, competicao_atual))
+                """, (login, login, login, competicao_atual))
 
                 equipe = cur.fetchone()
 
@@ -2794,6 +2869,7 @@ def buscar_equipe_por_login(login, competicao_atual=None):
                     e.telefone,
                     e.email,
                     e.instagram,
+                    e.escudo,
                     COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
 
                     NULL::text AS competicao,
@@ -3458,6 +3534,7 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
     criar_tabela_atletas()
     criar_campos_controle_inscricao_competicoes()
     criar_campos_liberacao_extra_equipes()
+    criar_campos_conferencia_atletas()
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -3478,6 +3555,7 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
                     c.hora_limite_inscricao,
                     COALESCE(c.bloquear_apos_inicio, TRUE) AS bloquear_apos_inicio,
                     COALESCE(c.limite_atletas, 0) AS limite_atletas,
+                    COALESCE(c.aprovacao_automatica_atletas, FALSE) AS aprovacao_automatica_atletas,
                     COALESCE(c.travada, FALSE) AS travada,
                     COALESCE(e.liberacao_extra_inscricao, FALSE) AS liberacao_extra_inscricao,
                     e.liberacao_extra_data,
@@ -3565,12 +3643,14 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
                 if cur.fetchone() is not None:
                     return False, "Já existe outro atleta com essa numeração nesta equipe."
 
+            status_inicial = "aprovado" if bool(controle.get("aprovacao_automatica_atletas")) else "pendente"
+
             cur.execute("""
                 INSERT INTO atletas (
                     nome, cpf, data_nascimento, numero, equipe, competicao, status
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, 'pendente')
-            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao))
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao, status_inicial))
         conn.commit()
 
     return True, "Atleta cadastrado com sucesso."
@@ -3685,6 +3765,32 @@ def atualizar_status_atleta(id_atleta, novo_status):
         conn.commit()
 
     return True, "Status do atleta atualizado com sucesso."
+
+
+def aprovar_todos_atletas_pendentes(nome_competicao):
+    nome_competicao = (nome_competicao or "").strip()
+
+    if not nome_competicao:
+        return False, "Competição inválida."
+
+    criar_tabela_atletas()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE atletas
+                SET status = 'aprovado'
+                WHERE competicao = %s
+                  AND LOWER(COALESCE(status, '')) = 'pendente'
+            """, (nome_competicao,))
+            total = cur.rowcount or 0
+
+        conn.commit()
+
+    if total == 0:
+        return True, "Não havia atletas pendentes para aprovar."
+
+    return True, f"{total} atleta(s) pendente(s) aprovado(s) com sucesso."
 
 
 # =========================================================
@@ -10100,7 +10206,8 @@ def buscar_config_conferencia_atletas(nome_competicao):
                     conferencia_liberada,
                     conferencia_encerrada,
                     conferencia_prazo,
-                    conferencia_link
+                    conferencia_link,
+                    COALESCE(aprovacao_automatica_atletas, FALSE) AS aprovacao_automatica_atletas
                 FROM competicoes
                 WHERE nome = %s
                 LIMIT 1

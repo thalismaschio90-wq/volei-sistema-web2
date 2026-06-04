@@ -3,6 +3,20 @@
 {% block titulo %}Completar perfil da equipe{% endblock %}
 
 {% block conteudo %}
+<style>
+    .perfil-equipe-grid { display:grid; grid-template-columns:minmax(0, .82fr) minmax(0, 1.18fr); gap:18px; align-items:start; }
+    .escudo-card { text-align:center; }
+    .escudo-preview-wrap { display:flex; justify-content:center; margin:12px 0 14px; }
+    .escudo-preview { width:170px; height:170px; object-fit:contain; border-radius:28px; border:1px solid var(--border); background:#f8fbff; padding:14px; box-shadow:var(--shadow); }
+    .escudo-actions { display:grid; gap:10px; margin-top:12px; }
+    .escudo-actions input[type="file"] { width:100%; }
+    .escudo-botoes { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+    .perfil-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .campo-bloqueado { background:#eef3f7; color:#607284; cursor:not-allowed; font-weight:800; }
+    .hint-perfil { color:var(--muted); font-size:12px; font-weight:700; margin-top:6px; line-height:1.35; }
+    @media (max-width:850px) { .perfil-equipe-grid, .perfil-form-grid { grid-template-columns:1fr; } }
+</style>
+
 <div class="topo-secao">
     <div class="titulo-secao">Complete o perfil da equipe</div>
 </div>
@@ -15,39 +29,83 @@
     </p>
 </div>
 
-<div class="card-painel" style="max-width: 760px;">
-    <form method="post">
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
-            <div>
-                <label for="cidade">Cidade *</label>
-                <input type="text" id="cidade" name="cidade" value="{{ equipe.cidade or '' }}" required placeholder="Ex: Antônio Prado">
-            </div>
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}<div class="flash-erro">{{ mensagem }}</div>{% else %}<div class="flash-sucesso">{{ mensagem }}</div>{% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
 
-            <div>
-                <label for="responsavel">Responsável *</label>
-                <input type="text" id="responsavel" name="responsavel" value="{{ equipe.responsavel or '' }}" required placeholder="Nome do responsável">
-            </div>
+<div class="perfil-equipe-grid">
+    <div class="card-painel escudo-card">
+        <div style="font-weight:1000; font-size:20px; color:var(--text);">Escudo da equipe</div>
+        <div class="hint-perfil" style="margin-top:6px;">Esse escudo será usado em todas as competições onde a equipe estiver vinculada.</div>
 
-            <div>
-                <label for="telefone">Telefone/WhatsApp *</label>
-                <input type="text" id="telefone" name="telefone" value="{{ equipe.telefone or '' }}" required placeholder="(54) 99999-9999">
-            </div>
-
-            <div>
-                <label for="email">E-mail</label>
-                <input type="text" id="email" name="email" value="{{ equipe.email or '' }}" placeholder="email@exemplo.com">
-            </div>
-
-            <div style="grid-column:1 / -1;">
-                <label for="instagram">Instagram</label>
-                <input type="text" id="instagram" name="instagram" value="{{ equipe.instagram or '' }}" placeholder="@suaequipe">
-            </div>
+        <div class="escudo-preview-wrap">
+            <img class="escudo-preview" src="{{ equipe.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}" alt="Escudo da equipe">
         </div>
 
-        <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao">Salvar e continuar</button>
-            <a href="{{ url_for('auth.logout') }}" class="btn-secundario">Sair</a>
-        </div>
-    </form>
+        <form class="escudo-actions" method="post" action="{{ url_for('equipes.atualizar_escudo_equipe_view') }}" enctype="multipart/form-data">
+            <label for="escudo">Enviar novo escudo</label>
+            <input type="file" id="escudo" name="escudo" accept="image/png,image/jpeg,image/webp,image/svg+xml" required>
+            <div class="escudo-botoes">
+                <button type="submit" class="btn-padrao">Atualizar escudo</button>
+                {% if equipe.escudo %}
+                    <button type="submit" class="btn-secundario" name="remover_escudo" value="1">Remover escudo</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <div class="card-painel">
+        <form method="post">
+            <div class="perfil-form-grid">
+                <div style="grid-column:1 / -1;">
+                    <label>Nome da equipe</label>
+                    <input type="text" value="{{ equipe.nome or '' }}" disabled class="campo-bloqueado">
+                    <div class="hint-perfil">O nome da equipe é bloqueado para o usuário da equipe. Se precisar alterar, solicite ao organizador.</div>
+                </div>
+
+                <div style="grid-column:1 / -1;">
+                    <label>Login da equipe</label>
+                    <input type="text" value="{{ equipe.login or session.get('usuario') }}" disabled class="campo-bloqueado">
+                    <div class="hint-perfil">O login também fica travado para manter o vínculo correto com as competições.</div>
+                </div>
+
+                <div>
+                    <label for="cidade">Cidade *</label>
+                    <input type="text" id="cidade" name="cidade" value="{{ equipe.cidade or '' }}" required placeholder="Ex: Antônio Prado">
+                </div>
+
+                <div>
+                    <label for="responsavel">Responsável *</label>
+                    <input type="text" id="responsavel" name="responsavel" value="{{ equipe.responsavel or '' }}" required placeholder="Nome do responsável">
+                </div>
+
+                <div>
+                    <label for="telefone">Telefone/WhatsApp *</label>
+                    <input type="text" id="telefone" name="telefone" value="{{ equipe.telefone or '' }}" required placeholder="(54) 99999-9999">
+                </div>
+
+                <div>
+                    <label for="email">E-mail</label>
+                    <input type="text" id="email" name="email" value="{{ equipe.email or '' }}" placeholder="email@exemplo.com">
+                </div>
+
+                <div style="grid-column:1 / -1;">
+                    <label for="instagram">Instagram</label>
+                    <input type="text" id="instagram" name="instagram" value="{{ equipe.instagram or '' }}" placeholder="@suaequipe">
+                </div>
+            </div>
+
+            <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button type="submit" class="btn-padrao">Salvar e continuar</button>
+                <a href="{{ url_for('auth.logout') }}" class="btn-secundario">Sair</a>
+            </div>
+        </form>
+    </div>
 </div>
 {% endblock %}

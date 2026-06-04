@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+<style>
+    .minha-equipe-resumo { display:grid; grid-template-columns:auto minmax(0,1fr); gap:16px; align-items:center; }
+    .escudo-link { display:inline-flex; border-radius:22px; cursor:pointer; transition:.18s ease; text-decoration:none; }
+    .escudo-link:hover { transform:scale(1.04); filter:brightness(1.05); }
+    .escudo-minha-equipe { width:112px; height:112px; object-fit:contain; border-radius:22px; border:1px solid var(--border); background:#f8fbff; padding:10px; box-shadow:var(--shadow); }
+    .form-escudo { display:grid; gap:10px; max-width:520px; }
+    .botoes-escudo { display:flex; gap:10px; flex-wrap:wrap; }
+    .hint-equipe { color:var(--muted); font-size:12px; font-weight:700; margin-top:6px; line-height:1.35; }
+    @media (max-width:650px) { .minha-equipe-resumo { grid-template-columns:1fr; } .escudo-minha-equipe { width:100%; height:150px; } }
+</style>
+
 <div class="topo-secao">
     <div class="titulo-secao" style="margin-bottom: 0;">Minha equipe</div>
 </div>
@@ -13,12 +24,41 @@
     <div class="flash-sucesso">{{ sucesso }}</div>
 {% endif %}
 
-<div class="card-painel">
-    <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ equipe.nome }}</div>
-    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ equipe.login }}</div>
-    <div><strong>Competição:</strong> {{ equipe.competicao or "-" }}</div>
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="flash-box">
+            {% for categoria, mensagem in messages %}
+                {% if categoria == "erro" %}<div class="flash-erro">{{ mensagem }}</div>{% else %}<div class="flash-sucesso">{{ mensagem }}</div>{% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endwith %}
+
+<div class="card-painel minha-equipe-resumo">
+    <a class="escudo-link" href="{{ url_for('equipes.perfil_equipe_view') }}" title="Alterar escudo da equipe">
+        <img class="escudo-minha-equipe" src="{{ equipe.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}" alt="Escudo da equipe">
+    </a>
+    <div>
+        <div style="margin-bottom: 6px;"><strong>Equipe:</strong> {{ equipe.nome }}</div>
+        <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ equipe.login }}</div>
+        <div><strong>Competição:</strong> {{ equipe.competicao or "-" }}</div>
+        <div class="hint-equipe">Clique no escudo para abrir o perfil da equipe e alterar a imagem.</div>
+    </div>
 </div>
 
+<div class="card-painel">
+    <div style="font-weight: 900; margin-bottom: 8px;">Escudo da equipe</div>
+    <div style="color: var(--muted); margin-bottom: 14px;">Altere aqui o escudo global da equipe. Ele será exibido nas páginas da equipe e nas competições.</div>
+    <form class="form-escudo" method="post" action="{{ url_for('equipes.atualizar_escudo_equipe_view') }}" enctype="multipart/form-data">
+        <input type="file" name="escudo" accept="image/png,image/jpeg,image/webp,image/svg+xml" required>
+        <div class="botoes-escudo">
+            <button type="submit" class="btn-padrao">Atualizar escudo</button>
+            {% if equipe.escudo %}
+                <button type="submit" class="btn-secundario" name="remover_escudo" value="1">Remover escudo</button>
+            {% endif %}
+        </div>
+    </form>
+</div>
 
 <div class="card-painel">
     <div style="font-weight: 900; margin-bottom: 14px;">Modo treinador</div>

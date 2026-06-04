@@ -102,9 +102,126 @@
     align-items: center;
 }
 
+.subtitulo-bloco {
+    font-weight: 800;
+    font-size: 16px;
+    margin: 16px 0 10px;
+}
+
+.divisor-config {
+    border: none;
+    border-top: 1px solid #d1d5db;
+    margin: 18px 0;
+}
+
+.bloco-conferencia-inferior {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.status-card {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #f9fafb;
+    padding: 12px 14px;
+}
+
+.status-linha {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.status-bolinha {
+    width: 13px;
+    height: 13px;
+    border-radius: 999px;
+    background: #9ca3af;
+    margin-top: 3px;
+    flex: 0 0 auto;
+}
+
+.status-bolinha.aberta {
+    background: #166534;
+}
+
+.status-bolinha.encerrada {
+    background: #991b1b;
+}
+
+.status-titulo {
+    font-weight: 800;
+    margin-bottom: 3px;
+}
+
+.status-descricao {
+    color: #4b5563;
+    font-size: 12px;
+}
+
+.conferencia-acoes-bloco {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.aprovacao-box {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #f9fafb;
+    padding: 14px;
+}
+
+.check-config {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0 0 14px;
+}
+
+.check-config input {
+    margin-top: 4px;
+}
+
+.check-config strong,
+.aprovar-todos-info strong {
+    display: block;
+    margin-bottom: 3px;
+}
+
+.check-config small,
+.aprovar-todos-info small {
+    color: #4b5563;
+}
+
+.aprovar-todos-linha {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.aprovar-todos-info {
+    flex: 1;
+    min-width: 240px;
+}
+
 .status-conferencia {
-    margin-top: 12px;
+    margin-top: 0;
     font-weight: 700;
+}
+
+@media (max-width: 760px) {
+    .conferencia-grid,
+    .bloco-conferencia-inferior {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
 
@@ -124,35 +241,88 @@
             </div>
         </div>
 
-        <div class="conferencia-acoes">
-            <button class="btn-sucesso" type="submit">Salvar Configuração</button>
+        <div class="bloco-conferencia-inferior">
+            <div>
+                <div class="subtitulo-bloco">Status da conferência</div>
+
+                <div class="status-card">
+                    <div class="status-linha">
+                        {% if competicao.conferencia_liberada %}
+                            {% if competicao.conferencia_encerrada %}
+                                <span class="status-bolinha encerrada"></span>
+                                <div>
+                                    <div class="status-titulo badge-perigo">Encerrada</div>
+                                    <div class="status-descricao">A conferência foi encerrada para as equipes.</div>
+                                </div>
+                            {% else %}
+                                <span class="status-bolinha aberta"></span>
+                                <div>
+                                    <div class="status-titulo badge-sucesso">Aberta</div>
+                                    <div class="status-descricao">A conferência está liberada para as equipes.</div>
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <span class="status-bolinha"></span>
+                            <div>
+                                <div class="status-titulo">Não liberada</div>
+                                <div class="status-descricao">A conferência ainda não foi liberada para as equipes.</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="subtitulo-bloco">Ações da conferência</div>
+
+                <div class="conferencia-acoes-bloco">
+                    <button class="btn-sucesso" type="submit" formaction="{{ url_for('equipes.liberar_conferencia', competicao=competicao.nome) }}">
+                        Liberar Conferência
+                    </button>
+
+                    <button class="btn-perigo" type="submit" formaction="{{ url_for('equipes.encerrar_conferencia', competicao=competicao.nome) }}">
+                        Encerrar Conferência
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <hr class="divisor-config">
+
+        <div class="subtitulo-bloco">Aprovação de Atletas</div>
+
+        <div class="aprovacao-box">
+            <label class="check-config">
+                <input type="checkbox" name="aprovacao_automatica_atletas" {% if competicao.aprovacao_automatica_atletas %}checked{% endif %}>
+                <span>
+                    <strong>Aprovar atletas automaticamente</strong>
+                    <small>Quando estiver marcado, todo atleta cadastrado pela equipe já entra como aprovado e não precisa passar pela aprovação manual.</small>
+                </span>
+            </label>
+
+            <div class="aprovar-todos-linha">
+                <div class="aprovar-todos-info">
+                    <strong>Aprovar todos pendentes</strong>
+                    <small>Aprova todos os atletas que estão com status “pendente” nesta competição.</small>
+                </div>
+
+                <button
+                    class="btn-sucesso"
+                    type="submit"
+                    formaction="{{ url_for('equipes.aprovar_todos_pendentes') }}"
+                    onclick="return confirm('Aprovar todos os atletas pendentes desta competição?');"
+                >
+                    Aprovar todos pendentes
+                </button>
+            </div>
+
+            <div class="conferencia-acoes" style="margin-top: 14px;">
+                <button class="btn-sucesso" type="submit">
+                    Salvar Configuração
+                </button>
+            </div>
         </div>
     </form>
-
-    <hr>
-
-    <div class="conferencia-acoes">
-        <form method="post" action="{{ url_for('equipes.liberar_conferencia', competicao=competicao.nome) }}">
-            <button class="btn-sucesso" type="submit">Liberar Conferência</button>
-        </form>
-
-        <form method="post" action="{{ url_for('equipes.encerrar_conferencia', competicao=competicao.nome) }}">
-            <button class="btn-perigo" type="submit">Encerrar Conferência</button>
-        </form>
-    </div>
-
-    <div class="status-conferencia">
-        Status:
-        {% if competicao.conferencia_liberada %}
-            {% if competicao.conferencia_encerrada %}
-                <span class="badge-perigo">Encerrada</span>
-            {% else %}
-                <span class="badge-sucesso">Aberta</span>
-            {% endif %}
-        {% else %}
-            <span>Não liberada</span>
-        {% endif %}
-    </div>
 </div>
 
 {% if atletas and atletas|length > 0 %}
