@@ -6,3 +6,5 @@ psycopg-pool==3.3.0
 simple-websocket==1.0.0
 python-dotenv
 reportlab==4.2.5
+Pillow==10.4.0
+pillow-heif==0.18.0

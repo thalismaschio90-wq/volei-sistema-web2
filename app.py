@@ -1,6 +1,7 @@
 from flask import (
     Flask,
     request,
+    session,
     redirect,
     send_from_directory,
     make_response,
@@ -17,6 +18,8 @@ from banco import (
     criar_campos_perfil_equipe,
     criar_campo_escudo_equipes,
     garantir_campos_trava_operacional_partida,
+    buscar_equipe_por_login,
+    escudo_padrao_equipe,
 )
 
 from routes.auth import auth_bp
@@ -65,6 +68,7 @@ def aplicar_headers_cache(response):
         path.endswith(".css")
         or path.endswith(".js")
         or path.endswith(".json")
+        or path.startswith("/static/uploads/escudos/")
         or path == "/sw.js"
         or path == "/manifest.json"
         or path == "/app-login"
@@ -122,6 +126,82 @@ socketio.init_app(
     ping_timeout=20,
     ping_interval=10,
 )
+
+
+@app.context_processor
+def injetar_dados_topbar_global():
+    """
+    Deixa o cabeçalho global com os dados corretos em qualquer template.
+    Principal uso: mostrar o escudo da equipe logada ao lado do nome no topo.
+    """
+    dados_padrao = {
+        "topbar_nome": session.get("nome") or session.get("usuario") or "",
+        "topbar_perfil": session.get("perfil") or "",
+        "topbar_escudo": "",
+        "topbar_tem_escudo": False,
+        "topbar_url": "/minha-conta",
+    }
+
+    if not session.get("usuario"):
+        return dados_padrao
+
+    perfil = (session.get("perfil") or "").strip().lower()
+    usuario = (session.get("usuario") or "").strip()
+
+    try:
+        escudo_padrao = escudo_padrao_equipe() or "/static/img/escudo_padrao.svg"
+    except Exception:
+        escudo_padrao = "/static/img/escudo_padrao.svg"
+
+    dados_padrao["topbar_escudo"] = escudo_padrao
+
+    if perfil == "equipe" and usuario:
+        equipe = None
+        competicao_atual = (session.get("competicao_equipe_atual") or "").strip() or None
+
+        try:
+            equipe = buscar_equipe_por_login(usuario, competicao_atual)
+        except Exception as e:
+            print("AVISO topbar equipe por competição:", e)
+            equipe = None
+
+        if not equipe:
+            try:
+                equipe = buscar_equipe_por_login(usuario, None)
+            except Exception as e:
+                print("AVISO topbar equipe global:", e)
+                equipe = None
+
+        if equipe:
+            nome_equipe = (
+                equipe.get("nome")
+                or equipe.get("nome_equipe")
+                or session.get("nome")
+                or usuario
+            )
+            escudo_equipe = (
+                equipe.get("escudo")
+                or equipe.get("escudo_url")
+                or equipe.get("logo")
+                or equipe.get("logo_url")
+                or escudo_padrao
+            )
+
+            dados_padrao.update({
+                "topbar_nome": nome_equipe,
+                "topbar_perfil": "EQUIPE",
+                "topbar_escudo": escudo_equipe,
+                "topbar_tem_escudo": True,
+                "topbar_url": "/minha-equipe",
+            })
+        else:
+            dados_padrao.update({
+                "topbar_perfil": "EQUIPE",
+                "topbar_tem_escudo": True,
+                "topbar_url": "/minha-equipe",
+            })
+
+    return dados_padrao
 
 
 app.register_blueprint(acessos_pin_bp)

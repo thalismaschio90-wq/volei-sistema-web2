@@ -262,12 +262,16 @@
         }
 
         .topbar-user-link {
-            display: block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
             color: inherit;
             text-decoration: none;
-            border-radius: 14px;
+            border-radius: 16px;
             padding: 8px 10px;
             transition: 0.18s ease;
+            max-width: min(360px, 42vw);
         }
 
         .topbar-user-link:hover {
@@ -334,21 +338,46 @@
         }
 
         .topbar-user {
-            text-align: right;
+            text-align: left;
             flex-shrink: 0;
+        }
+
+        .topbar-user-escudo {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            object-fit: contain;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid rgba(255,255,255,0.34);
+            padding: 4px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+            flex: 0 0 auto;
+        }
+
+        .topbar-user-info {
+            min-width: 0;
+            text-align: left;
         }
 
         .topbar-user strong {
             display: block;
-            font-size: 14px;
+            font-size: 16px;
             color: white;
+            line-height: 1.1;
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .topbar-user span {
+            display: block;
+            margin-top: 3px;
             font-size: 11px;
-            color: rgba(255,255,255,0.66);
+            color: rgba(255,255,255,0.76);
             text-transform: uppercase;
-            letter-spacing: 0.4px;
+            letter-spacing: 0.55px;
+            font-weight: 700;
         }
 
         .content {
@@ -780,8 +809,26 @@
                 grid-template-columns: 1fr;
             }
 
-            .topbar-user {
-                display: none;
+            .topbar-user-link {
+                gap: 8px;
+                padding: 5px 6px;
+                max-width: 150px;
+            }
+
+            .topbar-user-escudo {
+                width: 38px;
+                height: 38px;
+                border-radius: 12px;
+                padding: 3px;
+            }
+
+            .topbar-user strong {
+                max-width: 92px;
+                font-size: 12px;
+            }
+
+            .topbar-user span {
+                font-size: 9px;
             }
 
             .topbar-title {
@@ -790,6 +837,51 @@
 
             .tooltip-texto {
                 display: none;
+            }
+        }
+
+        @media (max-width: 520px) {
+            .topbar {
+                padding: 12px 12px;
+                gap: 8px;
+            }
+
+            .topbar-left {
+                gap: 8px;
+            }
+
+            .topbar-logo,
+            .topbar-subtitle {
+                display: none;
+            }
+
+            .topbar-home-link {
+                padding: 4px 2px;
+                gap: 6px;
+            }
+
+            .topbar-title {
+                font-size: 19px;
+            }
+
+            .menu-toggle {
+                width: 40px;
+                height: 40px;
+                border-radius: 12px;
+            }
+
+            .topbar-user-info {
+                display: none;
+            }
+
+            .topbar-user-link {
+                max-width: none;
+                padding: 4px;
+            }
+
+            .topbar-user-escudo {
+                width: 40px;
+                height: 40px;
             }
         }
     </style>
@@ -1047,9 +1139,19 @@
                 </a>
             </div>
 
-            <a href="{{ url_for('painel.minha_conta') }}" class="topbar-user topbar-user-link" title="Abrir minha conta">
-                <strong>{{ session.get("nome", session.get("usuario")) }}</strong>
-                <span>{{ session.get("perfil", "") }}</span>
+            <a href="{{ topbar_url|default('/minha-conta') }}" class="topbar-user topbar-user-link" title="Abrir dados da conta/equipe">
+                {% if topbar_tem_escudo|default(false) %}
+                    <img
+                        src="{{ topbar_escudo|default('/static/img/escudo_padrao.svg') }}"
+                        class="topbar-user-escudo"
+                        alt="Escudo da equipe"
+                        onerror="this.onerror=null;this.src='/static/img/escudo_padrao.svg';"
+                    >
+                {% endif %}
+                <div class="topbar-user-info">
+                    <strong>{{ topbar_nome|default(session.get("nome", session.get("usuario"))) }}</strong>
+                    <span>{{ topbar_perfil|default(session.get("perfil", "")) }}</span>
+                </div>
             </a>
         </div>
 
