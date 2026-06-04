@@ -1921,6 +1921,23 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
 
     const PARTIDA_ID = {{ partida.id | tojson }};
     const COMPETICAO = {{ competicao_nome | tojson }};
+    const OPERADOR_LOGIN = {{ session.get('usuario') | tojson }};
+    const OPERADOR_SESSAO_TOKEN = {{ operador_sessao_token | default('', true) | tojson }};
+    const URL_HEARTBEAT_OPERACAO = {{ url_for('apontadores.heartbeat_operacao_view', competicao=competicao_nome, partida_id=partida.id) | tojson }};
+    const DISPOSITIVO_OPERACIONAL_ID = (function () {
+        const chave = 'vt_operador_dispositivo';
+        try {
+            let id = localStorage.getItem(chave);
+            if (!id) {
+                id = 'disp_' + Math.random().toString(36).slice(2) + '_' + Date.now().toString(36);
+                localStorage.setItem(chave, id);
+            }
+            try { document.cookie = chave + '=' + encodeURIComponent(id) + ';path=/;max-age=31536000;SameSite=Lax'; } catch (e) {}
+            return id;
+        } catch (e) {
+            return 'disp_temp_' + Date.now().toString(36);
+        }
+    })();
     const NOME_EQUIPE_A = {{ (partida.equipe_a_operacional or partida.equipe_a) | tojson }};
     const NOME_EQUIPE_B = {{ (partida.equipe_b_operacional or partida.equipe_b) | tojson }};
     const ESCUDO_PADRAO = "/static/img/escudo_padrao.svg";
@@ -2137,6 +2154,10 @@ function montarPayloadTempoReal(extra = {}) {
             origem: extra.origem || "apontador_local",
             partida_id: String(PARTIDA_ID),
             competicao: String(COMPETICAO || ""),
+            operador_login: String(OPERADOR_LOGIN || ""),
+            apontador_login: String(OPERADOR_LOGIN || ""),
+            operador_sessao_token: String(OPERADOR_SESSAO_TOKEN || ""),
+            operador_dispositivo_id: String(DISPOSITIVO_OPERACIONAL_ID || ""),
             equipe_a: NOME_EQUIPE_A,
             equipe_b: NOME_EQUIPE_B,
             pontos_a: numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0),
@@ -4705,6 +4726,35 @@ function salvarSnapshotLocalAutomatico(motivo = "autosave") {
     }
 }
 
+
+async function enviarHeartbeatOperacional() {
+    if (!URL_HEARTBEAT_OPERACAO || !OPERADOR_SESSAO_TOKEN) return true;
+    try {
+        const resp = await fetch(URL_HEARTBEAT_OPERACAO, {
+            method: "POST",
+            headers: {
+                "X-Requested-With": "fetch",
+                "X-Operador-Sessao": String(OPERADOR_SESSAO_TOKEN || ""),
+                "X-Dispositivo-Operacao": String(DISPOSITIVO_OPERACIONAL_ID || "")
+            },
+            keepalive: true
+        });
+        if (!resp.ok) {
+            const json = await resp.json().catch(() => ({}));
+            const msg = json.mensagem || "Esta partida está aberta em outro dispositivo ou navegador.";
+            try { alert(msg); } catch (e) {}
+            window.location.href = {{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) | tojson }};
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+enviarHeartbeatOperacional();
+setInterval(enviarHeartbeatOperacional, 15000);
+
 async function enviarSnapshotBancoAutomatico({ pausar = false, finalizar = false, motivo = "autosave", forcar = false } = {}) {
     if (autosaveBancoEmAndamento && !forcar) return false;
 
@@ -4727,7 +4777,12 @@ async function enviarSnapshotBancoAutomatico({ pausar = false, finalizar = false
     try {
         const resp = await fetch(URLS_ACAO.salvar_estado, {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+            headers: {
+                "Content-Type": "application/json",
+                "X-Requested-With": "fetch",
+                "X-Operador-Sessao": String(OPERADOR_SESSAO_TOKEN || ""),
+                "X-Dispositivo-Operacao": String(DISPOSITIVO_OPERACIONAL_ID || "")
+            },
             body: JSON.stringify({
                 pausar,
                 finalizar,

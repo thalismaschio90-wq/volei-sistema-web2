@@ -7,6 +7,164 @@
     <div class="titulo-secao">Conferência da Equipe {{ lado }}</div>
 </div>
 
+<style>
+    .conf-ajuda {
+        margin-top: 8px;
+        color: var(--muted);
+    }
+
+    .tag-libero {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #eef6ff;
+        color: #075985;
+        font-size: 12px;
+        font-weight: 900;
+        margin-left: 6px;
+        vertical-align: middle;
+    }
+
+    .campo-libero {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 800;
+        color: #123852;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .campo-libero input {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+    }
+
+    .acoes-atleta {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .btn-mini-editar {
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #123852;
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-weight: 900;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .btn-mini-editar:hover {
+        background: #f3f4f6;
+    }
+
+    .modal-atleta {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(15, 23, 42, .55);
+        padding: 18px;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal-atleta.ativo {
+        display: flex;
+    }
+
+    .modal-atleta-card {
+        width: min(560px, 100%);
+        max-height: 92vh;
+        overflow: auto;
+        background: #fff;
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+    }
+
+    .modal-atleta-topo {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .modal-atleta-titulo {
+        font-size: 20px;
+        font-weight: 950;
+        color: #123852;
+    }
+
+    .modal-fechar {
+        border: none;
+        background: #f3f4f6;
+        color: #111827;
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        font-size: 22px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .grid-edicao-atleta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .grid-edicao-atleta .campo-full {
+        grid-column: 1 / -1;
+    }
+
+    .campo-edicao label {
+        display: block;
+        margin-bottom: 5px;
+        color: #374151;
+        font-size: 13px;
+        font-weight: 900;
+    }
+
+    .campo-edicao input {
+        width: 100%;
+    }
+
+    .aviso-libero {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: #fffbeb;
+        color: #92400e;
+        font-weight: 800;
+        font-size: 13px;
+        line-height: 1.35;
+    }
+
+    @media (max-width: 700px) {
+        table {
+            font-size: 13px;
+        }
+
+        .grid-edicao-atleta {
+            grid-template-columns: 1fr;
+        }
+
+        .acoes-atleta {
+            justify-content: flex-start;
+        }
+    }
+</style>
+
 <div class="card-painel">
     <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
     <div style="margin-top:6px;">
@@ -17,13 +175,13 @@
     <div style="margin-top:10px; font-size:18px; font-weight:900;">
         {{ equipe_nome }}
     </div>
-    <div style="margin-top:8px; color:var(--muted);">
-        Confira nome, CPF e preencha a numeração quando necessário.
+    <div class="conf-ajuda">
+        Confira nome, CPF, número e marque até 2 líberos. Líbero não aparece na substituição comum do jogo.
     </div>
 </div>
 
 <div class="card-painel">
-    <form method="post" action="{{ url_for('apontadores.salvar_conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado=lado) }}">
+    <form method="post" action="{{ url_for('apontadores.salvar_conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado=lado) }}" id="form-conferencia-equipe">
         {% if atletas %}
             <table>
                 <thead>
@@ -31,6 +189,8 @@
                         <th>Nome</th>
                         <th>CPF</th>
                         <th>Número</th>
+                        <th>Líbero</th>
+                        <th style="text-align:right;">Ações</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -38,23 +198,54 @@
                     <tr>
                         <td>
                             {{ atleta.nome }}
+                            {% if atleta.libero %}
+                                <span class="tag-libero">Líbero</span>
+                            {% endif %}
                             <input type="hidden" name="atleta_id" value="{{ atleta.id }}">
                         </td>
                         <td>{{ atleta.cpf }}</td>
-                        <td style="max-width:140px;">
+                        <td style="max-width:120px;">
                             <input
                                 type="number"
                                 name="numero_{{ atleta.id }}"
                                 value="{{ atleta.numero if atleta.numero is not none else '' }}"
                                 min="1"
+                                max="99"
                                 step="1"
                                 placeholder="Número"
                             >
+                        </td>
+                        <td>
+                            <label class="campo-libero">
+                                <input
+                                    type="checkbox"
+                                    name="libero_id"
+                                    value="{{ atleta.id }}"
+                                    {% if atleta.libero %}checked{% endif %}
+                                    onchange="validarLimiteLiberos(this)"
+                                >
+                                Líbero
+                            </label>
+                        </td>
+                        <td>
+                            <div class="acoes-atleta">
+                                <button
+                                    type="button"
+                                    class="btn-mini-editar"
+                                    onclick="abrirModalAtleta('{{ atleta.id }}')"
+                                >
+                                    ✏️ Editar
+                                </button>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+
+            <div class="aviso-libero">
+                Regra: cada equipe pode ter no máximo 2 líberos. Eles continuam cadastrados no elenco, mas ficam fora da substituição comum.
+            </div>
 
             <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
                 <button class="btn-padrao" type="submit">Salvar conferência</button>
@@ -68,4 +259,102 @@
         {% endif %}
     </form>
 </div>
+
+{% for atleta in atletas %}
+<div class="modal-atleta" id="modal-atleta-{{ atleta.id }}" aria-hidden="true">
+    <div class="modal-atleta-card">
+        <div class="modal-atleta-topo">
+            <div>
+                <div class="modal-atleta-titulo">Editar atleta</div>
+                <div style="color:var(--muted); font-weight:700; margin-top:4px;">{{ equipe_nome }}</div>
+            </div>
+            <button type="button" class="modal-fechar" onclick="fecharModalAtleta('{{ atleta.id }}')">×</button>
+        </div>
+
+        <form method="post" action="{{ url_for('apontadores.editar_atleta_conferencia_view', competicao=competicao_nome, partida_id=partida.id, lado=lado, atleta_id=atleta.id) }}">
+            <div class="grid-edicao-atleta">
+                <div class="campo-edicao campo-full">
+                    <label>Nome</label>
+                    <input type="text" name="nome" value="{{ atleta.nome }}" required>
+                </div>
+
+                <div class="campo-edicao">
+                    <label>CPF</label>
+                    <input type="text" name="cpf" value="{{ atleta.cpf }}" required>
+                </div>
+
+                <div class="campo-edicao">
+                    <label>Data de nascimento</label>
+                    <input type="date" name="data_nascimento" value="{{ atleta.data_nascimento }}" required>
+                </div>
+
+                <div class="campo-edicao">
+                    <label>Número</label>
+                    <input type="number" name="numero" value="{{ atleta.numero if atleta.numero is not none else '' }}" min="1" max="99" step="1" placeholder="Número">
+                </div>
+
+                <div class="campo-edicao" style="display:flex; align-items:end; padding-bottom:10px;">
+                    <label class="campo-libero">
+                        <input type="checkbox" name="libero" value="1" {% if atleta.libero %}checked{% endif %}>
+                        Marcar como líbero
+                    </label>
+                </div>
+            </div>
+
+            <div class="aviso-libero">
+                Ao marcar como líbero, este atleta não será listado na substituição comum. O limite é de 2 líberos por equipe.
+            </div>
+
+            <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap; justify-content:flex-end;">
+                <button type="button" class="btn-secundario" onclick="fecharModalAtleta('{{ atleta.id }}')">Cancelar</button>
+                <button type="submit" class="btn-padrao">Salvar atleta</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endfor %}
+
+<script>
+function abrirModalAtleta(id) {
+    const modal = document.getElementById("modal-atleta-" + id);
+    if (!modal) return;
+    modal.classList.add("ativo");
+    modal.setAttribute("aria-hidden", "false");
+}
+
+function fecharModalAtleta(id) {
+    const modal = document.getElementById("modal-atleta-" + id);
+    if (!modal) return;
+    modal.classList.remove("ativo");
+    modal.setAttribute("aria-hidden", "true");
+}
+
+function validarLimiteLiberos(clicado) {
+    const marcados = document.querySelectorAll('input[name="libero_id"]:checked');
+    if (marcados.length <= 2) return true;
+
+    if (clicado) {
+        clicado.checked = false;
+    }
+    alert("Cada equipe pode ter no máximo 2 líberos.");
+    return false;
+}
+
+document.addEventListener("keydown", function(event) {
+    if (event.key !== "Escape") return;
+    document.querySelectorAll(".modal-atleta.ativo").forEach(function(modal) {
+        modal.classList.remove("ativo");
+        modal.setAttribute("aria-hidden", "true");
+    });
+});
+
+document.querySelectorAll(".modal-atleta").forEach(function(modal) {
+    modal.addEventListener("click", function(event) {
+        if (event.target === modal) {
+            modal.classList.remove("ativo");
+            modal.setAttribute("aria-hidden", "true");
+        }
+    });
+});
+</script>
 {% endblock %}

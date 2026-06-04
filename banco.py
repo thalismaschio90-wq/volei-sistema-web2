@@ -36,6 +36,7 @@ _SCHEMA_FLAGS = {
     "campos_controle_inscricao_competicoes": False,
     "tabela_atletas": False,
     "tabela_competicao_quadras": False,
+    "campos_trava_operacional_partida": False,
 }
 _SCHEMA_LOCK = Lock()
 _POOL_LOCK = Lock()
@@ -3966,8 +3967,9 @@ def criar_tabela_partidas():
 
 
 def listar_partidas(competicao):
-    # PERFORMANCE: schema/migrations não devem rodar em toda listagem.
-    # A criação/verificação das tabelas já é feita no boot do app.py.
+    criar_campo_escudo_equipes()
+    criar_tabela_equipes_competicoes()
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -3993,7 +3995,9 @@ def listar_partidas(competicao):
 
 
 def buscar_partida_por_id(partida_id, competicao):
-    # PERFORMANCE: evita ALTER/CREATE/check de schema durante request quente.
+    criar_campo_escudo_equipes()
+    criar_tabela_equipes_competicoes()
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -5267,6 +5271,181 @@ def listar_arbitros_competicao(competicao):
             return cur.fetchall()
 
 
+
+# =========================================================
+# TRAVA OPERACIONAL DO APONTADOR
+# =========================================================
+TRAVA_OPERACIONAL_TIMEOUT_SEGUNDOS = 75
+
+
+def garantir_campos_trava_operacional_partida(force=False):
+    """Garante os campos usados para impedir dois apontadores na mesma partida."""
+    if _schema_ja_pronto("campos_trava_operacional_partida", force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_nome TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_login TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_nome TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_operacao TEXT DEFAULT 'livre'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_heartbeat TIMESTAMP")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_socket_id TEXT")
+        conn.commit()
+
+    _marcar_schema_pronto("campos_trava_operacional_partida")
+
+
+def _lock_expirado(row):
+    if not row:
+        return True
+    status = (row.get("status_operacao") or "livre").strip().lower()
+    if status in {"", "livre", "finalizada", "finalizado", "encerrada", "encerrado"}:
+        return True
+    if not row.get("operador_login"):
+        return True
+
+    referencia = row.get("operador_heartbeat") or row.get("reservado_em")
+    if not referencia:
+        return False
+
+    try:
+        return (datetime.now() - referencia).total_seconds() > TRAVA_OPERACIONAL_TIMEOUT_SEGUNDOS
+    except Exception:
+        return False
+
+
+def validar_operador_partida(partida_id, competicao, operador_login, renovar=True):
+    """Valida se o usuário atual ainda é o dono da operação da partida."""
+    garantir_campos_trava_operacional_partida()
+    operador_login = (operador_login or "").strip()
+    if not operador_login:
+        return False, "Sessão do apontador não identificada.", None
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, operador_login, operador_nome, status_operacao,
+                       reservado_em, operador_heartbeat, status_jogo
+                FROM partidas
+                WHERE id = %s
+                  AND competicao = %s
+                LIMIT 1
+            """, (partida_id, competicao))
+            partida = cur.fetchone()
+
+            if not partida:
+                return False, "Partida não encontrada.", None
+
+            dono = (partida.get("operador_login") or "").strip()
+            status_jogo = (partida.get("status_jogo") or "").strip().lower()
+            status_operacao = (partida.get("status_operacao") or "livre").strip().lower()
+
+            if status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}:
+                return False, "A partida já está finalizada.", partida
+
+            if dono != operador_login:
+                if dono and not _lock_expirado(partida):
+                    nome = partida.get("operador_nome") or dono
+                    return False, f"Esta partida já está em operação por {nome}.", partida
+
+                return False, "Esta partida não está sob sua operação. Assuma a partida antes de operar.", partida
+
+            if renovar and status_operacao not in {"finalizada", "finalizado", "encerrada", "encerrado"}:
+                cur.execute("""
+                    UPDATE partidas
+                    SET operador_heartbeat = NOW(),
+                        status_operacao = CASE
+                            WHEN COALESCE(status_operacao, 'livre') IN ('livre', 'reservado', 'pre_jogo') THEN status_operacao
+                            ELSE status_operacao
+                        END
+                    WHERE id = %s
+                      AND competicao = %s
+                      AND operador_login = %s
+                """, (partida_id, competicao, operador_login))
+                conn.commit()
+
+    return True, "Operação liberada.", partida
+
+
+def heartbeat_partida_operacional(partida_id, competicao, operador_login, socket_id=None):
+    garantir_campos_trava_operacional_partida()
+    operador_login = (operador_login or "").strip()
+    if not operador_login:
+        return False, "Sessão do apontador não identificada."
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT operador_login, operador_nome, status_operacao,
+                       reservado_em, operador_heartbeat, status_jogo
+                FROM partidas
+                WHERE id = %s
+                  AND competicao = %s
+                LIMIT 1
+            """, (partida_id, competicao))
+            partida = cur.fetchone()
+
+            if not partida:
+                return False, "Partida não encontrada."
+
+            if (partida.get("status_jogo") or "").strip().lower() in {"finalizada", "finalizado", "encerrada", "encerrado"}:
+                return False, "Partida finalizada."
+
+            dono = (partida.get("operador_login") or "").strip()
+            if dono and dono != operador_login and not _lock_expirado(partida):
+                nome = partida.get("operador_nome") or dono
+                return False, f"Esta partida já está em operação por {nome}."
+
+            if not dono or dono == operador_login or _lock_expirado(partida):
+                cur.execute("""
+                    UPDATE partidas
+                    SET operador_login = %s,
+                        apontador_login = %s,
+                        operador_heartbeat = NOW(),
+                        operador_socket_id = COALESCE(%s, operador_socket_id),
+                        reservado_em = COALESCE(reservado_em, NOW()),
+                        status_operacao = CASE
+                            WHEN COALESCE(status_operacao, 'livre') IN ('livre', '') THEN 'reservado'
+                            ELSE status_operacao
+                        END
+                    WHERE id = %s
+                      AND competicao = %s
+                """, (operador_login, operador_login, socket_id, partida_id, competicao))
+                conn.commit()
+
+    return True, "Heartbeat atualizado."
+
+
+def liberar_trava_partida_operacional(partida_id, competicao, operador_login):
+    garantir_campos_trava_operacional_partida()
+    operador_login = (operador_login or "").strip()
+    if not operador_login:
+        return False, "Sessão do apontador não identificada."
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE partidas
+                SET operador_login = NULL,
+                    operador_nome = NULL,
+                    apontador_login = NULL,
+                    apontador_nome = NULL,
+                    operador_heartbeat = NULL,
+                    operador_socket_id = NULL,
+                    reservado_em = NULL,
+                    status_operacao = 'livre'
+                WHERE id = %s
+                  AND competicao = %s
+                  AND operador_login = %s
+                  AND COALESCE(status_jogo, '') NOT IN ('em_andamento', 'entre_sets', 'finalizada')
+            """, (partida_id, competicao, operador_login))
+        conn.commit()
+
+    return True, "Partida liberada."
+
 def buscar_partida_operacional(partida_id, competicao):
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -5281,25 +5460,38 @@ def buscar_partida_operacional(partida_id, competicao):
 
 
 def assumir_partida_operacional(partida_id, competicao, operador_login, operador_nome):
+    garantir_campos_trava_operacional_partida()
+    operador_login = (operador_login or "").strip()
+    operador_nome = (operador_nome or operador_login or "Apontador").strip()
+
+    if not operador_login:
+        return False, "Sessão do apontador não identificada."
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT operador_login, status_operacao
+                SELECT operador_login, operador_nome, status_operacao,
+                       reservado_em, operador_heartbeat, status_jogo
                 FROM partidas
                 WHERE id = %s
                   AND competicao = %s
-                LIMIT 1
+                FOR UPDATE
             """, (partida_id, competicao))
             atual = cur.fetchone()
 
             if not atual:
                 return False, "Partida não encontrada."
 
-            dono = atual.get("operador_login")
-            status_operacao = (atual.get("status_operacao") or "livre").lower()
+            status_jogo = (atual.get("status_jogo") or "").strip().lower()
+            if status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}:
+                return False, "Esta partida já está finalizada."
 
-            if dono and dono != operador_login and status_operacao in {"reservado", "pre_jogo", "em_andamento"}:
-                return False, "Esta partida já está em operação por outro apontador."
+            dono = (atual.get("operador_login") or "").strip()
+            status_operacao = (atual.get("status_operacao") or "livre").strip().lower()
+
+            if dono and dono != operador_login and status_operacao not in {"livre", "finalizada", "finalizado"} and not _lock_expirado(atual):
+                nome = atual.get("operador_nome") or dono
+                return False, f"Esta partida já está em operação por {nome}."
 
             cur.execute("""
                 UPDATE partidas
@@ -5307,8 +5499,12 @@ def assumir_partida_operacional(partida_id, competicao, operador_login, operador
                     operador_nome = %s,
                     apontador_login = %s,
                     apontador_nome = %s,
-                    status_operacao = 'reservado',
-                    reservado_em = NOW()
+                    status_operacao = CASE
+                        WHEN COALESCE(status_operacao, 'livre') IN ('livre', '', 'reservado') THEN 'reservado'
+                        ELSE status_operacao
+                    END,
+                    reservado_em = COALESCE(reservado_em, NOW()),
+                    operador_heartbeat = NOW()
                 WHERE id = %s
                   AND competicao = %s
             """, (operador_login, operador_nome, operador_login, operador_nome, partida_id, competicao))
@@ -5316,12 +5512,12 @@ def assumir_partida_operacional(partida_id, competicao, operador_login, operador
 
     return True, "Partida assumida com sucesso."
 
-
 def abandonar_partida_operacional(partida_id, competicao, operador_login):
+    garantir_campos_trava_operacional_partida()
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT status_operacao, operador_login
+                SELECT status_operacao, operador_login, status_jogo
                 FROM partidas
                 WHERE id = %s
                   AND competicao = %s
@@ -5335,8 +5531,10 @@ def abandonar_partida_operacional(partida_id, competicao, operador_login):
             if atual.get("operador_login") != operador_login:
                 return False, "Você não é o operador desta partida."
 
-            if (atual.get("status_operacao") or "livre").lower() != "reservado":
-                return False, "A partida já iniciou o pré-jogo e não pode mais ser abandonada dessa forma."
+            status_operacao = (atual.get("status_operacao") or "livre").strip().lower()
+            status_jogo = (atual.get("status_jogo") or "").strip().lower()
+            if status_operacao != "reservado" and status_jogo not in {"", "pre_jogo"}:
+                return False, "A partida já iniciou e não pode mais ser abandonada dessa forma. Use Salvar e sair."
 
             cur.execute("""
                 UPDATE partidas
@@ -5344,6 +5542,8 @@ def abandonar_partida_operacional(partida_id, competicao, operador_login):
                     operador_nome = NULL,
                     status_operacao = 'livre',
                     reservado_em = NULL,
+                    operador_heartbeat = NULL,
+                    operador_socket_id = NULL,
                     apontador_login = NULL,
                     apontador_nome = NULL
                 WHERE id = %s
@@ -5352,7 +5552,6 @@ def abandonar_partida_operacional(partida_id, competicao, operador_login):
         conn.commit()
 
     return True, "Partida abandonada com sucesso."
-
 
 def salvar_pre_jogo_partida(
     partida_id,
@@ -5413,6 +5612,7 @@ def salvar_pre_jogo_partida(
                     equipe_a_operacional = %s,
                     equipe_b_operacional = %s,
                     status_operacao = 'pre_jogo',
+                    operador_heartbeat = NOW(),
                     status = 'pre_jogo',
                     fase_partida = 'papeleta',
                     pre_jogo_finalizado = TRUE,
@@ -5867,7 +6067,9 @@ def inicializar_sets_partida(partida_id, competicao):
                     sets_b = COALESCE(sets_b, 0),
                     sets_max = COALESCE(sets_max, %s),
                     sets_para_vencer = COALESCE(sets_para_vencer, %s),
-                    fase_partida = COALESCE(fase_partida, 'pre_jogo')
+                    fase_partida = COALESCE(fase_partida, 'pre_jogo'),
+                    status_operacao = CASE WHEN COALESCE(status_operacao, 'livre') IN ('reservado', 'pre_jogo') THEN 'em_andamento' ELSE status_operacao END,
+                    operador_heartbeat = NOW()
                 WHERE id = %s
                   AND competicao = %s
             """, (sets_max, sets_para_vencer, partida_id, competicao))
@@ -6241,6 +6443,14 @@ def criar_campos_jogo_partida(force=False):
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fase_partida TEXT DEFAULT 'pre_jogo'")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_finalizado BOOLEAN DEFAULT FALSE")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_finalizado_em TIMESTAMP")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_nome TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_login TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_nome TEXT")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_operacao TEXT DEFAULT 'livre'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_heartbeat TIMESTAMP")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_socket_id TEXT")
         conn.commit()
 
     _marcar_schema_pronto("campos_jogo_partida")

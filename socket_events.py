@@ -1,7 +1,7 @@
 from datetime import date, datetime
 import time
 
-from flask import request
+from flask import request, session
 from flask_socketio import join_room
 from extensions import socketio
 
@@ -139,36 +139,6 @@ def _normalizar_rotacao_payload(valor):
 
 
 
-
-def _sets_tipo_normalizado_payload(dados):
-    texto = str(dados.get("sets_tipo") or dados.get("tipo_sets") or dados.get("formato_sets") or "").strip().lower()
-    texto = texto.replace("-", "_").replace(" ", "_")
-    if texto in {"set_unico", "único", "unico", "1_set", "melhor_de_1", "md1"}:
-        return "set_unico"
-    if texto in {"melhor_de_5", "md5", "5"}:
-        return "melhor_de_5"
-    return texto or "melhor_de_3"
-
-
-def _aplicar_placar_exibicao_payload(payload):
-    sets_tipo = _sets_tipo_normalizado_payload(payload)
-    set_unico = sets_tipo == "set_unico"
-    if set_unico:
-        a = _to_int(payload.get("pontos_a", payload.get("placar_a", 0)), 0)
-        b = _to_int(payload.get("pontos_b", payload.get("placar_b", 0)), 0)
-        tipo = "pontos"
-    else:
-        a = _to_int(payload.get("sets_a"), 0)
-        b = _to_int(payload.get("sets_b"), 0)
-        tipo = "sets"
-    payload["sets_tipo"] = sets_tipo
-    payload["set_unico"] = set_unico
-    payload["placar_exibicao_a"] = a
-    payload["placar_exibicao_b"] = b
-    payload["placar_exibicao_tipo"] = tipo
-    payload["placar_exibicao"] = f"{a} x {b}"
-    return payload
-
 def _primeiro_valor(dados, chaves, padrao=None):
     for chave in chaves:
         if chave in dados and dados.get(chave) is not None and dados.get(chave) != "":
@@ -208,6 +178,38 @@ def _normalizar_url_escudo(valor):
     if "/uploads/" in valor:
         return "/static/uploads/" + valor.split("/uploads/", 1)[1]
     return "/static/uploads/escudos/" + valor.lstrip("/")
+
+
+
+def _login_socket_payload(data):
+    data = data or {}
+    return _normalizar_apontador(
+        data.get("operador_login")
+        or data.get("apontador_login")
+        or data.get("apontador")
+        or session.get("usuario")
+        or session.get("usuario_login")
+        or session.get("login")
+        or session.get("apontador_login")
+    )
+
+
+def _validar_operador_socket(partida_id, competicao, data):
+    """Impede que outro socket/apontador sobrescreva o cache da partida."""
+    login = _login_socket_payload(data)
+    if not login:
+        return False, "Sessão do apontador não identificada."
+
+    try:
+        from banco import validar_operador_partida, heartbeat_partida_operacional
+        ok, msg, _partida = validar_operador_partida(partida_id, competicao, login, renovar=True)
+        if ok:
+            heartbeat_partida_operacional(partida_id, competicao, login, getattr(request, "sid", None))
+        return ok, msg
+    except Exception as e:
+        print("ERRO validar operador socket:", repr(e), flush=True)
+        return False, "Não foi possível validar a trava operacional da partida."
+
 
 # =========================
 # CACHE
@@ -360,8 +362,6 @@ def _normalizar_payload(partida_id, dados=None):
             False,
         ),
     }
-
-    payload = _aplicar_placar_exibicao_payload(payload)
 
     return _json_safe(payload)
 
@@ -849,6 +849,17 @@ def estado_partida_local_socket(data):
     partida_id = str(data.get("partida_id") or "").strip()
 
     if not partida_id:
+        return
+
+    competicao = str(data.get("competicao") or "").strip()
+    ok_lock, msg_lock = _validar_operador_socket(partida_id, competicao, data)
+    if not ok_lock:
+        socketio.emit("estado_partida_local_ok", {
+            "ok": False,
+            "bloqueada": True,
+            "partida_id": partida_id,
+            "mensagem": msg_lock,
+        }, room=request.sid)
         return
 
     payload = _normalizar_payload(partida_id, data)

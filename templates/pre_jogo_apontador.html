@@ -24,7 +24,11 @@
 
     {% if bloqueada_por_outro %}
         <div style="color:#ef4444; font-weight:800; margin-bottom:12px;">
-            Esta partida está em operação por {{ partida.operador_nome or partida.operador_login }}.
+            {% if bloqueada_mesmo_login %}
+                Este mesmo login já está operando esta partida em outro dispositivo ou navegador.
+            {% else %}
+                Esta partida está em operação por {{ partida.operador_nome or partida.operador_login }}.
+            {% endif %}
         </div>
         <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar</a>
 
