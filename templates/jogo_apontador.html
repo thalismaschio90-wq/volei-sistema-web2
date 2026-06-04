@@ -2,6 +2,10 @@
 
 {% block conteudo %}
 {% set modo_operacao_jogo = modo_operacao if modo_operacao is defined else 'simples' %}
+{% set nome_equipe_a_jogo = (partida.get('equipe_a_operacional') if partida is mapping else partida.equipe_a_operacional|default('', true)) or (partida.get('equipe_a') if partida is mapping else partida.equipe_a|default('', true)) or (estado.get('equipe_a_operacional') if estado is mapping else estado.equipe_a_operacional|default('', true)) or (estado.get('equipe_a') if estado is mapping else estado.equipe_a|default('', true)) or 'Equipe A' %}
+{% set nome_equipe_b_jogo = (partida.get('equipe_b_operacional') if partida is mapping else partida.equipe_b_operacional|default('', true)) or (partida.get('equipe_b') if partida is mapping else partida.equipe_b|default('', true)) or (estado.get('equipe_b_operacional') if estado is mapping else estado.equipe_b_operacional|default('', true)) or (estado.get('equipe_b') if estado is mapping else estado.equipe_b|default('', true)) or 'Equipe B' %}
+{% set escudo_equipe_a_jogo = (estado.get('escudo_a') if estado is mapping else estado.escudo_a|default('', true)) or (estado.get('escudo_a_operacional') if estado is mapping else estado.escudo_a_operacional|default('', true)) or '/static/img/escudo_padrao.svg' %}
+{% set escudo_equipe_b_jogo = (estado.get('escudo_b') if estado is mapping else estado.escudo_b|default('', true)) or (estado.get('escudo_b_operacional') if estado is mapping else estado.escudo_b_operacional|default('', true)) or '/static/img/escudo_padrao.svg' %}
 
 <div class="topo-secao">
     <div class="titulo-secao">Jogo ao vivo</div>
@@ -1405,13 +1409,13 @@
 
     <div class="linha-principal jogo-equipes-com-escudo">
         <span class="jogo-equipe-chip">
-            <img id="escudo-a-jogo" class="jogo-escudo-time" src="{{ estado.escudo_a or estado.escudo_a_operacional or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ partida.equipe_a_operacional or partida.equipe_a }}">
-            <span id="nome-a">{{ partida.equipe_a_operacional or partida.equipe_a }}</span>
+            <img id="escudo-a-jogo" class="jogo-escudo-time" src="{{ escudo_equipe_a_jogo }}" alt="Escudo {{ nome_equipe_a_jogo }}">
+            <span id="nome-a">{{ nome_equipe_a_jogo }}</span>
         </span>
         <span class="jogo-x-times">x</span>
         <span class="jogo-equipe-chip direita">
-            <img id="escudo-b-jogo" class="jogo-escudo-time" src="{{ estado.escudo_b or estado.escudo_b_operacional or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ partida.equipe_b_operacional or partida.equipe_b }}">
-            <span id="nome-b">{{ partida.equipe_b_operacional or partida.equipe_b }}</span>
+            <img id="escudo-b-jogo" class="jogo-escudo-time" src="{{ escudo_equipe_b_jogo }}" alt="Escudo {{ nome_equipe_b_jogo }}">
+            <span id="nome-b">{{ nome_equipe_b_jogo }}</span>
         </span>
     </div>
 
@@ -1482,28 +1486,28 @@
         <div class="card-painel">
             <div class="quadras-wrap">
                 <div class="quadra-box">
-                    <div id="titulo-quadra-esquerda" class="quadra-titulo">{{ partida.equipe_a_operacional or partida.equipe_a }}</div>
+                    <div id="titulo-quadra-esquerda" class="quadra-titulo">{{ nome_equipe_a_jogo }}</div>
                     <div id="quadra-a" class="quadra"></div>
                 </div>
 
                 <div class="quadra-box">
-                    <div id="titulo-quadra-direita" class="quadra-titulo">{{ partida.equipe_b_operacional or partida.equipe_b }}</div>
+                    <div id="titulo-quadra-direita" class="quadra-titulo">{{ nome_equipe_b_jogo }}</div>
                     <div id="quadra-b" class="quadra"></div>
                 </div>
             </div>
 
             <div class="acoes-quadra">
                 <div class="acoes-jogo">
-                    <button id="btn-ponto-a" class="btn-secundario" type="button">+ ponto {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
-                    <button id="btn-ponto-b" class="btn-secundario" type="button">+ ponto {{ partida.equipe_b_operacional or partida.equipe_b }}</button>
+                    <button id="btn-ponto-a" class="btn-secundario" type="button">+ ponto {{ nome_equipe_a_jogo }}</button>
+                    <button id="btn-ponto-b" class="btn-secundario" type="button">+ ponto {{ nome_equipe_b_jogo }}</button>
                     <button id="btn-desfazer" class="btn-secundario" type="button">⟲ Desfazer</button>
-                    <button id="btn-wo-a" class="btn-wo btn-secundario" type="button">WO {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
-                    <button id="btn-wo-b" class="btn-wo btn-secundario" type="button">WO {{ partida.equipe_b_operacional or partida.equipe_b }}</button>
+                    <button id="btn-wo-a" class="btn-wo btn-secundario" type="button">WO {{ nome_equipe_a_jogo }}</button>
+                    <button id="btn-wo-b" class="btn-wo btn-secundario" type="button">WO {{ nome_equipe_b_jogo }}</button>
                 </div>
 
                 <div class="acoes-tempo">
-                    <button id="btn-tempo-a" class="btn-secundario" type="button">Tempo {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
-                    <button id="btn-tempo-b" class="btn-secundario" type="button">Tempo {{ partida.equipe_b_operacional or partida.equipe_b }}</button>
+                    <button id="btn-tempo-a" class="btn-secundario" type="button">Tempo {{ nome_equipe_a_jogo }}</button>
+                    <button id="btn-tempo-b" class="btn-secundario" type="button">Tempo {{ nome_equipe_b_jogo }}</button>
                 </div>
             </div>
         </div>
@@ -1531,8 +1535,8 @@
     <div style="font-size:16px; font-weight:900; margin-bottom:14px;">Registrar ação</div>
 
     <div class="acoes-tempo">
-        <button id="btn-sub-a" class="btn-secundario" type="button">Substituição {{ partida.equipe_a_operacional or partida.equipe_a }}</button>
-        <button id="btn-sub-b" class="btn-secundario" type="button">Substituição {{ partida.equipe_b_operacional or partida.equipe_b }}</button>
+        <button id="btn-sub-a" class="btn-secundario" type="button">Substituição {{ nome_equipe_a_jogo }}</button>
+        <button id="btn-sub-b" class="btn-secundario" type="button">Substituição {{ nome_equipe_b_jogo }}</button>
     </div>
 
     <div class="acoes-tempo">
@@ -1921,9 +1925,9 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
 
     const PARTIDA_ID = {{ partida.id | tojson }};
     const COMPETICAO = {{ competicao_nome | tojson }};
-    const OPERADOR_LOGIN = {{ session.get('usuario') | tojson }};
+    const OPERADOR_LOGIN = {{ (operador_login_atual if operador_login_atual is defined else '') | tojson }};
     const OPERADOR_SESSAO_TOKEN = {{ operador_sessao_token | default('', true) | tojson }};
-    const URL_HEARTBEAT_OPERACAO = {{ url_for('apontadores.heartbeat_operacao_view', competicao=competicao_nome, partida_id=partida.id) | tojson }};
+    const URL_HEARTBEAT_OPERACAO = {{ url_for('apontadores.heartbeat_partida_view', competicao=competicao_nome, partida_id=partida.id) | tojson }};
     const DISPOSITIVO_OPERACIONAL_ID = (function () {
         const chave = 'vt_operador_dispositivo';
         try {
@@ -1938,11 +1942,11 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
             return 'disp_temp_' + Date.now().toString(36);
         }
     })();
-    const NOME_EQUIPE_A = {{ (partida.equipe_a_operacional or partida.equipe_a) | tojson }};
-    const NOME_EQUIPE_B = {{ (partida.equipe_b_operacional or partida.equipe_b) | tojson }};
+    const NOME_EQUIPE_A = {{ nome_equipe_a_jogo | tojson }};
+    const NOME_EQUIPE_B = {{ nome_equipe_b_jogo | tojson }};
     const ESCUDO_PADRAO = "/static/img/escudo_padrao.svg";
-    let ESCUDO_EQUIPE_A = {{ (estado.escudo_a or estado.escudo_a_operacional or '/static/img/escudo_padrao.svg') | tojson }};
-    let ESCUDO_EQUIPE_B = {{ (estado.escudo_b or estado.escudo_b_operacional or '/static/img/escudo_padrao.svg') | tojson }};
+    let ESCUDO_EQUIPE_A = {{ escudo_equipe_a_jogo | tojson }};
+    let ESCUDO_EQUIPE_B = {{ escudo_equipe_b_jogo | tojson }};
     const escudoAJogo = document.getElementById("escudo-a-jogo");
     const escudoBJogo = document.getElementById("escudo-b-jogo");
     const CHAVE_INVERSAO_QUADRA = `quadra_invertida_{{ competicao_nome|replace(' ', '_') }}_{{ partida.id }}`;
@@ -2787,14 +2791,14 @@ function alternarTelaCheia() {
 }
 
 function abrirPlacarAoVivo() {
-    window.open("{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=session.get('usuario')) }}", "_blank");
+    window.open("{{ url_for('apontadores.placar_ao_vivo_apontador', apontador=(operador_login_atual if operador_login_atual is defined else '')) }}", "_blank");
 }
 
 function avisarPlacarAoVivoSobreInversao() {
     const payload = {
         partida_id: {{ partida.id|tojson }},
         competicao: {{ competicao_nome|tojson }},
-        apontador: {{ (session.get('usuario') or '')|tojson }},
+        apontador: {{ (operador_login_atual if operador_login_atual is defined else '')|tojson }},
         invertido: !!ladosInvertidos,
         lados_invertidos_apontador: !!ladosInvertidos
     };
@@ -3884,8 +3888,8 @@ function inverterLadosVisual() {
         renderLista(
             sancaoEquipeLista,
             [
-                { valor: "A", label: "{{ partida.equipe_a_operacional or partida.equipe_a }}", baseClass: "sancao-card" },
-                { valor: "B", label: "{{ partida.equipe_b_operacional or partida.equipe_b }}", baseClass: "sancao-card" }
+                { valor: "A", label: "{{ nome_equipe_a_jogo }}", baseClass: "sancao-card" },
+                { valor: "B", label: "{{ nome_equipe_b_jogo }}", baseClass: "sancao-card" }
             ],
             sancaoEquipeAtual,
             "ativo",
@@ -4100,8 +4104,8 @@ function atualizarResumoSubEx() {
         renderLista(
             verdeEquipeLista,
             [
-                { valor: "A", label: "{{ partida.equipe_a_operacional or partida.equipe_a }}", baseClass: "verde-card" },
-                { valor: "B", label: "{{ partida.equipe_b_operacional or partida.equipe_b }}", baseClass: "verde-card" }
+                { valor: "A", label: "{{ nome_equipe_a_jogo }}", baseClass: "verde-card" },
+                { valor: "B", label: "{{ nome_equipe_b_jogo }}", baseClass: "verde-card" }
             ],
             verdeEquipeAtual,
             "ativo",
@@ -4923,7 +4927,7 @@ function salvarJogoOfflineLocal(silencioso = true) {
     salvarJSONLocal(OFFLINE_SESSAO_KEY, {
         autorizado: true,
         tipo: "apontador",
-        nome: {{ (session.get('usuario') or 'Apontador')|tojson }},
+        nome: {{ (operador_login_atual if operador_login_atual is defined else 'Apontador')|tojson }},
         competicao: COMPETICAO,
         criada_em: new Date().toISOString()
     });

@@ -32,7 +32,7 @@
         </div>
         <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar</a>
 
-    {% elif partida.operador_login != session.get("usuario") %}
+    {% elif partida.operador_login != operador_login_atual %}
         <div style="color:var(--muted); margin-bottom:12px;">
             Abrir a tela não assume a partida. A operação só começa quando você confirmar.
         </div>
@@ -60,7 +60,7 @@
     {% endif %}
 </div>
 
-{% if partida.operador_login == session.get("usuario") %}
+{% if partida.operador_login == operador_login_atual %}
 <div class="card-painel">
     <div style="font-weight:900; margin-bottom:12px;">Configuração do pré-jogo</div>
 
@@ -115,7 +115,7 @@
             <div>
                 <label>Apontador</label>
                 <input type="text"
-                       value="{{ partida.operador_nome or session.get('usuario') }}"
+                       value="{{ partida.operador_nome or operador_login_atual }}"
                        readonly>
             </div>
 

@@ -1430,7 +1430,7 @@ def alterar_permissao_jogo_avulso_view(cpf, acao):
 def painel_apontador():
     criar_tabelas_oficiais()
 
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     pode_jogo_avulso = apontador_pode_criar_jogo_avulso(cpf) if cpf else False
     offline_habilitado = offline_global_habilitado()
 
@@ -1498,7 +1498,7 @@ def entrar_competicao_apontador(competicao):
         p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
 
     try:
-        pin_operacional = garantir_pin_operacional_apontador(competicao, session.get("usuario"))
+        pin_operacional = garantir_pin_operacional_apontador(competicao, _login_apontador_sessao())
     except Exception as e:
         print("ERRO garantir_pin_operacional_apontador:", e, flush=True)
         pin_operacional = None
@@ -1509,7 +1509,7 @@ def entrar_competicao_apontador(competicao):
         competicao_nome=competicao,
         partidas=partidas,
         pin_operacional=pin_operacional,
-        pode_jogo_avulso=apontador_pode_criar_jogo_avulso(session.get("usuario")),
+        pode_jogo_avulso=apontador_pode_criar_jogo_avulso(_login_apontador_sessao()),
         offline_habilitado=offline_global_habilitado(),
         sets_max_manual=sets_max_manual,
         sets_para_vencer_manual=sets_para_vencer_manual,
@@ -1693,8 +1693,8 @@ def pacote_offline_competicao_apontador(competicao):
             "ok": True,
             "competicao": competicao,
             "baixado_em": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "usuario": session.get("usuario") or "",
-            "nome_usuario": session.get("nome") or session.get("usuario_nome") or session.get("usuario") or "Apontador",
+            "usuario": _login_apontador_sessao(),
+            "nome_usuario": session.get("nome") or session.get("usuario_nome") or _login_apontador_sessao() or "Apontador",
             "configuracao": comp,
             "partidas": partidas,
             "equipes": equipes,
@@ -1749,7 +1749,7 @@ def salvar_resultado_manual_view(competicao, partida_id):
         partida_id,
         competicao,
         sets,
-        operador_login=session.get("usuario"),
+        operador_login=_login_apontador_sessao(),
         origem=origem,
     )
 
@@ -1781,7 +1781,7 @@ def editar_scout_partida_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>")
 @exigir_perfil("apontador")
 def abrir_pre_jogo_apontador(competicao, partida_id):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -1845,24 +1845,39 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
         capitao_b_numero=partida.get("capitao_b_numero"),
         pre_jogo_bloqueado=(fluxo.get("fase_partida") != "pre_jogo"),
         tie_break_pendente=bool(fluxo.get("tiebreak_pendente")),
+        operador_login_atual=_login_apontador_sessao(),
     )
 
 
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/assumir", methods=["POST"])
 @exigir_perfil("apontador")
 def assumir_partida_view(competicao, partida_id):
-    cpf = session.get("usuario")
-    oficial = buscar_oficial_por_cpf(cpf)
+    operador_login = _login_apontador_sessao()
+    cpf_sessao = (session.get("usuario") or session.get("cpf") or operador_login or "").strip()
 
-    if not oficial:
-        flash("Apontador não localizado.", "erro")
-        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+    oficial = None
+    try:
+        oficial = buscar_oficial_por_cpf(cpf_sessao)
+    except Exception:
+        oficial = None
+
+    operador_nome = (
+        (oficial or {}).get("nome")
+        or session.get("nome")
+        or session.get("usuario_nome")
+        or operador_login
+        or "Apontador"
+    )
+
+    if not operador_login:
+        flash("Sessão do apontador não identificada. Faça login novamente.", "erro")
+        return redirect(url_for("login"))
 
     ok, msg = assumir_partida_operacional(
         partida_id,
         competicao,
-        cpf,
-        oficial["nome"]
+        operador_login,
+        operador_nome
     )
 
     flash(msg, "sucesso" if ok else "erro")
@@ -1872,7 +1887,7 @@ def assumir_partida_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/abandonar", methods=["POST"])
 @exigir_perfil("apontador")
 def abandonar_partida_view(competicao, partida_id):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     ok, msg = abandonar_partida_operacional(partida_id, competicao, cpf)
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
@@ -1881,7 +1896,7 @@ def abandonar_partida_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_pre_jogo_view(competicao, partida_id):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
 
     arbitro_1_cpf = request.form.get("arbitro_1_cpf", "").strip()
     arbitro_2_cpf = request.form.get("arbitro_2_cpf", "").strip()
@@ -1909,7 +1924,7 @@ def salvar_pre_jogo_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/tiebreak/<competicao>/<int:partida_id>")
 @exigir_perfil("apontador")
 def abrir_tiebreak_view(competicao, partida_id):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -1936,7 +1951,7 @@ def abrir_tiebreak_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/tiebreak/<competicao>/<int:partida_id>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_tiebreak_view(competicao, partida_id):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
 
     vencedor_sorteio = request.form.get("sorteio_vencedor", "").strip()
     escolha_sorteio = request.form.get("sorteio_escolha", "").strip()
@@ -1962,7 +1977,7 @@ def salvar_tiebreak_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/conferencia/<lado>")
 @exigir_perfil("apontador")
 def conferencia_equipe_view(competicao, partida_id, lado):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -1998,7 +2013,7 @@ def conferencia_equipe_view(competicao, partida_id, lado):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/conferencia/<lado>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_conferencia_equipe_view(competicao, partida_id, lado):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -2102,7 +2117,7 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/conferencia/<lado>/atleta/<int:atleta_id>/editar", methods=["POST"])
 @exigir_perfil("apontador")
 def editar_atleta_conferencia_view(competicao, partida_id, lado, atleta_id):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -2141,7 +2156,7 @@ def editar_atleta_conferencia_view(competicao, partida_id, lado, atleta_id):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/capitao/<lado>")
 @exigir_perfil("apontador")
 def definir_capitao_view(competicao, partida_id, lado):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     partida = buscar_partida_operacional(partida_id, competicao)
 
     if not partida:
@@ -2180,7 +2195,7 @@ def definir_capitao_view(competicao, partida_id, lado):
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/capitao/<lado>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_capitao_view(competicao, partida_id, lado):
-    cpf = session.get("usuario")
+    cpf = _login_apontador_sessao()
     atleta_id = request.form.get("atleta_id", "").strip()
 
     ok, msg = salvar_capitao_partida(partida_id, competicao, cpf, lado, atleta_id)
@@ -2441,6 +2456,10 @@ def jogo_view(competicao, partida_id):
 
     equipe_a_op = partida.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
     equipe_b_op = partida.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
+
+    if (not equipe_a_op or not equipe_b_op) and not editar_scout_finalizada:
+        flash("Complete o pré-jogo antes de abrir a tela do jogo.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     estado["equipe_a_operacional"] = equipe_a_op
     estado["equipe_b_operacional"] = equipe_b_op
@@ -3185,7 +3204,7 @@ def salvar_estado_manual_view(competicao, partida_id):
             partida_id=partida_id,
             competicao=competicao,
             estado=estado,
-            operador=session.get("usuario") or session.get("usuario_login") or session.get("login"),
+            operador=_login_apontador_sessao(),
             pausar=pausar,
         ) or estado
 
@@ -3833,7 +3852,7 @@ def inverter_lados(partida_id):
     if competicao:
         estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="INVERTER_LADOS")
     else:
-        apontador_login = session.get("usuario") or estado.get("apontador") or ""
+        apontador_login = _login_apontador_sessao() or estado.get("apontador") or ""
         if apontador_login:
             estado["apontador"] = apontador_login
         emitir_estado_partida(partida_id, estado)
@@ -3895,7 +3914,7 @@ def telao_por_pin():
 
 @apontadores_bp.route("/placar-ao-vivo")
 def placar_ao_vivo_redirect():
-    apontador = session.get("usuario") or ""
+    apontador = _login_apontador_sessao() or ""
 
     if apontador:
         return redirect(url_for("apontadores.placar_ao_vivo_apontador", apontador=apontador))

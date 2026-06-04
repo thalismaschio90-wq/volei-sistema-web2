@@ -6952,7 +6952,7 @@ def inicializar_jogo_partida(partida_id, competicao):
 
     status_jogo = (partida.get("status_jogo") or "").strip().lower()
 
-    if status_jogo in {"em_andamento", "entre_sets", "finalizada"}:
+    if status_jogo in {"em_andamento", "entre_sets", "pausada", "pausado", "finalizada", "finalizado", "encerrada", "encerrado"}:
         return partida
 
     with conectar() as conn:
@@ -6964,8 +6964,13 @@ def inicializar_jogo_partida(partida_id, competicao):
                     sets_b = COALESCE(sets_b, 0),
                     pontos_a = COALESCE(pontos_a, 0),
                     pontos_b = COALESCE(pontos_b, 0),
-                    status_jogo = COALESCE(status_jogo, 'pre_jogo'),
-                    fase_partida = COALESCE(fase_partida, 'pre_jogo')
+                    status_jogo = 'em_andamento',
+                    fase_partida = 'jogo',
+                    status_operacao = CASE
+                        WHEN COALESCE(status_operacao, 'livre') IN ('livre', '', 'reservado', 'pre_jogo') THEN 'em_andamento'
+                        ELSE status_operacao
+                    END,
+                    operador_heartbeat = COALESCE(operador_heartbeat, NOW())
                 WHERE id = %s
                   AND competicao = %s
             """, (partida_id, competicao))
