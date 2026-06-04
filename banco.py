@@ -5230,6 +5230,7 @@ def numero_atleta_disponivel(numero, equipe, competicao, id_atleta=None, atleta_
 
 def listar_atletas_aprovados_da_equipe(equipe, competicao):
     with conectar() as conn:
+        garantir_campos_libero_atletas(conn)
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT *
@@ -5951,6 +5952,186 @@ def marcar_equipe_conferida(competicao, equipe):
                 DO UPDATE SET conferido = TRUE, atualizado_em = NOW()
             """, (competicao, equipe))
         conn.commit()
+
+
+
+
+# =========================================================
+# CONFERÊNCIA DO APONTADOR - ATLETA / LÍBERO
+# =========================================================
+def garantir_campos_libero_atletas(conn=None):
+    def _executar(c):
+        with c.cursor() as cur:
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS libero BOOLEAN DEFAULT FALSE")
+
+    if conn is not None:
+        _executar(conn)
+        return
+
+    with conectar() as conn:
+        _executar(conn)
+        conn.commit()
+
+
+def contar_liberos_equipe(equipe, competicao, ignorar_atleta_id=None, conn=None):
+    def _executar(c):
+        garantir_campos_libero_atletas(c)
+        with c.cursor() as cur:
+            if ignorar_atleta_id is not None:
+                cur.execute("""
+                    SELECT COUNT(*) AS total
+                    FROM atletas
+                    WHERE equipe = %s
+                      AND competicao = %s
+                      AND status = 'aprovado'
+                      AND COALESCE(libero, FALSE) = TRUE
+                      AND id <> %s
+                """, (equipe, competicao, ignorar_atleta_id))
+            else:
+                cur.execute("""
+                    SELECT COUNT(*) AS total
+                    FROM atletas
+                    WHERE equipe = %s
+                      AND competicao = %s
+                      AND status = 'aprovado'
+                      AND COALESCE(libero, FALSE) = TRUE
+                """, (equipe, competicao))
+            row = cur.fetchone() or {}
+            return int(row.get('total') or 0)
+
+    if conn is not None:
+        return _executar(conn)
+
+    with conectar() as conn:
+        return _executar(conn)
+
+
+def salvar_liberos_equipe(equipe, competicao, libero_ids):
+    equipe = (equipe or '').strip()
+    competicao = (competicao or '').strip()
+    ids = {str(i).strip() for i in (libero_ids or []) if str(i).strip()}
+
+    if len(ids) > 2:
+        return False, 'Cada equipe pode ter no máximo 2 líberos.'
+
+    with conectar() as conn:
+        garantir_campos_libero_atletas(conn)
+        with conn.cursor() as cur:
+            if ids:
+                cur.execute("""
+                    SELECT id
+                    FROM atletas
+                    WHERE equipe = %s
+                      AND competicao = %s
+                      AND status = 'aprovado'
+                      AND id = ANY(%s::int[])
+                """, (equipe, competicao, [int(i) for i in ids]))
+                encontrados = {str(r.get('id')) for r in (cur.fetchall() or [])}
+                if encontrados != ids:
+                    return False, 'Um dos líberos selecionados não pertence a esta equipe.'
+
+            cur.execute("""
+                UPDATE atletas
+                SET libero = FALSE
+                WHERE equipe = %s
+                  AND competicao = %s
+                  AND status = 'aprovado'
+            """, (equipe, competicao))
+
+            if ids:
+                cur.execute("""
+                    UPDATE atletas
+                    SET libero = TRUE
+                    WHERE equipe = %s
+                      AND competicao = %s
+                      AND status = 'aprovado'
+                      AND id = ANY(%s::int[])
+                """, (equipe, competicao, [int(i) for i in ids]))
+        conn.commit()
+
+    return True, 'Líberos atualizados com sucesso.'
+
+
+def atualizar_atleta_conferencia_apontador(id_atleta, equipe, competicao, nome, cpf, data_nascimento, numero=None, libero=False):
+    nome = (nome or '').strip()
+    cpf = (cpf or '').strip()
+    data_nascimento = (data_nascimento or '').strip()
+
+    if not nome or not cpf or not data_nascimento:
+        return False, 'Preencha nome, CPF e data de nascimento.'
+
+    if not cpf_valido(cpf):
+        return False, 'CPF inválido. Informe um CPF real.'
+
+    numero_final = None
+    if numero not in (None, ''):
+        try:
+            numero_final = int(numero)
+        except (TypeError, ValueError):
+            return False, 'Número inválido.'
+        if numero_final < 1 or numero_final > 99:
+            return False, 'O número precisa ser entre 1 e 99.'
+
+    with conectar() as conn:
+        garantir_campos_libero_atletas(conn)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, equipe, competicao, status
+                FROM atletas
+                WHERE id = %s
+                LIMIT 1
+            """, (id_atleta,))
+            atleta = cur.fetchone()
+
+            if not atleta:
+                return False, 'Atleta não encontrado.'
+            if atleta.get('equipe') != equipe or atleta.get('competicao') != competicao:
+                return False, 'Este atleta não pertence a esta equipe.'
+            if atleta.get('status') != 'aprovado':
+                return False, 'Somente atletas aprovados podem ser editados na conferência.'
+
+            cpf_limpo = somente_digitos(cpf)
+            cur.execute(f"""
+                SELECT id
+                FROM atletas
+                WHERE competicao = %s
+                  AND {_cpf_sql_limpo('cpf')} = %s
+                  AND id <> %s
+                LIMIT 1
+            """, (competicao, cpf_limpo, id_atleta))
+            if cur.fetchone():
+                return False, 'Já existe outro atleta com este CPF nesta competição.'
+
+            if numero_final is not None:
+                cur.execute("""
+                    SELECT id
+                    FROM atletas
+                    WHERE equipe = %s
+                      AND competicao = %s
+                      AND numero = %s
+                      AND id <> %s
+                    LIMIT 1
+                """, (equipe, competicao, numero_final, id_atleta))
+                if cur.fetchone():
+                    return False, 'Já existe outro atleta com essa numeração nesta equipe.'
+
+            if bool(libero):
+                total_liberos = contar_liberos_equipe(equipe, competicao, ignorar_atleta_id=id_atleta, conn=conn)
+                if total_liberos >= 2:
+                    return False, 'Cada equipe pode ter no máximo 2 líberos.'
+
+            cur.execute("""
+                UPDATE atletas
+                SET nome = %s,
+                    cpf = %s,
+                    data_nascimento = %s,
+                    numero = %s,
+                    libero = %s
+                WHERE id = %s
+            """, (nome, cpf, data_nascimento, numero_final, bool(libero), id_atleta))
+        conn.commit()
+
+    return True, 'Atleta atualizado com sucesso.'
 
 
 # =========================================================

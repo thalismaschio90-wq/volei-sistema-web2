@@ -71,6 +71,8 @@ from banco import (
     validar_operador_partida,
     heartbeat_partida_operacional,
     liberar_trava_partida_operacional,
+    salvar_liberos_equipe,
+    atualizar_atleta_conferencia_apontador,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
@@ -2083,11 +2085,57 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
                 flash(msg, "erro")
 
     if not houve_erro:
+        libero_ids = [str(i).strip() for i in request.form.getlist("libero_id") if str(i).strip()]
+        ok_libero, msg_libero = salvar_liberos_equipe(equipe, competicao, libero_ids)
+        if not ok_libero:
+            houve_erro = True
+            flash(msg_libero, "erro")
+            return redirect(url_for("apontadores.conferencia_equipe_view", competicao=competicao, partida_id=partida_id, lado=lado))
+
         _limpar_cache_atletas(equipe, competicao)
         marcar_equipe_conferida(competicao, equipe)
         flash("Conferência salva com sucesso.", "sucesso")
 
     return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+
+@apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/conferencia/<lado>/atleta/<int:atleta_id>/editar", methods=["POST"])
+@exigir_perfil("apontador")
+def editar_atleta_conferencia_view(competicao, partida_id, lado, atleta_id):
+    cpf = session.get("usuario")
+    partida = buscar_partida_operacional(partida_id, competicao)
+
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    if partida.get("operador_login") != cpf:
+        flash("Somente o operador da partida pode editar atletas na conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    lado = (lado or "").strip().upper()
+    if lado not in {"A", "B"}:
+        flash("Lado inválido para conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
+    if not equipe:
+        flash("Equipe não definida para conferência.", "erro")
+        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    nome = request.form.get("nome", "")
+    cpf_atleta = request.form.get("cpf", "")
+    data_nascimento = request.form.get("data_nascimento", "")
+    numero = request.form.get("numero", "")
+    libero = request.form.get("libero") == "1"
+
+    ok, msg = atualizar_atleta_conferencia_apontador(
+        atleta_id, equipe, competicao, nome, cpf_atleta, data_nascimento, numero=numero, libero=libero
+    )
+
+    _limpar_cache_atletas(equipe, competicao)
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.conferencia_equipe_view", competicao=competicao, partida_id=partida_id, lado=lado))
 
 
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/capitao/<lado>")
