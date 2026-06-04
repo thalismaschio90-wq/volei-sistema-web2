@@ -72,7 +72,7 @@ from banco import (
     heartbeat_partida_operacional,
     liberar_trava_partida_operacional,
 )
-from routes.utils import exigir_perfil
+from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
     emitir_estado_partida,
     emitir_placar_apontador,
@@ -1480,7 +1480,9 @@ def entrar_competicao_apontador(competicao):
     session["competicao_apontador"] = competicao
 
     partidas = listar_partidas(competicao)
+    competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
     partidas = normalizar_status_partidas_apontador(partidas, competicao)
+    partidas = aplicar_placar_exibicao_lista(partidas, competicao_cfg)
     partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
 
     sets_max_manual = _sets_max_competicao(competicao)
@@ -2447,6 +2449,12 @@ def jogo_view(competicao, partida_id):
     estado.setdefault("scout", estado.get("scout") or {})
 
     estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
+
+    try:
+        competicao_cfg_estado = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": partida.get("sets_tipo") or "melhor_de_3"}
+        estado = aplicar_placar_exibicao_partida(dict(estado or {}), competicao_cfg_estado)
+    except Exception as e:
+        print("AVISO aplicar placar exibicao jogo_view:", repr(e), flush=True)
 
     try:
         atualizar_estado_cache(partida_id, estado)

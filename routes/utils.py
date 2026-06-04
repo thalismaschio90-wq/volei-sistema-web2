@@ -88,11 +88,25 @@ def _int_placar(valor, padrao=0):
         return padrao
 
 
+def _primeiro_valor_placar(dados, chaves, padrao=0):
+    dados = dados or {}
+    for chave in chaves:
+        if chave in dados and dados.get(chave) not in (None, ""):
+            return dados.get(chave)
+    return padrao
+
+
 def aplicar_placar_exibicao_partida(partida, competicao=None):
     """
-    Preenche campos padronizados para todos os cards/telas:
-    - set único: placar principal = pontos do set/resultado (ex.: 21 x 17)
-    - melhor de 3/5: placar principal = sets (ex.: 2 x 1)
+    Preenche campos padronizados para todos os cards/telas.
+
+    Regras:
+    - set único: placar principal = pontos do set/resultado da partida (25 x 20)
+    - melhor de 3/5: placar principal = sets vencidos (2 x 1)
+
+    Observação: em partidas finalizadas de set único, alguns fluxos salvam o resultado
+    em set1_a/set1_b; durante o jogo ao vivo, normalmente vem em pontos_a/pontos_b.
+    Por isso a ordem abaixo prioriza set1 quando existe, depois pontos/placar.
     """
     if not partida:
         return partida
@@ -101,28 +115,29 @@ def aplicar_placar_exibicao_partida(partida, competicao=None):
     set_unico = competicao_eh_set_unico(partida, comp)
 
     if set_unico:
-        a = _int_placar(
-            partida.get("set1_a") if partida.get("set1_a") is not None else
-            partida.get("pontos_a") if partida.get("pontos_a") is not None else
-            partida.get("placar_a"),
+        a = _int_placar(_primeiro_valor_placar(
+            partida,
+            ["set1_a", "pontos_a", "placar_a", "pontos_equipe_a", "resultado_a"],
             0,
-        )
-        b = _int_placar(
-            partida.get("set1_b") if partida.get("set1_b") is not None else
-            partida.get("pontos_b") if partida.get("pontos_b") is not None else
-            partida.get("placar_b"),
+        ), 0)
+        b = _int_placar(_primeiro_valor_placar(
+            partida,
+            ["set1_b", "pontos_b", "placar_b", "pontos_equipe_b", "resultado_b"],
             0,
-        )
+        ), 0)
         tipo = "pontos"
+        rotulo = "PONTOS"
     else:
-        a = _int_placar(partida.get("sets_a"), 0)
-        b = _int_placar(partida.get("sets_b"), 0)
+        a = _int_placar(_primeiro_valor_placar(partida, ["sets_a", "sets_equipe_a"], 0), 0)
+        b = _int_placar(_primeiro_valor_placar(partida, ["sets_b", "sets_equipe_b"], 0), 0)
         tipo = "sets"
+        rotulo = "SETS"
 
-    partida["set_unico"] = set_unico
+    partida["set_unico"] = bool(set_unico)
     partida["placar_exibicao_a"] = a
     partida["placar_exibicao_b"] = b
     partida["placar_exibicao_tipo"] = tipo
+    partida["placar_exibicao_rotulo"] = rotulo
     partida["placar_exibicao"] = f"{a} x {b}"
     return partida
 

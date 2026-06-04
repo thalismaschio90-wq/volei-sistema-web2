@@ -58,6 +58,7 @@
             <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
                 Buscar CPF
             </button>
+            <a class="btn-secundario" href="{{ url_for('equipes.meus_atletas_view') }}">Voltar para atletas</a>
         </div>
     </form>
 </div>
@@ -135,82 +136,243 @@
 {% else %}
 <div class="card-painel">
     <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px;">
-        <div style="font-weight: 900;">Numeração dos atletas aprovados</div>
+        <div style="font-weight: 900;">Atletas cadastrados</div>
         <a class="btn-secundario" href="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}">Ir para cadastrar atleta</a>
     </div>
 
-    {% if atletas_aprovados %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Nome</th>
-                    <th>CPF</th>
-                    <th>Número</th>
-                    <th>Ação</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for atleta in atletas_aprovados %}
-                <tr>
-                    <td>{{ atleta.nome }}</td>
-                    <td>{{ atleta.cpf }}</td>
-                    <td>
-                        <form method="post" action="{{ url_for('equipes.meus_atletas_view') }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <input type="hidden" name="acao" value="salvar_numero">
-                            <input type="hidden" name="id_atleta" value="{{ atleta.id }}">
-                            <input type="number" name="numero" value="{{ atleta.numero or '' }}" min="1" max="99" inputmode="numeric" autocomplete="off" style="max-width:120px;" required>
-                            <button type="submit" class="btn-secundario">Salvar número</button>
-                        </form>
-                    </td>
-                    <td>{% if atleta.numero %}Número definido{% else %}Sem número{% endif %}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <div>Nenhum atleta aprovado ainda.</div>
-    {% endif %}
-</div>
-
-<div class="card-painel">
-    <div style="font-weight: 900; margin-bottom: 14px;">Atletas cadastrados</div>
-
     {% if atletas %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Nome</th>
-                    <th>CPF</th>
-                    <th>Data de nascimento</th>
-                    <th>Número</th>
-                    <th>Status</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for atleta in atletas %}
-                <tr>
-                    <td>{{ atleta.nome }}</td>
-                    <td>{{ atleta.cpf }}</td>
-                    <td>{{ atleta.data_nascimento or '-' }}</td>
-                    <td>{{ atleta.numero or '-' }}</td>
-                    <td>{{ atleta.status or '-' }}</td>
-                    <td>
-                        <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('Deseja excluir este atleta?');">
-                            <button type="submit" class="btn-secundario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Excluir</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div style="overflow-x:auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>CPF</th>
+                        <th>Data de nascimento</th>
+                        <th>Número</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for atleta in atletas %}
+                    {% set status = (atleta.status or 'pendente')|lower %}
+                    <tr>
+                        <td>{{ atleta.nome }}</td>
+                        <td>{{ atleta.cpf }}</td>
+                        <td>{{ atleta.data_nascimento or '-' }}</td>
+                        <td>
+                            {% if status == 'aprovado' %}
+                                <form method="post" action="{{ url_for('equipes.meus_atletas_view') }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0;">
+                                    <input type="hidden" name="acao" value="salvar_numero">
+                                    <input type="hidden" name="id_atleta" value="{{ atleta.id }}">
+                                    <input type="number" name="numero" value="{{ atleta.numero or '' }}" min="1" max="99" inputmode="numeric" autocomplete="off" style="max-width:90px;" required>
+                                    <button type="submit" class="btn-secundario">Salvar</button>
+                                </form>
+                            {% else %}
+                                {{ atleta.numero or '-' }}
+                            {% endif %}
+                        </td>
+                        <td>{{ atleta.status or 'pendente' }}</td>
+                        <td>
+                            <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+                                {% if status != 'reprovado' %}
+                                    <button type="button" class="btn-secundario" onclick="abrirModalEditarAtleta('modal-editar-atleta-{{ atleta.id }}')">
+                                        Editar
+                                    </button>
+                                {% endif %}
+
+                                <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('Deseja excluir este atleta?');" style="margin:0;">
+                                    <button type="submit" class="btn-secundario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Excluir</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+
+                    {% if status != 'reprovado' %}
+                    <div id="modal-editar-atleta-{{ atleta.id }}" class="modal-editar-atleta" aria-hidden="true">
+                        <div class="modal-editar-atleta-fundo" onclick="fecharModalEditarAtleta('modal-editar-atleta-{{ atleta.id }}')"></div>
+
+                        <div class="modal-editar-atleta-caixa" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-editar-{{ atleta.id }}">
+                            <div class="modal-editar-atleta-topo">
+                                <div>
+                                    <div id="titulo-modal-editar-{{ atleta.id }}" class="modal-editar-atleta-titulo">Editar atleta</div>
+                                    <div class="modal-editar-atleta-subtitulo">{{ atleta.nome }}</div>
+                                </div>
+
+                                <button type="button" class="modal-editar-atleta-fechar" onclick="fecharModalEditarAtleta('modal-editar-atleta-{{ atleta.id }}')" aria-label="Fechar">
+                                    ×
+                                </button>
+                            </div>
+
+                            <form method="post" action="{{ url_for('equipes.editar_atleta_view', id_atleta=atleta.id) }}" onsubmit="return validarFormularioAtleta(this);">
+                                <label>Nome</label>
+                                <input type="text" name="nome" value="{{ atleta.nome }}" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+                                <label>CPF</label>
+                                <input
+                                    type="text"
+                                    name="cpf"
+                                    required
+                                    maxlength="14"
+                                    minlength="14"
+                                    inputmode="numeric"
+                                    autocomplete="off"
+                                    placeholder="000.000.000-00"
+                                    pattern="\d{3}\.\d{3}\.\d{3}-\d{2}"
+                                    value="{{ atleta.cpf }}"
+                                    oninput="mascaraCPF(this)"
+                                    onblur="validarCPFNaTela(this)"
+                                    {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}
+                                >
+
+                                <label>Data de nascimento</label>
+                                <input type="date" name="data_nascimento" value="{{ atleta.data_nascimento or '' }}" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+                                <div class="modal-editar-atleta-acoes">
+                                    <button type="button" class="btn-secundario" onclick="fecharModalEditarAtleta('modal-editar-atleta-{{ atleta.id }}')">
+                                        Cancelar
+                                    </button>
+                                    <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                                        Salvar edição
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     {% else %}
         <div>Nenhum atleta cadastrado ainda.</div>
     {% endif %}
 </div>
 {% endif %}
 
+
+<style>
+.modal-editar-atleta {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+}
+
+.modal-editar-atleta.aberto {
+    display: block;
+}
+
+.modal-editar-atleta-fundo {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+}
+
+.modal-editar-atleta-caixa {
+    position: relative;
+    width: min(92vw, 460px);
+    margin: 7vh auto 0;
+    background: #ffffff;
+    border: 1px solid #dbe7f3;
+    border-radius: 18px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+    padding: 18px;
+}
+
+.modal-editar-atleta-topo {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e5edf6;
+}
+
+.modal-editar-atleta-titulo {
+    font-weight: 900;
+    font-size: 18px;
+    color: #0b3556;
+}
+
+.modal-editar-atleta-subtitulo {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #64748b;
+}
+
+.modal-editar-atleta-fechar {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid #dbe7f3;
+    background: #ffffff;
+    color: #0b3556;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.modal-editar-atleta-caixa label {
+    display: block;
+    margin-top: 12px;
+    margin-bottom: 5px;
+    font-weight: 800;
+    color: #0b3556;
+}
+
+.modal-editar-atleta-caixa input {
+    width: 100%;
+}
+
+.modal-editar-atleta-acoes {
+    margin-top: 18px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+body.modal-atleta-aberto {
+    overflow: hidden;
+}
+</style>
+
 <script>
+
+function abrirModalEditarAtleta(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+
+    modal.classList.add('aberto');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-atleta-aberto');
+
+    const primeiroInput = modal.querySelector('input[name="nome"]');
+    if (primeiroInput) {
+        setTimeout(() => primeiroInput.focus(), 80);
+    }
+}
+
+function fecharModalEditarAtleta(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+
+    modal.classList.remove('aberto');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-atleta-aberto');
+}
+
+document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape') return;
+
+    document.querySelectorAll('.modal-editar-atleta.aberto').forEach(function(modal) {
+        fecharModalEditarAtleta(modal.id);
+    });
+});
+
 function apenasDigitosCPF(valor) {
     return (valor || '').replace(/\D/g, '').slice(0, 11);
 }

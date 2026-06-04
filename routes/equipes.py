@@ -24,6 +24,7 @@ from banco import (
     listar_atletas_da_equipe,
     excluir_atleta,
     atualizar_numero_atleta,
+    atualizar_atleta_equipe,
     controle_inscricao_para_equipe,
 
     # ATLETAS - ORGANIZADOR
@@ -1002,6 +1003,32 @@ def cadastrar_atleta_view():
         flash(msg or "Atleta cadastrado com sucesso!", "sucesso")
 
     return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
+
+
+@equipes_bp.route("/atletas/<int:id_atleta>/editar", methods=["POST"])
+@exigir_perfil("equipe")
+def editar_atleta_view(id_atleta):
+    equipe = _equipe_logada_com_competicao()
+
+    if not equipe:
+        flash("Equipe não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+    if not controle_inscricao.get("aberta", True):
+        flash(controle_inscricao.get("motivo") or "Inscrição bloqueada.", "erro")
+        return redirect(url_for("equipes.meus_atletas_view"))
+
+    ok, msg = atualizar_atleta_equipe(
+        id_atleta=id_atleta,
+        equipe=equipe["nome"],
+        competicao=equipe["competicao"],
+        nome=request.form.get("nome", "").strip(),
+        cpf=request.form.get("cpf", "").strip(),
+        data_nascimento=request.form.get("data_nascimento", "").strip(),
+    )
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("equipes.meus_atletas_view"))
 
 
 @equipes_bp.route("/atletas/<int:id_atleta>/excluir", methods=["POST"])

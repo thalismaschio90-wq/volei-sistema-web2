@@ -80,6 +80,24 @@
 .ap-quadra-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
 .ap-quadra-tab small { font-size:11px; font-weight:1000; opacity:.78; background:rgba(15,23,42,.08); padding:3px 7px; border-radius:999px; }
 .ap-quadra-tab.ativa small { background:rgba(255,255,255,.18); color:#fff; }
+
+.ap-status-tabs { display:flex; gap:10px; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 0 14px; padding:10px; background:#f8fafc; border:1px solid var(--border); border-radius:18px; }
+.ap-status-tab { border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius:999px; padding:10px 14px; font-weight:1000; cursor:pointer; display:inline-flex; align-items:center; gap:8px; box-shadow:0 8px 20px rgba(15,23,42,.05); transition:.18s ease; white-space:nowrap; }
+.ap-status-tab:hover { transform:translateY(-1px); border-color:#94a3b8; }
+.ap-status-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
+.ap-status-tab small { font-size:11px; font-weight:1000; opacity:.78; background:rgba(15,23,42,.08); padding:3px 7px; border-radius:999px; }
+.ap-status-tab.ativa small { background:rgba(255,255,255,.18); color:#fff; }
+.ap-operacao-fixa { display:none; }
+.ap-opcoes-secundarias { margin-top:14px; }
+.ap-details { border:1px solid var(--border); border-radius:18px; background:#fff; overflow:hidden; }
+.ap-details summary { cursor:pointer; padding:14px 16px; font-weight:1000; color:#123852; list-style:none; }
+.ap-details summary::-webkit-details-marker { display:none; }
+.ap-details-body { padding:0 16px 16px; }
+.ap-score-box { min-width:92px; text-align:center; border:1px solid #dbe3ef; background:#f8fafc; border-radius:16px; padding:10px 12px; }
+.ap-score-num { font-size:28px; line-height:1; font-weight:1000; color:#123852; letter-spacing:-1px; }
+.ap-score-label { font-size:10px; line-height:1; margin-top:5px; color:#64748b; font-weight:1000; letter-spacing:.6px; }
+.ap-team-name { max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle; }
+
 .ap-quadra-label { display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .ap-quadra-nome { font-weight:900; opacity:.82; }
 .ap-section.ap-section-oculta { display:none; }
@@ -114,6 +132,32 @@
 
 @media (max-width:850px) { .ap-pins-grid { grid-template-columns:1fr; } .ap-pin-card { flex-direction:column; align-items:flex-start; } .ap-pin-actions { width:100%; justify-content:flex-start; } }
 @media (max-width:850px) { .ap-grid { grid-template-columns:1fr; } .ap-card { flex-direction:column; align-items:flex-start; } .ap-card-actions { width:100%; justify-content:flex-start; } .ap-actions { width:100%; } .ap-actions .btn-padrao { width:100%; justify-content:center; } .ap-hero { padding:22px; } }
+
+@media (max-width:850px) {
+    .ap-hero { border-radius:20px; padding:18px; margin-bottom:12px; }
+    .ap-sub { font-size:13px; }
+    .ap-status-tabs, .ap-quadra-tabs { flex-wrap:nowrap; overflow-x:auto; position:sticky; top:8px; z-index:20; margin-bottom:10px; }
+    .cards-grid { display:none !important; }
+    .ap-pins-arbitragem { display:none; }
+    .ap-opcoes-secundarias .ap-pins-arbitragem { display:block; }
+    .ap-operacao-fixa { display:block; position:sticky; top:0; z-index:25; margin-bottom:10px; }
+    .ap-operacao-fixa a { display:block; text-align:center; border-radius:16px; padding:13px 14px; font-weight:1000; text-decoration:none; background:#16a34a; color:#fff; box-shadow:0 10px 28px rgba(22,163,74,.25); }
+    .ap-card { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:10px; padding:12px; border-radius:16px; }
+    .ap-match-line { font-size:15px; margin-bottom:5px; }
+    .ap-team-name { max-width:112px; }
+    .ap-escudo-mini { width:28px; height:28px; }
+    .ap-meta { font-size:12px; margin-bottom:6px; }
+    .ap-badge { font-size:10px; padding:4px 8px; }
+    .ap-score-inline { display:none; }
+    .ap-score-box { min-width:74px; padding:8px; }
+    .ap-score-num { font-size:23px; }
+    .ap-score-label { font-size:9px; }
+    .ap-card-actions { grid-column:1 / -1; width:100%; justify-content:stretch; margin-top:8px; }
+    .ap-card-actions .btn-padrao, .ap-card-actions .btn-secundario { width:100%; text-align:center; justify-content:center; }
+    .ap-section-title { font-size:17px; }
+    .ap-section-hint, .ap-pins-hint { display:none; }
+}
+
 </style>
 
 {% set nome_usuario_offline = session.get('nome') or session.get('usuario_nome') or session.get('usuario') or 'Apontador' %}
@@ -248,17 +292,25 @@ document.addEventListener("keydown", function(e) {
          data-quadra-chave="{{ quadra_chave }}">
         <div class="ap-info">
             <div class="ap-match-line">
-                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}">{{ p.equipe_a }}</span>
+                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}"><span class="ap-team-name">{{ p.equipe_a }}</span></span>
                 <span style="color:var(--muted);">x</span>
-                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}">{{ p.equipe_b }}</span>
+                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}"><span class="ap-team-name">{{ p.equipe_b }}</span></span>
             </div>
             <div class="ap-meta">
                 Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {{ p.grupo or '-' }}
             </div>
+            {% set placar_tipo = p.placar_exibicao_tipo if p.placar_exibicao_tipo is defined and p.placar_exibicao_tipo else ('pontos' if p.set_unico else 'sets') %}
+            {% if placar_tipo == 'pontos' %}
+                {% set placar_a = p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.set1_a if p.set1_a is not none else (p.pontos_a or 0)) %}
+                {% set placar_b = p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.set1_b if p.set1_b is not none else (p.pontos_b or 0)) %}
+            {% else %}
+                {% set placar_a = p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.sets_a or 0) %}
+                {% set placar_b = p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.sets_b or 0) %}
+            {% endif %}
             {% if jogo_finalizado or jogo_iniciado or jogo_pausado %}
                 <div class="ap-score-inline">
-                    {{ p.placar_exibicao_a if p.placar_exibicao_a is defined else 0 }} x {{ p.placar_exibicao_b if p.placar_exibicao_b is defined else 0 }}
-                    <small>{{ 'pontos' if p.placar_exibicao_tipo == 'pontos' else 'sets' }}</small>
+                    {{ placar_a }} x {{ placar_b }}
+                    {% if placar_tipo != 'pontos' %}<small>sets</small>{% endif %}
                 </div>
             {% endif %}
             {% if jogo_finalizado %}<span class="ap-badge ap-done">Finalizado</span>
@@ -268,6 +320,10 @@ document.addEventListener("keydown", function(e) {
             {% else %}<span class="ap-badge ap-wait">Aguardando</span>{% endif %}
             <span id="offline-status-{{ p.id }}" class="ap-badge ap-offline-warn" style="display:none; margin-left:8px;">Offline não baixado</span>
             {% if p.operador_nome and not jogo_finalizado %}<span style="margin-left:8px;color:var(--muted);font-weight:700;">Operador: {{ p.operador_nome }}</span>{% endif %}
+        </div>
+        <div class="ap-score-box">
+            <div class="ap-score-num">{{ placar_a }} x {{ placar_b }}</div>
+            {% if placar_tipo != 'pontos' %}<div class="ap-score-label">SETS</div>{% endif %}
         </div>
         <div class="ap-card-actions">
             {% if jogo_finalizado %}
@@ -374,7 +430,7 @@ document.addEventListener("keydown", function(e) {
             </div>
         {% endif %}
 
-        {% set ns = namespace(live=0, paused=0, pre=0, wait=0, done=0) %}
+        {% set ns = namespace(live=0, paused=0, pre=0, wait=0, done=0, first_active_url='') %}
         {% for p in partidas %}
             {% set status_op = (p.status_operacao or 'livre')|lower %}
             {% set status_partida = (p.status or 'agendada')|lower %}
@@ -384,8 +440,8 @@ document.addEventListener("keydown", function(e) {
             {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
             {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
             {% if jogo_finalizado %}{% set ns.done = ns.done + 1 %}
-            {% elif jogo_pausado %}{% set ns.paused = ns.paused + 1 %}
-            {% elif jogo_iniciado %}{% set ns.live = ns.live + 1 %}
+            {% elif jogo_pausado %}{% set ns.paused = ns.paused + 1 %}{% if not ns.first_active_url %}{% set ns.first_active_url = url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) %}{% endif %}
+            {% elif jogo_iniciado %}{% set ns.live = ns.live + 1 %}{% if not ns.first_active_url %}{% set ns.first_active_url = url_for('apontadores.jogo_view', competicao=competicao_nome, partida_id=p.id) %}{% endif %}
             {% elif status_op in ['pre_jogo','reservado'] %}{% set ns.pre = ns.pre + 1 %}
             {% else %}{% set ns.wait = ns.wait + 1 %}{% endif %}
         {% endfor %}
@@ -410,19 +466,55 @@ document.addEventListener("keydown", function(e) {
             </div>
         {% endif %}
 
-        <div class="cards-grid" style="margin-bottom:18px;">
-            <div class="numero-card"><div class="numero-titulo">Ao vivo</div><div class="numero-valor" id="ap-count-live">{{ ns.live }}</div></div>
-            <div class="numero-card"><div class="numero-titulo">Pausadas</div><div class="numero-valor" id="ap-count-paused">{{ ns.paused }}</div></div>
-            <div class="numero-card"><div class="numero-titulo">Pré-jogo</div><div class="numero-valor" id="ap-count-pre">{{ ns.pre }}</div></div>
-            <div class="numero-card"><div class="numero-titulo">Aguardando</div><div class="numero-valor" id="ap-count-wait">{{ ns.wait }}</div></div>
+        {% if ns.first_active_url %}
+            <div class="ap-operacao-fixa"><a href="{{ ns.first_active_url }}">Continuar partida em andamento</a></div>
+        {% endif %}
+
+        <div class="ap-status-tabs" id="ap-status-tabs" aria-label="Filtrar partidas por status">
+            <button type="button" class="ap-status-tab ativa" data-status-filtro="all">Todas <small id="ap-count-all">{{ partidas|length }}</small></button>
+            <button type="button" class="ap-status-tab" data-status-filtro="live">Ao vivo <small id="ap-count-live">{{ ns.live }}</small></button>
+            <button type="button" class="ap-status-tab" data-status-filtro="paused">Pausadas <small id="ap-count-paused">{{ ns.paused }}</small></button>
+            <button type="button" class="ap-status-tab" data-status-filtro="pre">Pré-jogo <small id="ap-count-pre">{{ ns.pre }}</small></button>
+            <button type="button" class="ap-status-tab" data-status-filtro="wait">Aguardando <small id="ap-count-wait">{{ ns.wait }}</small></button>
+            <button type="button" class="ap-status-tab" data-status-filtro="done">Finalizadas <small id="ap-count-done">{{ ns.done }}</small></button>
         </div>
 
         {% if partidas %}
-            {{ secao_partidas('🟢 Ao vivo', 'Prioridade máxima', 'live', 'Nenhum jogo ao vivo agora.', partidas, competicao_nome) }}
-            {{ secao_partidas('🟠 Pausadas', 'Salvas manualmente para retomar depois', 'paused', 'Nenhuma partida pausada.', partidas, competicao_nome) }}
-            {{ secao_partidas('🟡 Pré-jogo', 'Sorteio, papeleta e preparação', 'pre', 'Nenhuma partida em pré-jogo.', partidas, competicao_nome) }}
-            {{ secao_partidas('🔵 Aguardando', 'Próximas partidas', 'wait', 'Nenhuma partida aguardando.', partidas, competicao_nome) }}
-            {{ secao_partidas('⚫ Finalizados', 'Jogos encerrados', 'done', 'Nenhum jogo finalizado.', partidas, competicao_nome) }}
+            {{ secao_partidas('Ao vivo', 'Prioridade máxima', 'live', 'Nenhum jogo ao vivo agora.', partidas, competicao_nome) }}
+            {{ secao_partidas('Pausadas', 'Salvas manualmente para retomar depois', 'paused', 'Nenhuma partida pausada.', partidas, competicao_nome) }}
+            {{ secao_partidas('Pré-jogo', 'Sorteio, papeleta e preparação', 'pre', 'Nenhuma partida em pré-jogo.', partidas, competicao_nome) }}
+            {{ secao_partidas('Aguardando', 'Próximas partidas', 'wait', 'Nenhuma partida aguardando.', partidas, competicao_nome) }}
+            {{ secao_partidas('Finalizadas', 'Jogos encerrados', 'done', 'Nenhum jogo finalizado.', partidas, competicao_nome) }}
+
+            {% if pin_operacional %}
+                <div class="ap-opcoes-secundarias">
+                    <details class="ap-details">
+                        <summary>PIN operacional e opções secundárias</summary>
+                        <div class="ap-details-body">
+                            <div class="ap-pins-arbitragem">
+                                <div class="ap-pins-topo">
+                                    <div>
+                                        <div class="ap-pins-titulo">PIN operacional do apontador</div>
+                                        <div class="ap-pins-hint">Use este PIN no acesso do árbitro ou telão.</div>
+                                    </div>
+                                </div>
+                                <div class="ap-pins-grid">
+                                    <div class="ap-pin-card">
+                                        <div>
+                                            <div class="ap-pin-quadra">{{ competicao_nome }}</div>
+                                            <div class="ap-pin-local">Canal operacional do apontador</div>
+                                        </div>
+                                        <div class="ap-pin-actions">
+                                            <div class="ap-pin-numero" id="pin-operacional-apontador-secundario">{{ pin_operacional.pin }}</div>
+                                            <button type="button" class="btn-secundario" onclick="copiarPinArbitragem('{{ pin_operacional.pin }}')">Copiar</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            {% endif %}
 
             <script>
             window.copiarPinArbitragem = async function(pin) {
@@ -435,57 +527,79 @@ document.addEventListener("keydown", function(e) {
                 }
             };
             (function () {
-                function aplicarFiltroQuadra(chave) {
-                    const chaveAtiva = chave || "TODAS";
+                let filtroQuadra = "TODAS";
+                let filtroStatus = "all";
+
+                function aplicarFiltros() {
                     const cards = Array.from(document.querySelectorAll("[data-partida-card='1']"));
                     const sections = Array.from(document.querySelectorAll("[data-ap-section]"));
-                    const counts = { live: 0, paused: 0, pre: 0, wait: 0, done: 0 };
+                    const counts = { live: 0, paused: 0, pre: 0, wait: 0, done: 0, all: 0 };
 
                     cards.forEach(card => {
-                        const mostrar = chaveAtiva === "TODAS" || card.dataset.quadraChave === chaveAtiva;
+                        const status = card.dataset.statusCategoria || "wait";
+                        const bateQuadra = filtroQuadra === "TODAS" || card.dataset.quadraChave === filtroQuadra;
+                        const bateStatus = filtroStatus === "all" || status === filtroStatus;
+                        const mostrar = bateQuadra && bateStatus;
                         card.style.display = mostrar ? "" : "none";
-                        if (mostrar && counts[card.dataset.statusCategoria] !== undefined) {
-                            counts[card.dataset.statusCategoria] += 1;
+
+                        if (bateQuadra && counts[status] !== undefined) {
+                            counts[status] += 1;
+                            counts.all += 1;
                         }
                     });
 
                     sections.forEach(section => {
                         const categoria = section.dataset.apSection;
-                        const totalVisivel = counts[categoria] || 0;
+                        const totalCategoria = counts[categoria] || 0;
+                        const mostrarSecao = (filtroStatus === "all" || filtroStatus === categoria);
                         const originalEmpty = section.querySelector(".ap-empty-original");
                         const filtroEmpty = section.querySelector(".ap-empty-filtro");
                         const temCardsOriginais = section.querySelectorAll("[data-partida-card='1']").length > 0;
 
-                        section.classList.toggle("ap-section-oculta", chaveAtiva !== "TODAS" && totalVisivel === 0 && categoria === "done");
+                        section.classList.toggle("ap-section-oculta", !mostrarSecao);
 
                         if (originalEmpty) {
-                            originalEmpty.style.display = chaveAtiva === "TODAS" && !temCardsOriginais ? "block" : "none";
+                            originalEmpty.style.display = filtroQuadra === "TODAS" && filtroStatus === "all" && !temCardsOriginais ? "block" : "none";
                         }
                         if (filtroEmpty) {
-                            filtroEmpty.classList.toggle("aparece", chaveAtiva !== "TODAS" && totalVisivel === 0 && categoria !== "done");
+                            filtroEmpty.classList.toggle("aparece", mostrarSecao && (filtroQuadra !== "TODAS" || filtroStatus !== "all") && totalCategoria === 0);
                         }
                     });
 
-                    const live = document.getElementById("ap-count-live");
-                    const paused = document.getElementById("ap-count-paused");
-                    const pre = document.getElementById("ap-count-pre");
-                    const wait = document.getElementById("ap-count-wait");
-                    if (live) live.textContent = counts.live;
-                    if (paused) paused.textContent = counts.paused;
-                    if (pre) pre.textContent = counts.pre;
-                    if (wait) wait.textContent = counts.wait;
+                    const ids = {
+                        all: "ap-count-all",
+                        live: "ap-count-live",
+                        paused: "ap-count-paused",
+                        pre: "ap-count-pre",
+                        wait: "ap-count-wait",
+                        done: "ap-count-done"
+                    };
+                    Object.keys(ids).forEach(k => {
+                        const el = document.getElementById(ids[k]);
+                        if (el) el.textContent = counts[k] || 0;
+                    });
                 }
 
                 document.querySelectorAll(".ap-quadra-tab").forEach(btn => {
                     btn.addEventListener("click", () => {
                         document.querySelectorAll(".ap-quadra-tab").forEach(b => b.classList.remove("ativa"));
                         btn.classList.add("ativa");
-                        aplicarFiltroQuadra(btn.dataset.quadraChave || "TODAS");
+                        filtroQuadra = btn.dataset.quadraChave || "TODAS";
+                        aplicarFiltros();
                     });
                 });
 
-                document.addEventListener("DOMContentLoaded", () => aplicarFiltroQuadra("TODAS"));
-                aplicarFiltroQuadra("TODAS");
+                document.querySelectorAll(".ap-status-tab").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        document.querySelectorAll(".ap-status-tab").forEach(b => b.classList.remove("ativa"));
+                        btn.classList.add("ativa");
+                        filtroStatus = btn.dataset.statusFiltro || "all";
+                        aplicarFiltros();
+                    });
+                });
+
+                document.addEventListener("DOMContentLoaded", aplicarFiltros);
+                aplicarFiltros();
             })();
             </script>
         {% else %}

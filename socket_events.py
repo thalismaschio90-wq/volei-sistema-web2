@@ -164,6 +164,41 @@ def _json_safe(valor):
 
 
 
+
+
+def _normalizar_sets_tipo_socket(valor):
+    texto = str(valor or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if texto in {"set_unico", "único", "unico", "1_set", "melhor_de_1", "md1"}:
+        return "set_unico"
+    if texto in {"melhor_de_5", "md5", "5"}:
+        return "melhor_de_5"
+    return "melhor_de_3"
+
+
+def _aplicar_placar_exibicao_socket(payload):
+    sets_tipo = _normalizar_sets_tipo_socket(payload.get("sets_tipo") or payload.get("tipo_sets") or payload.get("formato_sets"))
+    set_unico = sets_tipo == "set_unico" or _to_int(payload.get("sets_max"), 3) == 1
+
+    if set_unico:
+        a = _to_int(_primeiro_valor(payload, ["set1_a", "pontos_a", "placar_a"], 0), 0)
+        b = _to_int(_primeiro_valor(payload, ["set1_b", "pontos_b", "placar_b"], 0), 0)
+        tipo = "pontos"
+        rotulo = "PONTOS"
+    else:
+        a = _to_int(payload.get("sets_a"), 0)
+        b = _to_int(payload.get("sets_b"), 0)
+        tipo = "sets"
+        rotulo = "SETS"
+
+    payload["set_unico"] = bool(set_unico)
+    payload["placar_exibicao_a"] = a
+    payload["placar_exibicao_b"] = b
+    payload["placar_exibicao_tipo"] = tipo
+    payload["placar_exibicao_rotulo"] = rotulo
+    payload["placar_exibicao"] = f"{a} x {b}"
+    return payload
+
+
 def _normalizar_url_escudo(valor):
     valor = str(valor or "").strip()
     if not valor:
@@ -363,6 +398,7 @@ def _normalizar_payload(partida_id, dados=None):
         ),
     }
 
+    payload = _aplicar_placar_exibicao_socket(payload)
     return _json_safe(payload)
 
 

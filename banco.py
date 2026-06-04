@@ -3668,6 +3668,99 @@ def listar_atletas_da_equipe(equipe, competicao):
             return cur.fetchall()
 
 
+def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nascimento):
+    """
+    Atualiza dados básicos do atleta pela própria equipe.
+    Regras:
+    - Só permite editar atleta da própria equipe/competição.
+    - Atleta reprovado não pode ser editado pela equipe; só excluído.
+    - CPF não pode duplicar dentro da mesma competição em outro atleta.
+    - Respeita o travamento da competição quando a equipe já iniciou jogos.
+    """
+    nome = (nome or "").strip()
+    cpf = (cpf or "").strip()
+    data_nascimento = (data_nascimento or "").strip()
+    cpf_limpo = somente_digitos(cpf)
+
+    if not nome or not cpf or not data_nascimento:
+        return False, "Preencha nome, CPF e data de nascimento."
+
+    if not cpf_valido(cpf):
+        return False, "CPF inválido. Informe um CPF real."
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, equipe, competicao, status
+                    FROM atletas
+                    WHERE id = %s
+                    LIMIT 1
+                """, (id_atleta,))
+                atleta = cur.fetchone()
+
+                if not atleta:
+                    return False, "Atleta não encontrado."
+
+                if atleta.get("equipe") != equipe or atleta.get("competicao") != competicao:
+                    return False, "Este atleta não pertence a esta equipe."
+
+                status = (atleta.get("status") or "").strip().lower()
+                if status == "reprovado":
+                    return False, "Atleta reprovado não pode ser editado. Só é possível excluir."
+
+                cur.execute("""
+                    SELECT COALESCE(travada, FALSE) AS travada
+                    FROM competicoes
+                    WHERE nome = %s
+                    LIMIT 1
+                """, (competicao,))
+                comp = cur.fetchone()
+
+                if comp and comp.get("travada"):
+                    cur.execute("""
+                        SELECT id
+                        FROM partidas
+                        WHERE competicao = %s
+                          AND (equipe_a = %s OR equipe_b = %s OR equipe_a_operacional = %s OR equipe_b_operacional = %s)
+                          AND (
+                              COALESCE(pontos_a, 0) > 0 OR COALESCE(pontos_b, 0) > 0
+                              OR LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'encerrado')
+                              OR LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada')
+                          )
+                        LIMIT 1
+                    """, (competicao, equipe, equipe, equipe, equipe))
+
+                    if cur.fetchone():
+                        return False, "Competição travada: esta equipe já iniciou jogos. Edição bloqueada."
+
+                cur.execute(f"""
+                    SELECT id
+                    FROM atletas
+                    WHERE {_cpf_sql_limpo('cpf')} = %s
+                      AND COALESCE(competicao, '') = COALESCE(%s, '')
+                      AND id <> %s
+                    LIMIT 1
+                """, (cpf_limpo, competicao, id_atleta))
+                if cur.fetchone():
+                    return False, "Já existe outro atleta com este CPF nesta competição."
+
+                cur.execute("""
+                    UPDATE atletas
+                    SET nome = %s,
+                        cpf = %s,
+                        data_nascimento = %s
+                    WHERE id = %s
+                """, (nome, cpf, data_nascimento, id_atleta))
+
+            conn.commit()
+
+        return True, "Atleta atualizado com sucesso."
+
+    except Exception as e:
+        return False, f"Erro ao atualizar atleta: {str(e)}"
+
+
 def excluir_atleta(id_atleta):
     try:
         # Abre UMA ÚNICA conexão para fazer todo o trabalho
