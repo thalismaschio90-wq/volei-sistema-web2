@@ -1974,13 +1974,10 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let bloquearSyncAte = 0;
     let placarProtegidoAte = 0;
     let rotacaoProtegidaAte = 0;
-    let saqueAtual = {{ (estado.saque_atual if estado.saque_atual is defined else "") | tojson }};
-
-    // Proteção do saque/rotação decidido no clique local do ponto.
-    // O backend/socket às vezes devolve um snapshot antigo de saque_atual logo após o ponto;
-    // se aceitarmos esse valor, o saque fica alternando errado no mobile.
     let saqueProtegidoAte = 0;
-    let ultimoPontoLocalProtegido = null;
+    let ultimoSaqueLocalForcado = "";
+    let ultimaAcaoPontoMobileEm = 0;
+    let saqueAtual = {{ (estado.saque_atual if estado.saque_atual is defined else "") | tojson }};
 
     let equipeSubAtual = null;
     let numeroSaiSelecionado = "";
@@ -2250,6 +2247,15 @@ function montarPayloadTempoReal(extra = {}) {
         }, 6500);
     }
 
+    function ehEcoDoProprioApontador(dados) {
+        if (!dados || typeof dados !== "object") return false;
+        const mesmaPartida = String(dados.partida_id || "") === String(PARTIDA_ID || "");
+        const mesmoDispositivo = dados.operador_dispositivo_id && String(dados.operador_dispositivo_id) === String(DISPOSITIVO_OPERACIONAL_ID || "");
+        const mesmaSessao = dados.operador_sessao_token && String(dados.operador_sessao_token) === String(OPERADOR_SESSAO_TOKEN || "");
+        const origemLocal = String(dados.origem || "").toLowerCase().includes("apontador_local");
+        return mesmaPartida && origemLocal && (mesmoDispositivo || mesmaSessao);
+    }
+
     if (socket) {
         socket.on("connect", function () {
             socketConectado = true;
@@ -2272,14 +2278,16 @@ function montarPayloadTempoReal(extra = {}) {
 
         socket.on("estado_jogo_atualizado", function (dados) {
             if (!dados || typeof dados !== "object") return;
+            if (ehEcoDoProprioApontador(dados)) return;
             ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
+            aplicarEstado(normalizarRespostaJogo(dados), { fonte: "socket" });
         });
 
         socket.on("estado_partida", function (dados) {
             if (!dados || typeof dados !== "object") return;
+            if (ehEcoDoProprioApontador(dados)) return;
             ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
+            aplicarEstado(normalizarRespostaJogo(dados), { fonte: "socket" });
         });
 
         socket.on("solicitacao_treinador", function (dados) {
@@ -3280,10 +3288,12 @@ function inverterLadosVisual() {
     }
 
 
-    function aplicarEstado(dados) {
+    function aplicarEstado(dados, opcoes = {}) {
         if (!dados) return;
         dados = normalizarRespostaJogo(dados);
         const agora = Date.now();
+        const fonteEstado = String(opcoes.fonte || dados.fonte || dados.origem || "").toLowerCase();
+        const ehRespostaOficialPonto = fonteEstado.includes("resposta_ponto_fetch") || fonteEstado.includes("fetch_ponto");
 
         const atualA = numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0);
         const atualB = numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0);
@@ -3349,19 +3359,18 @@ function inverterLadosVisual() {
 
         if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
             const saqueNovo = ladoPorEquipeOuNome(dados.saque_atual);
-            const veioDePontoSaque = String(dados.tipo_evento || dados.evento || "").toLowerCase().includes("ponto") || dados.equipe_pontuadora !== undefined;
-            const saqueProtegido = Date.now() < saqueProtegidoAte;
+            const saqueProtegido = agora < saqueProtegidoAte;
 
-            // Depois do clique do ponto, o navegador já sabe a regra correta:
-            // - mesma equipe pontuou: mantém saque;
-            // - adversário pontuou: troca saque e gira quem ganhou o saque.
-            // Se a resposta/socket chegar com saque antigo, não pode sobrescrever esse saque local.
-            if (veioDePontoSaque && saqueProtegido && ultimoPontoLocalProtegido && ultimoPontoLocalProtegido.saque_atual) {
-                saqueAtual = ultimoPontoLocalProtegido.saque_atual;
-                estadoAtual.saque_atual = saqueAtual;
-            } else if (saqueNovo === "A" || saqueNovo === "B") {
-                saqueAtual = saqueNovo;
-                estadoAtual.saque_atual = saqueAtual;
+            // No mobile o socket/autosave pode devolver um estado velho logo depois do toque.
+            // Enquanto a ação local está protegida, só a resposta oficial do POST /ponto
+            // pode trocar o saque. Isso elimina o efeito “vai, volta e vai de novo”.
+            if (saqueNovo === "A" || saqueNovo === "B") {
+                if (!saqueProtegido || ehRespostaOficialPonto || saqueNovo === ultimoSaqueLocalForcado) {
+                    saqueAtual = saqueNovo;
+                    estadoAtual.saque_atual = saqueAtual;
+                } else {
+                    estadoAtual.saque_atual = saqueAtual;
+                }
             }
         }
         if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
@@ -4490,6 +4499,8 @@ function atualizarSaqueLocal(novoSaque, deveMostrarAviso) {
     if (equipe !== "A" && equipe !== "B") return;
 
     saqueAtual = equipe;
+    ultimoSaqueLocalForcado = equipe;
+    saqueProtegidoAte = Date.now() + 9000;
     if (estadoAtual) estadoAtual.saque_atual = equipe;
 
     if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
@@ -4529,15 +4540,6 @@ function aplicarPontoOtimista(equipe, scout) {
         ultimo_sideout_girou: !!resultadoRotacao.girou,
         saque_anterior: resultadoRotacao.saqueAnterior || ""
     };
-
-    ultimoPontoLocalProtegido = {
-        equipe_pontuadora: equipe,
-        saque_atual: saqueAtual,
-        rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-        rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
-        sequencia: sequenciaPontoLocal
-    };
-    saqueProtegidoAte = Date.now() + 9000;
 
     // Não finaliza set/partida só pelo estado otimista do navegador.
     // A finalização oficial vem do backend após gravar o ponto; isso evita
@@ -5155,9 +5157,10 @@ async function registrarPonto(equipe, scout) {
                 atleta_nome: scoutSeguro.atleta_nome || "",
                 atleta_label: scoutSeguro.atleta_label || "",
                 responsavel_lado: scoutSeguro.responsavel_lado || scoutSeguro.equipe_responsavel || "",
-                saque_atual: saqueAtual || estadoAtual?.saque_atual || "",
-                rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
-                rotacao_b: Array.isArray(rotB) ? [...rotB] : []
+                saque_atual_local: saqueAtual,
+                rotacao_a_local: Array.isArray(rotA) ? [...rotA] : [],
+                rotacao_b_local: Array.isArray(rotB) ? [...rotB] : [],
+                operador_dispositivo_id: DISPOSITIVO_OPERACIONAL_ID
             })
         });
 
@@ -5169,7 +5172,8 @@ async function registrarPonto(equipe, scout) {
 
         // 3) Aplica a resposta oficial. Esse payload também alimenta árbitros,
         // treinador e telão pelo socket emitido no backend.
-        aplicarEstado(dados);
+        dados.fonte = "resposta_ponto_fetch";
+        aplicarEstado(dados, { fonte: "resposta_ponto_fetch" });
 
         const msg = dados.ultima_acao || dados.mensagem || "Ponto registrado";
         atualizarUltimaAcao(msg);
@@ -5512,10 +5516,21 @@ const mobileFullscreen = document.getElementById("mobile-fullscreen");
 const mobileSalvar = document.getElementById("mobile-salvar");
 const mobileSalvarSair = document.getElementById("mobile-salvar-sair");
 
-if (mobileHeadEsq) mobileHeadEsq.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("esq")));
-if (mobileHeadDir) mobileHeadDir.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("dir")));
-if (mobilePontoEsq) mobilePontoEsq.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("esq")));
-if (mobilePontoDir) mobilePontoDir.addEventListener("click", () => tratarCliquePonto(mobileLadoPorPosicao("dir")));
+function tratarCliquePontoMobile(posicao, ev) {
+    if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+    }
+    const agora = Date.now();
+    if ((agora - ultimaAcaoPontoMobileEm) < 320) return;
+    ultimaAcaoPontoMobileEm = agora;
+    tratarCliquePonto(mobileLadoPorPosicao(posicao));
+}
+
+if (mobileHeadEsq) mobileHeadEsq.addEventListener("click", (ev) => tratarCliquePontoMobile("esq", ev));
+if (mobileHeadDir) mobileHeadDir.addEventListener("click", (ev) => tratarCliquePontoMobile("dir", ev));
+if (mobilePontoEsq) mobilePontoEsq.addEventListener("click", (ev) => tratarCliquePontoMobile("esq", ev));
+if (mobilePontoDir) mobilePontoDir.addEventListener("click", (ev) => tratarCliquePontoMobile("dir", ev));
 if (mobileMenuEsqBtn) mobileMenuEsqBtn.addEventListener("click", () => { if (mobileEls.menuDir) mobileEls.menuDir.classList.remove("aberto"); if (mobileEls.menuEsq) mobileEls.menuEsq.classList.toggle("aberto"); });
 if (mobileMenuDirBtn) mobileMenuDirBtn.addEventListener("click", () => { if (mobileEls.menuEsq) mobileEls.menuEsq.classList.remove("aberto"); if (mobileEls.menuDir) mobileEls.menuDir.classList.toggle("aberto"); });
 if (mobileDesfazer) mobileDesfazer.addEventListener("click", desfazerAcao);
@@ -5889,79 +5904,9 @@ modalSubExFundo.addEventListener("click", function (event) {
 
 
 <script>
-/* CORREÇÃO MOBILE: ponte final de cliques */
-document.addEventListener("DOMContentLoaded", function () {
-    function clicar(id) {
-        const el = document.getElementById(id);
-        if (el) el.click();
-    }
-
-    function fecharMenus() {
-        document.getElementById("mobile-menu-esq")?.classList.remove("aberto");
-        document.getElementById("mobile-menu-dir")?.classList.remove("aberto");
-    }
-
-    const mapaDireto = {
-        "mobile-head-esq": "btn-ponto-a",
-        "mobile-ponto-esq": "btn-ponto-a",
-        "mobile-head-dir": "btn-ponto-b",
-        "mobile-ponto-dir": "btn-ponto-b",
-        "mobile-desfazer": "btn-desfazer",
-        "mobile-fullscreen": "btn-fullscreen",
-        "mobile-salvar": "btn-salvar-partida",
-        "mobile-salvar-sair": "btn-salvar-sair-partida"
-    };
-
-    Object.entries(mapaDireto).forEach(([mobileId, realId]) => {
-        const el = document.getElementById(mobileId);
-        if (!el) return;
-        el.addEventListener("touchend", function (ev) {
-            ev.preventDefault();
-            clicar(realId);
-        }, { passive: false });
-        el.addEventListener("click", function (ev) {
-            ev.preventDefault();
-            clicar(realId);
-        });
-    });
-
-    document.addEventListener("click", function (ev) {
-        const btn = ev.target.closest("[data-mobile-action]");
-        if (!btn) return;
-
-        const action = btn.dataset.mobileAction;
-        const side = btn.dataset.side || "";
-        fecharMenus();
-
-        const esquerda = side === "esq";
-        const realId = {
-            tempo: esquerda ? "btn-tempo-a" : "btn-tempo-b",
-            sub: esquerda ? "btn-sub-a" : "btn-sub-b",
-            wo: esquerda ? "btn-wo-a" : "btn-wo-b",
-            sancao: "btn-sancao",
-            verde: "btn-verde",
-            retardamento: "btn-retardamento",
-            subex: "btn-sub-excepcional"
-        }[action];
-
-        if (realId) {
-            ev.preventDefault();
-            clicar(realId);
-        }
-    }, true);
-
-    document.addEventListener("click", function (ev) {
-        const pos = ev.target.closest(".mobile-pos");
-        if (!pos) return;
-
-        const quadraEsq = pos.closest("#mobile-quadra-esq");
-        const quadraDir = pos.closest("#mobile-quadra-dir");
-
-        ev.preventDefault();
-        if (quadraEsq) clicar("btn-sub-a");
-        if (quadraDir) clicar("btn-sub-b");
-    }, true);
-});
+/* CORREÇÃO MOBILE: a ponte duplicada de cliques foi removida.
+   O mobile agora usa apenas os listeners principais acima, evitando dois pontos/toques
+   e evitando que o saque volte para um estado antigo por eco de socket. */
 </script>
 
 {% endblock %}
