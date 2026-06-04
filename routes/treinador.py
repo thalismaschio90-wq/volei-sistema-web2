@@ -781,7 +781,11 @@ def salvar_papeleta_treinador(competicao, partida_id):
             )
 
         numeros_usados.add(numero)
-        dados[pos] = atleta
+        dados[pos] = {
+            "id": atleta.get("id"),
+            "numero": str(atleta.get("numero") or numero).strip(),
+            "nome": atleta.get("nome") or "",
+        }
 
     salvar_papeleta(
         partida_id,
@@ -790,6 +794,8 @@ def salvar_papeleta_treinador(competicao, partida_id):
         _int(contexto.get("set_atual"), 1),
         dados
     )
+
+    _limpar_cache_atletas(equipe.get("nome"), competicao)
 
     try:
         contexto_atualizado = montar_contexto_treinador(

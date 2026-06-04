@@ -6162,7 +6162,159 @@ def criar_tabela_papeleta():
         conn.commit()
 
 
+def _normalizar_dados_papeleta(dados):
+    """
+    Recebe a papeleta em qualquer formato usado pelo apontador/treinador e
+    devolve:
+      - dados normalizados por posição 1..6;
+      - rotação visual/oficial [IV, III, II, V, VI, I].
+
+    Aceita:
+      {1: atleta, 2: atleta...}
+      {"1": atleta, "2": atleta...}
+      ["12", "11", ...]
+      [{"numero": 12, ...}, ...]
+    """
+    ordem_visual = [4, 3, 2, 5, 6, 1]
+    normalizado = {}
+
+    if isinstance(dados, (list, tuple)):
+        for idx, item in enumerate(list(dados)[:6]):
+            posicao = ordem_visual[idx] if idx < len(ordem_visual) else idx + 1
+            if isinstance(item, dict):
+                atleta = dict(item)
+            else:
+                atleta = {"numero": item, "nome": "", "id": None}
+            normalizado[posicao] = atleta
+    elif isinstance(dados, dict):
+        for posicao, atleta in dados.items():
+            try:
+                pos_int = int(posicao)
+            except Exception:
+                continue
+
+            if isinstance(atleta, dict):
+                item = dict(atleta)
+            else:
+                item = {"numero": atleta, "nome": "", "id": None}
+            normalizado[pos_int] = item
+
+    # Garante as 6 posições e normaliza número/nome/id.
+    saida = {}
+    for pos in range(1, 7):
+        atleta = normalizado.get(pos) or {}
+        numero = ""
+        if isinstance(atleta, dict):
+            numero = (
+                atleta.get("numero")
+                or atleta.get("camisa")
+                or atleta.get("numero_camisa")
+                or atleta.get("n")
+                or ""
+            )
+            nome = atleta.get("nome") or atleta.get("atleta_nome") or ""
+            atleta_id = atleta.get("id") or atleta.get("atleta_id")
+        else:
+            numero = atleta
+            nome = ""
+            atleta_id = None
+
+        numero = str(numero or "").strip()
+        nome = str(nome or "").strip()
+
+        numero_int = None
+        if numero:
+            try:
+                numero_int = int(numero)
+            except Exception:
+                numero_int = None
+
+        atleta_id_int = None
+        if atleta_id not in (None, ""):
+            try:
+                atleta_id_int = int(atleta_id)
+            except Exception:
+                atleta_id_int = None
+
+        saida[pos] = {
+            "id": atleta_id_int,
+            "numero": numero_int if numero_int is not None else numero,
+            "nome": nome,
+        }
+
+    rotacao = []
+    for pos in ordem_visual:
+        numero = saida.get(pos, {}).get("numero")
+        rotacao.append(str(numero or "").strip())
+
+    while len(rotacao) < 6:
+        rotacao.append("")
+
+    return saida, rotacao[:6]
+
+
+def _atualizar_rotacao_partida_por_papeleta(cur, partida_id, competicao, equipe, rotacao):
+    """
+    Quando a papeleta é enviada pelo treinador ou pelo apontador, atualiza também
+    a rotação da partida. Sem isso, a tabela papeletas fica certa, mas o jogo ao
+    vivo continua lendo rotacao_a_json/rotacao_b_json vazio e a quadra abre sem atletas.
+    """
+    equipe = str(equipe or "").strip()
+    if not equipe:
+        return
+
+    try:
+        criar_campos_jogo_partida()
+    except Exception:
+        pass
+
+    cur.execute("""
+        SELECT equipe_a, equipe_b, equipe_a_operacional, equipe_b_operacional
+        FROM partidas
+        WHERE id = %s
+          AND competicao = %s
+        LIMIT 1
+    """, (partida_id, competicao))
+    partida = cur.fetchone() or {}
+
+    def mesmo_nome(a, b):
+        return str(a or "").strip().lower() == str(b or "").strip().lower()
+
+    lado = ""
+    if mesmo_nome(equipe, partida.get("equipe_a_operacional")) or mesmo_nome(equipe, partida.get("equipe_a")):
+        lado = "A"
+    elif mesmo_nome(equipe, partida.get("equipe_b_operacional")) or mesmo_nome(equipe, partida.get("equipe_b")):
+        lado = "B"
+
+    if lado not in {"A", "B"}:
+        return
+
+    campo_rot = "rotacao_a" if lado == "A" else "rotacao_b"
+    campo_json = "rotacao_a_json" if lado == "A" else "rotacao_b_json"
+    campo_titulares = "titulares_iniciais_a_json" if lado == "A" else "titulares_iniciais_b_json"
+
+    rotacao = _normalizar_rotacao_oficial(rotacao)
+
+    cur.execute(f"""
+        UPDATE partidas
+        SET {campo_rot} = %s,
+            {campo_json} = %s,
+            {campo_titulares} = %s
+        WHERE id = %s
+          AND competicao = %s
+    """, (
+        rotacao,
+        json.dumps(rotacao, ensure_ascii=False),
+        json.dumps(rotacao, ensure_ascii=False),
+        partida_id,
+        competicao,
+    ))
+
+
 def salvar_papeleta(partida_id, competicao, equipe, set_numero, dados):
+    criar_tabela_papeleta()
+    dados_normalizados, rotacao = _normalizar_dados_papeleta(dados)
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -6175,7 +6327,8 @@ def salvar_papeleta(partida_id, competicao, equipe, set_numero, dados):
 
             registros = []
 
-            for posicao, atleta in dados.items():
+            for posicao in [1, 2, 3, 4, 5, 6]:
+                atleta = dados_normalizados.get(posicao) or {}
                 registros.append((
                     partida_id,
                     competicao,
@@ -6184,7 +6337,7 @@ def salvar_papeleta(partida_id, competicao, equipe, set_numero, dados):
                     posicao,
                     atleta.get("id"),
                     atleta.get("numero"),
-                    atleta.get("nome")
+                    atleta.get("nome"),
                 ))
 
             if registros:
@@ -6196,8 +6349,17 @@ def salvar_papeleta(partida_id, competicao, equipe, set_numero, dados):
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, registros)
 
+            _atualizar_rotacao_partida_por_papeleta(
+                cur,
+                partida_id,
+                competicao,
+                equipe,
+                rotacao,
+            )
+
         conn.commit()
 
+    return True
 
 def listar_papeleta(partida_id, competicao, equipe, set_numero):
     criar_tabela_papeleta()

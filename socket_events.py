@@ -131,12 +131,30 @@ def _numero_rotacao_seguro(valor):
 
 def _normalizar_rotacao_payload(valor):
     if not isinstance(valor, (list, tuple)):
-        return []
-    saida = [_numero_rotacao_seguro(item) for item in list(valor)[:6]]
+        return ["", "", "", "", "", ""]
+
+    saida = []
+
+    for item in list(valor)[:6]:
+        if isinstance(item, dict):
+            numero = (
+                item.get("numero")
+                or item.get("camisa")
+                or item.get("numero_camisa")
+                or item.get("atleta_numero")
+                or item.get("n")
+                or ""
+            )
+        else:
+            numero = item
+
+        texto = str(numero or "").strip()
+        saida.append("" if texto == "[object Object]" else texto)
+
     while len(saida) < 6:
         saida.append("")
-    return saida[:6]
 
+    return saida[:6]
 
 
 def _primeiro_valor(dados, chaves, padrao=None):
