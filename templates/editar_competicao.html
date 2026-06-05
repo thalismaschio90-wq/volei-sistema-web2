@@ -388,6 +388,290 @@
             grid-template-columns: 1fr;
         }
     }
+
+
+    /* =========================================================
+       AVANÇO / CHAVEAMENTO VISUAL
+       ========================================================= */
+    .avanco-resumo-card {
+        background: linear-gradient(135deg, #f8fbff, #eef6ff);
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 18px;
+        color: #183247;
+    }
+
+    .avanco-resumo-card strong {
+        display: block;
+        font-size: 16px;
+        margin-bottom: 6px;
+    }
+
+    .avanco-layout {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+    }
+
+    .avanco-panel {
+        background: #ffffff;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 8px 18px rgba(17, 41, 65, 0.05);
+        min-width: 0;
+    }
+
+    .avanco-panel-title {
+        font-size: 18px;
+        font-weight: 900;
+        color: #183247;
+        margin-bottom: 10px;
+    }
+
+    .avanco-serie-row {
+        border: 1px solid #d7dee7;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
+        background: #f8fbff;
+    }
+
+    .avanco-serie-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .avanco-serie-top input[type="text"] {
+        flex: 1;
+        min-width: 0;
+        padding: 9px 10px;
+        border-radius: 10px;
+        border: 1px solid #cfd9e3;
+        font-weight: 800;
+    }
+
+    .avanco-fases {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .avanco-fases label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        font-weight: 800;
+        color: #425466;
+        background: #ffffff;
+        border: 1px solid #dbe4ec;
+        border-radius: 999px;
+        padding: 6px 8px;
+    }
+
+    .avanco-board-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+
+    .avanco-tabs-series {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .avanco-tab-serie {
+        border: 1px solid #cfd9e3;
+        background: #ffffff;
+        color: #183247;
+        border-radius: 999px;
+        padding: 9px 13px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .avanco-tab-serie.ativa {
+        background: #123852;
+        color: #ffffff;
+        border-color: #123852;
+    }
+
+    .avanco-board-wrap {
+        overflow-x: auto;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 20px;
+        background: radial-gradient(circle at top left, rgba(37,99,235,.10), rgba(248,251,255,.95));
+        min-height: 560px;
+    }
+
+    .avanco-board {
+        display: flex;
+        align-items: stretch;
+        gap: 46px;
+        min-width: 860px;
+    }
+
+    .avanco-col {
+        min-width: 250px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .avanco-col-title {
+        font-size: 13px;
+        color: #6b7c8c;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        font-weight: 1000;
+    }
+
+    .avanco-card-jogo {
+        position: relative;
+        border: 1px solid #cfd9e3;
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 12px;
+        min-height: 100px;
+        box-shadow: 0 12px 24px rgba(17,41,65,.10);
+        cursor: pointer;
+        transition: .16s ease;
+    }
+
+    .avanco-card-jogo:hover {
+        transform: translateY(-2px);
+        border-color: #123852;
+    }
+
+    .avanco-card-id {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        color: #6b7c8c;
+        font-size: 12px;
+        font-weight: 900;
+    }
+
+    .avanco-linha-equipe {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 10px 0;
+        font-weight: 900;
+        color: #183247;
+    }
+
+    .avanco-slot-icon {
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: #eef4fb;
+        color: #6b7c8c;
+        flex: 0 0 auto;
+    }
+
+    .avanco-card-meta {
+        font-size: 12px;
+        color: #6b7c8c;
+        font-weight: 800;
+        margin-top: 8px;
+    }
+
+    .avanco-add-jogo {
+        border: 1px dashed #8da8bf;
+        background: #f8fbff;
+        color: #123852;
+        border-radius: 14px;
+        padding: 14px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .avanco-modal-bg {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9998;
+        background: rgba(15, 23, 42, .62);
+        backdrop-filter: blur(4px);
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+    }
+
+    .avanco-modal-bg.ativo { display: flex; }
+
+    .avanco-modal {
+        width: min(760px, 100%);
+        max-height: 92vh;
+        overflow: auto;
+        border-radius: 22px;
+        background: #ffffff;
+        padding: 20px;
+        box-shadow: 0 30px 80px rgba(0,0,0,.35);
+    }
+
+    .avanco-modal-title {
+        font-size: 22px;
+        font-weight: 900;
+        color: #183247;
+        margin: 0 0 14px;
+    }
+
+    .avanco-grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .avanco-field label {
+        display: block;
+        font-weight: 900;
+        font-size: 13px;
+        margin-bottom: 6px;
+        color: #183247;
+    }
+
+    .avanco-field input,
+    .avanco-field select {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid #cfd9e3;
+        background: #fcfdff;
+    }
+
+    .avanco-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+    }
+
+    @media (max-width: 860px) {
+        .avanco-layout,
+        .avanco-grid2 {
+            grid-template-columns: 1fr;
+        }
+        .avanco-board {
+            gap: 24px;
+        }
+    }
+
 </style>
 
 {% set criterios_salvos = (competicao.criterios_desempate or 'pontos,vitorias,saldo_sets,sets_average,saldo_pontos,pontos_average,confronto_direto,sorteio').split(',') %}
@@ -398,9 +682,8 @@
         <button type="button" class="competicao-tab-btn" data-tab="tab-quadras">Quadras</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-estrutura">Estrutura</button>
         <button type="button" class="competicao-tab-btn" data-tab="tab-regras">Regras do jogo</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-pontuacao">Pontuação e classificação</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-fases">Classificação e avanço</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-regras-avancadas">Regras Avançadas</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-pontuacao">Classificação</button>
+        <button type="button" class="competicao-tab-btn" data-tab="tab-avanco-chaveamento">Avanço / Chaveamento</button>
     </div>
 
     <!-- ABA: DADOS -->
@@ -842,28 +1125,54 @@
                 </div>
 
                 <div class="competicao-actions">
-                    <button class="btn-padrao" type="submit">Salvar pontuação e classificação</button>
+                    <button class="btn-padrao" type="submit">Salvar pontuação e critérios</button>
                 </div>
             </div>
         </form>
-    </div>
-</div>
 
-
-    <!-- ABA: CLASSIFICAÇÃO E AVANÇO -->
-    <div id="tab-fases" class="competicao-tab-pane">
-        <div class="competicao-pane-title">Classificação e avanço</div>
-        <div class="competicao-pane-subtitle">
-            Configure como as equipes avançam depois da classificatória: classificação por grupo ou geral, quantidade de classificados, formato principal, byes e modelos de fases.
-        </div>
-
-        <form method="post" action="{{ url_for('competicoes.salvar_fases_competicao_view') }}">
+        <form method="post" action="{{ url_for('competicoes.salvar_fases_competicao_view') }}" style="margin-top:18px;">
             <div class="competicao-section-box">
-                <div class="competicao-pane-title" style="font-size:20px;">Classificação e avanço</div>
-
+                <div class="competicao-pane-title" style="font-size:20px;">Como a classificação alimenta o avanço</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Aqui tu define apenas de onde vêm os classificados. O desenho das séries Ouro/Prata/Bronze e os cruzamentos ficam na aba <strong>Avanço / Chaveamento</strong>.
+                </div>
                 <div class="competicao-form-grid">
                     <div class="competicao-form-field">
-                        <label for="tipo_confronto">Tipo de confronto</label>
+                        <label for="tipo_classificacao">Tipo de classificação</label>
+                        <select name="tipo_classificacao" id="tipo_classificacao">
+                            <option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo/chave</option>
+                            <option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option>
+                            <option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="qtd_classificados">Quantidade total de classificados</label>
+                        <input type="number" id="qtd_classificados" name="qtd_classificados" value="{{ config.qtd_classificados or 0 }}">
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="formato_finais">Próxima fase principal</label>
+                        <select name="formato_finais" id="formato_finais">
+                            <option value="oitavas" {% if config.formato_finais == 'oitavas' %}selected{% endif %}>Oitavas</option>
+                            <option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas</option>
+                            <option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal</option>
+                            <option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Final direta</option>
+                            <option value="series" {% if config.formato_finais == 'series' %}selected{% endif %}>Séries Ouro/Prata/Bronze</option>
+                            <option value="personalizado" {% if config.formato_finais == 'personalizado' %}selected{% endif %}>Personalizado no Avanço</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="possui_bye">Possui bye/standby?</label>
+                        <select name="possui_bye" id="possui_bye">
+                            <option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option>
+                            <option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="qtd_bye">Quantidade de byes</label>
+                        <input type="number" id="qtd_bye" name="qtd_bye" value="{{ config.qtd_bye or 0 }}">
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="tipo_confronto">Confronto na classificatória</label>
                         <select name="tipo_confronto" id="tipo_confronto">
                             <option value="grupo_interno" {% if config.tipo_confronto == 'grupo_interno' %}selected{% endif %}>Dentro do grupo</option>
                             <option value="geral" {% if config.tipo_confronto == 'geral' %}selected{% endif %}>Todos contra todos geral</option>
@@ -871,328 +1180,542 @@
                             <option value="intergrupos_parcial" {% if config.tipo_confronto == 'intergrupos_parcial' %}selected{% endif %}>Intergrupos parcial</option>
                         </select>
                     </div>
-
-                    <div class="competicao-form-field">
-                        <label for="tipo_classificacao">Tipo de classificação</label>
-                        <select name="tipo_classificacao" id="tipo_classificacao">
-                            <option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo</option>
-                            <option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option>
-                            <option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option>
-                        </select>
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="qtd_classificados">Quantidade total de classificados</label>
-                        <input type="number" id="qtd_classificados" name="qtd_classificados" value="{{ config.qtd_classificados or 0 }}">
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="cruzamentos_grupos">Cruzamentos entre grupos</label>
+                    <div class="competicao-form-field full">
+                        <label for="cruzamentos_grupos">Cruzamentos entre grupos, se usar intergrupos parcial</label>
                         <input type="text" id="cruzamentos_grupos" name="cruzamentos_grupos" value="{{ config.cruzamentos_grupos or '' }}" placeholder="Ex.: A-B,B-C,C-A">
                     </div>
-
-                    <div class="competicao-form-field">
-                        <label for="formato_finais">Formato principal</label>
-                        <select name="formato_finais" id="formato_finais">
-                            <option value="oitavas" {% if config.formato_finais == 'oitavas' %}selected{% endif %}>Oitavas + quartas + semifinal + final</option>
-                            <option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas + semifinal + final</option>
-                            <option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal + final</option>
-                            <option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Só final</option>
-                            <option value="series" {% if config.formato_finais == 'series' %}selected{% endif %}>Séries Ouro, Prata e Bronze</option>
-                            <option value="personalizado" {% if config.formato_finais == 'personalizado' %}selected{% endif %}>Personalizado</option>
-                        </select>
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="possui_bye">Possui bye?</label>
-                        <select name="possui_bye" id="possui_bye">
-                            <option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option>
-                            <option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option>
-                        </select>
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label for="qtd_bye">Quantidade de byes</label>
-                        <input type="number" id="qtd_bye" name="qtd_bye" value="{{ config.qtd_bye or 0 }}">
-                    </div>
                 </div>
-            </div>
-
-            <div class="competicao-section-box" style="margin-top:18px;">
-                <div class="competicao-pane-title" style="font-size:20px;">Modelo de fases futuras</div>
-                <div class="helper-text" style="margin-bottom:14px;">
-                    Esta parte deixa a competição preparada para cenários como: classificatória → oitavas → quartas → semifinais → finais, ou divisão em Série Ouro, Prata e Bronze.
+                <div class="competicao-actions">
+                    <button class="btn-padrao" type="submit">Salvar classificação</button>
                 </div>
-
-                <div class="fase-grid">
-                    {% set fases_personalizadas = fases.get('fases_personalizadas', []) %}
-                    {% set fases_modelo = fases_personalizadas if fases_personalizadas else [
-                        {'nome':'Oitavas de final', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'1º ao 16º geral'},
-                        {'nome':'Série Ouro', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'melhores classificados'},
-                        {'nome':'Série Prata', 'serie':'prata', 'tipo':'mata_mata', 'origem':'classificados intermediários'},
-                        {'nome':'Série Bronze', 'serie':'bronze', 'tipo':'mata_mata', 'origem':'demais classificados'}
-                    ] %}
-                    {% for fase in fases_modelo %}
-                    <div class="fase-card">
-                        <div class="fase-card-title">Fase {{ loop.index }}</div>
-                        <div class="competicao-form-field" style="margin-bottom:10px;">
-                            <label>Nome da fase</label>
-                            <input type="text" name="fase_nome[]" value="{{ fase.nome if fase.nome is defined else fase.get('nome', '') }}">
-                        </div>
-                        <div class="competicao-form-grid">
-                            <div class="competicao-form-field">
-                                <label>Série</label>
-                                {% set serie_fase = fase.serie if fase.serie is defined else fase.get('serie', 'ouro') %}
-                                <select name="fase_serie[]">
-                                    <option value="geral" {% if serie_fase == 'geral' %}selected{% endif %}>Geral</option>
-                                    <option value="ouro" {% if serie_fase == 'ouro' %}selected{% endif %}>Ouro</option>
-                                    <option value="prata" {% if serie_fase == 'prata' %}selected{% endif %}>Prata</option>
-                                    <option value="bronze" {% if serie_fase == 'bronze' %}selected{% endif %}>Bronze</option>
-                                </select>
-                            </div>
-                            <div class="competicao-form-field">
-                                <label>Tipo</label>
-                                {% set tipo_fase = fase.tipo if fase.tipo is defined else fase.get('tipo', 'mata_mata') %}
-                                <select name="fase_tipo[]">
-                                    <option value="mata_mata" {% if tipo_fase == 'mata_mata' %}selected{% endif %}>Mata-mata</option>
-                                    <option value="grupos" {% if tipo_fase == 'grupos' %}selected{% endif %}>Grupos</option>
-                                    <option value="pontos_corridos" {% if tipo_fase == 'pontos_corridos' %}selected{% endif %}>Pontos corridos</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="competicao-form-field" style="margin-top:10px;">
-                            <label>Origem dos participantes</label>
-                            <input type="text" name="fase_origem[]" value="{{ fase.origem if fase.origem is defined else fase.get('origem', '') }}" placeholder="Ex.: 1º ao 16º geral">
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <div class="competicao-actions">
-                <button class="btn-padrao" type="submit">Salvar fases</button>
             </div>
         </form>
     </div>
 
-    <!-- ABA: REGRAS AVANÇADAS -->
-    <div id="tab-regras-avancadas" class="competicao-tab-pane">
-        <div class="competicao-pane-title">Regras Avançadas</div>
+
+    <!-- ABA: AVANÇO / CHAVEAMENTO VISUAL -->
+    <div id="tab-avanco-chaveamento" class="competicao-tab-pane">
+        <div class="competicao-pane-title">Avanço / Chaveamento</div>
         <div class="competicao-pane-subtitle">
-            Use esta aba somente quando uma competição fugir do padrão: grupos com pontuação diferente, fases com regras próprias, séries Ouro/Prata/Bronze, repescagem ou fases personalizadas.
+            Monte as séries e os cruzamentos. As opções de origem são filtradas conforme a classificação salva: por grupo mostra só posições reais de cada grupo; geral mostra posições gerais.
         </div>
 
-        <div class="avancado-alerta">
-            A regra da aba <strong>Regras do jogo</strong> continua sendo a regra padrão. Tudo que for ativado aqui sobrescreve a regra padrão apenas no grupo, fase ou série escolhida.
+        {% set avanco_cfg = avanco if avanco is defined and avanco else {
+            'series': [
+                {'id':'ouro','nome':'Série Ouro','ativa':True,'fases':['quartas','semifinal','final']},
+                {'id':'prata','nome':'Série Prata','ativa':False,'fases':['semifinal','final']},
+                {'id':'bronze','nome':'Série Bronze','ativa':False,'fases':['semifinal','final']}
+            ],
+            'jogos': []
+        } %}
+        {% set origens_cfg = origens if origens is defined else [
+            {'tipo':'grupo_posicao','valor':'1A','label':'1º Grupo A'},
+            {'tipo':'grupo_posicao','valor':'2A','label':'2º Grupo A'},
+            {'tipo':'grupo_posicao','valor':'1B','label':'1º Grupo B'},
+            {'tipo':'grupo_posicao','valor':'2B','label':'2º Grupo B'},
+            {'tipo':'grupo_posicao','valor':'1C','label':'1º Grupo C'},
+            {'tipo':'grupo_posicao','valor':'2C','label':'2º Grupo C'},
+            {'tipo':'grupo_posicao','valor':'1D','label':'1º Grupo D'},
+            {'tipo':'grupo_posicao','valor':'2D','label':'2º Grupo D'},
+            {'tipo':'geral_posicao','valor':'1','label':'1º Geral'},
+            {'tipo':'geral_posicao','valor':'2','label':'2º Geral'},
+            {'tipo':'geral_posicao','valor':'3','label':'3º Geral'},
+            {'tipo':'geral_posicao','valor':'4','label':'4º Geral'},
+            {'tipo':'especial','valor':'melhor_terceiro','label':'Melhor 3º'},
+            {'tipo':'manual','valor':'','label':'Equipe manual'}
+        ] %}
+
+        <div class="avanco-resumo-card">
+            <strong>Como funciona</strong>
+            Configure tudo aqui: Série Ouro, Prata, Bronze, fases, regras por série e quadros. Depois das classificatórias, ao gerar/atualizar o avanço, o sistema troca <b>1º Grupo A</b> pelo time real e alimenta os próximos jogos.
         </div>
 
-        {% set regras_avancadas = fases.get('regras_avancadas', {}) if fases is defined else {} %}
-        {% set regras_grupos = regras_avancadas.get('grupos', {}) %}
-        {% set regras_fases = regras_avancadas.get('fases', {}) %}
-        {% set series_config = regras_avancadas.get('series', {}) %}
-        {% set repescagem_config = regras_avancadas.get('repescagem', {}) %}
-        {% set fases_personalizadas_avancadas = regras_avancadas.get('fases_personalizadas', []) %}
+        <form id="formAvancoCompeticao" method="post" action="{{ url_for('competicoes.avanco_competicao_view') }}">
+            <div class="avanco-layout">
+                <div class="avanco-panel">
+                    <div class="avanco-panel-title">Séries</div>
 
-        <form method="post" action="{{ url_for('competicoes.salvar_regras_avancadas_view') }}">
-            <div class="competicao-section-box">
-                <div class="avancado-subtitle">Regras específicas por grupo</div>
-                <div class="helper-text" style="margin-bottom:14px;">
-                    Ative somente os grupos que precisam de regra diferente da regra padrão da competição.
-                </div>
-
-                <div class="avancado-grid">
-                    {% for grupo in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] %}
-                        {% set rg = regras_grupos.get(grupo, {}) %}
-                        <div class="avancado-card">
-                            <label class="competicao-check-inline" for="grupo_{{ grupo }}_ativo" style="margin-bottom:12px;">
-                                <input type="checkbox" id="grupo_{{ grupo }}_ativo" name="grupo_{{ grupo }}_ativo" style="width:auto;" {% if rg.get('ativo') %}checked{% endif %}>
-                                Grupo {{ grupo }} usa regra própria
+                    {% for serie in avanco_cfg.series %}
+                    <div class="avanco-serie-row">
+                        <input type="hidden" name="serie_id[]" value="{{ serie.id }}">
+                        <div class="avanco-serie-top">
+                            <input type="checkbox" name="serie_ativa[]" value="{{ serie.id }}" style="width:auto;" {% if serie.ativa %}checked{% endif %}>
+                            <input type="text" name="serie_nome[]" value="{{ serie.nome }}">
+                        </div>
+                        <div class="avanco-fases">
+                            {% for fase_id, fase_nome in [('oitavas','Oitavas'),('quartas','Quartas'),('semifinal','Semi'),('terceiro_lugar','3º lugar'),('final','Final')] %}
+                            <label>
+                                <input type="checkbox" name="serie_fases_{{ serie.id }}" value="{{ fase_id }}" {% if fase_id in serie.fases %}checked{% endif %}>
+                                {{ fase_nome }}
                             </label>
-
-                            <div class="competicao-form-grid">
+                            {% endfor %}
+                        </div>
+                        {% set regra_serie = serie.regra if serie.regra is defined else {} %}
+                        <details style="margin-top:10px;">
+                            <summary style="cursor:pointer;font-weight:900;color:#123852;">Regra da série</summary>
+                            <div class="competicao-form-grid" style="margin-top:10px;">
+                                <label class="competicao-check-inline full">
+                                    <input type="checkbox" name="serie_{{ serie.id }}_usar_regra" style="width:auto;" {% if regra_serie.get('usar_regra_propria') %}checked{% endif %}>
+                                    Esta série usa regra diferente da competição
+                                </label>
                                 <div class="competicao-form-field">
-                                    <label>Tipo de jogo</label>
-                                    <select name="grupo_{{ grupo }}_sets_tipo">
-                                        <option value="set_unico" {% if rg.get('sets_tipo', 'set_unico') == 'set_unico' %}selected{% endif %}>Set único</option>
-                                        <option value="melhor_de_3" {% if rg.get('sets_tipo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
-                                        <option value="melhor_de_5" {% if rg.get('sets_tipo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
+                                    <label>Tipo</label>
+                                    <select name="serie_{{ serie.id }}_sets_tipo">
+                                        <option value="padrao" {% if regra_serie.get('sets_tipo', 'padrao') == 'padrao' %}selected{% endif %}>Usar padrão</option>
+                                        <option value="set_unico" {% if regra_serie.get('sets_tipo') == 'set_unico' %}selected{% endif %}>Set único</option>
+                                        <option value="melhor_de_3" {% if regra_serie.get('sets_tipo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
+                                        <option value="melhor_de_5" {% if regra_serie.get('sets_tipo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
                                     </select>
                                 </div>
+                                <div class="competicao-form-field"><label>Pontos</label><input type="number" name="serie_{{ serie.id }}_pontos_set" value="{{ regra_serie.get('pontos_set', '') }}" placeholder="Padrão"></div>
+                                <div class="competicao-form-field"><label>Tie-break</label><input type="number" name="serie_{{ serie.id }}_pontos_tiebreak" value="{{ regra_serie.get('pontos_tiebreak', '') }}" placeholder="Padrão"></div>
                                 <div class="competicao-form-field">
-                                    <label>Pontos por set</label>
-                                    <input type="number" name="grupo_{{ grupo }}_pontos_set" value="{{ rg.get('pontos_set', '') }}" placeholder="Padrão">
-                                </div>
-                                <div class="competicao-form-field">
-                                    <label>Tem tie-break?</label>
-                                    <select name="grupo_{{ grupo }}_tem_tiebreak">
-                                        <option value="padrao" {% if rg.get('tem_tiebreak') is not defined %}selected{% endif %}>Usar padrão</option>
-                                        <option value="sim" {% if rg.get('tem_tiebreak') == True %}selected{% endif %}>Sim</option>
-                                        <option value="nao" {% if rg.get('tem_tiebreak') == False %}selected{% endif %}>Não</option>
-                                    </select>
-                                </div>
-                                <div class="competicao-form-field">
-                                    <label>Pontos do tie-break</label>
-                                    <input type="number" name="grupo_{{ grupo }}_pontos_tiebreak" value="{{ rg.get('pontos_tiebreak', '') }}" placeholder="Padrão">
-                                </div>
-                                <div class="competicao-form-field full">
-                                    <label>Modo de operação do grupo</label>
-                                    <select name="grupo_{{ grupo }}_modo_operacao">
-                                        <option value="padrao" {% if not rg.get('modo_operacao') %}selected{% endif %}>Usar padrão da competição</option>
-                                        <option value="simples" {% if rg.get('modo_operacao') == 'simples' %}selected{% endif %}>Simples — ponto direto</option>
-                                        <option value="avancado" {% if rg.get('modo_operacao') == 'avancado' %}selected{% endif %}>Avançado — scout/justificativa</option>
+                                    <label>Scout</label>
+                                    <select name="serie_{{ serie.id }}_modo_operacao">
+                                        <option value="padrao" {% if regra_serie.get('modo_operacao', 'padrao') == 'padrao' %}selected{% endif %}>Usar padrão</option>
+                                        <option value="simples" {% if regra_serie.get('modo_operacao') == 'simples' %}selected{% endif %}>Simples</option>
+                                        <option value="avancado" {% if regra_serie.get('modo_operacao') == 'avancado' %}selected{% endif %}>Avançado / scout</option>
                                     </select>
                                 </div>
                             </div>
-                        </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <div class="competicao-section-box" style="margin-top:18px;">
-                <div class="avancado-subtitle">Regras específicas por fase</div>
-                <div class="helper-text" style="margin-bottom:14px;">
-                    Exemplo: classificatória em modo simples, quartas com regra própria e final em modo avançado.
-                </div>
-
-                <div class="avancado-grid">
-                    {% for fase_id, fase_nome in [('grupos','Classificatória / Grupos'), ('oitavas','Oitavas'), ('quartas','Quartas'), ('semifinal','Semifinal'), ('final','Final')] %}
-                        {% set rf = regras_fases.get(fase_id, {}) %}
-                        <div class="avancado-card">
-                            <label class="competicao-check-inline" for="fase_{{ fase_id }}_ativo" style="margin-bottom:12px;">
-                                <input type="checkbox" id="fase_{{ fase_id }}_ativo" name="fase_{{ fase_id }}_ativo" style="width:auto;" {% if rf.get('ativo') %}checked{% endif %}>
-                                {{ fase_nome }} usa regra própria
-                            </label>
-
-                            <div class="competicao-form-grid">
-                                <div class="competicao-form-field">
-                                    <label>Tipo de jogo</label>
-                                    <select name="fase_{{ fase_id }}_sets_tipo">
-                                        <option value="set_unico" {% if rf.get('sets_tipo', 'set_unico') == 'set_unico' %}selected{% endif %}>Set único</option>
-                                        <option value="melhor_de_3" {% if rf.get('sets_tipo') == 'melhor_de_3' %}selected{% endif %}>Melhor de 3</option>
-                                        <option value="melhor_de_5" {% if rf.get('sets_tipo') == 'melhor_de_5' %}selected{% endif %}>Melhor de 5</option>
-                                    </select>
-                                </div>
-                                <div class="competicao-form-field">
-                                    <label>Pontos por set</label>
-                                    <input type="number" name="fase_{{ fase_id }}_pontos_set" value="{{ rf.get('pontos_set', '') }}" placeholder="Padrão">
-                                </div>
-                                <div class="competicao-form-field">
-                                    <label>Tem tie-break?</label>
-                                    <select name="fase_{{ fase_id }}_tem_tiebreak">
-                                        <option value="padrao" {% if rf.get('tem_tiebreak') is not defined %}selected{% endif %}>Usar padrão</option>
-                                        <option value="sim" {% if rf.get('tem_tiebreak') == True %}selected{% endif %}>Sim</option>
-                                        <option value="nao" {% if rf.get('tem_tiebreak') == False %}selected{% endif %}>Não</option>
-                                    </select>
-                                </div>
-                                <div class="competicao-form-field">
-                                    <label>Pontos do tie-break</label>
-                                    <input type="number" name="fase_{{ fase_id }}_pontos_tiebreak" value="{{ rf.get('pontos_tiebreak', '') }}" placeholder="Padrão">
-                                </div>
-                                <div class="competicao-form-field full">
-                                    <label>Modo de operação da fase</label>
-                                    <select name="fase_{{ fase_id }}_modo_operacao">
-                                        <option value="padrao" {% if not rf.get('modo_operacao') %}selected{% endif %}>Usar padrão da competição</option>
-                                        <option value="simples" {% if rf.get('modo_operacao') == 'simples' %}selected{% endif %}>Simples — ponto direto</option>
-                                        <option value="avancado" {% if rf.get('modo_operacao') == 'avancado' %}selected{% endif %}>Avançado — scout/justificativa</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <div class="competicao-section-box" style="margin-top:18px;">
-                <div class="avancado-subtitle">Séries paralelas</div>
-                <div class="helper-text" style="margin-bottom:14px;">
-                    Use quando a competição separar classificados em Série Ouro, Prata e Bronze após a fase classificatória.
-                </div>
-
-                <div class="competicao-form-grid">
-                    {% for serie_id, serie_nome in [('ouro','Série Ouro'), ('prata','Série Prata'), ('bronze','Série Bronze')] %}
-                        {% set serie = series_config.get(serie_id, {}) %}
-                        <div class="avancado-card">
-                            <label class="competicao-check-inline" for="serie_{{ serie_id }}_ativa" style="margin-bottom:12px;">
-                                <input type="checkbox" id="serie_{{ serie_id }}_ativa" name="serie_{{ serie_id }}_ativa" style="width:auto;" {% if serie.get('ativa') %}checked{% endif %}>
-                                {{ serie_nome }}
-                            </label>
-                            <div class="competicao-form-field">
-                                <label>Faixa de classificação</label>
-                                <input type="text" name="serie_{{ serie_id }}_faixa" value="{{ serie.get('faixa', '') }}" placeholder="Ex.: 1º ao 8º geral">
-                            </div>
-                        </div>
-                    {% endfor %}
-                </div>
-            </div>
-
-            <div class="competicao-section-box" style="margin-top:18px;">
-                <div class="avancado-subtitle">Repescagem</div>
-                <label class="competicao-check-inline" for="repescagem_ativa">
-                    <input type="checkbox" id="repescagem_ativa" name="repescagem_ativa" style="width:auto;" {% if repescagem_config.get('ativa') %}checked{% endif %}>
-                    Utilizar repescagem nesta competição
-                </label>
-                <div class="competicao-form-field" style="margin-top:12px;">
-                    <label>Descrição da repescagem</label>
-                    <input type="text" name="repescagem_descricao" value="{{ repescagem_config.get('descricao', '') }}" placeholder="Ex.: Perdedor da semifinal disputa 3º lugar">
-                </div>
-            </div>
-
-            <div class="competicao-section-box" style="margin-top:18px;">
-                <div class="avancado-subtitle">Fases personalizadas avançadas</div>
-                <div class="helper-text" style="margin-bottom:14px;">
-                    Reserve para formatos mais raros, como Oitavas Ouro, Quartas Prata, semifinal de Bronze ou repescagens específicas.
-                </div>
-
-                <div class="fase-grid">
-                    {% set fases_avancadas_modelo = fases_personalizadas_avancadas if fases_personalizadas_avancadas else [
-                        {'nome':'Oitavas Ouro', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'1º ao 16º geral'},
-                        {'nome':'Quartas Ouro', 'serie':'ouro', 'tipo':'mata_mata', 'origem':'vencedores das oitavas'},
-                        {'nome':'Semifinal Prata', 'serie':'prata', 'tipo':'mata_mata', 'origem':'9º ao 12º geral'},
-                        {'nome':'Final Bronze', 'serie':'bronze', 'tipo':'mata_mata', 'origem':'classificados da Série Bronze'}
-                    ] %}
-
-                    {% for fase in fases_avancadas_modelo %}
-                    <div class="fase-card">
-                        <div class="fase-card-title">Fase avançada {{ loop.index }}</div>
-                        <div class="competicao-form-field" style="margin-bottom:10px;">
-                            <label>Nome da fase</label>
-                            <input type="text" name="fase_avancada_nome[]" value="{{ fase.nome if fase.nome is defined else fase.get('nome', '') }}">
-                        </div>
-                        <div class="competicao-form-grid">
-                            <div class="competicao-form-field">
-                                <label>Série</label>
-                                {% set serie_fase = fase.serie if fase.serie is defined else fase.get('serie', 'geral') %}
-                                <select name="fase_avancada_serie[]">
-                                    <option value="geral" {% if serie_fase == 'geral' %}selected{% endif %}>Geral</option>
-                                    <option value="ouro" {% if serie_fase == 'ouro' %}selected{% endif %}>Ouro</option>
-                                    <option value="prata" {% if serie_fase == 'prata' %}selected{% endif %}>Prata</option>
-                                    <option value="bronze" {% if serie_fase == 'bronze' %}selected{% endif %}>Bronze</option>
-                                </select>
-                            </div>
-                            <div class="competicao-form-field">
-                                <label>Tipo</label>
-                                {% set tipo_fase = fase.tipo if fase.tipo is defined else fase.get('tipo', 'mata_mata') %}
-                                <select name="fase_avancada_tipo[]">
-                                    <option value="mata_mata" {% if tipo_fase == 'mata_mata' %}selected{% endif %}>Mata-mata</option>
-                                    <option value="grupos" {% if tipo_fase == 'grupos' %}selected{% endif %}>Grupos</option>
-                                    <option value="pontos_corridos" {% if tipo_fase == 'pontos_corridos' %}selected{% endif %}>Pontos corridos</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="competicao-form-field" style="margin-top:10px;">
-                            <label>Origem dos participantes</label>
-                            <input type="text" name="fase_avancada_origem[]" value="{{ fase.origem if fase.origem is defined else fase.get('origem', '') }}" placeholder="Ex.: 1º ao 16º geral">
-                        </div>
+                        </details>
                     </div>
                     {% endfor %}
+
+                    <button type="button" class="btn-secundario" style="margin-top:10px;" onclick="avancoAdicionarSerie()">+ Adicionar série</button>
+                    <div class="helper-text" style="margin-top:10px;">
+                        Ative Ouro, Prata, Bronze ou crie outra série. Cada série pode ter regra própria, mas os quadros também podem sobrescrever a regra se necessário.
+                    </div>
+
+                    <div class="competicao-actions" style="justify-content:flex-start; margin-top:18px;">
+                        <button class="btn-padrao" type="submit" {% if competicao_travada %}disabled{% endif %}>Salvar avanço</button>
+                    </div>
+                </div>
+
+                <div class="avanco-panel">
+                    <div class="avanco-board-actions">
+                        <div class="avanco-tabs-series" id="avancoTabsSeries"></div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                            <button type="button" class="btn-secundario" onclick="avancoAdicionarModeloPadrao()">Criar modelo automático</button>
+                            <button type="submit" class="btn-padrao" {% if competicao_travada %}disabled{% endif %}>Salvar quadros</button>
+                        </div>
+                    </div>
+
+                    <div class="avanco-board-wrap">
+                        <div class="avanco-board" id="avancoBoardVisual"></div>
+                    </div>
+                    <div id="avancoJogosHidden"></div>
                 </div>
             </div>
-
-            <div class="competicao-actions">
-                <button class="btn-padrao" type="submit">Salvar regras avançadas</button>
-            </div>
+        </form>
+        <form method="post" action="{{ url_for('competicoes.gerar_avanco_competicao_view') }}" onsubmit="return confirm('Gerar ou atualizar as partidas do avanço agora?');" style="margin-top:14px; display:flex; justify-content:flex-end;">
+            <button class="btn-padrao" type="submit" {% if competicao_travada %}disabled{% endif %}>Gerar/atualizar partidas do avanço</button>
         </form>
     </div>
+
+
+
+
+<div class="avanco-modal-bg" id="modalAvancoVisual">
+    <div class="avanco-modal">
+        <div class="avanco-modal-title">Configurar confronto</div>
+        <input type="hidden" id="avancoModalIndex">
+        <div class="avanco-grid2">
+            <div class="avanco-field">
+                <label>ID do jogo</label>
+                <input id="avancoModalId" placeholder="Ex.: J1">
+            </div>
+            <div class="avanco-field">
+                <label>Fase</label>
+                <select id="avancoModalFase">
+                    <option value="oitavas">Oitavas</option>
+                    <option value="quartas">Quartas</option>
+                    <option value="semifinal">Semifinal</option>
+                    <option value="terceiro_lugar">3º lugar</option>
+                    <option value="final">Final</option>
+                </select>
+            </div>
+            <div class="avanco-field">
+                <label>Equipe A / Origem A</label>
+                <select id="avancoModalOrigemA"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Equipe B / Origem B</label>
+                <select id="avancoModalOrigemB"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Manual A</label>
+                <input id="avancoModalManualA" placeholder="Só se escolher equipe manual">
+            </div>
+            <div class="avanco-field">
+                <label>Manual B</label>
+                <input id="avancoModalManualB" placeholder="Só se escolher equipe manual">
+            </div>
+            <div class="avanco-field">
+                <label>Próximo jogo do vencedor</label>
+                <select id="avancoModalProxV"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Próximo jogo do perdedor</label>
+                <select id="avancoModalProxP"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Data/hora</label>
+                <input id="avancoModalData" type="datetime-local">
+            </div>
+            <div class="avanco-field" style="grid-column:1/-1;">
+                <label class="competicao-check-inline" style="margin-top:4px;">
+                    <input type="checkbox" id="avancoModalUsarRegra" style="width:auto;">
+                    Este jogo usa regra diferente da série/competição
+                </label>
+            </div>
+            <div class="avanco-field">
+                <label>Tipo do jogo</label>
+                <select id="avancoModalSetsTipo">
+                    <option value="padrao">Usar padrão</option>
+                    <option value="set_unico">Set único</option>
+                    <option value="melhor_de_3">Melhor de 3</option>
+                    <option value="melhor_de_5">Melhor de 5</option>
+                </select>
+            </div>
+            <div class="avanco-field"><label>Pontos</label><input id="avancoModalPontosSet" type="number" placeholder="Padrão"></div>
+            <div class="avanco-field"><label>Tie-break</label><input id="avancoModalPontosTiebreak" type="number" placeholder="Padrão"></div>
+            <div class="avanco-field">
+                <label>Scout</label>
+                <select id="avancoModalModoOperacao">
+                    <option value="padrao">Usar padrão</option>
+                    <option value="simples">Simples</option>
+                    <option value="avancado">Avançado / scout</option>
+                </select>
+            </div>
+        </div>
+        <div class="avanco-modal-actions">
+            <button type="button" class="btn-secundario" onclick="avancoFecharModal()">Cancelar</button>
+            <button type="button" class="tabela-danger-outline" onclick="avancoRemoverJogoAtual()">Remover jogo</button>
+            <button type="button" class="btn-padrao" onclick="avancoSalvarModal()">Salvar quadro</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const origemBase = {{ origens_cfg|tojson }};
+    window.avancoEstado = {{ avanco_cfg|tojson }};
+    window.avancoSerieAtual = (window.avancoEstado.series || []).find(s => s.ativa)?.id || (window.avancoEstado.series?.[0]?.id || 'ouro');
+    window.avancoFaseNome = {oitavas:'Oitavas', quartas:'Quartas', semifinal:'Semifinal', terceiro_lugar:'3º lugar', final:'Final'};
+
+    window.avancoRegraResumo = function (j) {
+        const r = (j && j.regra) || {};
+        if (r.usar_regra_propria) {
+            const tipo = {set_unico:'Set único', melhor_de_3:'Melhor de 3', melhor_de_5:'Melhor de 5'}[r.sets_tipo] || 'Regra própria';
+            const pts = r.pontos_set ? ' • ' + r.pontos_set + ' pts' : '';
+            const scout = r.modo_operacao === 'avancado' ? ' • scout' : '';
+            return tipo + pts + scout;
+        }
+        return 'Regra da série';
+    };
+
+    window.avancoAdicionarSerie = function () {
+        const nome = prompt('Nome da nova série:', 'Série Prata');
+        if (!nome) return;
+        const id = nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('serie_' + ((window.avancoEstado.series || []).length + 1));
+        window.avancoEstado.series = window.avancoEstado.series || [];
+        window.avancoEstado.series.push({id, nome, ativa:true, criada_js:true, fases:['quartas','semifinal','final'], regra:{usar_regra_propria:false, sets_tipo:'padrao', pontos_set:'', pontos_tiebreak:'', modo_operacao:'padrao'}});
+        window.avancoSerieAtual = id;
+        alert('Série criada. Salve o avanço para ela aparecer fixa na tela.');
+        window.avancoRenderTudo();
+    };
+
+    window.avancoOrigemLabel = function (origem) {
+        origem = origem || {};
+        if (origem.tipo === 'manual') return origem.valor || origem.label || 'Equipe manual';
+        if (origem.tipo === 'vencedor_jogo') return 'Vencedor ' + (origem.valor || '');
+        if (origem.tipo === 'perdedor_jogo') return 'Perdedor ' + (origem.valor || '');
+        return origem.label || origem.valor || 'A definir';
+    };
+
+    window.avancoOrigemValue = function (origem) {
+        origem = origem || {};
+        return `${origem.tipo || ''}|${origem.valor || ''}|${origem.label || ''}`;
+    };
+
+    window.avancoOrigemFromValue = function (valor, manual) {
+        const partes = String(valor || '').split('|');
+        const tipo = partes[0] || '';
+        const val = partes[1] || '';
+        const label = partes[2] || '';
+        if (tipo === 'manual') {
+            return {tipo: 'manual', valor: manual || val || '', label: manual || label || 'Equipe manual'};
+        }
+        return {tipo: tipo, valor: val, label: label};
+    };
+
+    window.avancoOpcoesOrigem = function () {
+        const ops = [...origemBase];
+        (window.avancoEstado.jogos || []).forEach(j => {
+            if (!j.id) return;
+            ops.push({tipo:'vencedor_jogo', valor:j.id, label:'Vencedor ' + j.id});
+            ops.push({tipo:'perdedor_jogo', valor:j.id, label:'Perdedor ' + j.id});
+        });
+        return ops;
+    };
+
+    window.avancoFasesDaSerie = function () {
+        const serie = (window.avancoEstado.series || []).find(s => s.id === window.avancoSerieAtual) || {fases:['quartas','semifinal','final']};
+        return serie.fases && serie.fases.length ? serie.fases : ['quartas','semifinal','final'];
+    };
+
+    window.avancoRenderTabs = function () {
+        const wrap = document.getElementById('avancoTabsSeries');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        (window.avancoEstado.series || []).filter(s => s.ativa).forEach(s => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'avanco-tab-serie ' + (s.id === window.avancoSerieAtual ? 'ativa' : '');
+            btn.textContent = s.nome || s.id;
+            btn.onclick = function () {
+                window.avancoSerieAtual = s.id;
+                window.avancoRenderTudo();
+            };
+            wrap.appendChild(btn);
+        });
+    };
+
+    window.avancoRenderBoard = function () {
+        const board = document.getElementById('avancoBoardVisual');
+        if (!board) return;
+        board.innerHTML = '';
+        window.avancoFasesDaSerie().forEach(fase => {
+            const col = document.createElement('div');
+            col.className = 'avanco-col';
+            col.innerHTML = `<div class="avanco-col-title">${window.avancoFaseNome[fase] || fase}</div>`;
+
+            (window.avancoEstado.jogos || [])
+                .filter(j => j.serie === window.avancoSerieAtual && j.fase === fase)
+                .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+                .forEach(j => {
+                    const idx = window.avancoEstado.jogos.indexOf(j);
+                    const card = document.createElement('div');
+                    card.className = 'avanco-card-jogo';
+                    card.onclick = function () { window.avancoAbrirModal(idx); };
+                    card.innerHTML = `
+                        <div class="avanco-card-id">${j.id || ''}</div>
+                        <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_a)}</span></div>
+                        <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_b)}</span></div>
+                        <div class="avanco-card-meta">${window.avancoRegraResumo(j)}${j.data_hora ? ' • '+j.data_hora : ''}${j.proximo_vencedor ? ' • vencedor → ' + j.proximo_vencedor : ''}</div>
+                    `;
+                    col.appendChild(card);
+                });
+
+            const add = document.createElement('button');
+            add.type = 'button';
+            add.className = 'avanco-add-jogo';
+            add.textContent = '+ Adicionar jogo em ' + (window.avancoFaseNome[fase] || fase);
+            add.onclick = function () { window.avancoAdicionarJogo(fase); };
+            col.appendChild(add);
+            board.appendChild(col);
+        });
+    };
+
+    window.avancoSyncHidden = function () {
+        const hidden = document.getElementById('avancoJogosHidden');
+        if (!hidden) return;
+        hidden.innerHTML = '';
+        (window.avancoEstado.series || []).filter(s => s.criada_js).forEach((serie) => {
+            function addSerieInput(nome, valor) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = nome;
+                input.value = valor || '';
+                hidden.appendChild(input);
+            }
+            addSerieInput('serie_id[]', serie.id);
+            addSerieInput('serie_nome[]', serie.nome || serie.id);
+            addSerieInput('serie_ativa[]', serie.id);
+            (serie.fases || []).forEach(f => addSerieInput('serie_fases_' + serie.id, f));
+            const r = serie.regra || {};
+            if (r.usar_regra_propria) addSerieInput('serie_' + serie.id + '_usar_regra', 'on');
+            addSerieInput('serie_' + serie.id + '_sets_tipo', r.sets_tipo || 'padrao');
+            addSerieInput('serie_' + serie.id + '_pontos_set', r.pontos_set || '');
+            addSerieInput('serie_' + serie.id + '_tem_tiebreak', r.tem_tiebreak || 'padrao');
+            addSerieInput('serie_' + serie.id + '_pontos_tiebreak', r.pontos_tiebreak || '');
+            addSerieInput('serie_' + serie.id + '_modo_operacao', r.modo_operacao || 'padrao');
+        });
+        (window.avancoEstado.jogos || []).forEach((j, idx) => {
+            function addInput(nome, valor) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = nome;
+                input.value = valor || '';
+                hidden.appendChild(input);
+            }
+            addInput('jogo_id[]', j.id);
+            addInput('jogo_serie[]', j.serie);
+            addInput('jogo_fase[]', j.fase);
+            addInput('jogo_ordem[]', j.ordem || idx + 1);
+            addInput('jogo_data_hora[]', j.data_hora || '');
+            addInput('jogo_proximo_vencedor[]', j.proximo_vencedor || '');
+            addInput('jogo_proximo_perdedor[]', j.proximo_perdedor || '');
+            const regra = j.regra || {};
+            addInput(`jogo_${idx}_usar_regra`, regra.usar_regra_propria ? 'on' : '');
+            addInput(`jogo_${idx}_sets_tipo`, regra.sets_tipo || 'padrao');
+            addInput(`jogo_${idx}_pontos_set`, regra.pontos_set || '');
+            addInput(`jogo_${idx}_tem_tiebreak`, regra.tem_tiebreak || 'padrao');
+            addInput(`jogo_${idx}_pontos_tiebreak`, regra.pontos_tiebreak || '');
+            addInput(`jogo_${idx}_modo_operacao`, regra.modo_operacao || 'padrao');
+            ['a', 'b'].forEach(lado => {
+                const origem = j['origem_' + lado] || {};
+                addInput(`jogo_${idx}_${lado}_tipo`, origem.tipo || '');
+                addInput(`jogo_${idx}_${lado}_valor`, origem.valor || '');
+                addInput(`jogo_${idx}_${lado}_label`, origem.label || '');
+            });
+        });
+    };
+
+    window.avancoRenderTudo = function () {
+        window.avancoRenderTabs();
+        window.avancoRenderBoard();
+        window.avancoSyncHidden();
+    };
+
+    window.avancoProximoId = function () {
+        let n = (window.avancoEstado.jogos || []).length + 1;
+        while ((window.avancoEstado.jogos || []).some(j => j.id === 'J' + n)) n++;
+        return 'J' + n;
+    };
+
+    window.avancoAdicionarJogo = function (fase) {
+        window.avancoEstado.jogos = window.avancoEstado.jogos || [];
+        window.avancoEstado.jogos.push({
+            id: window.avancoProximoId(),
+            serie: window.avancoSerieAtual,
+            fase: fase,
+            ordem: window.avancoEstado.jogos.length + 1,
+            origem_a: {},
+            origem_b: {},
+            proximo_vencedor: '',
+            proximo_perdedor: '',
+            data_hora: '',
+            regra: {usar_regra_propria:false, sets_tipo:'padrao', pontos_set:'', tem_tiebreak:'padrao', pontos_tiebreak:'', modo_operacao:'padrao'}
+        });
+        window.avancoRenderTudo();
+    };
+
+    window.avancoAdicionarModeloPadrao = function () {
+        const serie = window.avancoSerieAtual;
+        const fases = window.avancoFasesDaSerie();
+        const existe = (window.avancoEstado.jogos || []).some(j => j.serie === serie);
+        if (existe && !confirm('Essa série já tem jogos. Deseja adicionar mais um modelo mesmo assim?')) return;
+
+        const baseCount = (window.avancoEstado.jogos || []).length;
+        const novos = [];
+        if (fases.includes('quartas')) {
+            novos.push(
+                {id:'J'+(baseCount+1), serie, fase:'quartas', ordem:baseCount+1, origem_a:{tipo:'grupo_posicao',valor:'1A',label:'1º Grupo A'}, origem_b:{tipo:'grupo_posicao',valor:'2B',label:'2º Grupo B'}, proximo_vencedor:'J'+(baseCount+5)},
+                {id:'J'+(baseCount+2), serie, fase:'quartas', ordem:baseCount+2, origem_a:{tipo:'grupo_posicao',valor:'1B',label:'1º Grupo B'}, origem_b:{tipo:'grupo_posicao',valor:'2A',label:'2º Grupo A'}, proximo_vencedor:'J'+(baseCount+5)},
+                {id:'J'+(baseCount+3), serie, fase:'quartas', ordem:baseCount+3, origem_a:{tipo:'grupo_posicao',valor:'1C',label:'1º Grupo C'}, origem_b:{tipo:'grupo_posicao',valor:'2D',label:'2º Grupo D'}, proximo_vencedor:'J'+(baseCount+6)},
+                {id:'J'+(baseCount+4), serie, fase:'quartas', ordem:baseCount+4, origem_a:{tipo:'grupo_posicao',valor:'1D',label:'1º Grupo D'}, origem_b:{tipo:'grupo_posicao',valor:'2C',label:'2º Grupo C'}, proximo_vencedor:'J'+(baseCount+6)},
+                {id:'J'+(baseCount+5), serie, fase:'semifinal', ordem:baseCount+5, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+1),label:'Vencedor J'+(baseCount+1)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+2),label:'Vencedor J'+(baseCount+2)}, proximo_vencedor:'J'+(baseCount+7)},
+                {id:'J'+(baseCount+6), serie, fase:'semifinal', ordem:baseCount+6, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+3),label:'Vencedor J'+(baseCount+3)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+4),label:'Vencedor J'+(baseCount+4)}, proximo_vencedor:'J'+(baseCount+7)},
+                {id:'J'+(baseCount+7), serie, fase:'final', ordem:baseCount+7, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+5),label:'Vencedor J'+(baseCount+5)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+6),label:'Vencedor J'+(baseCount+6)}, proximo_vencedor:''}
+            );
+        } else if (fases.includes('semifinal')) {
+            novos.push(
+                {id:'J'+(baseCount+1), serie, fase:'semifinal', ordem:baseCount+1, origem_a:{tipo:'grupo_posicao',valor:'1A',label:'1º Grupo A'}, origem_b:{tipo:'grupo_posicao',valor:'2B',label:'2º Grupo B'}, proximo_vencedor:'J'+(baseCount+3)},
+                {id:'J'+(baseCount+2), serie, fase:'semifinal', ordem:baseCount+2, origem_a:{tipo:'grupo_posicao',valor:'1B',label:'1º Grupo B'}, origem_b:{tipo:'grupo_posicao',valor:'2A',label:'2º Grupo A'}, proximo_vencedor:'J'+(baseCount+3)},
+                {id:'J'+(baseCount+3), serie, fase:'final', ordem:baseCount+3, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+1),label:'Vencedor J'+(baseCount+1)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+2),label:'Vencedor J'+(baseCount+2)}, proximo_vencedor:''}
+            );
+        } else {
+            novos.push({id:'J'+(baseCount+1), serie, fase:'final', ordem:baseCount+1, origem_a:{tipo:'geral_posicao',valor:'1',label:'1º Geral'}, origem_b:{tipo:'geral_posicao',valor:'2',label:'2º Geral'}, proximo_vencedor:''});
+        }
+        window.avancoEstado.jogos = (window.avancoEstado.jogos || []).concat(novos);
+        window.avancoRenderTudo();
+    };
+
+    window.avancoPreencherOrigem = function (select, atual) {
+        select.innerHTML = '<option value="||">A definir</option>';
+        window.avancoOpcoesOrigem().forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = window.avancoOrigemValue(o);
+            opt.textContent = o.label;
+            if (opt.value === window.avancoOrigemValue(atual)) opt.selected = true;
+            select.appendChild(opt);
+        });
+    };
+
+    window.avancoPreencherProximos = function (select, atual) {
+        select.innerHTML = '<option value="">Nenhum</option>';
+        (window.avancoEstado.jogos || []).forEach(j => {
+            const opt = document.createElement('option');
+            opt.value = j.id;
+            opt.textContent = `${j.id} - ${window.avancoFaseNome[j.fase] || j.fase}`;
+            if (j.id === atual) opt.selected = true;
+            select.appendChild(opt);
+        });
+    };
+
+    window.avancoAbrirModal = function (idx) {
+        const j = window.avancoEstado.jogos[idx];
+        if (!j) return;
+        document.getElementById('avancoModalIndex').value = idx;
+        document.getElementById('avancoModalId').value = j.id || '';
+        document.getElementById('avancoModalFase').value = j.fase || 'quartas';
+        document.getElementById('avancoModalData').value = j.data_hora || '';
+        const regra = j.regra || {};
+        document.getElementById('avancoModalUsarRegra').checked = !!regra.usar_regra_propria;
+        document.getElementById('avancoModalSetsTipo').value = regra.sets_tipo || 'padrao';
+        document.getElementById('avancoModalPontosSet').value = regra.pontos_set || '';
+        document.getElementById('avancoModalPontosTiebreak').value = regra.pontos_tiebreak || '';
+        document.getElementById('avancoModalModoOperacao').value = regra.modo_operacao || 'padrao';
+        window.avancoPreencherOrigem(document.getElementById('avancoModalOrigemA'), j.origem_a);
+        window.avancoPreencherOrigem(document.getElementById('avancoModalOrigemB'), j.origem_b);
+        document.getElementById('avancoModalManualA').value = j.origem_a?.tipo === 'manual' ? (j.origem_a.valor || '') : '';
+        document.getElementById('avancoModalManualB').value = j.origem_b?.tipo === 'manual' ? (j.origem_b.valor || '') : '';
+        window.avancoPreencherProximos(document.getElementById('avancoModalProxV'), j.proximo_vencedor || '');
+        window.avancoPreencherProximos(document.getElementById('avancoModalProxP'), j.proximo_perdedor || '');
+        document.getElementById('modalAvancoVisual').classList.add('ativo');
+    };
+
+    window.avancoFecharModal = function () {
+        document.getElementById('modalAvancoVisual').classList.remove('ativo');
+    };
+
+    window.avancoSalvarModal = function () {
+        const idx = parseInt(document.getElementById('avancoModalIndex').value, 10);
+        const j = window.avancoEstado.jogos[idx];
+        if (!j) return;
+        j.id = document.getElementById('avancoModalId').value || j.id;
+        j.fase = document.getElementById('avancoModalFase').value;
+        j.data_hora = document.getElementById('avancoModalData').value || '';
+        j.origem_a = window.avancoOrigemFromValue(document.getElementById('avancoModalOrigemA').value, document.getElementById('avancoModalManualA').value);
+        j.origem_b = window.avancoOrigemFromValue(document.getElementById('avancoModalOrigemB').value, document.getElementById('avancoModalManualB').value);
+        j.proximo_vencedor = document.getElementById('avancoModalProxV').value;
+        j.proximo_perdedor = document.getElementById('avancoModalProxP').value;
+        j.regra = {
+            usar_regra_propria: document.getElementById('avancoModalUsarRegra').checked,
+            sets_tipo: document.getElementById('avancoModalSetsTipo').value || 'padrao',
+            pontos_set: document.getElementById('avancoModalPontosSet').value || '',
+            tem_tiebreak: 'padrao',
+            pontos_tiebreak: document.getElementById('avancoModalPontosTiebreak').value || '',
+            modo_operacao: document.getElementById('avancoModalModoOperacao').value || 'padrao'
+        };
+        window.avancoFecharModal();
+        window.avancoRenderTudo();
+    };
+
+    window.avancoRemoverJogoAtual = function () {
+        const idx = parseInt(document.getElementById('avancoModalIndex').value, 10);
+        if (!Number.isFinite(idx)) return;
+        if (!confirm('Remover este quadro do chaveamento?')) return;
+        window.avancoEstado.jogos.splice(idx, 1);
+        window.avancoFecharModal();
+        window.avancoRenderTudo();
+    };
+
+    window.avancoRenderTudo();
+})();
+</script>
 
 <script>
     (function () {

@@ -22,6 +22,10 @@ from banco import (
     buscar_configuracao_agenda_competicao,
     atualizar_configuracao_agenda_competicao,
     inicializar_configuracao_agenda_competicao,
+    buscar_avanco_config_competicao,
+    salvar_avanco_config_competicao,
+    listar_origens_avanco_competicao,
+    gerar_partidas_avanco_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -183,6 +187,9 @@ def listar_competicoes_view():
         config_agenda = buscar_configuracao_agenda_competicao(competicao["nome"]) or {}
         fases = config.get("fases_config") or {}
 
+        avanco = buscar_avanco_config_competicao(competicao["nome"])
+        origens = listar_origens_avanco_competicao(competicao["nome"])
+
         return render_template(
             "editar_competicao.html",
             competicao=competicao,
@@ -190,6 +197,8 @@ def listar_competicoes_view():
             config=config,
             config_agenda=config_agenda,
             fases=fases,
+            avanco=avanco,
+            origens=origens,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
         )
 
@@ -787,6 +796,144 @@ def salvar_regras_avancadas_view():
     return redirect(url_for("competicoes.listar_competicoes_view", tab="regras-avancadas"))
 
 
+
+
+
+
+# =========================================================
+# AVANÇO / CHAVEAMENTO VISUAL
+# =========================================================
+def _normalizar_id_avanco(texto, padrao="ouro"):
+    texto = (texto or padrao).strip().lower()
+    texto = texto.replace("ç", "c").replace("ã", "a").replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    texto = "_".join(texto.split())
+    return texto or padrao
+
+
+def _origem_avanco_form(prefixo):
+    tipo = (request.form.get(f"{prefixo}_tipo") or "").strip()
+    valor = (request.form.get(f"{prefixo}_valor") or "").strip()
+    label = (request.form.get(f"{prefixo}_label") or "").strip()
+    if not tipo and not valor and not label:
+        return {}
+    return {"tipo": tipo, "valor": valor, "label": label}
+
+
+def _regra_avanco_form(prefixo):
+    usar = request.form.get(f"{prefixo}_usar_regra") == "on"
+    return {
+        "usar_regra_propria": usar,
+        "sets_tipo": (request.form.get(f"{prefixo}_sets_tipo") or "padrao").strip() or "padrao",
+        "pontos_set": (request.form.get(f"{prefixo}_pontos_set") or "").strip(),
+        "tem_tiebreak": (request.form.get(f"{prefixo}_tem_tiebreak") or "padrao").strip() or "padrao",
+        "pontos_tiebreak": (request.form.get(f"{prefixo}_pontos_tiebreak") or "").strip(),
+        "modo_operacao": (request.form.get(f"{prefixo}_modo_operacao") or "padrao").strip() or "padrao",
+    }
+
+
+def _coletar_avanco_form():
+    series_ids = request.form.getlist("serie_id[]")
+    series_nomes = request.form.getlist("serie_nome[]")
+    series_ativas = set(request.form.getlist("serie_ativa[]"))
+    fases_por_serie = {}
+
+    for chave in request.form:
+        if chave.startswith("serie_fases_"):
+            sid = chave.replace("serie_fases_", "", 1)
+            fases_por_serie[sid] = request.form.getlist(chave)
+
+    series = []
+    total_series = max(len(series_ids), len(series_nomes))
+    for idx in range(total_series):
+        sid_raw = series_ids[idx] if idx < len(series_ids) else ""
+        nome = (series_nomes[idx] if idx < len(series_nomes) else "").strip()
+        sid = _normalizar_id_avanco(sid_raw or nome or f"serie_{idx+1}")
+        if not nome:
+            nome = sid.title()
+        fases = fases_por_serie.get(sid) or request.form.getlist(f"serie_fases_{sid}[]")
+        if not fases:
+            fases = ["semifinal", "final"]
+        series.append({
+            "id": sid,
+            "nome": nome,
+            "ativa": (sid in series_ativas) or (str(idx) in series_ativas),
+            "fases": fases,
+            "ordem": idx + 1,
+            "regra": _regra_avanco_form(f"serie_{sid}"),
+        })
+
+    jogo_ids = request.form.getlist("jogo_id[]")
+    jogo_series = request.form.getlist("jogo_serie[]")
+    jogo_fases = request.form.getlist("jogo_fase[]")
+    jogo_ordens = request.form.getlist("jogo_ordem[]")
+    jogo_datas = request.form.getlist("jogo_data_hora[]")
+    prox_vencedores = request.form.getlist("jogo_proximo_vencedor[]")
+    prox_perdedores = request.form.getlist("jogo_proximo_perdedor[]")
+
+    jogos = []
+    total_jogos = max(len(jogo_ids), len(jogo_series), len(jogo_fases))
+    for idx in range(total_jogos):
+        jid = (jogo_ids[idx] if idx < len(jogo_ids) else f"J{idx+1}").strip() or f"J{idx+1}"
+        serie = _normalizar_id_avanco(jogo_series[idx] if idx < len(jogo_series) else "ouro")
+        fase = (jogo_fases[idx] if idx < len(jogo_fases) else "quartas").strip() or "quartas"
+        try:
+            ordem = int(jogo_ordens[idx]) if idx < len(jogo_ordens) and jogo_ordens[idx] else idx + 1
+        except Exception:
+            ordem = idx + 1
+
+        jogos.append({
+            "id": jid,
+            "serie": serie,
+            "fase": fase,
+            "ordem": ordem,
+            "data_hora": (jogo_datas[idx] if idx < len(jogo_datas) else "").strip(),
+            "origem_a": _origem_avanco_form(f"jogo_{idx}_a"),
+            "origem_b": _origem_avanco_form(f"jogo_{idx}_b"),
+            "proximo_vencedor": (prox_vencedores[idx] if idx < len(prox_vencedores) else "").strip(),
+            "proximo_perdedor": (prox_perdedores[idx] if idx < len(prox_perdedores) else "").strip(),
+            "regra": _regra_avanco_form(f"jogo_{idx}"),
+        })
+
+    return {"series": series, "jogos": jogos, "versao": 1}
+
+
+@competicoes_bp.route("/competicoes/avanco", methods=["GET", "POST"])
+@exigir_perfil("organizador")
+def avanco_competicao_view():
+    comp = _competicao_do_organizador_logado()
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if request.method == "POST":
+        if competicao_esta_travada(comp["nome"]):
+            flash("A competição está travada. O avanço não pode ser alterado.", "erro")
+            return redirect(url_for("competicoes.avanco_competicao_view"))
+        salvar_avanco_config_competicao(comp["nome"], _coletar_avanco_form())
+        flash("Chaveamento de avanço salvo com sucesso.", "sucesso")
+        return redirect(url_for("competicoes.avanco_competicao_view"))
+
+    avanco = buscar_avanco_config_competicao(comp["nome"])
+    origens = listar_origens_avanco_competicao(comp["nome"])
+    return render_template(
+        "avanco_competicao.html",
+        competicao=comp,
+        avanco=avanco,
+        origens=origens,
+        competicao_travada=competicao_esta_travada(comp["nome"]),
+    )
+
+
+@competicoes_bp.route("/competicoes/avanco/gerar", methods=["POST"])
+@exigir_perfil("organizador")
+def gerar_avanco_competicao_view():
+    comp = _competicao_do_organizador_logado()
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+    resultado = gerar_partidas_avanco_competicao(comp["nome"])
+    flash(f"Mata-mata gerado: {resultado.get('criadas', 0)} novas e {resultado.get('atualizadas', 0)} atualizadas.", "sucesso")
+    return redirect(url_for("competicoes.avanco_competicao_view"))
 
 
 @competicoes_bp.route("/competicoes/destravar", methods=["POST"])

@@ -286,6 +286,290 @@
             font-size: 22px;
         }
     }
+
+
+    /* =========================================================
+       AVANÇO / CHAVEAMENTO VISUAL
+       ========================================================= */
+    .avanco-resumo-card {
+        background: linear-gradient(135deg, #f8fbff, #eef6ff);
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 18px;
+        color: #183247;
+    }
+
+    .avanco-resumo-card strong {
+        display: block;
+        font-size: 16px;
+        margin-bottom: 6px;
+    }
+
+    .avanco-layout {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+    }
+
+    .avanco-panel {
+        background: #ffffff;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: 0 8px 18px rgba(17, 41, 65, 0.05);
+        min-width: 0;
+    }
+
+    .avanco-panel-title {
+        font-size: 18px;
+        font-weight: 900;
+        color: #183247;
+        margin-bottom: 10px;
+    }
+
+    .avanco-serie-row {
+        border: 1px solid #d7dee7;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 10px;
+        background: #f8fbff;
+    }
+
+    .avanco-serie-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .avanco-serie-top input[type="text"] {
+        flex: 1;
+        min-width: 0;
+        padding: 9px 10px;
+        border-radius: 10px;
+        border: 1px solid #cfd9e3;
+        font-weight: 800;
+    }
+
+    .avanco-fases {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .avanco-fases label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        font-weight: 800;
+        color: #425466;
+        background: #ffffff;
+        border: 1px solid #dbe4ec;
+        border-radius: 999px;
+        padding: 6px 8px;
+    }
+
+    .avanco-board-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+
+    .avanco-tabs-series {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .avanco-tab-serie {
+        border: 1px solid #cfd9e3;
+        background: #ffffff;
+        color: #183247;
+        border-radius: 999px;
+        padding: 9px 13px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .avanco-tab-serie.ativa {
+        background: #123852;
+        color: #ffffff;
+        border-color: #123852;
+    }
+
+    .avanco-board-wrap {
+        overflow-x: auto;
+        border: 1px solid #d7dee7;
+        border-radius: 16px;
+        padding: 20px;
+        background: radial-gradient(circle at top left, rgba(37,99,235,.10), rgba(248,251,255,.95));
+        min-height: 560px;
+    }
+
+    .avanco-board {
+        display: flex;
+        align-items: stretch;
+        gap: 46px;
+        min-width: 860px;
+    }
+
+    .avanco-col {
+        min-width: 250px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .avanco-col-title {
+        font-size: 13px;
+        color: #6b7c8c;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        font-weight: 1000;
+    }
+
+    .avanco-card-jogo {
+        position: relative;
+        border: 1px solid #cfd9e3;
+        background: #ffffff;
+        border-radius: 14px;
+        padding: 12px;
+        min-height: 100px;
+        box-shadow: 0 12px 24px rgba(17,41,65,.10);
+        cursor: pointer;
+        transition: .16s ease;
+    }
+
+    .avanco-card-jogo:hover {
+        transform: translateY(-2px);
+        border-color: #123852;
+    }
+
+    .avanco-card-id {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        color: #6b7c8c;
+        font-size: 12px;
+        font-weight: 900;
+    }
+
+    .avanco-linha-equipe {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 10px 0;
+        font-weight: 900;
+        color: #183247;
+    }
+
+    .avanco-slot-icon {
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: #eef4fb;
+        color: #6b7c8c;
+        flex: 0 0 auto;
+    }
+
+    .avanco-card-meta {
+        font-size: 12px;
+        color: #6b7c8c;
+        font-weight: 800;
+        margin-top: 8px;
+    }
+
+    .avanco-add-jogo {
+        border: 1px dashed #8da8bf;
+        background: #f8fbff;
+        color: #123852;
+        border-radius: 14px;
+        padding: 14px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .avanco-modal-bg {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 9998;
+        background: rgba(15, 23, 42, .62);
+        backdrop-filter: blur(4px);
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+    }
+
+    .avanco-modal-bg.ativo { display: flex; }
+
+    .avanco-modal {
+        width: min(760px, 100%);
+        max-height: 92vh;
+        overflow: auto;
+        border-radius: 22px;
+        background: #ffffff;
+        padding: 20px;
+        box-shadow: 0 30px 80px rgba(0,0,0,.35);
+    }
+
+    .avanco-modal-title {
+        font-size: 22px;
+        font-weight: 900;
+        color: #183247;
+        margin: 0 0 14px;
+    }
+
+    .avanco-grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    .avanco-field label {
+        display: block;
+        font-weight: 900;
+        font-size: 13px;
+        margin-bottom: 6px;
+        color: #183247;
+    }
+
+    .avanco-field input,
+    .avanco-field select {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid #cfd9e3;
+        background: #fcfdff;
+    }
+
+    .avanco-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+    }
+
+    @media (max-width: 860px) {
+        .avanco-layout,
+        .avanco-grid2 {
+            grid-template-columns: 1fr;
+        }
+        .avanco-board {
+            gap: 24px;
+        }
+    }
+
 </style>
 
 <div class="fc-wrap">
@@ -524,6 +808,96 @@
                         </div>
                     </div>
 
+
+
+                    <button type="button" class="fc-accordion">Avanço / Chaveamento visual</button>
+                    <div class="fc-panel">
+                        <div class="competicao-pane-title">Avanço / Chaveamento</div>
+                        <div class="competicao-pane-subtitle">
+            Monte o mata-mata visual da competição. Clique nos quadros para escolher quem entra em cada confronto: 1º da chave, 2º da chave, vencedor de jogo anterior, perdedor de jogo anterior ou equipe manual.
+        </div>
+
+                        {% set avanco_cfg = avanco if avanco is defined and avanco else {
+            'series': [
+                {'id':'ouro','nome':'Série Ouro','ativa':True,'fases':['quartas','semifinal','final']},
+                {'id':'prata','nome':'Série Prata','ativa':False,'fases':['semifinal','final']},
+                {'id':'bronze','nome':'Série Bronze','ativa':False,'fases':['semifinal','final']}
+            ],
+            'jogos': []
+        } %}
+                        {% set origens_cfg = origens if origens is defined else [
+            {'tipo':'grupo_posicao','valor':'1A','label':'1º Grupo A'},
+            {'tipo':'grupo_posicao','valor':'2A','label':'2º Grupo A'},
+            {'tipo':'grupo_posicao','valor':'1B','label':'1º Grupo B'},
+            {'tipo':'grupo_posicao','valor':'2B','label':'2º Grupo B'},
+            {'tipo':'grupo_posicao','valor':'1C','label':'1º Grupo C'},
+            {'tipo':'grupo_posicao','valor':'2C','label':'2º Grupo C'},
+            {'tipo':'grupo_posicao','valor':'1D','label':'1º Grupo D'},
+            {'tipo':'grupo_posicao','valor':'2D','label':'2º Grupo D'},
+            {'tipo':'geral_posicao','valor':'1','label':'1º Geral'},
+            {'tipo':'geral_posicao','valor':'2','label':'2º Geral'},
+            {'tipo':'geral_posicao','valor':'3','label':'3º Geral'},
+            {'tipo':'geral_posicao','valor':'4','label':'4º Geral'},
+            {'tipo':'especial','valor':'melhor_terceiro','label':'Melhor 3º'},
+            {'tipo':'manual','valor':'','label':'Equipe manual'}
+        ] %}
+
+                        <div class="avanco-resumo-card">
+            <strong>Como funciona</strong>
+            Primeiro tu define as séries e fases. Depois clica em cada quadro para escolher a origem dos times. Exemplo: <b>1º Grupo A x 2º Grupo B</b>, depois <b>Vencedor J1 x Vencedor J2</b>.
+        </div>
+
+                        <div id="formAvancoCompeticao">
+            <div class="avanco-layout">
+                <div class="avanco-panel">
+                    <div class="avanco-panel-title">Séries</div>
+
+                    {% for serie in avanco_cfg.series %}
+                    <div class="avanco-serie-row">
+                        <input type="hidden" name="serie_id[]" value="{{ serie.id }}">
+                        <div class="avanco-serie-top">
+                            <input type="checkbox" name="serie_ativa[]" value="{{ serie.id }}" style="width:auto;" {% if serie.ativa %}checked{% endif %}>
+                            <input type="text" name="serie_nome[]" value="{{ serie.nome }}">
+                        </div>
+                        <div class="avanco-fases">
+                            {% for fase_id, fase_nome in [('oitavas','Oitavas'),('quartas','Quartas'),('semifinal','Semi'),('terceiro_lugar','3º lugar'),('final','Final')] %}
+                            <label>
+                                <input type="checkbox" name="serie_fases_{{ serie.id }}" value="{{ fase_id }}" {% if fase_id in serie.fases %}checked{% endif %}>
+                                {{ fase_nome }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    <div class="helper-text" style="margin-top:10px;">
+                        Deixa Prata/Bronze desmarcadas por enquanto se quiser configurar só a Série Ouro primeiro.
+                    </div>
+
+                    <div class="competicao-actions" style="justify-content:flex-start; margin-top:18px;">
+                        <button class="btn-padrao" type="button" onclick="window.avancoSyncHidden && window.avancoSyncHidden(); alert('Quadros preparados. Use o botão Salvar formato da competição para salvar junto com a configuração.');" {% if competicao_travada %}disabled{% endif %}>Preparar avanço</button>
+                    </div>
+                </div>
+
+                <div class="avanco-panel">
+                    <div class="avanco-board-actions">
+                        <div class="avanco-tabs-series" id="avancoTabsSeries"></div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                            <button type="button" class="btn-secundario" onclick="avancoAdicionarModeloPadrao()">Criar modelo automático</button>
+                            <button type="button" class="btn-padrao" onclick="window.avancoSyncHidden && window.avancoSyncHidden(); alert('Quadros preparados para salvar.');" {% if competicao_travada %}disabled{% endif %}>Preparar quadros</button>
+                        </div>
+                    </div>
+
+                    <div class="avanco-board-wrap">
+                        <div class="avanco-board" id="avancoBoardVisual"></div>
+                    </div>
+                    <div id="avancoJogosHidden"></div>
+                </div>
+            </div>
+                        </div>
+                    </div>
+
+
                     <div class="fc-acoes">
                         <button type="submit" class="fc-btn">Salvar formato da competição</button>
                     </div>
@@ -552,6 +926,320 @@
         </div>
     </div>
 </div>
+
+
+
+<div class="avanco-modal-bg" id="modalAvancoVisual">
+    <div class="avanco-modal">
+        <div class="avanco-modal-title">Configurar confronto</div>
+        <input type="hidden" id="avancoModalIndex">
+        <div class="avanco-grid2">
+            <div class="avanco-field">
+                <label>ID do jogo</label>
+                <input id="avancoModalId" placeholder="Ex.: J1">
+            </div>
+            <div class="avanco-field">
+                <label>Fase</label>
+                <select id="avancoModalFase">
+                    <option value="oitavas">Oitavas</option>
+                    <option value="quartas">Quartas</option>
+                    <option value="semifinal">Semifinal</option>
+                    <option value="terceiro_lugar">3º lugar</option>
+                    <option value="final">Final</option>
+                </select>
+            </div>
+            <div class="avanco-field">
+                <label>Equipe A / Origem A</label>
+                <select id="avancoModalOrigemA"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Equipe B / Origem B</label>
+                <select id="avancoModalOrigemB"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Manual A</label>
+                <input id="avancoModalManualA" placeholder="Só se escolher equipe manual">
+            </div>
+            <div class="avanco-field">
+                <label>Manual B</label>
+                <input id="avancoModalManualB" placeholder="Só se escolher equipe manual">
+            </div>
+            <div class="avanco-field">
+                <label>Próximo jogo do vencedor</label>
+                <select id="avancoModalProxV"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Próximo jogo do perdedor</label>
+                <select id="avancoModalProxP"></select>
+            </div>
+            <div class="avanco-field">
+                <label>Data/hora</label>
+                <input id="avancoModalData" type="datetime-local">
+            </div>
+        </div>
+        <div class="avanco-modal-actions">
+            <button type="button" class="btn-secundario" onclick="avancoFecharModal()">Cancelar</button>
+            <button type="button" class="tabela-danger-outline" onclick="avancoRemoverJogoAtual()">Remover jogo</button>
+            <button type="button" class="btn-padrao" onclick="avancoSalvarModal()">Salvar quadro</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const origemBase = {{ origens_cfg|tojson }};
+    window.avancoEstado = {{ avanco_cfg|tojson }};
+    window.avancoSerieAtual = (window.avancoEstado.series || []).find(s => s.ativa)?.id || (window.avancoEstado.series?.[0]?.id || 'ouro');
+    window.avancoFaseNome = {oitavas:'Oitavas', quartas:'Quartas', semifinal:'Semifinal', terceiro_lugar:'3º lugar', final:'Final'};
+
+    window.avancoOrigemLabel = function (origem) {
+        origem = origem || {};
+        if (origem.tipo === 'manual') return origem.valor || origem.label || 'Equipe manual';
+        if (origem.tipo === 'vencedor_jogo') return 'Vencedor ' + (origem.valor || '');
+        if (origem.tipo === 'perdedor_jogo') return 'Perdedor ' + (origem.valor || '');
+        return origem.label || origem.valor || 'A definir';
+    };
+
+    window.avancoOrigemValue = function (origem) {
+        origem = origem || {};
+        return `${origem.tipo || ''}|${origem.valor || ''}|${origem.label || ''}`;
+    };
+
+    window.avancoOrigemFromValue = function (valor, manual) {
+        const partes = String(valor || '').split('|');
+        const tipo = partes[0] || '';
+        const val = partes[1] || '';
+        const label = partes[2] || '';
+        if (tipo === 'manual') {
+            return {tipo: 'manual', valor: manual || val || '', label: manual || label || 'Equipe manual'};
+        }
+        return {tipo: tipo, valor: val, label: label};
+    };
+
+    window.avancoOpcoesOrigem = function () {
+        const ops = [...origemBase];
+        (window.avancoEstado.jogos || []).forEach(j => {
+            if (!j.id) return;
+            ops.push({tipo:'vencedor_jogo', valor:j.id, label:'Vencedor ' + j.id});
+            ops.push({tipo:'perdedor_jogo', valor:j.id, label:'Perdedor ' + j.id});
+        });
+        return ops;
+    };
+
+    window.avancoFasesDaSerie = function () {
+        const serie = (window.avancoEstado.series || []).find(s => s.id === window.avancoSerieAtual) || {fases:['quartas','semifinal','final']};
+        return serie.fases && serie.fases.length ? serie.fases : ['quartas','semifinal','final'];
+    };
+
+    window.avancoRenderTabs = function () {
+        const wrap = document.getElementById('avancoTabsSeries');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        (window.avancoEstado.series || []).filter(s => s.ativa).forEach(s => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'avanco-tab-serie ' + (s.id === window.avancoSerieAtual ? 'ativa' : '');
+            btn.textContent = s.nome || s.id;
+            btn.onclick = function () {
+                window.avancoSerieAtual = s.id;
+                window.avancoRenderTudo();
+            };
+            wrap.appendChild(btn);
+        });
+    };
+
+    window.avancoRenderBoard = function () {
+        const board = document.getElementById('avancoBoardVisual');
+        if (!board) return;
+        board.innerHTML = '';
+        window.avancoFasesDaSerie().forEach(fase => {
+            const col = document.createElement('div');
+            col.className = 'avanco-col';
+            col.innerHTML = `<div class="avanco-col-title">${window.avancoFaseNome[fase] || fase}</div>`;
+
+            (window.avancoEstado.jogos || [])
+                .filter(j => j.serie === window.avancoSerieAtual && j.fase === fase)
+                .sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
+                .forEach(j => {
+                    const idx = window.avancoEstado.jogos.indexOf(j);
+                    const card = document.createElement('div');
+                    card.className = 'avanco-card-jogo';
+                    card.onclick = function () { window.avancoAbrirModal(idx); };
+                    card.innerHTML = `
+                        <div class="avanco-card-id">${j.id || ''}</div>
+                        <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_a)}</span></div>
+                        <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_b)}</span></div>
+                        <div class="avanco-card-meta">${j.data_hora || ''}${j.proximo_vencedor ? ' • vencedor → ' + j.proximo_vencedor : ''}</div>
+                    `;
+                    col.appendChild(card);
+                });
+
+            const add = document.createElement('button');
+            add.type = 'button';
+            add.className = 'avanco-add-jogo';
+            add.textContent = '+ Adicionar jogo em ' + (window.avancoFaseNome[fase] || fase);
+            add.onclick = function () { window.avancoAdicionarJogo(fase); };
+            col.appendChild(add);
+            board.appendChild(col);
+        });
+    };
+
+    window.avancoSyncHidden = function () {
+        const hidden = document.getElementById('avancoJogosHidden');
+        if (!hidden) return;
+        hidden.innerHTML = '';
+        (window.avancoEstado.jogos || []).forEach((j, idx) => {
+            function addInput(nome, valor) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = nome;
+                input.value = valor || '';
+                hidden.appendChild(input);
+            }
+            addInput('jogo_id[]', j.id);
+            addInput('jogo_serie[]', j.serie);
+            addInput('jogo_fase[]', j.fase);
+            addInput('jogo_ordem[]', j.ordem || idx + 1);
+            addInput('jogo_data_hora[]', j.data_hora || '');
+            addInput('jogo_proximo_vencedor[]', j.proximo_vencedor || '');
+            addInput('jogo_proximo_perdedor[]', j.proximo_perdedor || '');
+            ['a', 'b'].forEach(lado => {
+                const origem = j['origem_' + lado] || {};
+                addInput(`jogo_${idx}_${lado}_tipo`, origem.tipo || '');
+                addInput(`jogo_${idx}_${lado}_valor`, origem.valor || '');
+                addInput(`jogo_${idx}_${lado}_label`, origem.label || '');
+            });
+        });
+    };
+
+    window.avancoRenderTudo = function () {
+        window.avancoRenderTabs();
+        window.avancoRenderBoard();
+        window.avancoSyncHidden();
+    };
+
+    window.avancoProximoId = function () {
+        let n = (window.avancoEstado.jogos || []).length + 1;
+        while ((window.avancoEstado.jogos || []).some(j => j.id === 'J' + n)) n++;
+        return 'J' + n;
+    };
+
+    window.avancoAdicionarJogo = function (fase) {
+        window.avancoEstado.jogos = window.avancoEstado.jogos || [];
+        window.avancoEstado.jogos.push({
+            id: window.avancoProximoId(),
+            serie: window.avancoSerieAtual,
+            fase: fase,
+            ordem: window.avancoEstado.jogos.length + 1,
+            origem_a: {},
+            origem_b: {},
+            proximo_vencedor: '',
+            proximo_perdedor: '',
+            data_hora: ''
+        });
+        window.avancoRenderTudo();
+    };
+
+    window.avancoAdicionarModeloPadrao = function () {
+        const serie = window.avancoSerieAtual;
+        const fases = window.avancoFasesDaSerie();
+        const existe = (window.avancoEstado.jogos || []).some(j => j.serie === serie);
+        if (existe && !confirm('Essa série já tem jogos. Deseja adicionar mais um modelo mesmo assim?')) return;
+
+        const baseCount = (window.avancoEstado.jogos || []).length;
+        const novos = [];
+        if (fases.includes('quartas')) {
+            novos.push(
+                {id:'J'+(baseCount+1), serie, fase:'quartas', ordem:baseCount+1, origem_a:{tipo:'grupo_posicao',valor:'1A',label:'1º Grupo A'}, origem_b:{tipo:'grupo_posicao',valor:'2B',label:'2º Grupo B'}, proximo_vencedor:'J'+(baseCount+5)},
+                {id:'J'+(baseCount+2), serie, fase:'quartas', ordem:baseCount+2, origem_a:{tipo:'grupo_posicao',valor:'1B',label:'1º Grupo B'}, origem_b:{tipo:'grupo_posicao',valor:'2A',label:'2º Grupo A'}, proximo_vencedor:'J'+(baseCount+5)},
+                {id:'J'+(baseCount+3), serie, fase:'quartas', ordem:baseCount+3, origem_a:{tipo:'grupo_posicao',valor:'1C',label:'1º Grupo C'}, origem_b:{tipo:'grupo_posicao',valor:'2D',label:'2º Grupo D'}, proximo_vencedor:'J'+(baseCount+6)},
+                {id:'J'+(baseCount+4), serie, fase:'quartas', ordem:baseCount+4, origem_a:{tipo:'grupo_posicao',valor:'1D',label:'1º Grupo D'}, origem_b:{tipo:'grupo_posicao',valor:'2C',label:'2º Grupo C'}, proximo_vencedor:'J'+(baseCount+6)},
+                {id:'J'+(baseCount+5), serie, fase:'semifinal', ordem:baseCount+5, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+1),label:'Vencedor J'+(baseCount+1)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+2),label:'Vencedor J'+(baseCount+2)}, proximo_vencedor:'J'+(baseCount+7)},
+                {id:'J'+(baseCount+6), serie, fase:'semifinal', ordem:baseCount+6, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+3),label:'Vencedor J'+(baseCount+3)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+4),label:'Vencedor J'+(baseCount+4)}, proximo_vencedor:'J'+(baseCount+7)},
+                {id:'J'+(baseCount+7), serie, fase:'final', ordem:baseCount+7, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+5),label:'Vencedor J'+(baseCount+5)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+6),label:'Vencedor J'+(baseCount+6)}, proximo_vencedor:''}
+            );
+        } else if (fases.includes('semifinal')) {
+            novos.push(
+                {id:'J'+(baseCount+1), serie, fase:'semifinal', ordem:baseCount+1, origem_a:{tipo:'grupo_posicao',valor:'1A',label:'1º Grupo A'}, origem_b:{tipo:'grupo_posicao',valor:'2B',label:'2º Grupo B'}, proximo_vencedor:'J'+(baseCount+3)},
+                {id:'J'+(baseCount+2), serie, fase:'semifinal', ordem:baseCount+2, origem_a:{tipo:'grupo_posicao',valor:'1B',label:'1º Grupo B'}, origem_b:{tipo:'grupo_posicao',valor:'2A',label:'2º Grupo A'}, proximo_vencedor:'J'+(baseCount+3)},
+                {id:'J'+(baseCount+3), serie, fase:'final', ordem:baseCount+3, origem_a:{tipo:'vencedor_jogo',valor:'J'+(baseCount+1),label:'Vencedor J'+(baseCount+1)}, origem_b:{tipo:'vencedor_jogo',valor:'J'+(baseCount+2),label:'Vencedor J'+(baseCount+2)}, proximo_vencedor:''}
+            );
+        } else {
+            novos.push({id:'J'+(baseCount+1), serie, fase:'final', ordem:baseCount+1, origem_a:{tipo:'geral_posicao',valor:'1',label:'1º Geral'}, origem_b:{tipo:'geral_posicao',valor:'2',label:'2º Geral'}, proximo_vencedor:''});
+        }
+        window.avancoEstado.jogos = (window.avancoEstado.jogos || []).concat(novos);
+        window.avancoRenderTudo();
+    };
+
+    window.avancoPreencherOrigem = function (select, atual) {
+        select.innerHTML = '<option value="||">A definir</option>';
+        window.avancoOpcoesOrigem().forEach(o => {
+            const opt = document.createElement('option');
+            opt.value = window.avancoOrigemValue(o);
+            opt.textContent = o.label;
+            if (opt.value === window.avancoOrigemValue(atual)) opt.selected = true;
+            select.appendChild(opt);
+        });
+    };
+
+    window.avancoPreencherProximos = function (select, atual) {
+        select.innerHTML = '<option value="">Nenhum</option>';
+        (window.avancoEstado.jogos || []).forEach(j => {
+            const opt = document.createElement('option');
+            opt.value = j.id;
+            opt.textContent = `${j.id} - ${window.avancoFaseNome[j.fase] || j.fase}`;
+            if (j.id === atual) opt.selected = true;
+            select.appendChild(opt);
+        });
+    };
+
+    window.avancoAbrirModal = function (idx) {
+        const j = window.avancoEstado.jogos[idx];
+        if (!j) return;
+        document.getElementById('avancoModalIndex').value = idx;
+        document.getElementById('avancoModalId').value = j.id || '';
+        document.getElementById('avancoModalFase').value = j.fase || 'quartas';
+        document.getElementById('avancoModalData').value = j.data_hora || '';
+        window.avancoPreencherOrigem(document.getElementById('avancoModalOrigemA'), j.origem_a);
+        window.avancoPreencherOrigem(document.getElementById('avancoModalOrigemB'), j.origem_b);
+        document.getElementById('avancoModalManualA').value = j.origem_a?.tipo === 'manual' ? (j.origem_a.valor || '') : '';
+        document.getElementById('avancoModalManualB').value = j.origem_b?.tipo === 'manual' ? (j.origem_b.valor || '') : '';
+        window.avancoPreencherProximos(document.getElementById('avancoModalProxV'), j.proximo_vencedor || '');
+        window.avancoPreencherProximos(document.getElementById('avancoModalProxP'), j.proximo_perdedor || '');
+        document.getElementById('modalAvancoVisual').classList.add('ativo');
+    };
+
+    window.avancoFecharModal = function () {
+        document.getElementById('modalAvancoVisual').classList.remove('ativo');
+    };
+
+    window.avancoSalvarModal = function () {
+        const idx = parseInt(document.getElementById('avancoModalIndex').value, 10);
+        const j = window.avancoEstado.jogos[idx];
+        if (!j) return;
+        j.id = document.getElementById('avancoModalId').value || j.id;
+        j.fase = document.getElementById('avancoModalFase').value;
+        j.data_hora = document.getElementById('avancoModalData').value || '';
+        j.origem_a = window.avancoOrigemFromValue(document.getElementById('avancoModalOrigemA').value, document.getElementById('avancoModalManualA').value);
+        j.origem_b = window.avancoOrigemFromValue(document.getElementById('avancoModalOrigemB').value, document.getElementById('avancoModalManualB').value);
+        j.proximo_vencedor = document.getElementById('avancoModalProxV').value;
+        j.proximo_perdedor = document.getElementById('avancoModalProxP').value;
+        window.avancoFecharModal();
+        window.avancoRenderTudo();
+    };
+
+    window.avancoRemoverJogoAtual = function () {
+        const idx = parseInt(document.getElementById('avancoModalIndex').value, 10);
+        if (!Number.isFinite(idx)) return;
+        if (!confirm('Remover este quadro do chaveamento?')) return;
+        window.avancoEstado.jogos.splice(idx, 1);
+        window.avancoFecharModal();
+        window.avancoRenderTudo();
+    };
+
+    window.avancoRenderTudo();
+})();
+</script>
 
 <script>
     const accordions = document.querySelectorAll(".fc-accordion");

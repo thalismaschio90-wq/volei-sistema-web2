@@ -13469,3 +13469,509 @@ def listar_escudos_status():
                 ORDER BY nome
             """)
             return cur.fetchall()
+
+
+# =========================================================
+# AVANÇO / CHAVEAMENTO VISUAL (SÉRIES, ORIGENS E PREENCHIMENTO)
+# =========================================================
+def _avanco_regra_padrao():
+    return {
+        "usar_regra_propria": False,
+        "sets_tipo": "padrao",
+        "pontos_set": "",
+        "tem_tiebreak": "padrao",
+        "pontos_tiebreak": "",
+        "modo_operacao": "padrao",
+    }
+
+
+def _avanco_config_padrao():
+    regra = _avanco_regra_padrao()
+    return {
+        "series": [
+            {"id": "ouro", "nome": "Série Ouro", "ativa": True, "fases": ["quartas", "semifinal", "final"], "regra": dict(regra)},
+            {"id": "prata", "nome": "Série Prata", "ativa": False, "fases": ["quartas", "semifinal", "final"], "regra": dict(regra)},
+            {"id": "bronze", "nome": "Série Bronze", "ativa": False, "fases": ["semifinal", "final"], "regra": dict(regra)},
+        ],
+        "jogos": [],
+        "versao": 2,
+    }
+
+
+def _normalizar_regra_avanco(valor):
+    regra = _avanco_regra_padrao()
+    if isinstance(valor, dict):
+        regra.update(valor)
+    regra["usar_regra_propria"] = bool(regra.get("usar_regra_propria"))
+    regra["sets_tipo"] = str(regra.get("sets_tipo") or "padrao").strip() or "padrao"
+    regra["tem_tiebreak"] = str(regra.get("tem_tiebreak") or "padrao").strip() or "padrao"
+    regra["modo_operacao"] = str(regra.get("modo_operacao") or "padrao").strip() or "padrao"
+    for campo in ("pontos_set", "pontos_tiebreak"):
+        valor_campo = regra.get(campo)
+        regra[campo] = "" if valor_campo in (None, "0", 0) else str(valor_campo).strip()
+    return regra
+
+
+def _normalizar_json_avanco(valor):
+    if isinstance(valor, dict):
+        cfg = valor
+    elif isinstance(valor, str) and valor.strip():
+        try:
+            cfg = json.loads(valor)
+        except Exception:
+            cfg = {}
+    else:
+        cfg = {}
+
+    padrao = _avanco_config_padrao()
+    cfg.setdefault("series", padrao["series"])
+    cfg.setdefault("jogos", [])
+    cfg.setdefault("versao", 2)
+
+    if not isinstance(cfg.get("series"), list):
+        cfg["series"] = padrao["series"]
+    if not isinstance(cfg.get("jogos"), list):
+        cfg["jogos"] = []
+
+    series_norm = []
+    for idx, serie in enumerate(cfg.get("series") or []):
+        if not isinstance(serie, dict):
+            continue
+        sid = str(serie.get("id") or serie.get("nome") or f"serie_{idx + 1}").strip().lower()
+        sid = sid.replace(" ", "_") or f"serie_{idx + 1}"
+        fases = serie.get("fases") if isinstance(serie.get("fases"), list) else []
+        if not fases:
+            fases = ["semifinal", "final"]
+        series_norm.append({
+            "id": sid,
+            "nome": str(serie.get("nome") or sid.title()).strip(),
+            "ativa": bool(serie.get("ativa")),
+            "fases": [str(f or "").strip() for f in fases if str(f or "").strip()],
+            "ordem": int(serie.get("ordem") or idx + 1),
+            "regra": _normalizar_regra_avanco(serie.get("regra")),
+        })
+    cfg["series"] = series_norm or padrao["series"]
+
+    jogos_norm = []
+    for idx, jogo in enumerate(cfg.get("jogos") or []):
+        if not isinstance(jogo, dict):
+            continue
+        jogos_norm.append({
+            "id": str(jogo.get("id") or f"J{idx + 1}").strip(),
+            "serie": str(jogo.get("serie") or "ouro").strip().lower(),
+            "fase": str(jogo.get("fase") or "quartas").strip(),
+            "ordem": int(jogo.get("ordem") or idx + 1),
+            "data_hora": str(jogo.get("data_hora") or "").strip(),
+            "origem_a": jogo.get("origem_a") if isinstance(jogo.get("origem_a"), dict) else {},
+            "origem_b": jogo.get("origem_b") if isinstance(jogo.get("origem_b"), dict) else {},
+            "proximo_vencedor": str(jogo.get("proximo_vencedor") or "").strip(),
+            "proximo_perdedor": str(jogo.get("proximo_perdedor") or "").strip(),
+            "regra": _normalizar_regra_avanco(jogo.get("regra")),
+        })
+    cfg["jogos"] = jogos_norm
+    return cfg
+
+
+def buscar_avanco_config_competicao(nome_competicao):
+    """Busca a configuração visual do chaveamento salva dentro de fases_config.avanco."""
+    config = buscar_configuracao_avancada_competicao(nome_competicao) or {}
+    fases_config = config.get("fases_config") or {}
+    return _normalizar_json_avanco(fases_config.get("avanco"))
+
+
+def salvar_avanco_config_competicao(nome_competicao, avanco_config):
+    """Salva o construtor de avanço sem criar coluna nova no banco."""
+    config = buscar_configuracao_avancada_competicao(nome_competicao) or {}
+    fases_config = config.get("fases_config") or {}
+    avanco_normalizado = _normalizar_json_avanco(avanco_config)
+    fases_config["avanco"] = avanco_normalizado
+    fases_config = _aplicar_regras_avanco_em_fases_config(fases_config, avanco_normalizado)
+
+    return atualizar_configuracao_avancada_competicao(
+        nome_competicao=nome_competicao,
+        tipo_classificacao=config.get("tipo_classificacao") or "grupo",
+        qtd_classificados=config.get("qtd_classificados") or 0,
+        formato_finais=config.get("formato_finais") or "mata_mata",
+        possui_bye=config.get("possui_bye") or False,
+        qtd_bye=config.get("qtd_bye") or 0,
+        fases_config=fases_config,
+        tipo_confronto=config.get("tipo_confronto") or "grupo_interno",
+        cruzamentos_grupos=config.get("cruzamentos_grupos") or "",
+        data_limite_inscricao=config.get("data_limite_inscricao"),
+        hora_limite_inscricao=config.get("hora_limite_inscricao"),
+        bloquear_apos_inicio=config.get("bloquear_apos_inicio") or False,
+    )
+
+
+def _rotulo_posicao(pos):
+    try:
+        return f"{int(pos)}º"
+    except Exception:
+        return f"{pos}º"
+
+
+def listar_origens_avanco_competicao(nome_competicao):
+    """Opções do seletor de origem, filtradas pela estrutura real da competição.
+
+    Se a classificação é por grupo, não mostra 8º de um grupo que só tem 4 times.
+    Se a classificação é geral, mostra apenas posições gerais até a quantidade real de equipes.
+    Em modo misto, mostra as duas famílias de origem.
+    """
+    config = buscar_configuracao_avancada_competicao(nome_competicao) or {}
+    tipo_classificacao = str(config.get("tipo_classificacao") or "grupo").strip().lower()
+    comp = buscar_competicao_por_nome(nome_competicao) or {}
+    opcoes = []
+
+    grupos = listar_grupos(nome_competicao) or []
+    total_equipes = 0
+
+    if tipo_classificacao in {"grupo", "misto", "por_grupo"}:
+        for grupo in grupos:
+            nome = str(grupo.get("nome") or "").strip().upper()
+            if not nome:
+                continue
+            equipes_grupo = listar_equipes_por_grupo(grupo.get("id")) or []
+            qtd = len([e for e in equipes_grupo if (e.get("equipe") or e.get("nome") or "").strip()])
+            total_equipes += qtd
+            for pos in range(1, qtd + 1):
+                opcoes.append({
+                    "tipo": "grupo_posicao",
+                    "valor": f"{pos}{nome}",
+                    "label": f"{_rotulo_posicao(pos)} Grupo {nome}",
+                    "grupo": nome,
+                    "posicao": pos,
+                })
+
+    if not total_equipes:
+        try:
+            total_equipes = len(listar_equipes_da_competicao(nome_competicao) or [])
+        except Exception:
+            total_equipes = int(comp.get("qtd_equipes") or 0)
+
+    if tipo_classificacao in {"geral", "misto"}:
+        limite = total_equipes or int(comp.get("qtd_equipes") or 0) or 32
+        for pos in range(1, limite + 1):
+            opcoes.append({"tipo": "geral_posicao", "valor": str(pos), "label": f"{_rotulo_posicao(pos)} Geral", "posicao": pos})
+
+    # Opções especiais ficam no fim, sem poluir a lista principal.
+    opcoes.extend([
+        {"tipo": "melhor_terceiro", "valor": "1", "label": "Melhor 3º"},
+        {"tipo": "melhor_quarto", "valor": "1", "label": "Melhor 4º"},
+        {"tipo": "bye", "valor": "BYE", "label": "BYE / Sem adversário"},
+        {"tipo": "manual", "valor": "", "label": "Equipe manual"},
+    ])
+    return opcoes
+
+
+def _normalizar_fase_avanco_para_partida(fase):
+    fase = str(fase or "").strip().lower().replace("í", "i").replace("á", "a").replace(" ", "_").replace("-", "_")
+    mapa = {
+        "oitavas": "oitavas",
+        "quartas": "quartas",
+        "semi": "semifinal",
+        "semifinais": "semifinal",
+        "semifinal": "semifinal",
+        "final": "final",
+        "terceiro_lugar": "terceiro_lugar",
+        "3_lugar": "terceiro_lugar",
+    }
+    return mapa.get(fase, fase or "mata_mata")
+
+
+def _calcular_classificacao_simples_avanco(nome_competicao):
+    """Classificação leve para resolver 1º A/2º B sem depender do HTML da tabela."""
+    grupos = listar_grupos(nome_competicao) or []
+    partidas = listar_partidas(nome_competicao) or []
+    tabela = {}
+
+    for g in grupos:
+        nome_g = str(g.get("nome") or "").strip().upper()
+        tabela[nome_g] = {}
+        for ge in listar_equipes_por_grupo(g.get("id")) or []:
+            equipe = str(ge.get("equipe") or ge.get("nome") or "").strip()
+            if equipe:
+                tabela[nome_g][equipe] = {
+                    "equipe": equipe, "grupo": nome_g, "pontos": 0, "vitorias": 0,
+                    "saldo_sets": 0, "saldo_pontos": 0, "sets_pro": 0, "sets_contra": 0,
+                    "pontos_pro": 0, "pontos_contra": 0,
+                }
+
+    for p in partidas:
+        if str(p.get("fase") or "grupos").strip().lower() != "grupos":
+            continue
+        status = str(p.get("status") or p.get("status_jogo") or "").strip().lower()
+        if status not in {"finalizada", "finalizado", "encerrada", "encerrado"} and not p.get("finalizado_em"):
+            continue
+        grupo = str(p.get("grupo") or "").strip().upper()
+        if grupo not in tabela:
+            continue
+        a = str(p.get("equipe_a") or "").strip()
+        b = str(p.get("equipe_b") or "").strip()
+        if a not in tabela[grupo] or b not in tabela[grupo]:
+            continue
+        sets_a = int(p.get("sets_a") or 0)
+        sets_b = int(p.get("sets_b") or 0)
+        pts_a = sum(int(p.get(c) or 0) for c in ("set1_a", "set2_a", "set3_a", "set4_a", "set5_a", "pontos_a"))
+        pts_b = sum(int(p.get(c) or 0) for c in ("set1_b", "set2_b", "set3_b", "set4_b", "set5_b", "pontos_b"))
+        if sets_a == 0 and sets_b == 0 and (pts_a or pts_b):
+            sets_a = 1 if pts_a > pts_b else 0
+            sets_b = 1 if pts_b > pts_a else 0
+        tabela[grupo][a]["sets_pro"] += sets_a
+        tabela[grupo][a]["sets_contra"] += sets_b
+        tabela[grupo][a]["saldo_sets"] += sets_a - sets_b
+        tabela[grupo][a]["pontos_pro"] += pts_a
+        tabela[grupo][a]["pontos_contra"] += pts_b
+        tabela[grupo][a]["saldo_pontos"] += pts_a - pts_b
+        tabela[grupo][b]["sets_pro"] += sets_b
+        tabela[grupo][b]["sets_contra"] += sets_a
+        tabela[grupo][b]["saldo_sets"] += sets_b - sets_a
+        tabela[grupo][b]["pontos_pro"] += pts_b
+        tabela[grupo][b]["pontos_contra"] += pts_a
+        tabela[grupo][b]["saldo_pontos"] += pts_b - pts_a
+        if sets_a > sets_b:
+            tabela[grupo][a]["vitorias"] += 1
+            tabela[grupo][a]["pontos"] += 3
+        elif sets_b > sets_a:
+            tabela[grupo][b]["vitorias"] += 1
+            tabela[grupo][b]["pontos"] += 3
+
+    por_grupo = {}
+    geral = []
+    for grupo, linhas in tabela.items():
+        ordenadas = sorted(linhas.values(), key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
+        por_grupo[grupo] = ordenadas
+        geral.extend(ordenadas)
+    geral = sorted(geral, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
+    return por_grupo, geral
+
+
+def _partida_finalizada_avanco(partida):
+    if not partida:
+        return False
+    status = str(partida.get("status") or partida.get("status_jogo") or "").strip().lower()
+    return status in {"finalizada", "finalizado", "encerrada", "encerrado"} or bool(partida.get("finalizado_em"))
+
+
+def _vencedor_perdedor_partida_avanco(partida):
+    if not partida:
+        return None, None
+    a = str(partida.get("equipe_a") or "").strip()
+    b = str(partida.get("equipe_b") or "").strip()
+    sets_a = int(partida.get("sets_a") or 0)
+    sets_b = int(partida.get("sets_b") or 0)
+    if sets_a == sets_b:
+        pts_a = sum(int(partida.get(c) or 0) for c in ("set1_a", "set2_a", "set3_a", "set4_a", "set5_a", "pontos_a"))
+        pts_b = sum(int(partida.get(c) or 0) for c in ("set1_b", "set2_b", "set3_b", "set4_b", "set5_b", "pontos_b"))
+        if pts_a == pts_b:
+            return None, None
+        return (a, b) if pts_a > pts_b else (b, a)
+    return (a, b) if sets_a > sets_b else (b, a)
+
+
+def _buscar_partida_avanco_por_jogo(nome_competicao, jogo_id, serie=None):
+    jogo_id = str(jogo_id or "").strip()
+    if not jogo_id:
+        return None
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            if serie:
+                cur.execute("""
+                    SELECT * FROM partidas
+                    WHERE competicao = %s AND origem = %s
+                    LIMIT 1
+                """, (nome_competicao, f"avanco:{serie}:{jogo_id}"))
+            else:
+                cur.execute("""
+                    SELECT * FROM partidas
+                    WHERE competicao = %s AND origem LIKE %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (nome_competicao, f"avanco:%:{jogo_id}"))
+            return cur.fetchone()
+
+
+def resolver_origem_avanco_competicao(nome_competicao, origem, serie=None):
+    origem = origem if isinstance(origem, dict) else {}
+    tipo = str(origem.get("tipo") or "").strip()
+    valor = str(origem.get("valor") or "").strip()
+    label = str(origem.get("label") or "").strip()
+
+    if tipo == "manual":
+        return valor or label or "Equipe manual"
+    if tipo == "bye":
+        return "BYE"
+    if tipo in {"vencedor_jogo", "perdedor_jogo"}:
+        partida = _buscar_partida_avanco_por_jogo(nome_competicao, valor, serie=serie)
+        if partida and _partida_finalizada_avanco(partida):
+            vencedor, perdedor = _vencedor_perdedor_partida_avanco(partida)
+            if tipo == "vencedor_jogo" and vencedor:
+                return vencedor
+            if tipo == "perdedor_jogo" and perdedor:
+                return perdedor
+        rot = "Vencedor" if tipo == "vencedor_jogo" else "Perdedor"
+        return f"{rot} {valor}".strip()
+
+    por_grupo, geral = _calcular_classificacao_simples_avanco(nome_competicao)
+
+    if tipo == "grupo_posicao":
+        m = re.match(r"^(\d+)([A-Za-zÀ-ÿ0-9_-]+)$", valor.replace(" ", ""))
+        if m:
+            pos = int(m.group(1))
+            grupo = m.group(2).upper()
+            linhas = por_grupo.get(grupo) or []
+            if len(linhas) >= pos:
+                return linhas[pos - 1].get("equipe") or label or valor
+        return label or valor
+
+    if tipo == "geral_posicao":
+        try:
+            pos = int(valor)
+            if len(geral) >= pos:
+                return geral[pos - 1].get("equipe") or label or valor
+        except Exception:
+            pass
+        return label or f"{valor}º Geral"
+
+    if tipo == "melhor_terceiro":
+        terceiros = []
+        for linhas in por_grupo.values():
+            if len(linhas) >= 3:
+                terceiros.append(linhas[2])
+        terceiros = sorted(terceiros, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
+        return (terceiros[0].get("equipe") if terceiros else "Melhor 3º")
+
+    if tipo == "melhor_quarto":
+        quartos = []
+        for linhas in por_grupo.values():
+            if len(linhas) >= 4:
+                quartos.append(linhas[3])
+        quartos = sorted(quartos, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
+        return (quartos[0].get("equipe") if quartos else "Melhor 4º")
+
+    return label or valor or "A definir"
+
+
+def _regra_efetiva_jogo_avanco(avanco, jogo):
+    jogo = jogo or {}
+    regra_jogo = _normalizar_regra_avanco(jogo.get("regra"))
+    if regra_jogo.get("usar_regra_propria"):
+        return regra_jogo
+    serie_id = str(jogo.get("serie") or "").strip().lower()
+    for serie in avanco.get("series") or []:
+        if str(serie.get("id") or "").strip().lower() == serie_id:
+            return _normalizar_regra_avanco(serie.get("regra"))
+    return _avanco_regra_padrao()
+
+
+def _sets_avanco_por_regra(regra, comp=None):
+    regra = _normalizar_regra_avanco(regra)
+    sets_tipo = regra.get("sets_tipo") if regra.get("sets_tipo") != "padrao" else (comp or {}).get("sets_tipo")
+    sets_tipo = str(sets_tipo or "melhor_de_3").strip().lower()
+    if sets_tipo == "set_unico":
+        return 1, 1
+    if sets_tipo == "melhor_de_5":
+        return 5, 3
+    return 3, 2
+
+
+def _aplicar_regras_avanco_em_fases_config(fases_config, avanco):
+    """Guarda regras por série/jogo em fases_config para uso atual e futuro.
+
+    A regra padrão da competição continua valendo. Apenas séries ou jogos marcados
+    com regra própria entram aqui.
+    """
+    regras_avancadas = fases_config.get("regras_avancadas") or {}
+    regras_avancadas.setdefault("series", {})
+    regras_avancadas.setdefault("jogos", {})
+
+    for serie in avanco.get("series") or []:
+        regra = _normalizar_regra_avanco(serie.get("regra"))
+        sid = str(serie.get("id") or "").strip().lower()
+        if sid and regra.get("usar_regra_propria"):
+            regras_avancadas["series"][sid] = regra
+
+    for jogo in avanco.get("jogos") or []:
+        regra = _normalizar_regra_avanco(jogo.get("regra"))
+        if regra.get("usar_regra_propria"):
+            chave = f"{jogo.get('serie') or 'ouro'}:{jogo.get('id') or ''}"
+            regras_avancadas["jogos"][chave] = regra
+
+    fases_config["regras_avancadas"] = regras_avancadas
+    return fases_config
+
+
+def gerar_partidas_avanco_competicao(nome_competicao):
+    """Cria/atualiza partidas a partir dos quadros configurados no Avanço.
+    Evita duplicar usando origem='avanco:<serie>:<jogo>'.
+    """
+    avanco = buscar_avanco_config_competicao(nome_competicao)
+    jogos = avanco.get("jogos") or []
+    criadas = 0
+    atualizadas = 0
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            colunas = _buscar_colunas_tabela("partidas")
+            for idx, jogo in enumerate(jogos, start=1):
+                if not isinstance(jogo, dict):
+                    continue
+                jid = str(jogo.get("id") or f"J{idx}").strip()
+                serie = str(jogo.get("serie") or "ouro").strip().lower()
+                fase = _normalizar_fase_avanco_para_partida(jogo.get("fase"))
+                origem_tag = f"avanco:{serie}:{jid}"
+                equipe_a = resolver_origem_avanco_competicao(nome_competicao, jogo.get("origem_a") or {}, serie=serie)
+                equipe_b = resolver_origem_avanco_competicao(nome_competicao, jogo.get("origem_b") or {}, serie=serie)
+                if not equipe_a:
+                    equipe_a = "A definir"
+                if not equipe_b:
+                    equipe_b = "A definir"
+
+                comp_regra = buscar_competicao_por_nome(nome_competicao) or {}
+                regra_efetiva = _regra_efetiva_jogo_avanco(avanco, jogo)
+                sets_max_avanco, sets_para_vencer_avanco = _sets_avanco_por_regra(regra_efetiva, comp_regra)
+
+                cur.execute("""
+                    SELECT id, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b
+                    FROM partidas
+                    WHERE competicao = %s AND origem = %s
+                    LIMIT 1
+                """, (nome_competicao, origem_tag))
+                existente = cur.fetchone()
+
+                if existente:
+                    if partida_ja_iniciou_ou_finalizou(existente):
+                        continue
+                    cur.execute("""
+                        UPDATE partidas
+                        SET fase = %s, grupo = NULL, equipe_a = %s, equipe_b = %s, ordem = %s,
+                            quadra = COALESCE(quadra, ''), status = COALESCE(NULLIF(status, ''), 'aguardando')
+                        WHERE id = %s
+                    """, (fase, equipe_a, equipe_b, idx, existente["id"]))
+                    if "sets_max" in colunas or "sets_para_vencer" in colunas:
+                        sets_update = []
+                        sets_valores = []
+                        if "sets_max" in colunas:
+                            sets_update.append("sets_max = %s"); sets_valores.append(sets_max_avanco)
+                        if "sets_para_vencer" in colunas:
+                            sets_update.append("sets_para_vencer = %s"); sets_valores.append(sets_para_vencer_avanco)
+                        if sets_update:
+                            sets_valores.append(existente["id"])
+                            cur.execute(f"UPDATE partidas SET {', '.join(sets_update)} WHERE id = %s", tuple(sets_valores))
+                    atualizadas += 1
+                else:
+                    campos = ["competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem", "origem", "status"]
+                    valores = [nome_competicao, None, equipe_a, equipe_b, fase, idx, origem_tag, "aguardando"]
+                    if "status_jogo" in colunas:
+                        campos.append("status_jogo"); valores.append("aguardando")
+                    if "fase_partida" in colunas:
+                        campos.append("fase_partida"); valores.append("aguardando")
+                    if "sets_max" in colunas:
+                        campos.append("sets_max"); valores.append(sets_max_avanco)
+                    if "sets_para_vencer" in colunas:
+                        campos.append("sets_para_vencer"); valores.append(sets_para_vencer_avanco)
+                    placeholders = ", ".join(["%s"] * len(valores))
+                    cur.execute(f"INSERT INTO partidas ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
+                    criadas += 1
+        conn.commit()
+    return {"ok": True, "criadas": criadas, "atualizadas": atualizadas}
+

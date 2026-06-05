@@ -36,6 +36,7 @@ from banco import (
     atualizar_configuracao_agenda_competicao,
     inicializar_configuracao_agenda_competicao,
     _buscar_colunas_tabela,
+    buscar_avanco_config_competicao,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -1411,6 +1412,7 @@ def visualizador_publico(competicao_nome):
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
     colunas_classificacao = _colunas_classificacao_publica(competicao)
     set_unico = _competicao_eh_set_unico_tabela(competicao)
+    avanco = buscar_avanco_config_competicao(competicao_nome)
 
     return render_template(
         "visualizador_publico.html",
@@ -1421,6 +1423,7 @@ def visualizador_publico(competicao_nome):
         criterios_classificacao=criterios_classificacao,
         colunas_classificacao=colunas_classificacao,
         set_unico=set_unico,
+        avanco=avanco,
     )
 
 

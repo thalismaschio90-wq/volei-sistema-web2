@@ -162,6 +162,20 @@ def _resolver_modo_operacao_partida(competicao, partida=None):
         config = buscar_configuracao_avancada_competicao(competicao) or {}
         fases_config = config.get("fases_config") or {}
         regras_avancadas = fases_config.get("regras_avancadas") or {}
+        origem_partida = str(partida.get("origem") or "").strip()
+        if origem_partida.startswith("avanco:"):
+            partes = origem_partida.split(":")
+            serie_id = partes[1] if len(partes) > 1 else ""
+            jogo_id = partes[2] if len(partes) > 2 else ""
+            regra_jogo = (regras_avancadas.get("jogos") or {}).get(f"{serie_id}:{jogo_id}") or {}
+            modo_jogo = (regra_jogo.get("modo_operacao") or "").strip().lower()
+            if modo_jogo in {"simples", "avancado"}:
+                return modo_jogo
+            regra_serie = (regras_avancadas.get("series") or {}).get(serie_id) or {}
+            modo_serie = (regra_serie.get("modo_operacao") or "").strip().lower()
+            if modo_serie in {"simples", "avancado"}:
+                return modo_serie
+
         fase_id = _normalizar_fase_operacao(partida.get("fase"))
 
         regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
