@@ -4168,15 +4168,24 @@ def criar_tabela_partidas():
 def listar_partidas(competicao):
     criar_campo_escudo_equipes()
     criar_tabela_equipes_competicoes()
+    try:
+        normalizar_vinculos_quadras_competicao(competicao)
+    except Exception as e:
+        print("AVISO listar_partidas/normalizar_quadras:", repr(e))
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
                     p.*,
+                    COALESCE(cq.nome, '') AS quadra_nome_cadastro,
+                    COALESCE(cq.local, '') AS quadra_local_cadastro,
                     COALESCE(ea.escudo, '') AS escudo_a,
                     COALESCE(eb.escudo, '') AS escudo_b
                 FROM partidas p
+                LEFT JOIN competicao_quadras cq
+                  ON cq.competicao = p.competicao
+                 AND cq.id = p.quadra_id
                 LEFT JOIN equipes_competicoes eca
                   ON eca.competicao = p.competicao
                  AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
@@ -4190,7 +4199,19 @@ def listar_partidas(competicao):
                 WHERE p.competicao = %s
                 ORDER BY COALESCE(p.rodada, 999999), p.ordem, p.id
             """, (competicao,))
-            return cur.fetchall()
+            linhas = cur.fetchall() or []
+            for linha in linhas:
+                try:
+                    if linha.get("quadra_id") and linha.get("quadra_nome_cadastro"):
+                        linha["quadra_nome"] = formatar_quadra_exibicao({
+                            "nome": linha.get("quadra_nome_cadastro"),
+                            "local": linha.get("quadra_local_cadastro"),
+                            "ordem": linha.get("quadra_id"),
+                        })
+                        linha["quadra_label"] = linha["quadra_nome"]
+                except Exception:
+                    pass
+            return linhas
 
 
 def buscar_partida_por_id(partida_id, competicao):
@@ -4202,9 +4223,14 @@ def buscar_partida_por_id(partida_id, competicao):
             cur.execute("""
                 SELECT
                     p.*,
+                    COALESCE(cq.nome, '') AS quadra_nome_cadastro,
+                    COALESCE(cq.local, '') AS quadra_local_cadastro,
                     COALESCE(ea.escudo, '') AS escudo_a,
                     COALESCE(eb.escudo, '') AS escudo_b
                 FROM partidas p
+                LEFT JOIN competicao_quadras cq
+                  ON cq.competicao = p.competicao
+                 AND cq.id = p.quadra_id
                 LEFT JOIN equipes_competicoes eca
                   ON eca.competicao = p.competicao
                  AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
@@ -4219,9 +4245,15 @@ def buscar_partida_por_id(partida_id, competicao):
                   AND p.competicao = %s
                 LIMIT 1
             """, (partida_id, competicao))
-            return cur.fetchone()
-
-
+            linha = cur.fetchone()
+            if linha and linha.get("quadra_id") and linha.get("quadra_nome_cadastro"):
+                linha["quadra_nome"] = formatar_quadra_exibicao({
+                    "nome": linha.get("quadra_nome_cadastro"),
+                    "local": linha.get("quadra_local_cadastro"),
+                    "ordem": linha.get("quadra_id"),
+                })
+                linha["quadra_label"] = linha["quadra_nome"]
+            return linha
 
 def _normalizar_fase_partida(fase):
     fase = (fase or "grupos").strip().lower()
@@ -4317,6 +4349,19 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
     fase = _normalizar_fase_partida(fase)
     grupo = grupo if fase == "grupos" else None
 
+    if quadra_id:
+        q = buscar_quadra_competicao_por_id(competicao, quadra_id)
+        if q:
+            quadra_id = int(q["id"])
+            quadra_nome = formatar_quadra_exibicao(q)
+            quadra = str(quadra_id)
+    elif quadra_nome or quadra:
+        q = buscar_quadra_competicao_por_texto(competicao, quadra_nome or quadra)
+        if q:
+            quadra_id = int(q["id"])
+            quadra_nome = formatar_quadra_exibicao(q)
+            quadra = str(quadra_id)
+
     if not fase_partidas_pode_ser_alterada(competicao, fase):
         return False
 
@@ -4336,6 +4381,19 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
 def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='agendada', rodada=None, quadra_id=None, quadra_nome=None):
     fase = _normalizar_fase_partida(fase)
     grupo = grupo if fase == "grupos" else None
+
+    if quadra_id:
+        q = buscar_quadra_competicao_por_id(competicao, quadra_id)
+        if q:
+            quadra_id = int(q["id"])
+            quadra_nome = formatar_quadra_exibicao(q)
+            quadra = str(quadra_id)
+    elif quadra_nome or quadra:
+        q = buscar_quadra_competicao_por_texto(competicao, quadra_nome or quadra)
+        if q:
+            quadra_id = int(q["id"])
+            quadra_nome = formatar_quadra_exibicao(q)
+            quadra = str(quadra_id)
 
     partida_atual = buscar_partida_por_id(partida_id, competicao)
     if partida_ja_iniciou_ou_finalizou(partida_atual):
@@ -10985,6 +11043,148 @@ def buscar_vinculo_arbitragem_por_pin(pin):
             """, (pin,))
             return cur.fetchone()
 
+
+def formatar_quadra_exibicao(quadra):
+    """Retorna o texto visual padronizado da quadra.
+
+    Regra do sistema:
+    - o banco e as relações usam sempre quadra_id;
+    - este texto é apenas para tela/relatório/socket.
+    """
+    if not quadra:
+        return ""
+
+    nome = str((quadra or {}).get("nome") or "").strip()
+    local = str((quadra or {}).get("local") or "").strip()
+
+    if not nome:
+        ordem = (quadra or {}).get("ordem") or ""
+        nome = f"Quadra {ordem}".strip()
+
+    if local and local.lower() not in nome.lower():
+        return f"{nome} — {local}"
+
+    return nome
+
+
+def _normalizar_texto_quadra(valor):
+    texto = str(valor or "").strip().lower()
+    texto = texto.replace("—", "-").replace("–", "-")
+    texto = re.sub(r"\s+", " ", texto)
+    texto = re.sub(r"[^a-z0-9áàâãéèêíïóôõöúçñ _.-]", "", texto)
+    return texto.strip()
+
+
+def _quadra_matches_texto(quadra, texto):
+    texto = _normalizar_texto_quadra(texto)
+    if not texto:
+        return False
+
+    nome = _normalizar_texto_quadra(quadra.get("nome"))
+    local = _normalizar_texto_quadra(quadra.get("local"))
+    exibicao = _normalizar_texto_quadra(formatar_quadra_exibicao(quadra))
+    ordem = str(quadra.get("ordem") or "").strip()
+    qid = str(quadra.get("id") or "").strip()
+
+    candidatos = {nome, local, exibicao, qid}
+    if ordem:
+        candidatos.update({ordem, f"quadra {ordem}", f"q{ordem}"})
+
+    # Também aceita o começo antes/depois do travessão: "Quadra 1 — Apollo".
+    if "-" in texto:
+        partes = [p.strip() for p in texto.split("-") if p.strip()]
+        candidatos.update(partes)
+
+    return texto in {c for c in candidatos if c}
+
+
+def buscar_quadra_competicao_por_texto(nome_competicao, texto):
+    """Compatibilidade para registros antigos que guardavam quadra como texto."""
+    texto = str(texto or "").strip()
+    if not nome_competicao or not texto:
+        return None
+
+    quadras = listar_quadras_competicao(nome_competicao)
+    for quadra in quadras:
+        if _quadra_matches_texto(quadra, texto):
+            return quadra
+    return None
+
+
+def normalizar_vinculos_quadras_competicao(nome_competicao):
+    """Preenche quadra_id/quadra_nome de grupos e partidas antigas.
+
+    Não força vínculo quando o texto antigo é apenas o nome do grupo (A, B, C),
+    evitando que Grupo A vire Quadra A por acidente. Apenas normaliza quando
+    houver quadra_id existente ou quando o texto bate com uma quadra real.
+    """
+    criar_tabela_competicao_quadras()
+    nome_competicao = str(nome_competicao or "").strip()
+    if not nome_competicao:
+        return False
+
+    quadras = listar_quadras_competicao(nome_competicao)
+    if not quadras:
+        return False
+
+    mapa_id = {}
+    for q in quadras:
+        try:
+            mapa_id[int(q["id"])] = q
+        except Exception:
+            pass
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            if _tabela_existe_cur(cur, "grupos"):
+                cur.execute("""
+                    SELECT id, nome, quadra_id, quadra_nome
+                    FROM grupos
+                    WHERE competicao = %s
+                """, (nome_competicao,))
+                for g in cur.fetchall() or []:
+                    quadra = None
+                    try:
+                        qid = int(g.get("quadra_id") or 0)
+                        quadra = mapa_id.get(qid)
+                    except Exception:
+                        quadra = None
+                    if not quadra:
+                        quadra = buscar_quadra_competicao_por_texto(nome_competicao, g.get("quadra_nome"))
+                    if quadra:
+                        cur.execute("""
+                            UPDATE grupos
+                            SET quadra_id = %s,
+                                quadra_nome = %s
+                            WHERE id = %s
+                        """, (quadra["id"], formatar_quadra_exibicao(quadra), g["id"]))
+
+            if _tabela_existe_cur(cur, "partidas"):
+                cur.execute("""
+                    SELECT id, quadra, quadra_id, quadra_nome
+                    FROM partidas
+                    WHERE competicao = %s
+                """, (nome_competicao,))
+                for p in cur.fetchall() or []:
+                    quadra = None
+                    try:
+                        qid = int(p.get("quadra_id") or 0)
+                        quadra = mapa_id.get(qid)
+                    except Exception:
+                        quadra = None
+                    if not quadra:
+                        quadra = buscar_quadra_competicao_por_texto(nome_competicao, p.get("quadra_nome") or p.get("quadra"))
+                    if quadra:
+                        cur.execute("""
+                            UPDATE partidas
+                            SET quadra_id = %s,
+                                quadra_nome = %s,
+                                quadra = %s
+                            WHERE id = %s
+                        """, (quadra["id"], formatar_quadra_exibicao(quadra), str(quadra["id"]), p["id"]))
+        conn.commit()
+    return True
+
 def listar_quadras_competicao(nome_competicao, somente_ativas=False):
     criar_tabela_competicao_quadras()
 
@@ -11003,7 +11203,14 @@ def listar_quadras_competicao(nome_competicao, somente_ativas=False):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, tuple(params))
-            return cur.fetchall()
+            linhas = cur.fetchall() or []
+            for linha in linhas:
+                try:
+                    linha["nome_exibicao"] = formatar_quadra_exibicao(linha)
+                    linha["quadra_label"] = linha["nome_exibicao"]
+                except Exception:
+                    pass
+            return linhas
 
 
 def garantir_quadras_competicao(nome_competicao, qtd_quadras=1):
@@ -11136,6 +11343,11 @@ def salvar_quadras_competicao(nome_competicao, quadras):
 
         conn.commit()
 
+    try:
+        normalizar_vinculos_quadras_competicao(nome_competicao)
+    except Exception as e:
+        print("AVISO normalizar_vinculos_quadras_competicao:", repr(e))
+
     return listar_quadras_competicao(nome_competicao)
 
 
@@ -11154,7 +11366,11 @@ def buscar_quadra_competicao_por_id(nome_competicao, quadra_id):
                   AND id = %s
                 LIMIT 1
             """, (nome_competicao, int(quadra_id)))
-            return cur.fetchone()
+            quadra = cur.fetchone()
+            if quadra:
+                quadra["nome_exibicao"] = formatar_quadra_exibicao(quadra)
+                quadra["quadra_label"] = quadra["nome_exibicao"]
+            return quadra
 
 
 def vincular_grupo_a_quadra(nome_competicao, grupo_nome, quadra_id):
@@ -11186,7 +11402,7 @@ def vincular_grupo_a_quadra(nome_competicao, grupo_nome, quadra_id):
 
             if "quadra_nome" in colunas:
                 sets.append("quadra_nome = %s")
-                valores.append(quadra["nome"])
+                valores.append(formatar_quadra_exibicao(quadra))
 
             valores.extend([nome_competicao, grupo_nome])
             cur.execute(f"""
@@ -11225,7 +11441,11 @@ def aplicar_quadra_em_partida(nome_competicao, partida_id, quadra_id):
 
             if "quadra_nome" in colunas:
                 sets.append("quadra_nome = %s")
-                valores.append(quadra["nome"])
+                valores.append(formatar_quadra_exibicao(quadra))
+
+            if "quadra" in colunas:
+                sets.append("quadra = %s")
+                valores.append(str(quadra["id"]))
 
             valores.extend([nome_competicao, int(partida_id)])
             cur.execute(f"""

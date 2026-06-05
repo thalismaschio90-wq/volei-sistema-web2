@@ -207,6 +207,187 @@
     flex:0 0 auto;
 }
 
+.btn-add-equipe-grupo {
+    margin: 10px 0 12px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:9px;
+    border:1px solid rgba(37,99,235,.35);
+    background:rgba(37,99,235,.08);
+    color:#1d4ed8;
+    border-radius:12px;
+    padding:10px 14px;
+    font-weight:900;
+    cursor:pointer;
+    transition:.18s ease;
+}
+.btn-add-equipe-grupo:hover {
+    transform:translateY(-1px);
+    background:rgba(37,99,235,.13);
+}
+.btn-add-equipe-grupo:disabled {
+    opacity:.45;
+    cursor:not-allowed;
+    transform:none;
+}
+.btn-add-equipe-grupo .icone {
+    width:24px;
+    height:24px;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    background:rgba(37,99,235,.16);
+    font-size:19px;
+    line-height:1;
+    font-weight:900;
+}
+.modal-equipes-backdrop {
+    position:fixed;
+    inset:0;
+    background:rgba(15,23,42,.58);
+    backdrop-filter:blur(4px);
+    z-index:9998;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:18px;
+}
+.modal-equipes-backdrop.ativo { display:flex; }
+.modal-equipes {
+    width:min(720px, 100%);
+    max-height:min(82vh, 760px);
+    background:var(--card-bg, #fff);
+    color:inherit;
+    border:1px solid var(--border);
+    border-radius:18px;
+    box-shadow:0 28px 80px rgba(15,23,42,.34);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+}
+.modal-equipes-topo {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:14px;
+    padding:18px 20px 12px;
+    border-bottom:1px solid var(--border);
+}
+.modal-equipes-topo h3 {
+    margin:0;
+    font-size:22px;
+    font-weight:950;
+}
+.modal-equipes-sub {
+    margin-top:5px;
+    color:var(--muted);
+    font-weight:700;
+    font-size:13px;
+    line-height:1.4;
+}
+.modal-fechar {
+    border:0;
+    background:transparent;
+    color:inherit;
+    font-size:28px;
+    line-height:1;
+    cursor:pointer;
+    width:38px;
+    height:38px;
+    border-radius:999px;
+}
+.modal-fechar:hover { background:rgba(148,163,184,.16); }
+.modal-equipes-corpo {
+    padding:14px 20px 18px;
+    overflow:auto;
+}
+.modal-equipes-info {
+    border:1px solid rgba(37,99,235,.25);
+    background:rgba(37,99,235,.08);
+    color:#1e3a8a;
+    border-radius:12px;
+    padding:10px 12px;
+    font-size:13px;
+    font-weight:800;
+    margin-bottom:14px;
+}
+.busca-equipe-modal {
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:12px 13px;
+    font-weight:800;
+    margin-bottom:12px;
+    background:var(--card-bg, #fff);
+    color:inherit;
+}
+.lista-equipes-modal {
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+.item-equipe-modal {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:10px 11px;
+    border:1px solid var(--border);
+    border-radius:13px;
+    background:rgba(148,163,184,.055);
+}
+.item-equipe-modal:hover { background:rgba(37,99,235,.075); }
+.item-equipe-modal .dados-equipe {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+    font-weight:900;
+}
+.item-equipe-modal .dados-equipe img {
+    width:34px;
+    height:34px;
+    border-radius:50%;
+    object-fit:contain;
+    background:rgba(148,163,184,.14);
+    border:1px solid rgba(148,163,184,.28);
+    padding:2px;
+    flex:0 0 auto;
+}
+.item-equipe-modal .nome-equipe-modal {
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.item-equipe-modal form { margin:0; flex:0 0 auto; }
+.vazio-equipes-modal {
+    color:var(--muted);
+    border:1px dashed var(--border);
+    border-radius:13px;
+    padding:18px;
+    text-align:center;
+    font-weight:800;
+}
+@media (max-width: 700px) {
+    .modal-equipes-backdrop { padding:10px; align-items:flex-end; }
+    .modal-equipes {
+        max-height:88vh;
+        border-radius:18px 18px 0 0;
+    }
+    .modal-equipes-topo { padding:16px 14px 10px; }
+    .modal-equipes-corpo { padding:12px 14px 16px; }
+    .item-equipe-modal {
+        align-items:stretch;
+        flex-direction:column;
+    }
+    .item-equipe-modal form,
+    .item-equipe-modal button {
+        width:100%;
+    }
+}
+
 @media (max-width: 900px) {
     .tabela-grid { grid-template-columns:1fr; }
     .tabela-tabs { gap:8px; }
@@ -261,41 +442,16 @@
 </div>
 
 <div class="card-painel">
-    <h3 style="margin-top: 0;">Adicionar equipe ao grupo</h3>
-
-    <form method="post" action="{{ url_for('tabela.adicionar_equipe_grupo') }}">
-        <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            <div style="min-width:220px; flex:1;">
-                <label for="grupo_id">Grupo</label>
-                <select id="grupo_id" name="grupo_id" required>
-                    <option value="">Selecione</option>
-                    {% for g in grupos %}
-                        <option value="{{ g.grupo.id }}">{{ g.grupo.nome }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div style="min-width:260px; flex:1;">
-                <label for="equipe">Equipe</label>
-                <select id="equipe" name="equipe" required>
-                    <option value="">Selecione</option>
-                    {% for e in equipes %}
-                        <option value="{{ e.nome }}">{{ e.nome }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div style="display:flex; align-items:end;">
-                <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Adicionar equipe</button>
-            </div>
-        </div>
-    </form>
-</div>
-
-<div class="card-painel">
     <h3 style="margin-top: 0;">Grupos</h3>
 
     {% if grupos %}
+        {% set equipes_vinculadas_ns = namespace(nomes=[]) %}
+        {% for gg in grupos %}
+            {% for ge in gg.equipes %}
+                {% set equipes_vinculadas_ns.nomes = equipes_vinculadas_ns.nomes + [ge.equipe] %}
+            {% endfor %}
+        {% endfor %}
+
         {% for g in grupos %}
             <div style="padding: 14px 0; border-bottom: 1px solid var(--border);">
                 <div style="display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px;">
@@ -319,12 +475,76 @@
                         <select name="quadra_id" {% if grupos_travados %}disabled{% endif %}>
                             <option value="">Sem quadra definida</option>
                             {% for q in quadras %}
-                                <option value="{{ q.id }}" {% if g.quadra_id and q.id == g.quadra_id %}selected{% endif %}>{{ q.nome }}{% if q.local %} — {{ q.local }}{% endif %}</option>
+                                <option value="{{ q.id }}" {% if g.quadra_id and q.id == g.quadra_id %}selected{% endif %}>{{ q.nome_exibicao or q.nome }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Salvar quadra</button>
                 </form>
+
+                <button
+                    class="btn-add-equipe-grupo"
+                    type="button"
+                    data-abrir-modal-equipes="modal-equipes-grupo-{{ g.grupo.id }}"
+                    {% if grupos_travados %}disabled{% endif %}
+                >
+                    <span class="icone">+</span>
+                    <span>Adicionar equipe neste grupo</span>
+                </button>
+
+                <div class="modal-equipes-backdrop" id="modal-equipes-grupo-{{ g.grupo.id }}" aria-hidden="true">
+                    <div class="modal-equipes" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-equipes-{{ g.grupo.id }}">
+                        <div class="modal-equipes-topo">
+                            <div>
+                                <h3 id="titulo-modal-equipes-{{ g.grupo.id }}">Adicionar equipe ao Grupo {{ g.grupo.nome }}</h3>
+                                <div class="modal-equipes-sub">
+                                    Só aparecem equipes que ainda não estão em nenhum grupo.
+                                </div>
+                            </div>
+                            <button class="modal-fechar" type="button" data-fechar-modal-equipes aria-label="Fechar">×</button>
+                        </div>
+
+                        <div class="modal-equipes-corpo">
+                            <div class="modal-equipes-info">
+                                Selecione uma equipe disponível para adicionar ao Grupo {{ g.grupo.nome }}.
+                            </div>
+
+                            <input
+                                class="busca-equipe-modal"
+                                type="search"
+                                placeholder="Buscar equipe..."
+                                data-busca-equipe-modal
+                                autocomplete="off"
+                            >
+
+                            <div class="lista-equipes-modal">
+                                {% set tem_disponivel = namespace(valor=false) %}
+                                {% for e in equipes %}
+                                    {% if e.nome not in equipes_vinculadas_ns.nomes %}
+                                        {% set tem_disponivel.valor = true %}
+                                        <div class="item-equipe-modal" data-equipe-modal-item data-equipe-nome="{{ e.nome|lower }}">
+                                            <div class="dados-equipe">
+                                                <img src="{{ e.escudo or e.escudo_url or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ e.nome }}">
+                                                <span class="nome-equipe-modal">{{ e.nome }}</span>
+                                            </div>
+                                            <form method="post" action="{{ url_for('tabela.adicionar_equipe_grupo') }}">
+                                                <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
+                                                <input type="hidden" name="equipe" value="{{ e.nome }}">
+                                                <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Adicionar</button>
+                                            </form>
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+
+                                {% if not tem_disponivel.valor %}
+                                    <div class="vazio-equipes-modal">
+                                        Nenhuma equipe disponível. Todas já estão em algum grupo.
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 {% if g.equipes %}
                     {% for e in g.equipes %}
@@ -419,7 +639,7 @@
                 <select id="quadra_id" name="quadra_id">
                     <option value="">Herdar do grupo / sem quadra</option>
                     {% for q in quadras %}
-                        <option value="{{ q.id }}">{{ q.nome }}{% if q.local %} — {{ q.local }}{% endif %}</option>
+                        <option value="{{ q.id }}">{{ q.nome_exibicao or q.nome }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -549,7 +769,7 @@
                             <select name="quadra_id" style="min-width:150px;">
                                 <option value="">Sem quadra</option>
                                 {% for q in quadras %}
-                                    <option value="{{ q.id }}" {% if p.quadra_id_normalizado and q.id == p.quadra_id_normalizado %}selected{% endif %}>{{ q.nome }}</option>
+                                    <option value="{{ q.id }}" {% if p.quadra_id_normalizado and q.id == p.quadra_id_normalizado %}selected{% endif %}>{{ q.nome_exibicao or q.nome }}</option>
                                 {% endfor %}
                             </select>
                             <button class="btn-secundario" type="submit">Salvar</button>
@@ -722,6 +942,68 @@ document.addEventListener("DOMContentLoaded", function sincronizarQuadraDoGrupo(
         if (quadraId) {
             quadraSelect.value = quadraId;
         }
+    });
+});
+
+document.addEventListener("DOMContentLoaded", function controlarModaisEquipeGrupo() {
+    function abrirModal(id) {
+        const modal = document.getElementById(id);
+        if (!modal) return;
+
+        modal.classList.add("ativo");
+        modal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+
+        const busca = modal.querySelector("[data-busca-equipe-modal]");
+        if (busca) {
+            busca.value = "";
+            modal.querySelectorAll("[data-equipe-modal-item]").forEach(item => item.style.display = "");
+            setTimeout(() => busca.focus(), 80);
+        }
+    }
+
+    function fecharModal(modal) {
+        if (!modal) return;
+
+        modal.classList.remove("ativo");
+        modal.setAttribute("aria-hidden", "true");
+
+        if (!document.querySelector(".modal-equipes-backdrop.ativo")) {
+            document.body.style.overflow = "";
+        }
+    }
+
+    document.querySelectorAll("[data-abrir-modal-equipes]").forEach(botao => {
+        botao.addEventListener("click", () => abrirModal(botao.dataset.abrirModalEquipes));
+    });
+
+    document.querySelectorAll("[data-fechar-modal-equipes]").forEach(botao => {
+        botao.addEventListener("click", () => fecharModal(botao.closest(".modal-equipes-backdrop")));
+    });
+
+    document.querySelectorAll(".modal-equipes-backdrop").forEach(backdrop => {
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) fecharModal(backdrop);
+        });
+    });
+
+    document.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+            document.querySelectorAll(".modal-equipes-backdrop.ativo").forEach(fecharModal);
+        }
+    });
+
+    document.querySelectorAll("[data-busca-equipe-modal]").forEach(input => {
+        input.addEventListener("input", () => {
+            const termo = input.value.trim().toLowerCase();
+            const modal = input.closest(".modal-equipes");
+            if (!modal) return;
+
+            modal.querySelectorAll("[data-equipe-modal-item]").forEach(item => {
+                const nome = (item.dataset.equipeNome || "").toLowerCase();
+                item.style.display = nome.includes(termo) ? "" : "none";
+            });
+        });
     });
 });
 </script>

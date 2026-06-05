@@ -331,6 +331,14 @@ def _normalizar_payload(partida_id, dados=None):
         "escudo_b_operacional": _normalizar_url_escudo(dados.get("escudo_b_operacional") or dados.get("escudo_b") or dados.get("equipe_b_escudo") or dados.get("escudoB")),
         "equipe_a_escudo": _normalizar_url_escudo(dados.get("equipe_a_escudo") or dados.get("escudo_a") or dados.get("escudoA")),
         "equipe_b_escudo": _normalizar_url_escudo(dados.get("equipe_b_escudo") or dados.get("escudo_b") or dados.get("escudoB")),
+
+        # Quadra padronizada para visualizador/tabela/apontador.
+        # O ID é a referência real; os nomes abaixo são só exibição.
+        "quadra_id": dados.get("quadra_id") or "",
+        "quadra_nome": dados.get("quadra_nome") or dados.get("quadra_exibicao") or dados.get("quadra_label") or "",
+        "quadra_exibicao": dados.get("quadra_exibicao") or dados.get("quadra_label") or dados.get("quadra_nome") or "",
+        "quadra_label": dados.get("quadra_label") or dados.get("quadra_exibicao") or dados.get("quadra_nome") or "",
+
         "cor_a": dados.get("cor_a_operacional") or dados.get("cor_a") or dados.get("equipe_a_cor") or "#2E6BE6",
         "cor_b": dados.get("cor_b_operacional") or dados.get("cor_b") or dados.get("equipe_b_cor") or "#E53935",
         "cor_a_operacional": dados.get("cor_a_operacional") or dados.get("cor_a") or dados.get("equipe_a_cor") or "#2E6BE6",

@@ -25,6 +25,9 @@ from banco import (
     listar_quadras_competicao,
     garantir_quadras_competicao,
     buscar_quadra_competicao_por_id,
+    buscar_quadra_competicao_por_texto,
+    formatar_quadra_exibicao,
+    normalizar_vinculos_quadras_competicao,
     vincular_grupo_a_quadra,
     aplicar_quadra_em_partida,
     conectar,
@@ -199,14 +202,26 @@ def _buscar_escudo_mapa(mapa_escudos, nome_equipe):
 
 
 def _quadra_label(item):
+    """Texto visual de quadra, sem usar nome de grupo como fallback.
+
+    Antes o fallback em `nome` fazia Grupo A aparecer como Quadra padrão A.
+    Agora grupo sem quadra_id/quadra_nome aparece corretamente como Sem quadra.
+    """
     if not item:
         return "Sem quadra"
-    return (
-        item.get("quadra_nome")
-        or item.get("quadra")
-        or item.get("nome")
-        or "Sem quadra"
-    )
+
+    for campo in ("quadra_label", "quadra_exibicao", "quadra_nome"):
+        valor = str((item or {}).get(campo) or "").strip()
+        if valor:
+            return valor
+
+    # Para partidas antigas, o campo legacy `quadra` pode conter texto. Se for só número/id,
+    # deixamos sem exibir até ser normalizado pelo banco.
+    valor_legacy = str((item or {}).get("quadra") or "").strip()
+    if valor_legacy and not valor_legacy.isdigit():
+        return valor_legacy
+
+    return "Sem quadra"
 
 
 def _quadra_id_do_grupo(grupo):
@@ -228,7 +243,12 @@ def _dados_quadra(nome_competicao, quadra_id):
     quadra = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
     if not quadra:
         return None, ""
-    return int(quadra["id"]), (quadra.get("nome") or f"Quadra {quadra.get('ordem') or ''}").strip()
+    return int(quadra["id"]), formatar_quadra_exibicao(quadra)
+
+
+def _quadra_label_por_id(nome_competicao, quadra_id):
+    quadra_id, quadra_label = _dados_quadra(nome_competicao, quadra_id)
+    return quadra_label or "Sem quadra"
 
 
 def _status_texto(valor):
@@ -405,7 +425,7 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
             equipe_a,
             equipe_b,
             ordem,
-            quadra=quadra_nome or None,
+            quadra=str(quadra_id) if quadra_id else None,
             fase=fase_banco,
             origem=origem,
             quadra_id=quadra_id,
@@ -421,7 +441,7 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
                     quadra, quadra_id, quadra_nome, origem, status
                 )
                 VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, 'agendada')
-            """, (competicao_nome, equipe_a, equipe_b, fase_banco, ordem, quadra_nome or None, quadra_id, quadra_nome or '', origem))
+            """, (competicao_nome, equipe_a, equipe_b, fase_banco, ordem, str(quadra_id) if quadra_id else None, quadra_id, quadra_nome or '', origem))
         conn.commit()
 
     return True
@@ -1248,6 +1268,11 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
 # =========================================================
 @tabela_bp.route("/visualizador/<competicao_nome>")
 def visualizador_publico(competicao_nome):
+    try:
+        normalizar_vinculos_quadras_competicao(competicao_nome)
+    except Exception as e:
+        print("AVISO visualizador/normalizar_quadras:", repr(e))
+
     grupos_raw = listar_grupos(competicao_nome)
     partidas = listar_partidas(competicao_nome)
     equipes_competicao = listar_equipes_da_competicao(competicao_nome)
@@ -1259,7 +1284,7 @@ def visualizador_publico(competicao_nome):
         grupos.append({
             "grupo": g,
             "equipes": equipes_grupo,
-            "quadra_label": _quadra_label(g),
+            "quadra_label": _quadra_label_por_id(competicao_nome, _quadra_id_do_grupo(g)),
             "quadra_id": _quadra_id_do_grupo(g),
         })
 
@@ -1315,6 +1340,10 @@ def tabela_view():
         fase_subaba = "classificatorias"
 
     quadras = garantir_quadras_competicao(competicao["nome"], competicao.get("qtd_quadras") or 1)
+    try:
+        normalizar_vinculos_quadras_competicao(competicao["nome"])
+    except Exception as e:
+        print("AVISO tabela/normalizar_quadras:", repr(e))
     grupos_raw = listar_grupos(competicao["nome"])
     equipes = listar_equipes_da_competicao(competicao["nome"])
     mapa_escudos = _mapa_escudos_equipes(equipes)
@@ -1326,7 +1355,7 @@ def tabela_view():
         grupos.append({
             "grupo": g,
             "equipes": equipes_grupo,
-            "quadra_label": _quadra_label(g),
+            "quadra_label": _quadra_label_por_id(competicao["nome"], _quadra_id_do_grupo(g)),
             "quadra_id": _quadra_id_do_grupo(g),
         })
 
@@ -1676,7 +1705,7 @@ def atualizar_partida_view(partida_id):
         fase_banco,
         equipe_a,
         equipe_b,
-        quadra=quadra_nome or None,
+        quadra=str(quadra_id) if quadra_id else None,
         quadra_id=quadra_id,
         quadra_nome=quadra_nome,
         status="agendada",
@@ -1899,7 +1928,7 @@ def gerar_automatico():
                 t1,
                 t2,
                 ordem,
-                quadra=quadra_nome or None,
+                quadra=str(quadra_id) if quadra_id else None,
                 fase="grupos",
                 origem="automatica",
                 quadra_id=quadra_id,
