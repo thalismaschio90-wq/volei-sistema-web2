@@ -3,6 +3,8 @@ import random
 import re
 import string
 import json
+import base64
+from io import BytesIO
 from datetime import datetime
 from threading import Lock
 
@@ -11835,6 +11837,7 @@ def criar_campos_perfil_equipe(force=False):
                 ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '',
                 ADD COLUMN IF NOT EXISTS instagram TEXT DEFAULT '',
                 ADD COLUMN IF NOT EXISTS escudo TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS escudo_blob TEXT DEFAULT '',
                 ADD COLUMN IF NOT EXISTS perfil_completo BOOLEAN DEFAULT FALSE
             """)
 
@@ -11855,7 +11858,11 @@ def criar_campos_perfil_equipe(force=False):
 
 
 def criar_campo_escudo_equipes(force=False):
-    """Garante o campo de escudo/logo da equipe."""
+    """Garante os campos de escudo/logo da equipe.
+
+    escudo: mantido por compatibilidade com telas antigas.
+    escudo_blob: imagem definitiva em data URL/base64 salva no Neon.
+    """
     chave = "campo_escudo_equipes"
     if _schema_ja_pronto(chave, force=force):
         return
@@ -11864,7 +11871,8 @@ def criar_campo_escudo_equipes(force=False):
         with conn.cursor() as cur:
             cur.execute("""
                 ALTER TABLE equipes
-                ADD COLUMN IF NOT EXISTS escudo TEXT DEFAULT ''
+                ADD COLUMN IF NOT EXISTS escudo TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS escudo_blob TEXT DEFAULT ''
             """)
         conn.commit()
 
@@ -11872,21 +11880,82 @@ def criar_campo_escudo_equipes(force=False):
     _marcar_schema_pronto(chave)
 
 
-def atualizar_escudo_equipe_por_login(login, escudo):
+def _escudo_exibicao_sql(prefixo=""):
+    """SQL compatível para retornar sempre o melhor escudo disponível."""
+    p = f"{prefixo}." if prefixo else ""
+    try:
+        colunas = _buscar_colunas_tabela("equipes")
+    except Exception:
+        colunas = set()
+
+    partes = []
+    if "escudo_blob" in colunas:
+        partes.append(f"NULLIF({p}escudo_blob, '')")
+    if "escudo" in colunas:
+        partes.append(f"NULLIF({p}escudo, '')")
+
+    if not partes:
+        return "''"
+
+    return "COALESCE(" + ", ".join(partes) + ", '')"
+
+
+def _aplicar_escudo_exibicao_obj(equipe):
+    if not equipe:
+        return equipe
+
+    try:
+        escudo_blob = equipe.get("escudo_blob") or ""
+        escudo = equipe.get("escudo") or ""
+        exibicao = escudo_blob or escudo or escudo_padrao_equipe()
+        equipe["escudo_exibicao"] = exibicao
+        if not equipe.get("escudo") and exibicao:
+            equipe["escudo"] = exibicao
+    except Exception:
+        pass
+
+    return equipe
+
+
+def aplicar_escudo_exibicao_lista(equipes):
+    return [_aplicar_escudo_exibicao_obj(dict(e or {})) for e in (equipes or [])]
+
+
+def atualizar_escudo_equipe_por_login(login, escudo, escudo_blob=None):
     login = (login or "").strip()
     escudo = (escudo or "").strip()
+    if escudo_blob is None:
+        escudo_blob = escudo
+    escudo_blob = (escudo_blob or "").strip()
+
     if not login:
         return False
 
     criar_campo_escudo_equipes()
+    colunas = _buscar_colunas_tabela("equipes")
+
+    sets = []
+    valores = []
+
+    if "escudo" in colunas:
+        sets.append("escudo = %s")
+        valores.append(escudo)
+    if "escudo_blob" in colunas:
+        sets.append("escudo_blob = %s")
+        valores.append(escudo_blob)
+
+    if not sets:
+        return False
+
+    valores.append(login)
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 UPDATE equipes
-                SET escudo = %s
+                SET {', '.join(sets)}
                 WHERE login = %s
-            """, (escudo, login))
+            """, tuple(valores))
             alteradas = cur.rowcount
         conn.commit()
 
@@ -11902,7 +11971,13 @@ def escudo_equipe_url(equipe):
         return escudo_padrao_equipe()
     valor = ""
     try:
-        valor = equipe.get("escudo") or equipe.get("escudo_url") or ""
+        valor = (
+            equipe.get("escudo_exibicao")
+            or equipe.get("escudo_blob")
+            or equipe.get("escudo")
+            or equipe.get("escudo_url")
+            or ""
+        )
     except Exception:
         valor = ""
     return valor or escudo_padrao_equipe()
@@ -11979,6 +12054,8 @@ def buscar_perfil_equipe_por_login(login, conn=None):
         "email",
         "instagram",
         "escudo",
+        _campo_ou_alias(colunas, "escudo_blob", "'' AS escudo_blob"),
+        f"{_escudo_exibicao_sql()} AS escudo_exibicao",
         "COALESCE(perfil_completo, FALSE) AS perfil_completo",
     ]
 
@@ -12047,8 +12124,16 @@ def salvar_perfil_equipe_por_login(
     ]
 
     if escudo is not None:
+        escudo_valor = (escudo or "").strip()
         sets.append("escudo = %s")
-        valores.append((escudo or "").strip())
+        valores.append(escudo_valor)
+        try:
+            colunas_equipes = _buscar_colunas_tabela("equipes")
+            if "escudo_blob" in colunas_equipes:
+                sets.append("escudo_blob = %s")
+                valores.append(escudo_valor)
+        except Exception:
+            pass
 
     valores.append(login)
 
@@ -12726,7 +12811,6 @@ def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, 
 # RECUPERAÇÃO / CORREÇÃO DE ESCUDOS ANTIGOS
 # =========================================================
 from PIL import Image, ImageOps
-from io import BytesIO
 import uuid
 
 
@@ -12871,3 +12955,156 @@ def corrigir_escudos_antigos(app_static_folder):
         "corrigidos": corrigidos,
         "erros": erros
     }
+
+# =========================================================
+# ESCUDOS DEFINITIVOS NO BANCO (BASE64 / NEON)
+# =========================================================
+def migrar_escudos_arquivos_para_banco(app_static_folder):
+    """
+    Migra para o Neon os escudos antigos que ainda existirem no disco.
+
+    - Cria escudo_blob se faltar.
+    - Se escudo já for data:image, só copia para escudo_blob.
+    - Se escudo apontar para /static/uploads/..., tenta abrir o arquivo e salvar base64.
+    - Não apaga nada do disco.
+    - Não altera equipes cujo arquivo não existe/corrompeu, apenas registra erro.
+    """
+    criar_campo_escudo_equipes(force=True)
+
+    try:
+        from PIL import Image, ImageOps
+    except Exception as e:
+        return {
+            "ok": False,
+            "erro": f"Pillow não instalado: {e}",
+            "total": 0,
+            "migrados": 0,
+            "ja_estavam_no_banco": 0,
+            "sem_escudo": 0,
+            "erros": [],
+        }
+
+    total = 0
+    migrados = 0
+    ja_estavam_no_banco = 0
+    sem_escudo = 0
+    erros = []
+
+    def _imagem_para_data_url(caminho):
+        img = Image.open(caminho)
+        img = ImageOps.exif_transpose(img)
+        img.load()
+
+        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            img = img.convert("RGBA")
+            fundo = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            fundo.alpha_composite(img)
+            img = fundo.convert("RGB")
+        else:
+            img = img.convert("RGB")
+
+        largura, altura = img.size
+        lado = min(largura, altura)
+        esquerda = max((largura - lado) // 2, 0)
+        topo = max((altura - lado) // 2, 0)
+        img = img.crop((esquerda, topo, esquerda + lado, topo + lado))
+        filtro = getattr(Image, "Resampling", Image).LANCZOS
+        img = img.resize((512, 512), filtro)
+
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT nome, login, COALESCE(escudo, '') AS escudo, COALESCE(escudo_blob, '') AS escudo_blob
+                FROM equipes
+                ORDER BY nome
+            """)
+            equipes = cur.fetchall()
+
+            for equipe in equipes:
+                total += 1
+                nome = equipe.get("nome") or ""
+                login = equipe.get("login") or ""
+                escudo = (equipe.get("escudo") or "").strip()
+                escudo_blob = (equipe.get("escudo_blob") or "").strip()
+
+                if escudo_blob.startswith("data:image/"):
+                    ja_estavam_no_banco += 1
+                    continue
+
+                if escudo.startswith("data:image/"):
+                    cur.execute("""
+                        UPDATE equipes
+                        SET escudo_blob = %s, escudo = %s
+                        WHERE login = %s
+                    """, (escudo, escudo, login))
+                    migrados += 1
+                    continue
+
+                if not escudo:
+                    sem_escudo += 1
+                    continue
+
+                if not escudo.startswith("/static/"):
+                    erros.append({"nome": nome, "login": login, "escudo": escudo, "motivo": "URL inválida"})
+                    continue
+
+                caminho_relativo = escudo.replace("/static/", "", 1)
+                caminho = os.path.join(app_static_folder, caminho_relativo)
+
+                if not os.path.exists(caminho):
+                    erros.append({"nome": nome, "login": login, "escudo": escudo, "motivo": "Arquivo não existe no Render"})
+                    continue
+
+                try:
+                    data_url = _imagem_para_data_url(caminho)
+                    cur.execute("""
+                        UPDATE equipes
+                        SET escudo_blob = %s, escudo = %s
+                        WHERE login = %s
+                    """, (data_url, data_url, login))
+                    migrados += 1
+                except Exception as e:
+                    erros.append({"nome": nome, "login": login, "escudo": escudo, "motivo": str(e)})
+
+        conn.commit()
+
+    return {
+        "ok": True,
+        "total": total,
+        "migrados": migrados,
+        "ja_estavam_no_banco": ja_estavam_no_banco,
+        "sem_escudo": sem_escudo,
+        "erros_total": len(erros),
+        "erros": erros,
+    }
+
+
+def listar_escudos_status():
+    criar_campo_escudo_equipes(force=True)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    nome,
+                    login,
+                    CASE
+                        WHEN COALESCE(escudo_blob, '') LIKE 'data:image/%' THEN 'banco'
+                        WHEN COALESCE(escudo, '') LIKE 'data:image/%' THEN 'banco_compat'
+                        WHEN COALESCE(escudo, '') LIKE '/static/%' THEN 'arquivo_render'
+                        WHEN COALESCE(escudo, '') = '' THEN 'sem_escudo'
+                        ELSE 'outro'
+                    END AS status_escudo,
+                    CASE
+                        WHEN LENGTH(COALESCE(escudo_blob, '')) > 0 THEN LENGTH(escudo_blob)
+                        ELSE LENGTH(COALESCE(escudo, ''))
+                    END AS tamanho,
+                    COALESCE(escudo, '') AS escudo
+                FROM equipes
+                ORDER BY nome
+            """)
+            return cur.fetchall()

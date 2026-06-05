@@ -20,7 +20,8 @@ from banco import (
     garantir_campos_trava_operacional_partida,
     buscar_equipe_por_login,
     escudo_padrao_equipe,
-    corrigir_escudos_antigos,
+    migrar_escudos_arquivos_para_banco,
+    listar_escudos_status,
 )
 
 from routes.auth import auth_bp
@@ -181,7 +182,9 @@ def injetar_dados_topbar_global():
                 or usuario
             )
             escudo_equipe = (
-                equipe.get("escudo")
+                equipe.get("escudo_exibicao")
+                or equipe.get("escudo_blob")
+                or equipe.get("escudo")
                 or equipe.get("escudo_url")
                 or equipe.get("logo")
                 or equipe.get("logo_url")
@@ -276,6 +279,23 @@ def app_login_pwa():
 
 
 
+@app.route("/admin/migrar-escudos-neon")
+def admin_migrar_escudos_neon():
+    if (session.get("perfil") or "").strip().lower() != "superadmin":
+        return {"ok": False, "erro": "Acesso restrito ao superadmin."}, 403
+
+    resultado = migrar_escudos_arquivos_para_banco(app.static_folder)
+    return {"ok": True, "resultado": resultado}
+
+
+@app.route("/admin/status-escudos")
+def admin_status_escudos():
+    if (session.get("perfil") or "").strip().lower() != "superadmin":
+        return {"ok": False, "erro": "Acesso restrito ao superadmin."}, 403
+
+    return {"ok": True, "equipes": listar_escudos_status()}
+
+
 @app.route("/healthz")
 def healthz():
     return "ok", 200
@@ -318,31 +338,6 @@ def service_worker_pwa():
     resposta.headers["Expires"] = "0"
 
     return resposta
-
-
-@app.route("/admin/corrigir-escudos")
-def admin_corrigir_escudos():
-    """
-    Rota temporária de manutenção para reprocessar escudos antigos.
-
-    Segurança:
-    - só usuário logado como superadmin pode executar;
-    - após corrigir os escudos antigos, esta rota pode ser removida.
-    """
-    perfil = (session.get("perfil") or "").strip().lower()
-
-    if perfil != "superadmin":
-        return {
-            "ok": False,
-            "erro": "Acesso restrito ao superadmin."
-        }, 403
-
-    resultado = corrigir_escudos_antigos(app.static_folder)
-
-    return {
-        "ok": True,
-        "resultado": resultado
-    }
 
 
 import socket_events  # noqa

@@ -59,21 +59,15 @@ from routes.tabela import (
     _colunas_classificacao_por_criterios,
     _mapa_escudos_equipes,
 )
-from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps, UnidentifiedImageError
-import os
-import uuid
+from io import BytesIO
+import base64
 
-try:
-    import pillow_heif
-    pillow_heif.register_heif_opener()
-except Exception:
-    pillow_heif = None
 
 equipes_bp = Blueprint("equipes", __name__)
 
 
-_EXTENSOES_ESCUDO_PERMITIDAS = {"png", "jpg", "jpeg", "webp", "heic", "heif"}
+_EXTENSOES_ESCUDO_PERMITIDAS = {"png", "jpg", "jpeg", "webp"}
 
 
 def _extensao_arquivo(nome_arquivo):
@@ -85,43 +79,27 @@ def _extensao_arquivo(nome_arquivo):
 
 def _salvar_upload_escudo(arquivo, login):
     """
-    Salva o escudo sempre padronizado para evitar erro entre celular e computador.
+    Processa o escudo e devolve uma data URL base64 para salvar direto no Neon.
 
-    O problema mais comum vem de fotos/imagens enviadas pelo celular:
-    - orientação EXIF diferente;
-    - HEIC/HEIF do iPhone;
-    - PNG/WebP com transparência;
-    - imagens muito grandes;
-    - extensão ou conteúdo incompatível com alguns navegadores.
-
-    Por isso, independentemente do formato recebido, o sistema converte para JPG,
-    corrige a orientação, corta em quadrado e redimensiona para 512x512.
+    Importante:
+    - não salva mais em /static/uploads, pois o Render pode apagar arquivos em deploy/restart;
+    - corrige orientação EXIF de celular;
+    - padroniza em JPG 512x512;
+    - remove transparência com fundo branco.
     """
     if not arquivo or not getattr(arquivo, "filename", ""):
         return None, "Selecione uma imagem para enviar."
 
     extensao = _extensao_arquivo(arquivo.filename)
     if extensao not in _EXTENSOES_ESCUDO_PERMITIDAS:
-        return None, "Formato inválido. Envie PNG, JPG, JPEG, WebP, HEIC ou HEIF."
-
-    pasta = os.path.join(current_app.static_folder, "uploads", "escudos")
-    os.makedirs(pasta, exist_ok=True)
-
-    nome_base = secure_filename((login or "equipe").replace("@", "_").replace(".", "_")) or "equipe"
-    nome_arquivo = f"{nome_base}_{uuid.uuid4().hex[:12]}.jpg"
-    caminho = os.path.join(pasta, nome_arquivo)
+        return None, "Formato inválido. Envie PNG, JPG, JPEG ou WebP."
 
     try:
         arquivo.stream.seek(0)
         imagem = Image.open(arquivo.stream)
-
-        # Corrige fotos tiradas pelo celular que ficam rotacionadas no desktop.
         imagem = ImageOps.exif_transpose(imagem)
-
-        # Garante que a imagem inteira foi carregada antes de salvar.
         imagem.load()
 
-        # Converte qualquer transparência/paleta para fundo branco em RGB.
         if imagem.mode in ("RGBA", "LA") or (imagem.mode == "P" and "transparency" in imagem.info):
             imagem = imagem.convert("RGBA")
             fundo = Image.new("RGBA", imagem.size, (255, 255, 255, 255))
@@ -134,23 +112,25 @@ def _salvar_upload_escudo(arquivo, login):
         if largura <= 0 or altura <= 0:
             return None, "Imagem inválida. Envie outra imagem."
 
-        # Corte central quadrado para o escudo não ficar esticado.
         lado = min(largura, altura)
         esquerda = max((largura - lado) // 2, 0)
         topo = max((altura - lado) // 2, 0)
         imagem = imagem.crop((esquerda, topo, esquerda + lado, topo + lado))
 
-        # Padroniza o tamanho para ficar leve e igual em todas as telas.
         filtro = getattr(Image, "Resampling", Image).LANCZOS
         imagem = imagem.resize((512, 512), filtro)
 
+        buffer = BytesIO()
         imagem.save(
-            caminho,
+            buffer,
             format="JPEG",
-            quality=85,
+            quality=82,
             optimize=True,
             progressive=True,
         )
+
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        data_url = f"data:image/jpeg;base64,{encoded}"
 
     except UnidentifiedImageError:
         return None, "Não foi possível ler essa imagem. Envie uma imagem válida."
@@ -158,7 +138,7 @@ def _salvar_upload_escudo(arquivo, login):
         print("ERRO PROCESSAR ESCUDO:", repr(e))
         return None, "Não foi possível processar a imagem. Tente outra imagem."
 
-    return f"/static/uploads/escudos/{nome_arquivo}", None
+    return data_url, None
 
 
 def _equipe_logada_com_competicao():

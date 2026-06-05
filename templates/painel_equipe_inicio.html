@@ -445,7 +445,7 @@
         <aside class="equipe-status-panel">
             <div class="escudo-equipe-linha">
                 <a class="escudo-link" href="{{ url_for('equipes.perfil_equipe_view') }}" title="Alterar escudo da equipe">
-                    <img class="escudo-equipe-hero" src="{{ equipe.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}" alt="Escudo da equipe">
+                    <img class="escudo-equipe-hero" src="{{ equipe.escudo_exibicao or equipe.escudo_blob or equipe.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}" alt="Escudo da equipe">
                 </a>
                 <div>
                     <div class="equipe-status-label">Equipe logada</div>
