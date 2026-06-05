@@ -370,6 +370,91 @@
     text-align:center;
     font-weight:800;
 }
+
+.config-geracao-bloco {
+    margin-bottom:18px;
+    padding:14px;
+    border:1px solid var(--border);
+    border-radius:14px;
+    background:rgba(148,163,184,.055);
+}
+.config-geracao-bloco h4 {
+    margin:0 0 10px;
+    font-size:15px;
+    font-weight:950;
+}
+.config-radio-lista {
+    display:grid;
+    gap:10px;
+}
+.config-radio-lista label,
+.config-check-quadra {
+    display:flex;
+    align-items:center;
+    gap:9px;
+    font-weight:850;
+}
+.config-grupo-quadras {
+    display:grid;
+    gap:12px;
+}
+.config-grupo-card {
+    padding:12px;
+    border:1px solid var(--border);
+    border-radius:13px;
+    background:var(--card-bg, #fff);
+}
+.config-grupo-titulo {
+    font-weight:950;
+    margin-bottom:9px;
+}
+.config-quadras-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+    gap:8px;
+}
+.config-check-quadra {
+    padding:8px 9px;
+    border:1px solid var(--border);
+    border-radius:11px;
+    background:rgba(148,163,184,.06);
+}
+
+.quadra-filtro-tabs {
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin:12px 0 14px;
+}
+.quadra-filtro-tab {
+    border:1px solid var(--border);
+    background:var(--card-bg, #fff);
+    color:inherit;
+    border-radius:999px;
+    padding:8px 12px;
+    font-weight:900;
+    cursor:pointer;
+    transition:.18s ease;
+}
+.quadra-filtro-tab:hover {
+    transform:translateY(-1px);
+    background:rgba(37,99,235,.08);
+}
+.quadra-filtro-tab.ativa {
+    background:linear-gradient(135deg, rgba(37,99,235,.18), rgba(34,197,94,.12));
+    border-color:rgba(37,99,235,.36);
+    color:#0f3d7a;
+}
+.quadra-filtro-vazio {
+    display:none;
+    color:var(--muted);
+    border:1px dashed var(--border);
+    border-radius:14px;
+    padding:16px;
+    font-weight:800;
+    text-align:center;
+}
+
 @media (max-width: 700px) {
     .modal-equipes-backdrop { padding:10px; align-items:flex-end; }
     .modal-equipes {
@@ -599,6 +684,16 @@
                 {% if fase_ativa == 'classificatorias' %}Gerar jogos automaticamente{% else %}Gerar mata-mata automaticamente{% endif %}
             </button>
         </form>
+
+        {% if fase_ativa == 'classificatorias' %}
+        <button
+            class="btn-secundario"
+            type="button"
+            data-abrir-modal-equipes="modal-config-geracao"
+            {% if fase_atual_travada %}disabled{% endif %}
+        >⚙️ Configurar geração automática</button>
+        {% endif %}
+
         {% if fase_ativa != 'classificatorias' %}
         <div style="color: var(--muted); display:flex; align-items:center;">No mata-mata, o grupo não é obrigatório e não precisa esperar a classificatória acabar. Você pode selecionar as equipes e salvar manualmente.</div>
         {% endif %}
@@ -609,6 +704,92 @@
         </form>
     </div>
 </div>
+
+{% if fase_ativa == 'classificatorias' %}
+<div class="modal-equipes-backdrop" id="modal-config-geracao" aria-hidden="true">
+    <div class="modal-equipes" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-config-geracao">
+        <div class="modal-equipes-topo">
+            <div>
+                <h3 id="titulo-modal-config-geracao">Configurar geração automática</h3>
+                <div class="modal-equipes-sub">
+                    Essas regras serão usadas quando você clicar em gerar jogos automaticamente.
+                </div>
+            </div>
+            <button class="modal-fechar" type="button" data-fechar-modal-equipes aria-label="Fechar">×</button>
+        </div>
+
+        <form method="post" action="{{ url_for('tabela.salvar_config_geracao_view') }}">
+            <div class="modal-equipes-corpo">
+                <div class="modal-equipes-info">
+                    Use quadra fixa quando cada grupo jogar sempre na mesma quadra. Use rodízio quando um grupo puder alternar entre quadras permitidas.
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Modo de distribuição</h4>
+                    <div class="config-radio-lista">
+                        <label>
+                            <input type="radio" name="modo_distribuicao" value="fixa" {% if not config_geracao or config_geracao.modo_distribuicao != 'rodizio' %}checked{% endif %}>
+                            Grupo fixo na quadra escolhida
+                        </label>
+                        <label>
+                            <input type="radio" name="modo_distribuicao" value="rodizio" {% if config_geracao and config_geracao.modo_distribuicao == 'rodizio' %}checked{% endif %}>
+                            Rodízio entre quadras permitidas
+                        </label>
+                    </div>
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Descanso mínimo</h4>
+                    <label for="descanso_minimo_geracao">Jogos de intervalo antes da mesma equipe jogar novamente</label>
+                    <input id="descanso_minimo_geracao" type="number" min="0" max="5" name="descanso_minimo" value="{{ config_geracao.descanso_minimo if config_geracao else 1 }}">
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Ordem dos jogos</h4>
+                    <select name="ordem_jogos">
+                        <option value="intercalar_grupos" {% if not config_geracao or config_geracao.ordem_jogos == 'intercalar_grupos' %}selected{% endif %}>Intercalar grupos por rodada</option>
+                        <option value="por_grupo" {% if config_geracao and config_geracao.ordem_jogos == 'por_grupo' %}selected{% endif %}>Fazer grupo por grupo</option>
+                        <option value="balancear_quadras" {% if config_geracao and config_geracao.ordem_jogos == 'balancear_quadras' %}selected{% endif %}>Balancear uso das quadras</option>
+                    </select>
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Quadras permitidas por grupo</h4>
+                    <div class="config-grupo-quadras">
+                        {% for g in grupos %}
+                            {% set selecionadas_grupo = config_geracao.quadras_por_grupo.get(g.grupo.nome, []) if config_geracao and config_geracao.quadras_por_grupo else [] %}
+                            <div class="config-grupo-card">
+                                <div class="config-grupo-titulo">Grupo {{ g.grupo.nome }}</div>
+                                <div class="config-quadras-grid">
+                                    {% for q in quadras %}
+                                        <label class="config-check-quadra">
+                                            <input
+                                                type="checkbox"
+                                                name="quadras_grupo_{{ g.grupo.nome }}[]"
+                                                value="{{ q.id }}"
+                                                {% if q.id in selecionadas_grupo or (not selecionadas_grupo and g.quadra_id and q.id == g.quadra_id) %}checked{% endif %}
+                                            >
+                                            <span>{{ q.nome_exibicao or q.nome }}</span>
+                                        </label>
+                                    {% endfor %}
+                                </div>
+                                {% if not quadras %}
+                                    <div style="color:var(--muted); font-size:13px;">Nenhuma quadra cadastrada nesta competição.</div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; padding:14px 20px; border-top:1px solid var(--border);">
+                <button class="btn-secundario" type="button" data-fechar-modal-equipes>Cancelar</button>
+                <button class="btn-padrao" type="submit">Salvar configurações</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <div class="card-painel">
     <h3 style="margin-top: 0;">Criar jogo manual</h3>
@@ -686,8 +867,26 @@
     </h3>
 
     {% if partidas_fase %}
+    {% if fase_ativa == 'classificatorias' %}
+    <div class="quadra-filtro-tabs" data-filtro-quadras>
+        <button class="quadra-filtro-tab ativa" type="button" data-quadra-filtro="todas">
+            Todos os jogos
+        </button>
+        {% for q in quadras %}
+            <button class="quadra-filtro-tab" type="button" data-quadra-filtro="{{ q.id }}">
+                {{ q.nome_exibicao or q.nome }}
+            </button>
+        {% endfor %}
+        <button class="quadra-filtro-tab" type="button" data-quadra-filtro="sem_quadra">
+            Sem quadra
+        </button>
+    </div>
+    <div class="quadra-filtro-vazio" data-quadra-filtro-vazio>
+        Nenhum jogo encontrado para esta quadra.
+    </div>
+    {% endif %}
     <div class="tabela-scroll">
-    <table class="tabela-pro">
+    <table class="tabela-pro" data-tabela-partidas>
         <thead>
             <tr>
                 <th>#</th>
@@ -707,6 +906,7 @@
                 data-partida-id="{{ p.id }}"
                 data-competicao="{{ competicao.nome }}"
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
+                data-quadra-id="{{ p.quadra_id_normalizado if p.quadra_id_normalizado else 'sem_quadra' }}"
             >
                 <td><span class="posicao">{{ p.ordem }}</span></td>
                 <td>{% if p.fase_normalizada == 'grupos' %}{{ p.grupo }}{% else %}-{% endif %}</td>
@@ -1006,5 +1206,41 @@ document.addEventListener("DOMContentLoaded", function controlarModaisEquipeGrup
         });
     });
 });
+
+document.addEventListener("DOMContentLoaded", function controlarFiltroQuadrasPartidas() {
+    const container = document.querySelector("[data-filtro-quadras]");
+    const tabela = document.querySelector("[data-tabela-partidas]");
+    const vazio = document.querySelector("[data-quadra-filtro-vazio]");
+    if (!container || !tabela) return;
+
+    const botoes = container.querySelectorAll("[data-quadra-filtro]");
+    const linhas = tabela.querySelectorAll("tbody tr[data-partida-id]");
+
+    function aplicarFiltro(filtro) {
+        let visiveis = 0;
+
+        linhas.forEach(linha => {
+            const quadraId = linha.dataset.quadraId || "sem_quadra";
+            const mostrar = filtro === "todas" || quadraId === filtro;
+            linha.style.display = mostrar ? "" : "none";
+            if (mostrar) visiveis += 1;
+        });
+
+        botoes.forEach(botao => {
+            botao.classList.toggle("ativa", botao.dataset.quadraFiltro === filtro);
+        });
+
+        if (vazio) {
+            vazio.style.display = visiveis ? "none" : "block";
+        }
+    }
+
+    botoes.forEach(botao => {
+        botao.addEventListener("click", () => aplicarFiltro(botao.dataset.quadraFiltro || "todas"));
+    });
+
+    aplicarFiltro("todas");
+});
+
 </script>
 {% endblock %}

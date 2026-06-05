@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash
 from functools import wraps
 import random
+import json
 
 from banco import (
     buscar_competicao_por_organizador,
@@ -31,6 +32,10 @@ from banco import (
     vincular_grupo_a_quadra,
     aplicar_quadra_em_partida,
     conectar,
+    buscar_configuracao_agenda_competicao,
+    atualizar_configuracao_agenda_competicao,
+    inicializar_configuracao_agenda_competicao,
+    _buscar_colunas_tabela,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -280,6 +285,13 @@ STATUS_PRE_JOGO = {
     "pré jogo",
 }
 
+STATUS_AGUARDANDO = {
+    "aguardando",
+    "agendada",
+    "agendado",
+    "pendente",
+}
+
 
 def _partida_tem_flag_finalizada(partida):
     """Finalizado sempre tem prioridade máxima sobre qualquer status ao vivo.
@@ -342,10 +354,14 @@ def _status_tabela_para_trava(partida):
             return "pre_jogo"
 
     for valor in (status, fase_partida, status_jogo):
+        if valor in STATUS_AGUARDANDO:
+            return "aguardando"
+
+    for valor in (status, fase_partida, status_jogo):
         if valor:
             return valor
 
-    return "agendada"
+    return "aguardando"
 
 
 def _partida_conta_como_iniciada_para_trava(partida):
@@ -413,7 +429,7 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
     - Grupos usam a função padrão do banco, porque a classificatória deve respeitar o travamento estrutural.
     - Mata-mata faz INSERT direto para NÃO ser bloqueado pela classificatória travada.
 
-    Também grava status_jogo='agendada', porque no banco antigo status_jogo tem DEFAULT 'pre_jogo'
+    Também grava status_jogo='aguardando', porque no banco antigo status_jogo tem DEFAULT antigo 'pre_jogo'
     e isso fazia a tela achar que a partida já tinha iniciado logo depois de criar.
     """
     quadra_id, quadra_nome = _dados_quadra(competicao_nome, quadra_id)
@@ -438,13 +454,109 @@ def _criar_partida_para_tabela(competicao_nome, grupo, equipe_a, equipe_b, ordem
             cur.execute("""
                 INSERT INTO partidas (
                     competicao, grupo, equipe_a, equipe_b, fase, ordem,
-                    quadra, quadra_id, quadra_nome, origem, status
+                    quadra, quadra_id, quadra_nome, origem, status, status_jogo, fase_partida
                 )
-                VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, 'agendada')
+                VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, 'aguardando', 'aguardando', 'aguardando')
             """, (competicao_nome, equipe_a, equipe_b, fase_banco, ordem, str(quadra_id) if quadra_id else None, quadra_id, quadra_nome or '', origem))
         conn.commit()
 
     return True
+
+
+def _mapa_quadras_formatadas(nome_competicao):
+    """Busca as quadras uma única vez e monta cache id -> nome formatado.
+
+    A geração automática pode criar dezenas/centenas de jogos. Chamar
+    buscar_quadra_competicao_por_id() para cada jogo faz uma consulta ao Neon
+    por partida e deixa a geração muito lenta. Este mapa evita esse gargalo.
+    """
+    mapa = {}
+    try:
+        for q in listar_quadras_competicao(nome_competicao) or []:
+            qid = _to_int_or_none(q.get("id"))
+            if qid:
+                mapa[qid] = formatar_quadra_exibicao(q)
+    except Exception as e:
+        print("AVISO _mapa_quadras_formatadas:", repr(e))
+    return mapa
+
+
+def _quadra_nome_cache(mapa_quadras, quadra_id):
+    quadra_id = _to_int_or_none(quadra_id)
+    if not quadra_id:
+        return None, ""
+    return quadra_id, (mapa_quadras or {}).get(quadra_id, "")
+
+
+def _inserir_partidas_em_lote(partidas):
+    """Insere partidas em lote com um único roundtrip/commit.
+
+    Substitui o fluxo antigo que chamava criar_partida() para cada jogo.
+    Esse fluxo antigo abria validações/consultas/commits repetidos e era o
+    principal motivo da geração automática demorar minutos.
+
+    Status inicial correto: AGUARDANDO. A partida só vira PRE_JOGO quando o
+    apontador realmente assumir/abrir a conferência.
+    """
+    partidas = [p for p in (partidas or []) if p]
+    if not partidas:
+        return 0
+
+    colunas_partidas = _buscar_colunas_tabela("partidas") or set()
+
+    campos_base = [
+        "competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem",
+        "quadra", "quadra_id", "quadra_nome", "origem", "rodada", "status",
+    ]
+    extras_possiveis = [
+        "status_jogo", "fase_partida", "status_operacao",
+        "sets_a", "sets_b", "pontos_a", "pontos_b",
+    ]
+
+    # Compatibilidade com bancos antigos: só insere colunas que realmente existem.
+    campos = [c for c in campos_base if c in colunas_partidas]
+    campos.extend([c for c in extras_possiveis if c in colunas_partidas and c not in campos])
+
+    valores = []
+    for p in partidas:
+        quadra_id = _to_int_or_none(p.get("quadra_id"))
+        mapa_valores = {
+            "competicao": p.get("competicao"),
+            "grupo": p.get("grupo"),
+            "equipe_a": p.get("equipe_a"),
+            "equipe_b": p.get("equipe_b"),
+            "fase": p.get("fase") or "grupos",
+            "ordem": int(p.get("ordem") or 0),
+            "quadra": str(quadra_id) if quadra_id else None,
+            "quadra_id": quadra_id,
+            "quadra_nome": p.get("quadra_nome") or "",
+            "origem": p.get("origem") or "automatica",
+            "rodada": p.get("rodada"),
+            "status": "aguardando",
+            "status_jogo": "aguardando",
+            "fase_partida": "aguardando",
+            "status_operacao": "livre",
+            "sets_a": 0,
+            "sets_b": 0,
+            "pontos_a": 0,
+            "pontos_b": 0,
+        }
+        valores.append(tuple(mapa_valores.get(c) for c in campos))
+
+    placeholders = ", ".join(["%s"] * len(campos))
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                f"""
+                INSERT INTO partidas ({", ".join(campos)})
+                VALUES ({placeholders})
+                """,
+                valores,
+            )
+        conn.commit()
+
+    return len(valores)
 
 def _fase_partida_normalizada(partida):
     fase = (
@@ -494,7 +606,8 @@ def _status_exibicao(partida):
 
     mapa = {
         "pre_jogo": "PRÉ-JOGO",
-        "agendada": "AGENDADA",
+        "aguardando": "AGUARDANDO",
+        "agendada": "AGUARDANDO",
         "em andamento": "AO VIVO",
         "ao vivo": "AO VIVO",
         "ao_vivo": "AO VIVO",
@@ -1367,6 +1480,8 @@ def tabela_view():
     colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
 
     fases = _fases_disponiveis(competicao)
+    inicializar_configuracao_agenda_competicao(competicao["nome"])
+    config_agenda = buscar_configuracao_agenda_competicao(competicao["nome"])
 
     return render_template(
         "tabela.html",
@@ -1382,6 +1497,8 @@ def tabela_view():
         aba_ativa=aba,
         fase_ativa=fase_subaba,
         competicao_travada=competicao_esta_travada(competicao["nome"]),
+        config_agenda=config_agenda,
+        config_geracao=config_agenda,
         grupos_travados=fase_grupos_esta_travada_por_jogo(competicao["nome"]),
         fase_atual_travada=not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao["nome"], _fase_subaba_para_banco(fase_subaba)),
         fase_banco_ativa=_fase_subaba_para_banco(fase_subaba),
@@ -1708,7 +1825,7 @@ def atualizar_partida_view(partida_id):
         quadra=str(quadra_id) if quadra_id else None,
         quadra_id=quadra_id,
         quadra_nome=quadra_nome,
-        status="agendada",
+        status="aguardando",
     )
 
     if ok is False:
@@ -1738,6 +1855,545 @@ def excluir_partida_view(partida_id):
     return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
 
+
+# =========================================================
+# MOTOR INTELIGENTE DE AGENDA DA FASE CLASSIFICATÓRIA
+# =========================================================
+def _gerar_rodadas_round_robin(equipes):
+    """Gera rodadas todos-contra-todos pelo método do círculo."""
+    times = list(equipes or [])
+    if len(times) < 2:
+        return []
+
+    if len(times) % 2 == 1:
+        times.append(None)
+
+    n = len(times)
+    rodadas = []
+
+    for rodada_idx in range(n - 1):
+        rodada = []
+        for i in range(n // 2):
+            t1 = times[i]
+            t2 = times[n - 1 - i]
+            if t1 is not None and t2 is not None:
+                # Alterna mando/ordem visual para não deixar sempre o mesmo time primeiro.
+                if rodada_idx % 2 == 0:
+                    rodada.append((t1, t2))
+                else:
+                    rodada.append((t2, t1))
+        rodadas.append(rodada)
+        times = [times[0]] + [times[-1]] + times[1:-1]
+
+    return rodadas
+
+
+def _ids_quadras_ativas(quadras):
+    ids = []
+    for q in quadras or []:
+        if q.get("ativa") is False:
+            continue
+        try:
+            ids.append(int(q.get("id")))
+        except (TypeError, ValueError):
+            pass
+    return ids
+
+
+def _normalizar_lista_ids(valores):
+    if valores in (None, ""):
+        return []
+    if isinstance(valores, str):
+        try:
+            valores = json.loads(valores)
+        except Exception:
+            valores = [v.strip() for v in valores.split(",")]
+    ids = []
+    for v in valores or []:
+        try:
+            n = int(v)
+            if n > 0 and n not in ids:
+                ids.append(n)
+        except (TypeError, ValueError):
+            pass
+    return ids
+
+
+def _parse_grupos_compartilhados_form():
+    """Lê configurações opcionais do formulário sem depender do HTML novo.
+
+    Aceita formatos simples:
+    - grupos_compartilhados_json = {"A":[1,2], "B":[1,2]}
+    - quadras_compartilhadas_json = [1,2]
+    - grupo_quadras_A = 1,2
+    """
+    bruto = request.form.get("grupos_compartilhados_json") or request.form.get("grupos_compartilhados")
+    if bruto:
+        try:
+            dados = json.loads(bruto)
+            if isinstance(dados, dict):
+                return {str(k).strip().upper(): _normalizar_lista_ids(v) for k, v in dados.items()}
+        except Exception:
+            pass
+
+    dados = {}
+    for chave, valor in request.form.items():
+        if not chave.startswith("grupo_quadras_"):
+            continue
+        grupo = chave.replace("grupo_quadras_", "", 1).strip().upper()
+        ids = _normalizar_lista_ids(valor)
+        if grupo and ids:
+            dados[grupo] = ids
+    return dados
+
+
+def _config_agenda_da_requisicao(nome_competicao):
+    inicializar_configuracao_agenda_competicao(nome_competicao)
+    config = buscar_configuracao_agenda_competicao(nome_competicao) or {}
+
+    if request.method == "POST":
+        modo = (request.form.get("modo_distribuicao") or request.form.get("modo_distribuicao_agenda") or config.get("modo_distribuicao") or "automatico_inteligente").strip().lower()
+        rodizio = (request.form.get("rodizio_grupos") or config.get("rodizio_grupos") or "por_rodada").strip().lower()
+        descanso = request.form.get("descanso_minimo_jogos", config.get("descanso_minimo_jogos", 1))
+        permitir_relaxar = request.form.get("permitir_relaxar_descanso")
+        if permitir_relaxar is None:
+            permitir_relaxar = config.get("permitir_relaxar_descanso", True)
+        else:
+            permitir_relaxar = str(permitir_relaxar).strip().lower() in {"1", "true", "on", "sim", "yes"}
+
+        grupos_comp = _parse_grupos_compartilhados_form() or config.get("grupos_compartilhados") or {}
+        quadras_comp = _normalizar_lista_ids(
+            request.form.get("quadras_compartilhadas_json")
+            or request.form.get("quadras_compartilhadas")
+            or config.get("quadras_compartilhadas")
+        )
+
+        atualizar_configuracao_agenda_competicao(
+            nome_competicao,
+            modo_distribuicao=modo,
+            descanso_minimo_jogos=descanso,
+            rodizio_grupos=rodizio,
+            permitir_relaxar_descanso=permitir_relaxar,
+            grupos_compartilhados=grupos_comp,
+            quadras_compartilhadas=quadras_comp,
+        )
+        config = buscar_configuracao_agenda_competicao(nome_competicao) or config
+
+    return config
+
+
+def _quadras_permitidas_para_grupo(nome_competicao, grupos_raw, grupo_nome, quadras_ativas, config):
+    """Define quais quadras o grupo pode usar.
+
+    REGRA IMPORTANTE:
+    - Se o grupo tem quadra padrão definida na aba Configurações, ele fica FIXO nessa quadra.
+    - Uma quadra fixa de um grupo fica reservada para esse grupo.
+    - Grupos sem quadra definida usam somente as quadras livres, ou seja, não invadem
+      quadras reservadas por grupos fixos.
+    - Só usamos uma configuração específica do modal quando ela existir para o grupo.
+    """
+    grupo_nome = str(grupo_nome or "").strip().upper()
+    quadras_ativas = [qid for qid in (quadras_ativas or []) if qid is not None]
+    if not quadras_ativas:
+        return []
+
+    # Mapa de quadras fixas cadastradas na aba Configurações.
+    fixas_por_grupo = {}
+    quadras_reservadas = set()
+    for g in grupos_raw or []:
+        nome_g = str(g.get("nome") or "").strip().upper()
+        qid = _quadra_id_do_grupo(g)
+        try:
+            qid = int(qid or 0)
+        except (TypeError, ValueError):
+            qid = None
+        if nome_g and qid and qid in quadras_ativas:
+            fixas_por_grupo[nome_g] = qid
+            quadras_reservadas.add(qid)
+
+    # 1) Grupo com quadra definida é sempre fixo.
+    if grupo_nome in fixas_por_grupo:
+        return [fixas_por_grupo[grupo_nome]]
+
+    # 2) Para grupos sem quadra definida, remove as quadras reservadas para grupos fixos.
+    quadras_livres = [qid for qid in quadras_ativas if qid not in quadras_reservadas]
+    if not quadras_livres:
+        # Se todas as quadras estão reservadas, libera fallback para não travar a geração.
+        quadras_livres = list(quadras_ativas)
+
+    compartilhados = (config or {}).get("grupos_compartilhados") or {}
+    quadras_compartilhadas = _normalizar_lista_ids((config or {}).get("quadras_compartilhadas"))
+
+    # 3) Configuração específica por grupo no modal, filtrada pelas quadras livres.
+    ids = _normalizar_lista_ids(compartilhados.get(grupo_nome) or compartilhados.get(grupo_nome.lower()))
+    ids = [qid for qid in ids if qid in quadras_livres]
+    if ids:
+        return ids
+
+    # 4) Pool geral compartilhado, também sem invadir quadras reservadas.
+    if quadras_compartilhadas:
+        ids = [qid for qid in quadras_compartilhadas if qid in quadras_livres]
+        if ids:
+            return ids
+
+    # 5) Fallback: qualquer quadra livre.
+    return list(quadras_livres)
+
+
+def _montar_fila_jogos_classificatorios(rodadas_por_grupo, rodizio):
+    """Monta uma fila respeitando a ideia de rodadas entre grupos."""
+    fila = []
+    grupos = sorted(rodadas_por_grupo.keys())
+    max_rodadas = max((len(r) for r in rodadas_por_grupo.values()), default=0)
+
+    if rodizio == "por_grupo_inteiro":
+        for grupo in grupos:
+            for rodada_idx, rodada in enumerate(rodadas_por_grupo.get(grupo) or [], start=1):
+                for equipe_a, equipe_b in rodada:
+                    fila.append({"grupo": grupo, "rodada_grupo": rodada_idx, "equipe_a": equipe_a, "equipe_b": equipe_b})
+        return fila
+
+    # Padrão: por rodada. O alternado inteligente usa a mesma base e o encaixe abaixo decide o melhor jogo.
+    for rodada_idx in range(max_rodadas):
+        for grupo in grupos:
+            rodadas = rodadas_por_grupo.get(grupo) or []
+            if rodada_idx >= len(rodadas):
+                continue
+            for equipe_a, equipe_b in rodadas[rodada_idx]:
+                fila.append({"grupo": grupo, "rodada_grupo": rodada_idx + 1, "equipe_a": equipe_a, "equipe_b": equipe_b})
+    return fila
+
+
+def _jogo_respeita_descanso(jogo, historico_slots, descanso_minimo):
+    if descanso_minimo <= 0:
+        return True
+    equipes = {jogo["equipe_a"], jogo["equipe_b"]}
+    for slot in historico_slots[-descanso_minimo:]:
+        if equipes.intersection(slot):
+            return False
+    return True
+
+
+def _proximo_jogo_sem_conflito(lista_jogos, equipes_slot, equipes_slot_anterior=None):
+    """Remove e retorna o primeiro jogo possível sem conflito no slot.
+
+    Primeiro tenta evitar equipes que jogaram no slot anterior. Se não existir
+    opção, relaxa essa regra para não travar grupos com poucos times/quadra única
+    como o caso da Apolo.
+    """
+    equipes_slot = set(equipes_slot or set())
+    equipes_slot_anterior = set(equipes_slot_anterior or set())
+
+    for idx, jogo in enumerate(lista_jogos or []):
+        equipes = {jogo.get("equipe_a"), jogo.get("equipe_b")}
+        if equipes.intersection(equipes_slot):
+            continue
+        if equipes_slot_anterior and equipes.intersection(equipes_slot_anterior):
+            continue
+        return lista_jogos.pop(idx)
+
+    for idx, jogo in enumerate(lista_jogos or []):
+        equipes = {jogo.get("equipe_a"), jogo.get("equipe_b")}
+        if equipes.intersection(equipes_slot):
+            continue
+        return lista_jogos.pop(idx)
+
+    return None
+
+
+def _montar_blocos_por_pool_classificatoria(nome_competicao, grupos_raw, quadras_ativas, config):
+    """Agrupa os grupos pelo conjunto de quadras que eles podem usar.
+
+    Exemplo prático:
+    - Grupo C permite apenas Apolo => pool (Apolo)
+    - Grupos A/B/D permitem Floresta 1 e 2 => pool (Floresta 1, Floresta 2)
+
+    Isso é o que permite gerar rodadas simultâneas por local/quadras sem misturar
+    um grupo fixo com grupos rotativos.
+    """
+    pools = {}
+    for g in grupos_raw or []:
+        grupo = str(g.get("nome") or "").strip().upper()
+        if not grupo:
+            continue
+        permitidas = _quadras_permitidas_para_grupo(nome_competicao, grupos_raw, grupo, quadras_ativas, config)
+        permitidas = tuple(qid for qid in permitidas if qid in quadras_ativas)
+        if not permitidas:
+            continue
+        pools.setdefault(permitidas, []).append(grupo)
+
+    # Pools com mais quadras primeiro. Na prática, Floresta vem antes da Apolo,
+    # mas o slot final continua sincronizado por número de linha.
+    return dict(sorted(pools.items(), key=lambda item: (-len(item[0]), item[0])))
+
+
+def _grupo_com_mais_rodadas_restantes(rodadas_por_grupo, grupos_pool, ultimo_grupo=None):
+    candidatos = []
+    for grupo in grupos_pool or []:
+        restante = len(rodadas_por_grupo.get(grupo) or [])
+        if restante <= 0:
+            continue
+        if ultimo_grupo and grupo == ultimo_grupo and len(grupos_pool) > 1:
+            continue
+        candidatos.append((restante, grupo))
+
+    if not candidatos and ultimo_grupo:
+        for grupo in grupos_pool or []:
+            restante = len(rodadas_por_grupo.get(grupo) or [])
+            if restante > 0:
+                candidatos.append((restante, grupo))
+
+    if not candidatos:
+        return None
+
+    # Maior quantidade restante ganha. Em empate, ordem alfabética/visual.
+    candidatos.sort(key=lambda x: (-x[0], x[1]))
+    return candidatos[0][1]
+
+
+def _gerar_slots_pool_multiquadra(rodadas_por_grupo, grupos_pool, quadras_pool):
+    """Gera slots em bloco: um grupo por slot, várias quadras simultâneas.
+
+    Esta é a regra que tu aprovou:
+    - com duas quadras na Floresta, o slot recebe 2 jogos do mesmo grupo;
+    - o grupo com mais rodadas pendentes aparece mais vezes;
+    - não repete o mesmo grupo em slot seguido quando há alternativa;
+    - como os confrontos vêm por rodada round-robin, nenhuma equipe dobra no slot.
+    """
+    capacidade = max(1, len(quadras_pool or []))
+    slots = []
+    ultimo_grupo = None
+
+    while any(rodadas_por_grupo.get(g) for g in grupos_pool):
+        grupo = _grupo_com_mais_rodadas_restantes(rodadas_por_grupo, grupos_pool, ultimo_grupo)
+        if not grupo:
+            break
+
+        rodada = list((rodadas_por_grupo.get(grupo) or []).pop(0) or [])
+        jogos_slot = []
+        equipes_slot = set()
+
+        for qid in quadras_pool[:capacidade]:
+            if not rodada:
+                break
+            jogo_tuple = rodada.pop(0)
+            equipe_a, equipe_b = jogo_tuple
+            if equipe_a in equipes_slot or equipe_b in equipes_slot:
+                continue
+            jogos_slot.append({
+                "grupo": grupo,
+                "equipe_a": equipe_a,
+                "equipe_b": equipe_b,
+                "quadra_id": qid,
+            })
+            equipes_slot.update({equipe_a, equipe_b})
+
+        # Se sobrou jogo por alguma rodada maior que a capacidade, devolve como
+        # próxima rodada do mesmo grupo. Isso mantém compatibilidade com qualquer
+        # grupo/tamanho de quadras, embora no teu caso sejam blocos de 2.
+        if rodada:
+            rodadas_por_grupo.setdefault(grupo, []).insert(0, rodada)
+
+        if jogos_slot:
+            slots.append(jogos_slot)
+            ultimo_grupo = grupo
+        else:
+            # Proteção para não criar loop infinito em dados estranhos.
+            ultimo_grupo = None
+
+    return slots
+
+
+def _gerar_slots_pool_quadra_unica(rodadas_por_grupo, grupos_pool, quadra_id):
+    """Gera slots para uma quadra só, tentando evitar equipe em slot seguido."""
+    jogos_por_grupo = {}
+    for grupo in grupos_pool or []:
+        jogos = []
+        for rodada in rodadas_por_grupo.get(grupo) or []:
+            for equipe_a, equipe_b in rodada:
+                jogos.append({
+                    "grupo": grupo,
+                    "equipe_a": equipe_a,
+                    "equipe_b": equipe_b,
+                    "quadra_id": quadra_id,
+                })
+        jogos_por_grupo[grupo] = jogos
+
+    slots = []
+    ultimo_grupo = None
+    equipes_slot_anterior = set()
+
+    while any(jogos_por_grupo.get(g) for g in grupos_pool):
+        grupo = None
+        candidatos = []
+        for g in grupos_pool or []:
+            restante = len(jogos_por_grupo.get(g) or [])
+            if restante <= 0:
+                continue
+            if ultimo_grupo and g == ultimo_grupo and len(grupos_pool) > 1:
+                continue
+            candidatos.append((restante, g))
+        if not candidatos:
+            candidatos = [(len(jogos_por_grupo.get(g) or []), g) for g in grupos_pool if jogos_por_grupo.get(g)]
+        if not candidatos:
+            break
+        candidatos.sort(key=lambda x: (-x[0], x[1]))
+        grupo = candidatos[0][1]
+
+        jogo = _proximo_jogo_sem_conflito(jogos_por_grupo.get(grupo), set(), equipes_slot_anterior)
+        if not jogo:
+            break
+        slots.append([jogo])
+        ultimo_grupo = grupo
+        equipes_slot_anterior = {jogo["equipe_a"], jogo["equipe_b"]}
+
+    return slots
+
+
+def _gerar_agenda_classificatoria_inteligente(nome_competicao, grupos_raw, config):
+    """Gera a classificatória por SLOTS simultâneos.
+
+    A lógica principal agora é:
+    1. gerar os confrontos de cada grupo em memória;
+    2. separar grupos por pool de quadras permitidas;
+    3. em pools com 2+ quadras, colocar um bloco/rodada do mesmo grupo por slot;
+    4. alternar grupos pelo maior número de rodadas restantes, evitando grupo repetido;
+    5. salvar o slot em `rodada`, para a tela entender que Floresta 1 e 2 acontecem juntas.
+    """
+    quadras = garantir_quadras_competicao(nome_competicao, 1)
+    quadras_ativas = _ids_quadras_ativas(quadras)
+    if not quadras_ativas:
+        quadras_ativas = [None]
+
+    rodadas_por_grupo = {}
+    for g in grupos_raw or []:
+        equipes = listar_equipes_por_grupo(g["id"])
+        nomes = [e.get("equipe") for e in equipes if e.get("equipe")]
+        if len(nomes) >= 2:
+            rodadas_por_grupo[str(g.get("nome") or "").strip().upper()] = _gerar_rodadas_round_robin(nomes)
+
+    if not rodadas_por_grupo:
+        return {"ok": False, "mensagem": "Não há grupos com equipes suficientes para gerar jogos."}
+
+    pools = _montar_blocos_por_pool_classificatoria(nome_competicao, grupos_raw, quadras_ativas, config)
+    if not pools:
+        return {"ok": False, "mensagem": "Não foi possível definir as quadras permitidas dos grupos."}
+
+    slots_por_pool = []
+    for quadras_pool, grupos_pool in pools.items():
+        # Copia só as rodadas dos grupos deste pool para não consumir o dict global.
+        rodadas_pool = {
+            g: [list(rodada) for rodada in (rodadas_por_grupo.get(g) or [])]
+            for g in grupos_pool
+        }
+
+        if len(quadras_pool) >= 2:
+            slots_pool = _gerar_slots_pool_multiquadra(rodadas_pool, grupos_pool, list(quadras_pool))
+        else:
+            slots_pool = _gerar_slots_pool_quadra_unica(rodadas_pool, grupos_pool, quadras_pool[0])
+
+        slots_por_pool.append(slots_pool)
+
+    total_slots = max((len(s) for s in slots_por_pool), default=0)
+    agenda = []
+
+    for slot_idx in range(total_slots):
+        slot_numero = slot_idx + 1
+        ordem_no_slot = 1
+        for slots_pool in slots_por_pool:
+            if slot_idx >= len(slots_pool):
+                continue
+            for jogo in slots_pool[slot_idx]:
+                item = dict(jogo)
+                item["slot"] = slot_numero
+                item["ordem_no_slot"] = ordem_no_slot
+                item["rodada_grupo"] = slot_numero
+                agenda.append(item)
+                ordem_no_slot += 1
+
+    if not agenda:
+        return {"ok": False, "mensagem": "Não foi possível montar a agenda dos jogos."}
+
+    return {"ok": True, "agenda": agenda, "slots": total_slots, "quadras": len(quadras_ativas)}
+
+
+
+# =========================================================
+# SALVAR CONFIGURAÇÃO DA GERAÇÃO AUTOMÁTICA
+# =========================================================
+@tabela_bp.route("/tabela/salvar-config-geracao", methods=["POST"])
+@exigir_organizador_da_competicao
+def salvar_config_geracao_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
+        flash("A fase classificatória já iniciou. Não é possível alterar a configuração da geração.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="partidas", fase="classificatorias"))
+
+    # Compatibilidade com o modal do tabela.html atual.
+    modo_form = (request.form.get("modo_distribuicao") or "rodizio").strip().lower()
+    if modo_form in {"fixa", "grupo_fixo", "fixo"}:
+        modo = "grupo_fixo"
+    else:
+        modo = "automatico_inteligente"
+
+    ordem_form = (request.form.get("ordem_jogos") or "intercalar_grupos").strip().lower()
+    mapa_ordem = {
+        "intercalar_grupos": "por_rodada",
+        "por_grupo": "por_grupo_inteiro",
+        "balancear_quadras": "por_rodada",
+    }
+    rodizio = mapa_ordem.get(ordem_form, "por_rodada")
+
+    try:
+        descanso = int(request.form.get("descanso_minimo") or 1)
+    except (TypeError, ValueError):
+        descanso = 1
+    descanso = max(0, min(descanso, 5))
+
+    grupos_raw = listar_grupos(competicao["nome"])
+    grupos_compartilhados = {}
+    for g in grupos_raw:
+        nome_g = str(g.get("nome") or "").strip().upper()
+        if not nome_g:
+            continue
+
+        # O HTML envia quadras_grupo_A[]; o request.form.getlist aceita esse nome completo.
+        ids = []
+        for valor in request.form.getlist(f"quadras_grupo_{nome_g}[]"):
+            try:
+                qid = int(valor)
+                if qid > 0 and qid not in ids:
+                    ids.append(qid)
+            except (TypeError, ValueError):
+                pass
+        if ids:
+            grupos_compartilhados[nome_g] = ids
+
+    quadras_compartilhadas = []
+    for ids in grupos_compartilhados.values():
+        for qid in ids:
+            if qid not in quadras_compartilhadas:
+                quadras_compartilhadas.append(qid)
+
+    atualizar_configuracao_agenda_competicao(
+        competicao["nome"],
+        modo_distribuicao=modo,
+        descanso_minimo_jogos=descanso,
+        rodizio_grupos=rodizio,
+        permitir_relaxar_descanso=True,
+        grupos_compartilhados=grupos_compartilhados,
+        quadras_compartilhadas=quadras_compartilhadas,
+    )
+
+    flash("Configuração da geração automática salva com sucesso.", "sucesso")
+    return redirect(url_for("tabela.tabela_view", aba="partidas", fase="classificatorias"))
+
+
 # =========================================================
 # GERAR JOGOS AUTOMÁTICOS
 # =========================================================
@@ -1750,22 +2406,26 @@ def gerar_automatico():
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
+    nome_competicao = competicao["nome"]
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
     fase_banco = _fase_subaba_para_banco(fase_subaba)
 
-    if not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao["nome"], fase_banco):
+    # Esta validação é feita uma única vez. Antes, algumas funções de criação
+    # podiam repetir consultas de trava para cada partida gerada.
+    if not _fase_pode_ser_alterada_sem_travar_mata_mata(nome_competicao, fase_banco):
         flash("Esta fase já iniciou. Não é possível gerar jogos automaticamente nela.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
-    grupos_raw = listar_grupos(competicao["nome"])
+    grupos_raw = listar_grupos(nome_competicao)
+    mapa_quadras = _mapa_quadras_formatadas(nome_competicao)
 
     if fase_banco != "grupos":
-        partidas = listar_partidas(competicao["nome"])
+        partidas = listar_partidas(nome_competicao)
         grupos = []
         for g in grupos_raw:
             grupos.append({"grupo": g, "equipes": listar_equipes_por_grupo(g["id"])})
 
-        mapa_escudos = _mapa_escudos_equipes(listar_equipes_da_competicao(competicao["nome"]))
+        mapa_escudos = _mapa_escudos_equipes(listar_equipes_da_competicao(nome_competicao))
         partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
         classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
 
@@ -1836,105 +2496,62 @@ def gerar_automatico():
             flash("Não foi possível montar confrontos automáticos para esta fase.", "erro")
             return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
-        limpar_partidas_por_fase(competicao["nome"], fase_banco)
-        ordem = len(listar_partidas(competicao["nome"])) + 1
-        for equipe_a, equipe_b in confrontos:
-            _criar_partida_para_tabela(competicao["nome"], None, equipe_a, equipe_b, ordem, fase_banco, origem="automatica", quadra_id=_to_int_or_none(request.form.get("quadra_id")))
-            ordem += 1
+        limpar_partidas_por_fase(nome_competicao, fase_banco)
+        ordem_inicial = len(listar_partidas(nome_competicao)) + 1
+        quadra_id, quadra_nome = _quadra_nome_cache(mapa_quadras, _to_int_or_none(request.form.get("quadra_id")))
+
+        partidas_para_salvar = []
+        for indice, (equipe_a, equipe_b) in enumerate(confrontos):
+            partidas_para_salvar.append({
+                "competicao": nome_competicao,
+                "grupo": None,
+                "equipe_a": equipe_a,
+                "equipe_b": equipe_b,
+                "fase": fase_banco,
+                "ordem": ordem_inicial + indice,
+                "quadra_id": quadra_id,
+                "quadra_nome": quadra_nome,
+                "origem": "automatica",
+                "rodada": None,
+            })
+
+        _inserir_partidas_em_lote(partidas_para_salvar)
 
         flash("Jogos do mata-mata gerados automaticamente. Você ainda pode excluir e recriar enquanto a fase não iniciar.", "sucesso")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
-    limpar_partidas_por_fase(competicao["nome"], "grupos")
+    config_agenda = _config_agenda_da_requisicao(nome_competicao)
+    resultado_agenda = _gerar_agenda_classificatoria_inteligente(nome_competicao, grupos_raw, config_agenda)
 
-    ordem = 1
-
-    def gerar_rodadas(equipes):
-        times = equipes[:]
-
-        if len(times) % 2 == 1:
-            times.append(None)
-
-        n = len(times)
-        rodadas = []
-
-        for _ in range(n - 1):
-            rodada = []
-            for i in range(n // 2):
-                t1 = times[i]
-                t2 = times[n - 1 - i]
-
-                if t1 is not None and t2 is not None:
-                    rodada.append((t1, t2))
-
-            rodadas.append(rodada)
-            times = [times[0]] + [times[-1]] + times[1:-1]
-
-        return rodadas
-
-    rodadas_por_grupo = {}
-
-    for g in grupos_raw:
-        equipes = listar_equipes_por_grupo(g["id"])
-        nomes = [e["equipe"] for e in equipes]
-
-        if len(nomes) >= 2:
-            rodadas = gerar_rodadas(nomes)
-            rodadas_por_grupo[g["nome"]] = rodadas
-
-    if not rodadas_por_grupo:
-        flash("Não há grupos com equipes suficientes para gerar jogos.", "erro")
+    if not resultado_agenda.get("ok"):
+        flash(resultado_agenda.get("mensagem") or "Não foi possível gerar os jogos automaticamente.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase="classificatorias"))
 
-    max_rodadas = max(len(r) for r in rodadas_por_grupo.values())
+    limpar_partidas_por_fase(nome_competicao, "grupos")
 
-    ultimo_times_usados = set()
+    partidas_para_salvar = []
+    for ordem, jogo in enumerate(resultado_agenda.get("agenda") or [], start=1):
+        quadra_id, quadra_nome = _quadra_nome_cache(mapa_quadras, jogo.get("quadra_id"))
+        partidas_para_salvar.append({
+            "competicao": nome_competicao,
+            "grupo": jogo["grupo"],
+            "equipe_a": jogo["equipe_a"],
+            "equipe_b": jogo["equipe_b"],
+            "fase": "grupos",
+            "ordem": ordem,
+            "quadra_id": quadra_id,
+            "quadra_nome": quadra_nome,
+            "origem": "automatica_inteligente",
+            "rodada": jogo.get("slot"),
+        })
 
-    for rodada_index in range(max_rodadas):
-        jogos_da_rodada = []
+    total_inserido = _inserir_partidas_em_lote(partidas_para_salvar)
 
-        for grupo_nome, rodadas in rodadas_por_grupo.items():
-            if rodada_index < len(rodadas):
-                for jogo in rodadas[rodada_index]:
-                    jogos_da_rodada.append((grupo_nome, jogo))
-
-        jogos_ordenados = []
-
-        while jogos_da_rodada:
-            melhor_jogo = None
-
-            for j in jogos_da_rodada:
-                t1, t2 = j[1]
-                if t1 not in ultimo_times_usados and t2 not in ultimo_times_usados:
-                    melhor_jogo = j
-                    break
-
-            if not melhor_jogo:
-                melhor_jogo = jogos_da_rodada[0]
-
-            jogos_ordenados.append(melhor_jogo)
-
-            t1, t2 = melhor_jogo[1]
-            ultimo_times_usados = {t1, t2}
-
-            jogos_da_rodada.remove(melhor_jogo)
-
-        for grupo_nome, (t1, t2) in jogos_ordenados:
-            quadra_id = _quadra_padrao_do_grupo(grupos_raw, grupo_nome)
-            _, quadra_nome = _dados_quadra(competicao["nome"], quadra_id)
-            criar_partida(
-                competicao["nome"],
-                grupo_nome,
-                t1,
-                t2,
-                ordem,
-                quadra=str(quadra_id) if quadra_id else None,
-                fase="grupos",
-                origem="automatica",
-                quadra_id=quadra_id,
-                quadra_nome=quadra_nome,
-            )
-            ordem += 1
-
-    flash("Jogos gerados automaticamente com rodadas equilibradas.", "sucesso")
+    flash(
+        f"{total_inserido} jogos gerados automaticamente com agenda inteligente: "
+        f"{resultado_agenda.get('slots', 0)} rodadas/slots, "
+        f"descanso mínimo de {config_agenda.get('descanso_minimo_jogos', 1)} jogo(s) quando possível.",
+        "sucesso",
+    )
     return redirect(url_for("tabela.tabela_view", aba="partidas", fase="classificatorias"))
+

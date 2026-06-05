@@ -36,6 +36,7 @@ _SCHEMA_FLAGS = {
     "campos_controle_inscricao_competicoes": False,
     "tabela_atletas": False,
     "tabela_competicao_quadras": False,
+    "tabela_competicao_agenda_config": False,
     "campos_trava_operacional_partida": False,
 }
 _SCHEMA_LOCK = Lock()
@@ -4111,7 +4112,7 @@ def criar_tabela_partidas():
                     equipe_b TEXT,
                     fase TEXT DEFAULT 'grupos',
                     ordem INTEGER,
-                    status TEXT DEFAULT 'agendada'
+                    status TEXT DEFAULT 'aguardando'
                 )
             """)
 
@@ -4267,13 +4268,24 @@ def _normalizar_fase_partida(fase):
 
 
 def _status_partida_bloqueado(status, status_jogo=None):
-    status = (status or "").strip().lower()
-    status_jogo = (status_jogo or "").strip().lower()
+    """Retorna True somente quando a partida realmente saiu do estado inicial.
+
+    IMPORTANTE:
+    "pre_jogo" sozinho NÃO pode bloquear a tabela. Em bases antigas, partidas
+    recém-criadas podem nascer com status_jogo='pre_jogo' por DEFAULT do banco,
+    mesmo sem apontador ter aberto a conferência. Isso fazia a geração
+    automática criar só o primeiro jogo e travar a fase inteira.
+    """
+    status = (status or "").strip().lower().replace("-", "_")
+    status_jogo = (status_jogo or "").strip().lower().replace("-", "_")
+
     bloqueados = {
-        "pre_jogo", "em_andamento", "em andamento", "andamento",
+        "em_andamento", "em andamento", "andamento",
         "entre_sets", "tiebreak_sorteio", "finalizada", "finalizado",
         "encerrada", "encerrado", "iniciada", "iniciado",
+        "ao_vivo", "ao vivo",
     }
+
     return status in bloqueados or status_jogo in bloqueados
 
 
@@ -4321,8 +4333,8 @@ def competicao_tem_partida_iniciada_por_fase(nome_competicao, fase=None):
                          OR COALESCE(sets_b, 0) > 0
                          OR pre_jogo_iniciado_em IS NOT NULL
                          OR COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                         OR LOWER(COALESCE(status_jogo, '')) IN ('pre_jogo', 'em_andamento', 'em andamento', 'andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'finalizado', 'encerrada', 'encerrado')
-                         OR LOWER(COALESCE(status, '')) IN ('pre_jogo', 'em_andamento', 'em andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada', 'finalizado', 'encerrada', 'encerrado')
+                         OR LOWER(REPLACE(COALESCE(status_jogo, ''), '-', '_')) IN ('em_andamento', 'em andamento', 'andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'finalizado', 'encerrada', 'encerrado', 'ao_vivo', 'ao vivo')
+                         OR LOWER(REPLACE(COALESCE(status, ''), '-', '_')) IN ('em_andamento', 'em andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada', 'finalizado', 'encerrada', 'encerrado', 'ao_vivo', 'ao vivo')
                       )
                     LIMIT 1
                 """, tuple(params))
@@ -4367,18 +4379,51 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO partidas (
-                    competicao, grupo, equipe_a, equipe_b, fase, ordem,
-                    quadra, quadra_id, quadra_nome, data_hora, rodada, origem, status,
-                    sets_a, sets_b, set1_a, set1_b, set2_a, set2_b, set3_a, set3_b
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'agendada', 0, 0, NULL, NULL, NULL, NULL, NULL, NULL)
-            """, (competicao, grupo, equipe_a, equipe_b, fase, ordem, quadra, quadra_id, quadra_nome or quadra or '', data_hora, rodada, origem))
+            colunas_partidas = _buscar_colunas_tabela("partidas")
+
+            campos = [
+                "competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem",
+                "quadra", "quadra_id", "quadra_nome", "data_hora", "rodada",
+                "origem", "status",
+            ]
+            valores = [
+                competicao, grupo, equipe_a, equipe_b, fase, ordem,
+                quadra, quadra_id, quadra_nome or quadra or '', data_hora, rodada,
+                origem, "aguardando",
+            ]
+
+            # Evita que DEFAULT antigo do banco salve partida nova como PRÉ-JOGO.
+            # Jogo gerado/manual deve nascer como AGUARDANDO.
+            if "status_jogo" in colunas_partidas:
+                campos.append("status_jogo")
+                valores.append("aguardando")
+
+            if "fase_partida" in colunas_partidas:
+                campos.append("fase_partida")
+                valores.append("aguardando")
+
+            for campo in ("sets_a", "sets_b"):
+                if campo in colunas_partidas:
+                    campos.append(campo)
+                    valores.append(0)
+
+            for campo in ("set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b"):
+                if campo in colunas_partidas:
+                    campos.append(campo)
+                    valores.append(None)
+
+            placeholders = ", ".join(["%s"] * len(valores))
+            cur.execute(
+                f"""
+                INSERT INTO partidas ({", ".join(campos)})
+                VALUES ({placeholders})
+                """,
+                tuple(valores)
+            )
         conn.commit()
 
 
-def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='agendada', rodada=None, quadra_id=None, quadra_nome=None):
+def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='aguardando', rodada=None, quadra_id=None, quadra_nome=None):
     fase = _normalizar_fase_partida(fase)
     grupo = grupo if fase == "grupos" else None
 
@@ -4414,10 +4459,12 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
                     quadra_nome = %s,
                     data_hora = %s,
                     status = %s,
+                    status_jogo = %s,
+                    fase_partida = %s,
                     rodada = %s
                 WHERE id = %s
                   AND competicao = %s
-            """, (grupo, fase, equipe_a, equipe_b, quadra, quadra_id, quadra_nome or quadra or '', data_hora, status, rodada, partida_id, competicao))
+            """, (grupo, fase, equipe_a, equipe_b, quadra, quadra_id, quadra_nome or quadra or '', data_hora, status, status, status, rodada, partida_id, competicao))
         conn.commit()
     return True
 
@@ -5247,6 +5294,212 @@ def inicializar_configuracao_avancada_competicao(nome_competicao):
     )
 
 
+
+
+# =========================================================
+# CONFIGURAÇÃO DE AGENDA / GERAÇÃO INTELIGENTE DE PARTIDAS
+# =========================================================
+def criar_tabela_competicao_agenda_config(force=False):
+    """Cria tabela isolada para configurações do motor de agenda.
+
+    Mantida fora da tabela competicoes para não quebrar bancos antigos e para
+    permitir evoluir a geração automática sem alterar a estrutura principal da competição.
+    """
+    try:
+        if _schema_ja_pronto("tabela_competicao_agenda_config", force=force):
+            return
+    except Exception:
+        pass
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS competicao_agenda_config (
+                    competicao TEXT PRIMARY KEY,
+                    modo_distribuicao TEXT DEFAULT 'automatico_inteligente',
+                    descanso_minimo_jogos INTEGER DEFAULT 1,
+                    rodizio_grupos TEXT DEFAULT 'por_rodada',
+                    permitir_relaxar_descanso BOOLEAN DEFAULT TRUE,
+                    grupos_compartilhados_json JSONB DEFAULT '{}'::jsonb,
+                    quadras_compartilhadas_json JSONB DEFAULT '[]'::jsonb,
+                    atualizado_em TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                ALTER TABLE competicao_agenda_config
+                ADD COLUMN IF NOT EXISTS competicao TEXT PRIMARY KEY,
+                ADD COLUMN IF NOT EXISTS modo_distribuicao TEXT DEFAULT 'automatico_inteligente',
+                ADD COLUMN IF NOT EXISTS descanso_minimo_jogos INTEGER DEFAULT 1,
+                ADD COLUMN IF NOT EXISTS rodizio_grupos TEXT DEFAULT 'por_rodada',
+                ADD COLUMN IF NOT EXISTS permitir_relaxar_descanso BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS grupos_compartilhados_json JSONB DEFAULT '{}'::jsonb,
+                ADD COLUMN IF NOT EXISTS quadras_compartilhadas_json JSONB DEFAULT '[]'::jsonb,
+                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competicao_agenda_config_competicao
+                ON competicao_agenda_config (competicao)
+            """)
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("competicao_agenda_config", None)
+    try:
+        _marcar_schema_pronto("tabela_competicao_agenda_config")
+    except Exception:
+        pass
+
+
+def _agenda_config_padrao():
+    return {
+        "modo_distribuicao": "automatico_inteligente",
+        "descanso_minimo_jogos": 1,
+        "rodizio_grupos": "por_rodada",
+        "permitir_relaxar_descanso": True,
+        "grupos_compartilhados": {},
+        "quadras_compartilhadas": [],
+    }
+
+
+def _normalizar_json_config_agenda(valor, padrao):
+    if valor in (None, ""):
+        return padrao
+    if isinstance(valor, (dict, list)):
+        return valor
+    try:
+        return json.loads(valor)
+    except Exception:
+        return padrao
+
+
+def buscar_configuracao_agenda_competicao(nome_competicao):
+    criar_tabela_competicao_agenda_config()
+    nome_competicao = (nome_competicao or "").strip()
+    if not nome_competicao:
+        return _agenda_config_padrao()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    modo_distribuicao,
+                    descanso_minimo_jogos,
+                    rodizio_grupos,
+                    permitir_relaxar_descanso,
+                    grupos_compartilhados_json,
+                    quadras_compartilhadas_json
+                FROM competicao_agenda_config
+                WHERE competicao = %s
+                LIMIT 1
+            """, (nome_competicao,))
+            row = cur.fetchone()
+
+    config = _agenda_config_padrao()
+    if not row:
+        return config
+
+    modo = str(row.get("modo_distribuicao") or config["modo_distribuicao"]).strip().lower()
+    if modo not in {"grupo_fixo", "quadras_compartilhadas", "automatico_inteligente"}:
+        modo = "automatico_inteligente"
+
+    rodizio = str(row.get("rodizio_grupos") or config["rodizio_grupos"]).strip().lower()
+    if rodizio not in {"por_rodada", "alternado_inteligente", "por_grupo_inteiro"}:
+        rodizio = "por_rodada"
+
+    try:
+        descanso = int(row.get("descanso_minimo_jogos") or 1)
+    except (TypeError, ValueError):
+        descanso = 1
+    descanso = max(0, min(descanso, 5))
+
+    config.update({
+        "modo_distribuicao": modo,
+        "descanso_minimo_jogos": descanso,
+        "rodizio_grupos": rodizio,
+        "permitir_relaxar_descanso": bool(row.get("permitir_relaxar_descanso")),
+        "grupos_compartilhados": _normalizar_json_config_agenda(row.get("grupos_compartilhados_json"), {}),
+        "quadras_compartilhadas": _normalizar_json_config_agenda(row.get("quadras_compartilhadas_json"), []),
+    })
+    return config
+
+
+def atualizar_configuracao_agenda_competicao(
+    nome_competicao,
+    modo_distribuicao="automatico_inteligente",
+    descanso_minimo_jogos=1,
+    rodizio_grupos="por_rodada",
+    permitir_relaxar_descanso=True,
+    grupos_compartilhados=None,
+    quadras_compartilhadas=None,
+):
+    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração da agenda automática")
+    if not ok_edicao:
+        return False
+
+    criar_tabela_competicao_agenda_config()
+
+    modo = str(modo_distribuicao or "automatico_inteligente").strip().lower()
+    if modo not in {"grupo_fixo", "quadras_compartilhadas", "automatico_inteligente"}:
+        modo = "automatico_inteligente"
+
+    rodizio = str(rodizio_grupos or "por_rodada").strip().lower()
+    if rodizio not in {"por_rodada", "alternado_inteligente", "por_grupo_inteiro"}:
+        rodizio = "por_rodada"
+
+    try:
+        descanso = int(descanso_minimo_jogos or 1)
+    except (TypeError, ValueError):
+        descanso = 1
+    descanso = max(0, min(descanso, 5))
+
+    grupos_json = json.dumps(grupos_compartilhados or {}, ensure_ascii=False)
+    quadras_json = json.dumps(quadras_compartilhadas or [], ensure_ascii=False)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO competicao_agenda_config (
+                    competicao,
+                    modo_distribuicao,
+                    descanso_minimo_jogos,
+                    rodizio_grupos,
+                    permitir_relaxar_descanso,
+                    grupos_compartilhados_json,
+                    quadras_compartilhadas_json,
+                    atualizado_em
+                )
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())
+                ON CONFLICT (competicao)
+                DO UPDATE SET
+                    modo_distribuicao = EXCLUDED.modo_distribuicao,
+                    descanso_minimo_jogos = EXCLUDED.descanso_minimo_jogos,
+                    rodizio_grupos = EXCLUDED.rodizio_grupos,
+                    permitir_relaxar_descanso = EXCLUDED.permitir_relaxar_descanso,
+                    grupos_compartilhados_json = EXCLUDED.grupos_compartilhados_json,
+                    quadras_compartilhadas_json = EXCLUDED.quadras_compartilhadas_json,
+                    atualizado_em = NOW()
+            """, (
+                nome_competicao,
+                modo,
+                descanso,
+                rodizio,
+                bool(permitir_relaxar_descanso),
+                grupos_json,
+                quadras_json,
+            ))
+        conn.commit()
+
+    return True
+
+
+def inicializar_configuracao_agenda_competicao(nome_competicao):
+    criar_tabela_competicao_agenda_config()
+    if buscar_configuracao_agenda_competicao(nome_competicao):
+        # buscar_configuracao já retorna padrão quando não existe; garante UPSERT real.
+        cfg = buscar_configuracao_agenda_competicao(nome_competicao)
+        return atualizar_configuracao_agenda_competicao(nome_competicao, **cfg)
+    return False
+
+
 # =========================================================
 # ATLETAS - NUMERAÇÃO E PRAZO
 # =========================================================
@@ -5551,6 +5804,37 @@ def garantir_campos_trava_operacional_partida(force=False):
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_heartbeat TIMESTAMP")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_socket_id TEXT")
+
+            # Corrige defaults antigos: partida nova deve nascer AGUARDANDO,
+            # e só virar PRÉ-JOGO quando o apontador realmente abrir a conferência.
+            cur.execute("ALTER TABLE partidas ALTER COLUMN status_jogo SET DEFAULT 'aguardando'")
+            cur.execute("ALTER TABLE partidas ALTER COLUMN fase_partida SET DEFAULT 'aguardando'")
+
+            cur.execute("""
+                UPDATE partidas
+                SET status = CASE
+                        WHEN LOWER(COALESCE(status, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
+                        THEN 'aguardando'
+                        ELSE status
+                    END,
+                    status_jogo = CASE
+                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
+                        THEN 'aguardando'
+                        ELSE status_jogo
+                    END,
+                    fase_partida = CASE
+                        WHEN LOWER(COALESCE(fase_partida, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
+                        THEN 'aguardando'
+                        ELSE fase_partida
+                    END
+                WHERE COALESCE(pontos_a, 0) = 0
+                  AND COALESCE(pontos_b, 0) = 0
+                  AND COALESCE(sets_a, 0) = 0
+                  AND COALESCE(sets_b, 0) = 0
+                  AND pre_jogo_iniciado_em IS NULL
+                  AND COALESCE(pre_jogo_finalizado, FALSE) = FALSE
+                  AND LOWER(COALESCE(status_jogo, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
+            """)
         conn.commit()
 
     _marcar_schema_pronto("campos_trava_operacional_partida")
@@ -5791,7 +6075,7 @@ def abandonar_partida_operacional(partida_id, competicao, operador_login):
 
             status_operacao = (atual.get("status_operacao") or "livre").strip().lower()
             status_jogo = (atual.get("status_jogo") or "").strip().lower()
-            if status_operacao != "reservado" and status_jogo not in {"", "pre_jogo"}:
+            if status_operacao != "reservado" and status_jogo not in {"", "pre_jogo", "aguardando", "agendada"}:
                 return False, "A partida já iniciou e não pode mais ser abandonada dessa forma. Use Salvar e sair."
 
             cur.execute("""
@@ -5830,7 +6114,7 @@ def salvar_pre_jogo_partida(
         return False, "Esta partida não está sob sua operação."
 
     fase_atual = (partida.get("fase_partida") or "pre_jogo").strip().lower()
-    if fase_atual not in {"pre_jogo", "", "reservado"}:
+    if fase_atual not in {"pre_jogo", "", "reservado", "aguardando", "agendada"}:
         return False, "O pré-jogo inicial já foi finalizado e não pode mais ser alterado."
 
     equipe_a_cadastro = partida.get("equipe_a")
@@ -6458,12 +6742,12 @@ def criar_campos_sets_partida(force=False):
             # =============================
             # CONTROLE DE FASE (CRÍTICO)
             # =============================
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fase_partida TEXT DEFAULT 'pre_jogo'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fase_partida TEXT DEFAULT 'aguardando'")
 
             # 🔥 GARANTE CONSISTÊNCIA NAS ANTIGAS
             cur.execute("""
                 UPDATE partidas
-                SET fase_partida = 'pre_jogo'
+                SET fase_partida = 'aguardando'
                 WHERE fase_partida IS NULL
             """)
 
@@ -7016,7 +7300,7 @@ def criar_campos_jogo_partida(force=False):
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pontos_a INTEGER DEFAULT 0")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pontos_b INTEGER DEFAULT 0")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS saque_atual TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_jogo TEXT DEFAULT 'pre_jogo'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_jogo TEXT DEFAULT 'aguardando'")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rotacao_a_json TEXT")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rotacao_b_json TEXT")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_jogadores_a_json TEXT")
@@ -7040,7 +7324,7 @@ def criar_campos_jogo_partida(force=False):
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS subs_excepcionais_json TEXT")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_finalizado BOOLEAN DEFAULT FALSE")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_finalizado_em TIMESTAMP")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fase_partida TEXT DEFAULT 'pre_jogo'")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fase_partida TEXT DEFAULT 'aguardando'")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_finalizado BOOLEAN DEFAULT FALSE")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_finalizado_em TIMESTAMP")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT")

@@ -19,6 +19,9 @@ from banco import (
     buscar_configuracao_avancada_competicao,
     atualizar_configuracao_avancada_competicao,
     inicializar_configuracao_avancada_competicao,
+    buscar_configuracao_agenda_competicao,
+    atualizar_configuracao_agenda_competicao,
+    inicializar_configuracao_agenda_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -175,7 +178,9 @@ def listar_competicoes_view():
         )
 
         inicializar_configuracao_avancada_competicao(competicao["nome"])
+        inicializar_configuracao_agenda_competicao(competicao["nome"])
         config = buscar_configuracao_avancada_competicao(competicao["nome"]) or {}
+        config_agenda = buscar_configuracao_agenda_competicao(competicao["nome"]) or {}
         fases = config.get("fases_config") or {}
 
         return render_template(
@@ -183,6 +188,7 @@ def listar_competicoes_view():
             competicao=competicao,
             quadras=quadras,
             config=config,
+            config_agenda=config_agenda,
             fases=fases,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
         )
@@ -417,6 +423,93 @@ def salvar_quadras_view():
 
     flash("Quadras da competição salvas com sucesso.", "sucesso")
     return redirect(url_for("competicoes.listar_competicoes_view"))
+
+
+
+def _json_ou_lista_ids_competicoes(valor):
+    if valor in (None, ""):
+        return []
+    if isinstance(valor, str):
+        try:
+            import json
+            valor = json.loads(valor)
+        except Exception:
+            valor = [v.strip() for v in valor.split(",")]
+    ids = []
+    for item in valor or []:
+        try:
+            numero = int(item)
+            if numero > 0 and numero not in ids:
+                ids.append(numero)
+        except (TypeError, ValueError):
+            pass
+    return ids
+
+
+def _coletar_grupos_compartilhados_agenda_form():
+    bruto = request.form.get("grupos_compartilhados_json") or request.form.get("grupos_compartilhados")
+    if bruto:
+        try:
+            import json
+            dados = json.loads(bruto)
+            if isinstance(dados, dict):
+                return {
+                    str(grupo).strip().upper(): _json_ou_lista_ids_competicoes(ids)
+                    for grupo, ids in dados.items()
+                    if str(grupo).strip()
+                }
+        except Exception:
+            pass
+
+    dados = {}
+    for chave, valor in request.form.items():
+        if not chave.startswith("grupo_quadras_"):
+            continue
+        grupo = chave.replace("grupo_quadras_", "", 1).strip().upper()
+        ids = _json_ou_lista_ids_competicoes(valor)
+        if grupo and ids:
+            dados[grupo] = ids
+    return dados
+
+
+@competicoes_bp.route("/competicoes/agenda", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_agenda_automatica_view():
+    comp = _competicao_do_organizador_logado()
+
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if competicao_esta_travada(comp["nome"]):
+        flash("A competição está travada. A agenda automática não pode mais ser alterada.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view"))
+
+    modo = (request.form.get("modo_distribuicao") or request.form.get("modo_distribuicao_agenda") or "automatico_inteligente").strip().lower()
+    rodizio = (request.form.get("rodizio_grupos") or "por_rodada").strip().lower()
+    descanso = _to_int(request.form.get("descanso_minimo_jogos"), padrao=1, minimo=0)
+    permitir_relaxar = request.form.get("permitir_relaxar_descanso") == "on"
+    quadras_compartilhadas = _json_ou_lista_ids_competicoes(
+        request.form.get("quadras_compartilhadas_json") or request.form.get("quadras_compartilhadas")
+    )
+    grupos_compartilhados = _coletar_grupos_compartilhados_agenda_form()
+
+    ok = atualizar_configuracao_agenda_competicao(
+        comp["nome"],
+        modo_distribuicao=modo,
+        descanso_minimo_jogos=descanso,
+        rodizio_grupos=rodizio,
+        permitir_relaxar_descanso=permitir_relaxar,
+        grupos_compartilhados=grupos_compartilhados,
+        quadras_compartilhadas=quadras_compartilhadas,
+    )
+
+    if ok:
+        flash("Configuração da geração automática salva com sucesso.", "sucesso")
+    else:
+        flash("Não foi possível salvar a configuração da geração automática.", "erro")
+
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="agenda"))
 
 
 @competicoes_bp.route("/competicoes/pontuacao", methods=["POST"])

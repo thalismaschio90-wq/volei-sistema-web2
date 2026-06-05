@@ -1824,8 +1824,12 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
     if equipe_a_operacional and equipe_b_operacional:
         precisa_conferencia = (not equipe_a_conferida) or (not equipe_b_conferida)
 
+    fase_fluxo = str(partida.get("fase_partida") or partida.get("status_jogo") or "pre_jogo").strip().lower()
+    if fase_fluxo in {"", "aguardando", "agendada", "agendado", "reservado", "livre"}:
+        fase_fluxo = "pre_jogo"
+
     fluxo = {
-        "fase_partida": partida.get("fase_partida") or "pre_jogo",
+        "fase_partida": fase_fluxo,
         "tiebreak_pendente": bool(partida.get("tiebreak_pendente")),
     }
 
