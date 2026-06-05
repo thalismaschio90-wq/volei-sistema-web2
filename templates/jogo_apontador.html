@@ -1968,6 +1968,7 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let partidaFinalizada = false;
     let observacoesAbrindo = false;
     let enviando = false;
+    let jogoTeveAcaoLocal = false;
     let intervaloTempo = null;
     let tempoAtual = 0;
 
@@ -4424,12 +4425,35 @@ function atualizarResumoSubEx() {
     }
 
 
-    async function sincronizarEstadoJogo() {
-    // OFFLINE-FIRST REAL: durante a partida o apontador NÃO busca estado no banco.
-    // Buscar /estado aqui traz placar/rotação antigos e causa exatamente o erro de
-    // “ponto dá erro, depois aparece salvo” ou rotação piscando/voltando.
-    // A verdade da partida em andamento é estadoAtual + fila local + Socket.IO.
-    return null;
+    async function sincronizarEstadoJogo(opcoes = {}) {
+    // Não fica puxando banco durante a operação, para não causar pisca/volta de rotação.
+    // Mas, ao abrir em outro computador/celular, precisamos hidratar a tela uma vez
+    // com o snapshot salvo no banco antes de o usuário começar a mexer.
+    const forcarInicial = !!opcoes.forcarInicial;
+    if (jogoTeveAcaoLocal && !forcarInicial) return null;
+    if (!URLS_ACAO || !URLS_ACAO.estado) return null;
+
+    try {
+        const resp = await fetch(URLS_ACAO.estado, {
+            method: "GET",
+            headers: {
+                "X-Requested-With": "fetch",
+                "Cache-Control": "no-cache"
+            },
+            cache: "no-store"
+        });
+
+        const dados = await resp.json().catch(() => ({}));
+        if (!resp.ok || !dados || dados.ok === false) return null;
+
+        // Se o apontador já mexeu localmente, não sobrescreve a operação dele.
+        if (jogoTeveAcaoLocal && !forcarInicial) return null;
+
+        aplicarEstado(normalizarRespostaJogo(dados), { fonte: forcarInicial ? "abertura_banco" : "sync_banco" });
+        return dados;
+    } catch (e) {
+        return null;
+    }
 }
 
 
@@ -4585,6 +4609,7 @@ const URLS_ACAO = {
     sancao: "{{ url_for('apontadores.registrar_sancao_view', competicao=competicao_nome, partida_id=partida.id) }}",
     cartao_verde: "{{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) }}",
     sincronizar: "{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    estado: "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
     salvar_estado: "{{ url_for('apontadores.salvar_estado_manual_view', competicao=competicao_nome, partida_id=partida.id) }}"
 };
 
@@ -5034,6 +5059,7 @@ function acaoOperacionalPermitida(tipo, payload) {
 }
 
 function aplicarAcaoLocal(tipo, payload) {
+    jogoTeveAcaoLocal = true;
     payload = payload || {};
     const descricao = descricaoLocal(tipo, payload);
     atualizarUltimaAcao(descricao);
@@ -5126,6 +5152,7 @@ window.addEventListener("online", () => {});
 async function registrarPonto(equipe, scout) {
     if (enviando || partidaFinalizada) return;
 
+    jogoTeveAcaoLocal = true;
     enviando = true;
     travarBotoes(true);
     limparErro();
@@ -5570,8 +5597,8 @@ if (OFFLINE_HABILITADO_PELO_SUPERADM && btnPrepararJogoOffline) {
         salvarJogoOfflineLocal(false);
     });
 }
-salvarSnapshotLocalAutomatico("abertura_jogo");
-setTimeout(() => enviarSnapshotBancoAutomatico({ motivo: "abertura_jogo" }).catch(() => {}), 1800);
+salvarSnapshotLocalAutomatico("abertura_jogo_local");
+setTimeout(() => sincronizarEstadoJogo({ forcarInicial: true }).catch(() => {}), 500);
 
 btnRetardamentoCancelar.addEventListener("click", fecharModalRetardamento);
 btnRetardamentoConfirmar.addEventListener("click", registrarRetardamento);

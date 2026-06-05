@@ -2499,8 +2499,11 @@ def jogo_view(competicao, partida_id):
     )
 
     try:
-        atletas_a = _listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else []
-        atletas_b = _listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else []
+        # Sempre busca o elenco direto no banco ao abrir/retomar a partida.
+        # O cache antigo deixava a tela sem atletas quando os números eram cadastrados
+        # depois que o apontador já tinha aberto alguma tela da competição.
+        atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
+        atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
     except Exception as e:
         print("ERRO atletas jogo_view rapido:", repr(e), flush=True)
         atletas_a = []
