@@ -154,6 +154,45 @@
         .sets-live { display:flex; justify-content:center; gap:8px; color:#cbd5e1; font-weight:900; margin-top:8px; font-size:14px; flex-wrap:wrap; }
         .parciais { color: #cbd5e1; font-size: 14px; margin-top: 8px; text-align:center; }
         .vazio { color:var(--muted); }
+
+        .quadra-tabs {
+            display:flex;
+            gap:10px;
+            flex-wrap:wrap;
+            margin: 4px 0 16px;
+            padding:10px;
+            border:1px solid rgba(148,163,184,.18);
+            border-radius:18px;
+            background:rgba(15,23,42,.48);
+            position:sticky;
+            top:0;
+            z-index:20;
+            backdrop-filter: blur(10px);
+        }
+        .quadra-tab {
+            border:1px solid rgba(148,163,184,.24);
+            background:rgba(30,41,59,.76);
+            color:#dbeafe;
+            border-radius:999px;
+            padding:10px 14px;
+            cursor:pointer;
+            font-weight:900;
+            font-size:13px;
+            white-space:nowrap;
+            transition:.16s ease;
+        }
+        .quadra-tab:hover { transform:translateY(-1px); background:rgba(37,99,235,.34); }
+        .quadra-tab.ativa {
+            background:linear-gradient(135deg, rgba(37,99,235,.95), rgba(29,78,216,.72));
+            color:#fff;
+            border-color:rgba(191,219,254,.55);
+            box-shadow:0 10px 22px rgba(37,99,235,.24);
+        }
+        .jogos-vazio-filtro {
+            display:none;
+            margin-top:12px;
+        }
+        .jogos-vazio-filtro.ativo { display:block; }
         @media (max-width: 700px) {
             body { padding: 12px; }
             .hero { flex-direction:column; }
@@ -238,13 +277,30 @@
     <h2>Jogos</h2>
 
     {% if partidas %}
-        <div class="jogos-grid">
+        {% set ns_quadras = namespace(lista=[]) %}
         {% for p in partidas %}
+            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
+            {% if q_label not in ns_quadras.lista %}
+                {% set ns_quadras.lista = ns_quadras.lista + [q_label] %}
+            {% endif %}
+        {% endfor %}
+
+        <div class="quadra-tabs" data-quadra-tabs>
+            <button type="button" class="quadra-tab ativa" data-quadra-filter="__todos__">Todos</button>
+            {% for q_label in ns_quadras.lista %}
+                <button type="button" class="quadra-tab" data-quadra-filter="{{ q_label }}">{{ q_label }}</button>
+            {% endfor %}
+        </div>
+
+        <div class="jogos-grid" data-jogos-grid>
+        {% for p in partidas %}
+            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
             <div
                 class="jogo {% if p.ao_vivo %}ao-vivo-card{% endif %}"
                 data-partida-id="{{ p.id }}"
                 data-competicao="{{ competicao_nome }}"
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
+                data-quadra-label="{{ q_label }}"
             >
                 <div class="jogo-topo">
                     <div>
@@ -293,6 +349,7 @@
             </div>
         {% endfor %}
         </div>
+        <div class="card vazio jogos-vazio-filtro" data-jogos-vazio-filtro>Nenhum jogo encontrado nesta quadra.</div>
     {% else %}
         <div class="card vazio">Nenhum jogo cadastrado.</div>
     {% endif %}
@@ -311,7 +368,41 @@
 
     const competicao = {{ competicao_nome|tojson }};
     const cards = Array.from(document.querySelectorAll('[data-partida-id]'));
+    const tabsQuadra = Array.from(document.querySelectorAll('[data-quadra-filter]'));
+    const avisoVazioFiltro = document.querySelector('[data-jogos-vazio-filtro]');
+    let filtroQuadraAtual = '__todos__';
     let reloadFinalizacaoAgendado = false;
+
+
+    function aplicarFiltroQuadra() {
+        let visiveis = 0;
+
+        cards.forEach((card) => {
+            const quadraCard = card.dataset.quadraLabel || 'Sem quadra';
+            const mostrar = filtroQuadraAtual === '__todos__' || quadraCard === filtroQuadraAtual;
+            card.style.display = mostrar ? '' : 'none';
+            if (mostrar) visiveis += 1;
+        });
+
+        if (avisoVazioFiltro) {
+            avisoVazioFiltro.classList.toggle('ativo', visiveis === 0);
+        }
+    }
+
+    function configurarAbasQuadra() {
+        tabsQuadra.forEach((tab) => {
+            tab.addEventListener('click', function () {
+                filtroQuadraAtual = this.dataset.quadraFilter || '__todos__';
+
+                tabsQuadra.forEach((outra) => outra.classList.remove('ativa'));
+                this.classList.add('ativa');
+
+                aplicarFiltroQuadra();
+            });
+        });
+
+        aplicarFiltroQuadra();
+    }
 
     function escudoValido(valor) {
         if (!valor) return '/static/img/escudo_padrao.svg';
@@ -432,6 +523,8 @@
             socket.emit('entrar_partida', { partida_id: partidaId, competicao: competicao });
         });
     }
+
+    configurarAbasQuadra();
 
     socket.on('connect', entrarNasPartidas);
     socket.on('estado_partida', atualizarCard);
