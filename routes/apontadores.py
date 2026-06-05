@@ -73,6 +73,8 @@ from banco import (
     liberar_trava_partida_operacional,
     salvar_liberos_equipe,
     atualizar_atleta_conferencia_apontador,
+    listar_dados_finalizacao_partida,
+    salvar_destaque_partida,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
@@ -3817,12 +3819,16 @@ def encerrar_partida_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>")
 @exigir_perfil("apontador")
 def observacoes_view(competicao, partida_id):
-    partida = buscar_partida_operacional(partida_id, competicao)
+    dados_finalizacao = listar_dados_finalizacao_partida(partida_id, competicao) or {}
+    partida = dados_finalizacao.get("partida") or buscar_partida_operacional(partida_id, competicao)
 
     return render_template(
         "observacoes.html",
         partida=partida,
-        competicao_nome=competicao
+        competicao_nome=competicao,
+        dados_finalizacao=dados_finalizacao,
+        equipes_finalizacao=dados_finalizacao.get("equipes", []),
+        destaques_partida=dados_finalizacao.get("destaques_partida", []),
     )
 
 
@@ -3830,13 +3836,35 @@ def observacoes_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def salvar_observacoes_view(competicao, partida_id):
     observacoes = request.form.get("observacoes")
+
+    destaque_lado = (request.form.get("destaque_lado") or "").strip().upper()
+    destaque_atleta_id = (request.form.get("destaque_atleta_id") or "").strip()
+    destaque_numero = (request.form.get("destaque_numero") or "").strip()
+    destaque_nome = (request.form.get("destaque_nome") or "").strip()
+    destaque_observacao = (request.form.get("destaque_observacao") or "").strip()
+
+    if destaque_lado and (destaque_atleta_id or destaque_numero or destaque_nome):
+        ok_destaque, msg_destaque = salvar_destaque_partida(
+            partida_id,
+            competicao,
+            destaque_lado,
+            atleta_id=destaque_atleta_id,
+            numero=destaque_numero,
+            nome=destaque_nome,
+            observacao=destaque_observacao,
+        )
+        if not ok_destaque:
+            flash(msg_destaque or "Não foi possível salvar o destaque.", "erro")
+            return redirect(url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id))
+        flash(msg_destaque or "Destaque salvo com sucesso.", "sucesso")
+
     encerrar_partida(partida_id, competicao, observacoes)
 
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
     estado["encerrado"] = True
     estado["partida_finalizada"] = True
     estado["status_jogo"] = "finalizada"
-    _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_OBSERVACOES")
+    _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_FINALIZACAO")
 
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 

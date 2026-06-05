@@ -2,73 +2,328 @@
 
 {% block conteudo %}
 <style>
-.obs-wrap {
-    max-width: 760px;
-    margin: 42px auto;
+.finalizacao-wrap {
+    max-width: 1060px;
+    margin: 34px auto;
 }
-.obs-card {
+.finalizacao-card {
     background: #fff;
     border: 1px solid var(--border);
     border-radius: 22px;
     box-shadow: var(--shadow);
     padding: 24px;
 }
-.obs-titulo {
-    font-size: 28px;
+.finalizacao-titulo {
+    font-size: 30px;
     font-weight: 1000;
     color: #183247;
     margin-bottom: 6px;
     text-align: center;
 }
-.obs-sub {
+.finalizacao-sub {
     color: #6b7c8c;
     font-weight: 800;
     text-align: center;
     margin-bottom: 18px;
 }
-.obs-jogo {
+.finalizacao-jogo {
     background: #f8fbff;
     border: 1px solid #d6e2f0;
     border-radius: 16px;
     padding: 14px;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
     text-align: center;
-    font-weight: 900;
+    font-weight: 1000;
     color: #183247;
 }
-.obs-textarea {
+.finalizacao-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+.equipe-finalizacao {
+    border: 1px solid #d6e2f0;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #fff;
+}
+.equipe-finalizacao-topo {
+    padding: 13px 14px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+    font-weight: 1000;
+    color: #fff;
+}
+.equipe-finalizacao-topo.vencedora {
+    background: #15803d;
+}
+.equipe-finalizacao-topo.perdedora {
+    background: #b91c1c;
+}
+.equipe-finalizacao-topo.neutra {
+    background: #183247;
+}
+.equipe-finalizacao-status {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    opacity: .95;
+}
+.tabela-finalizacao {
     width: 100%;
-    min-height: 160px;
+    border-collapse: collapse;
+}
+.tabela-finalizacao th,
+.tabela-finalizacao td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 14px;
+}
+.tabela-finalizacao th {
+    text-align: left;
+    color: #5c6b78;
+    font-weight: 1000;
+    background: #f8fbff;
+}
+.atleta-destaque-linha {
+    cursor: pointer;
+    transition: .12s ease;
+}
+.atleta-destaque-linha:hover {
+    background: #f0fdf4;
+}
+.atleta-destaque-linha.selecionado {
+    background: #dcfce7;
+    outline: 2px solid #86efac;
+    outline-offset: -2px;
+}
+.atleta-destaque-linha.bloqueado {
+    cursor: not-allowed;
+    opacity: .55;
+    background: #f8fafc;
+}
+.badge-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 1000;
+    background: #dcfce7;
+    color: #166534;
+    white-space: nowrap;
+}
+.badge-status.ja-eleito,
+.badge-status.bloqueado {
+    background: #e5e7eb;
+    color: #4b5563;
+}
+.finalizacao-selecionado {
+    display: none;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 16px;
+}
+.finalizacao-selecionado.ativo {
+    display: block;
+}
+.finalizacao-selecionado strong {
+    color: #166534;
+}
+.finalizacao-textarea {
+    width: 100%;
+    min-height: 120px;
     resize: vertical;
     line-height: 1.45;
 }
-.obs-actions {
+.finalizacao-actions {
     margin-top: 16px;
     display: flex;
     gap: 10px;
     justify-content: center;
     flex-wrap: wrap;
 }
+.finalizacao-aviso {
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fed7aa;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-weight: 800;
+    margin-bottom: 14px;
+    display: none;
+}
+.finalizacao-aviso.ativo {
+    display: block;
+}
+@media (max-width: 780px) {
+    .finalizacao-wrap {
+        margin: 18px auto;
+    }
+    .finalizacao-card {
+        padding: 16px;
+        border-radius: 18px;
+    }
+    .finalizacao-grid {
+        grid-template-columns: 1fr;
+    }
+    .tabela-finalizacao th,
+    .tabela-finalizacao td {
+        padding: 9px 8px;
+        font-size: 13px;
+    }
+}
 </style>
 
-<div class="obs-wrap">
-    <div class="obs-card">
-        <div class="obs-titulo">Observações da partida</div>
-        <div class="obs-sub">Registre algo importante antes de salvar o encerramento oficial.</div>
+{% set equipes = equipes_finalizacao if equipes_finalizacao is defined else [] %}
+{% set destaque_atual = (destaques_partida[0] if destaques_partida is defined and destaques_partida else none) %}
 
-        <div class="obs-jogo">
+<div class="finalizacao-wrap">
+    <div class="finalizacao-card">
+        <div class="finalizacao-titulo">Finalização da partida</div>
+        <div class="finalizacao-sub">Confira os atletas relacionados, escolha o destaque da equipe vencedora e registre observações se precisar.</div>
+
+        <div class="finalizacao-jogo">
             {{ partida.equipe_a_operacional or partida.equipe_a }} x {{ partida.equipe_b_operacional or partida.equipe_b }}
         </div>
 
         <form method="POST" action="{{ url_for('apontadores.salvar_observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}">
-            <label for="observacoes">Observações</label>
-            <textarea id="observacoes" class="obs-textarea" name="observacoes" placeholder="Ex.: atraso, lesão, protesto, ocorrência disciplinar ou deixe em branco se não houve observação."></textarea>
+            <input type="hidden" id="destaque_lado" name="destaque_lado" value="{{ destaque_atual.lado if destaque_atual else '' }}">
+            <input type="hidden" id="destaque_atleta_id" name="destaque_atleta_id" value="{{ destaque_atual.atleta_id if destaque_atual else '' }}">
+            <input type="hidden" id="destaque_numero" name="destaque_numero" value="{{ destaque_atual.numero if destaque_atual else '' }}">
+            <input type="hidden" id="destaque_nome" name="destaque_nome" value="{{ destaque_atual.nome if destaque_atual else '' }}">
 
-            <div class="obs-actions">
-                <button class="btn-padrao" type="submit">Salvar encerramento</button>
+            <div id="finalizacao-aviso" class="finalizacao-aviso"></div>
+
+            <div class="finalizacao-grid">
+                {% for equipe in equipes %}
+                    {% set classe_resultado = equipe.resultado if equipe.resultado else 'neutra' %}
+                    <div class="equipe-finalizacao">
+                        <div class="equipe-finalizacao-topo {{ classe_resultado }}">
+                            <span>{{ equipe.nome }}</span>
+                            <span class="equipe-finalizacao-status">
+                                {% if equipe.resultado == 'vencedora' %}Vencedora{% elif equipe.resultado == 'perdedora' %}Perdedora{% else %}Resultado{% endif %}
+                            </span>
+                        </div>
+
+                        <table class="tabela-finalizacao">
+                            <thead>
+                                <tr>
+                                    <th style="width:70px;">Nº</th>
+                                    <th>Atleta</th>
+                                    <th style="width:120px;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if equipe.atletas %}
+                                    {% for atleta in equipe.atletas %}
+                                        {% set bloqueado = (not equipe.pode_selecionar) or atleta.ja_eleito %}
+                                        <tr class="atleta-destaque-linha {% if bloqueado %}bloqueado{% endif %}"
+                                            data-bloqueado="{{ '1' if bloqueado else '0' }}"
+                                            data-ja-eleito="{{ '1' if atleta.ja_eleito else '0' }}"
+                                            data-perdedor="{{ '1' if not equipe.pode_selecionar else '0' }}"
+                                            data-lado="{{ equipe.lado }}"
+                                            data-atleta-id="{{ atleta.id or '' }}"
+                                            data-numero="{{ atleta.numero or '' }}"
+                                            data-nome="{{ atleta.nome }}"
+                                            data-equipe="{{ equipe.nome }}">
+                                            <td><strong>{{ atleta.numero or '-' }}</strong></td>
+                                            <td>{{ atleta.nome }}</td>
+                                            <td>
+                                                {% if atleta.ja_eleito %}
+                                                    <span class="badge-status ja-eleito">Já eleito</span>
+                                                {% else %}
+                                                    <span class="badge-status">Disponível</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="3">Nenhum atleta encontrado para esta equipe.</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div id="finalizacao-selecionado" class="finalizacao-selecionado {% if destaque_atual %}ativo{% endif %}">
+                <div>
+                    <strong>Destaque selecionado:</strong>
+                    <span id="destaque_resumo">
+                        {% if destaque_atual %}
+                            #{{ destaque_atual.numero or '-' }} {{ destaque_atual.nome }} — {{ destaque_atual.equipe }}
+                        {% endif %}
+                    </span>
+                </div>
+                <label for="destaque_observacao" style="margin-top:10px;display:block;">Observação do destaque</label>
+                <textarea id="destaque_observacao" class="finalizacao-textarea" name="destaque_observacao" placeholder="Opcional: escreva o motivo do destaque, fundamento, comportamento ou qualquer observação.">{{ destaque_atual.observacao if destaque_atual else '' }}</textarea>
+            </div>
+
+            <label for="observacoes">Observações gerais da partida</label>
+            <textarea id="observacoes" class="finalizacao-textarea" name="observacoes" placeholder="Ex.: atraso, lesão, protesto, ocorrência disciplinar ou deixe em branco se não houve observação.">{{ partida.observacoes or '' }}</textarea>
+
+            <div class="finalizacao-actions">
+                <button class="btn-padrao" type="submit">Salvar finalização</button>
                 <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar para partidas</a>
             </div>
         </form>
     </div>
 </div>
+
+<script>
+(function() {
+    const linhas = document.querySelectorAll('.atleta-destaque-linha');
+    const aviso = document.getElementById('finalizacao-aviso');
+    const boxSelecionado = document.getElementById('finalizacao-selecionado');
+    const resumo = document.getElementById('destaque_resumo');
+    const campoLado = document.getElementById('destaque_lado');
+    const campoId = document.getElementById('destaque_atleta_id');
+    const campoNumero = document.getElementById('destaque_numero');
+    const campoNome = document.getElementById('destaque_nome');
+
+    function mostrarAviso(texto) {
+        if (!aviso) return;
+        aviso.textContent = texto;
+        aviso.classList.add('ativo');
+        window.setTimeout(() => aviso.classList.remove('ativo'), 3500);
+    }
+
+    linhas.forEach(function(linha) {
+        linha.addEventListener('click', function() {
+            if (linha.dataset.bloqueado === '1') {
+                if (linha.dataset.jaEleito === '1') {
+                    mostrarAviso('Este atleta já foi eleito destaque nesta competição.');
+                    return;
+                }
+                if (linha.dataset.perdedor === '1') {
+                    mostrarAviso('Só é possível escolher destaque da equipe vencedora.');
+                    return;
+                }
+                mostrarAviso('Este atleta não está disponível para destaque.');
+                return;
+            }
+
+            linhas.forEach(function(item) { item.classList.remove('selecionado'); });
+            linha.classList.add('selecionado');
+
+            campoLado.value = linha.dataset.lado || '';
+            campoId.value = linha.dataset.atletaId || '';
+            campoNumero.value = linha.dataset.numero || '';
+            campoNome.value = linha.dataset.nome || '';
+
+            resumo.textContent = '#' + (linha.dataset.numero || '-') + ' ' + (linha.dataset.nome || '') + ' — ' + (linha.dataset.equipe || '');
+            boxSelecionado.classList.add('ativo');
+        });
+    });
+})();
+</script>
 {% endblock %}

@@ -10153,6 +10153,367 @@ def encerrar_partida(partida_id, competicao, observacoes):
         conn.commit()
 
 
+
+
+# =========================================================
+# FINALIZAÇÃO / DESTAQUE DA PARTIDA
+# =========================================================
+def criar_tabela_destaques_partida():
+    """Guarda o atleta eleito destaque e bloqueia nova eleição na mesma competição."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS destaques_partida (
+                    id SERIAL PRIMARY KEY,
+                    competicao TEXT NOT NULL,
+                    partida_id INTEGER NOT NULL,
+                    equipe TEXT,
+                    lado TEXT,
+                    atleta_id INTEGER,
+                    numero INTEGER,
+                    nome TEXT NOT NULL,
+                    observacao TEXT,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (competicao, atleta_id)
+                )
+            """)
+            cur.execute("ALTER TABLE destaques_partida ADD COLUMN IF NOT EXISTS lado TEXT")
+            cur.execute("ALTER TABLE destaques_partida ADD COLUMN IF NOT EXISTS observacao TEXT")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_destaques_competicao ON destaques_partida (competicao)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_destaques_partida ON destaques_partida (partida_id, competicao)")
+        conn.commit()
+
+
+def _texto_igual_finalizacao(a, b):
+    return str(a or '').strip().lower() == str(b or '').strip().lower()
+
+
+def _resolver_lados_vencedor_finalizacao(partida):
+    """Resolve vencedor/perdedor a partir do campo vencedor ou do placar salvo."""
+    partida = partida or {}
+    equipe_a = partida.get('equipe_a_operacional') or partida.get('equipe_a') or 'Equipe A'
+    equipe_b = partida.get('equipe_b_operacional') or partida.get('equipe_b') or 'Equipe B'
+    vencedor = str(partida.get('vencedor') or '').strip()
+
+    vencedor_lado = ''
+    if vencedor:
+        if vencedor.upper() in {'A', 'B'}:
+            vencedor_lado = vencedor.upper()
+        elif _texto_igual_finalizacao(vencedor, equipe_a) or _texto_igual_finalizacao(vencedor, partida.get('equipe_a')):
+            vencedor_lado = 'A'
+        elif _texto_igual_finalizacao(vencedor, equipe_b) or _texto_igual_finalizacao(vencedor, partida.get('equipe_b')):
+            vencedor_lado = 'B'
+
+    if vencedor_lado not in {'A', 'B'}:
+        sets_a = int(partida.get('sets_a') or 0)
+        sets_b = int(partida.get('sets_b') or 0)
+        pontos_a = int(partida.get('pontos_a') or 0)
+        pontos_b = int(partida.get('pontos_b') or 0)
+        if sets_a != sets_b:
+            vencedor_lado = 'A' if sets_a > sets_b else 'B'
+        elif pontos_a != pontos_b:
+            vencedor_lado = 'A' if pontos_a > pontos_b else 'B'
+
+    perdedor_lado = 'B' if vencedor_lado == 'A' else ('A' if vencedor_lado == 'B' else '')
+    return vencedor_lado, perdedor_lado
+
+
+def _atleta_chave_finalizacao(atleta):
+    atleta_id = atleta.get('id') or atleta.get('atleta_id')
+    if atleta_id not in (None, ''):
+        return f"id:{atleta_id}"
+    return f"num:{str(atleta.get('numero') or '').strip()}|nome:{str(atleta.get('nome') or '').strip().lower()}"
+
+
+def _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_nome, lado, eleitos_por_id, eleitos_por_chave):
+    """
+    Lista quem deve aparecer na finalização:
+    - atletas da papeleta de qualquer set;
+    - atletas que entraram por substituição;
+    - líberos marcados na equipe, mesmo sem entrar.
+    """
+    equipe_nome = (equipe_nome or '').strip()
+    lado = (lado or '').strip().upper()
+    mapa_elenco = {}
+    atletas = {}
+
+    if equipe_nome:
+        try:
+            for row in listar_atletas_aprovados_da_equipe(equipe_nome, competicao) or []:
+                numero = str(row.get('numero') or '').strip()
+                if numero:
+                    mapa_elenco[numero] = row
+        except Exception as e:
+            print('AVISO finalização/elenco:', repr(e))
+
+    def adicionar(numero='', nome='', atleta_id=None, origem=''):
+        numero_txt = str(numero or '').strip()
+        nome_txt = str(nome or '').strip()
+        atleta_id_final = atleta_id
+
+        if numero_txt and numero_txt in mapa_elenco:
+            base = mapa_elenco[numero_txt]
+            nome_txt = nome_txt or str(base.get('nome') or '').strip()
+            atleta_id_final = atleta_id_final or base.get('id')
+
+        if not nome_txt and not numero_txt:
+            return
+
+        item = {
+            'id': atleta_id_final,
+            'atleta_id': atleta_id_final,
+            'numero': numero_txt,
+            'nome': nome_txt or f'Atleta #{numero_txt}',
+            'equipe': equipe_nome,
+            'lado': lado,
+            'origens': set([origem]) if origem else set(),
+        }
+        chave = _atleta_chave_finalizacao(item)
+        if chave in atletas:
+            atletas[chave]['origens'].update(item['origens'])
+            if not atletas[chave].get('id') and atleta_id_final:
+                atletas[chave]['id'] = atletas[chave]['atleta_id'] = atleta_id_final
+            if not atletas[chave].get('nome') and item.get('nome'):
+                atletas[chave]['nome'] = item['nome']
+            return
+        atletas[chave] = item
+
+    # Papeletas de todos os sets salvos.
+    try:
+        criar_tabela_papeleta()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT atleta_id, numero, nome
+                    FROM papeletas
+                    WHERE partida_id = %s
+                      AND competicao = %s
+                      AND equipe = %s
+                    ORDER BY set_numero, posicao
+                """, (partida_id, competicao, equipe_nome))
+                for row in cur.fetchall() or []:
+                    adicionar(row.get('numero'), row.get('nome'), row.get('atleta_id'), 'papeleta')
+    except Exception as e:
+        print('AVISO finalização/papeleta:', repr(e))
+
+    # Entradas por substituição normal/excepcional registradas nos eventos.
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=3000) or []
+        for ev in eventos:
+            tipo = str(ev.get('tipo') or ev.get('tipo_evento') or '').strip().lower()
+            if tipo not in {'substituicao', 'substituicao_excepcional'}:
+                continue
+            if str(ev.get('equipe') or '').strip().upper() != lado:
+                continue
+
+            numero_entra = ev.get('numero')
+            detalhe = str(ev.get('detalhe') or ev.get('detalhes') or '').strip()
+            if not numero_entra and '>' in detalhe:
+                numero_entra = detalhe.split('>')[-1].strip()
+            adicionar(numero_entra, ev.get('atleta_nome'), ev.get('atleta_id'), 'substituicao')
+    except Exception as e:
+        print('AVISO finalização/substituições:', repr(e))
+
+    # Líberos aparecem mesmo que não tenham entrado.
+    for numero, row in mapa_elenco.items():
+        try:
+            if bool(row.get('libero')):
+                adicionar(numero, row.get('nome'), row.get('id'), 'libero')
+        except Exception:
+            pass
+
+    saida = []
+    for item in atletas.values():
+        item['origens'] = sorted(list(item.get('origens') or []))
+        atleta_id = item.get('id') or item.get('atleta_id')
+        chave_eleito = f"{item.get('equipe')}|{item.get('numero')}|{str(item.get('nome') or '').strip().lower()}"
+        item['ja_eleito'] = bool((atleta_id and int(atleta_id) in eleitos_por_id) or chave_eleito in eleitos_por_chave)
+        item['status_destaque'] = 'Já eleito' if item['ja_eleito'] else 'Disponível'
+        saida.append(item)
+
+    def ordem(item):
+        try:
+            n = int(item.get('numero') or 9999)
+        except Exception:
+            n = 9999
+        return (n, str(item.get('nome') or '').lower())
+
+    return sorted(saida, key=ordem)
+
+
+def listar_dados_finalizacao_partida(partida_id, competicao):
+    criar_tabela_destaques_partida()
+    partida = buscar_partida_operacional(partida_id, competicao)
+    if not partida:
+        return {}
+
+    vencedor_lado, perdedor_lado = _resolver_lados_vencedor_finalizacao(partida)
+    equipe_a = partida.get('equipe_a_operacional') or partida.get('equipe_a') or 'Equipe A'
+    equipe_b = partida.get('equipe_b_operacional') or partida.get('equipe_b') or 'Equipe B'
+
+    eleitos_por_id = set()
+    eleitos_por_chave = set()
+    destaques_partida = []
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM destaques_partida
+                WHERE competicao = %s
+                ORDER BY criado_em DESC, id DESC
+            """, (competicao,))
+            for row in cur.fetchall() or []:
+                if row.get('atleta_id') not in (None, ''):
+                    try:
+                        eleitos_por_id.add(int(row.get('atleta_id')))
+                    except Exception:
+                        pass
+                eleitos_por_chave.add(f"{row.get('equipe')}|{str(row.get('numero') or '').strip()}|{str(row.get('nome') or '').strip().lower()}")
+                if int(row.get('partida_id') or 0) == int(partida_id):
+                    destaques_partida.append(row)
+
+    equipes = [
+        {
+            'lado': 'A',
+            'nome': equipe_a,
+            'resultado': 'vencedora' if vencedor_lado == 'A' else ('perdedora' if perdedor_lado == 'A' else ''),
+            'pode_selecionar': vencedor_lado == 'A',
+            'atletas': _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_a, 'A', eleitos_por_id, eleitos_por_chave),
+        },
+        {
+            'lado': 'B',
+            'nome': equipe_b,
+            'resultado': 'vencedora' if vencedor_lado == 'B' else ('perdedora' if perdedor_lado == 'B' else ''),
+            'pode_selecionar': vencedor_lado == 'B',
+            'atletas': _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_b, 'B', eleitos_por_id, eleitos_por_chave),
+        },
+    ]
+
+    return {
+        'partida': partida,
+        'vencedor_lado': vencedor_lado,
+        'perdedor_lado': perdedor_lado,
+        'equipes': equipes,
+        'destaques_partida': destaques_partida,
+    }
+
+
+def salvar_destaque_partida(partida_id, competicao, lado, atleta_id=None, numero=None, nome='', observacao=''):
+    criar_tabela_destaques_partida()
+    partida = buscar_partida_operacional(partida_id, competicao)
+    if not partida:
+        return False, 'Partida não encontrada.'
+
+    lado = str(lado or '').strip().upper()
+    vencedor_lado, _perdedor_lado = _resolver_lados_vencedor_finalizacao(partida)
+    if lado != vencedor_lado:
+        return False, 'Só é possível eleger destaque da equipe vencedora.'
+
+    equipe_nome = (partida.get('equipe_a_operacional') or partida.get('equipe_a')) if lado == 'A' else (partida.get('equipe_b_operacional') or partida.get('equipe_b'))
+    numero_txt = str(numero or '').strip()
+    nome = str(nome or '').strip()
+    atleta_id_final = None
+    if atleta_id not in (None, ''):
+        try:
+            atleta_id_final = int(atleta_id)
+        except Exception:
+            atleta_id_final = None
+
+    # Confere se o atleta está realmente na lista da finalização.
+    dados = listar_dados_finalizacao_partida(partida_id, competicao)
+    permitidos = []
+    for equipe in dados.get('equipes') or []:
+        if equipe.get('lado') == lado:
+            permitidos = equipe.get('atletas') or []
+            break
+
+    escolhido = None
+    for atleta in permitidos:
+        mesmo_id = atleta_id_final and atleta.get('id') and int(atleta.get('id')) == atleta_id_final
+        mesmo_numero_nome = str(atleta.get('numero') or '').strip() == numero_txt and str(atleta.get('nome') or '').strip().lower() == nome.lower()
+        if mesmo_id or mesmo_numero_nome:
+            escolhido = atleta
+            break
+
+    if not escolhido:
+        return False, 'Atleta não disponível na relação desta partida.'
+
+    if escolhido.get('ja_eleito'):
+        # Permite reabrir a própria finalização para salvar observação/encerramento sem erro.
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                if atleta_id_final:
+                    cur.execute("""
+                        SELECT id
+                        FROM destaques_partida
+                        WHERE competicao = %s
+                          AND partida_id = %s
+                          AND atleta_id = %s
+                        LIMIT 1
+                    """, (competicao, partida_id, atleta_id_final))
+                else:
+                    cur.execute("""
+                        SELECT id
+                        FROM destaques_partida
+                        WHERE competicao = %s
+                          AND partida_id = %s
+                          AND equipe = %s
+                          AND COALESCE(numero::text, '') = %s
+                          AND LOWER(COALESCE(nome, '')) = LOWER(%s)
+                        LIMIT 1
+                    """, (competicao, partida_id, equipe_nome, numero_txt, nome))
+                if not cur.fetchone():
+                    return False, 'Este atleta já foi eleito destaque nesta competição.'
+
+    atleta_id_final = escolhido.get('id') or escolhido.get('atleta_id') or atleta_id_final
+    numero_final = None
+    if escolhido.get('numero') not in (None, ''):
+        try:
+            numero_final = int(str(escolhido.get('numero')).strip())
+        except Exception:
+            numero_final = None
+    nome_final = str(escolhido.get('nome') or nome).strip()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            # Evita dois destaques para a mesma partida; se quiser vários no futuro, remove esta limpeza.
+            cur.execute("""
+                DELETE FROM destaques_partida
+                WHERE partida_id = %s
+                  AND competicao = %s
+            """, (partida_id, competicao))
+
+            if atleta_id_final:
+                cur.execute("""
+                    SELECT id
+                    FROM destaques_partida
+                    WHERE competicao = %s
+                      AND atleta_id = %s
+                    LIMIT 1
+                """, (competicao, atleta_id_final))
+                if cur.fetchone():
+                    conn.rollback()
+                    return False, 'Este atleta já foi eleito destaque nesta competição.'
+
+            cur.execute("""
+                INSERT INTO destaques_partida (
+                    competicao, partida_id, equipe, lado, atleta_id, numero, nome, observacao
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                competicao,
+                partida_id,
+                equipe_nome,
+                lado,
+                atleta_id_final,
+                numero_final,
+                nome_final,
+                str(observacao or '').strip(),
+            ))
+        conn.commit()
+
+    return True, 'Destaque salvo com sucesso.'
+
+
 # ================= GARANTIR ESTADO =================
 
 def garantir_estado_partida(partida_id, competicao):
