@@ -20,6 +20,7 @@ from banco import (
     garantir_campos_trava_operacional_partida,
     buscar_equipe_por_login,
     escudo_padrao_equipe,
+    corrigir_escudos_antigos,
 )
 
 from routes.auth import auth_bp
@@ -317,6 +318,31 @@ def service_worker_pwa():
     resposta.headers["Expires"] = "0"
 
     return resposta
+
+
+@app.route("/admin/corrigir-escudos")
+def admin_corrigir_escudos():
+    """
+    Rota temporária de manutenção para reprocessar escudos antigos.
+
+    Segurança:
+    - só usuário logado como superadmin pode executar;
+    - após corrigir os escudos antigos, esta rota pode ser removida.
+    """
+    perfil = (session.get("perfil") or "").strip().lower()
+
+    if perfil != "superadmin":
+        return {
+            "ok": False,
+            "erro": "Acesso restrito ao superadmin."
+        }, 403
+
+    resultado = corrigir_escudos_antigos(app.static_folder)
+
+    return {
+        "ok": True,
+        "resultado": resultado
+    }
 
 
 import socket_events  # noqa

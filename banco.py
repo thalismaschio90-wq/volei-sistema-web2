@@ -12149,3 +12149,153 @@ def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, 
         conn.commit()
 
     return buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+# =========================================================
+# RECUPERAÇÃO / CORREÇÃO DE ESCUDOS ANTIGOS
+# =========================================================
+from PIL import Image, ImageOps
+from io import BytesIO
+import uuid
+
+
+def corrigir_escudos_antigos(app_static_folder):
+    """
+    Reprocessa todos os escudos antigos:
+    - corrige rotação EXIF;
+    - converte para JPG;
+    - padroniza 512x512;
+    - remove transparência problemática;
+    - substitui arquivos quebrados.
+
+    Retorna estatísticas da operação.
+    """
+
+    pasta_escudos = os.path.join(
+        app_static_folder,
+        "uploads",
+        "escudos"
+    )
+
+    os.makedirs(pasta_escudos, exist_ok=True)
+
+    total = 0
+    corrigidos = 0
+    erros = 0
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+
+            cur.execute("""
+                SELECT login, escudo
+                FROM equipes
+                WHERE escudo IS NOT NULL
+                  AND escudo <> ''
+            """)
+
+            equipes = cur.fetchall()
+
+            for equipe in equipes:
+                total += 1
+
+                login = (equipe.get("login") or "").strip()
+                escudo = (equipe.get("escudo") or "").strip()
+
+                try:
+                    if not escudo.startswith("/static/"):
+                        continue
+
+                    caminho_antigo = escudo.replace("/static/", "")
+                    caminho_antigo = os.path.join(
+                        app_static_folder,
+                        caminho_antigo
+                    )
+
+                    if not os.path.exists(caminho_antigo):
+                        print("ESCUDO NÃO ENCONTRADO:", caminho_antigo)
+                        erros += 1
+                        continue
+
+                    imagem = Image.open(caminho_antigo)
+
+                    # Corrige rotação do celular
+                    imagem = ImageOps.exif_transpose(imagem)
+
+                    # Corrige transparência
+                    if imagem.mode in ("RGBA", "LA", "P"):
+                        fundo = Image.new(
+                            "RGB",
+                            imagem.size,
+                            (255, 255, 255)
+                        )
+
+                        fundo.paste(
+                            imagem,
+                            mask=imagem.split()[-1]
+                        )
+
+                        imagem = fundo
+                    else:
+                        imagem = imagem.convert("RGB")
+
+                    # Crop quadrado
+                    tamanho = min(imagem.size)
+
+                    esquerda = (imagem.width - tamanho) // 2
+                    topo = (imagem.height - tamanho) // 2
+
+                    imagem = imagem.crop((
+                        esquerda,
+                        topo,
+                        esquerda + tamanho,
+                        topo + tamanho
+                    ))
+
+                    # Resize padrão
+                    imagem = imagem.resize((512, 512))
+
+                    novo_nome = (
+                        f"{login}_{uuid.uuid4().hex[:10]}.jpg"
+                    )
+
+                    novo_caminho = os.path.join(
+                        pasta_escudos,
+                        novo_nome
+                    )
+
+                    imagem.save(
+                        novo_caminho,
+                        format="JPEG",
+                        quality=85,
+                        optimize=True
+                    )
+
+                    novo_escudo = (
+                        f"/static/uploads/escudos/{novo_nome}"
+                    )
+
+                    cur.execute("""
+                        UPDATE equipes
+                        SET escudo = %s
+                        WHERE login = %s
+                    """, (
+                        novo_escudo,
+                        login
+                    ))
+
+                    corrigidos += 1
+
+                except Exception as e:
+                    print(
+                        "ERRO CORRIGIR ESCUDO:",
+                        login,
+                        e
+                    )
+                    erros += 1
+
+        conn.commit()
+
+    return {
+        "total": total,
+        "corrigidos": corrigidos,
+        "erros": erros
+    }
