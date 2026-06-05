@@ -335,7 +335,7 @@ def redefinir_senha_equipe_view(nome):
     return redirect(url_for("equipes.listar_equipes_view"))
 
 
-@equipes_bp.route("/equipes/<nome>/excluir", methods=["POST"])
+@equipes_bp.route("/equipes/<path:nome>/excluir", methods=["POST"])
 @exigir_perfil("organizador")
 def excluir_equipe_view(nome):
     competicao = buscar_competicao_por_organizador(session.get("usuario"))

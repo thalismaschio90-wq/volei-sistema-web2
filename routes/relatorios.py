@@ -20,6 +20,7 @@ STATUS_FINALIZADA = {"finalizado", "finalizada", "encerrado", "encerrada"}
 
 RELATORIOS_ORGANIZADOR = [
     {"id": "historico_jogos", "titulo": "Histórico de jogos", "descricao": "Lista todas as partidas finalizadas da competição."},
+    {"id": "ordem_jogos", "titulo": "Ordem dos jogos", "descricao": "Ordem completa dos jogos, com opção de gerar todos ou filtrar por quadra e mostrando o grupo de cada partida."},
     {"id": "ranking_atletas", "titulo": "Ranking geral de atletas", "descricao": "Atletas ordenados por pontos, ataques, bloqueios e aces."},
     {"id": "maior_pontuador", "titulo": "Maior pontuador", "descricao": "Ranking dos atletas com mais pontos na competição."},
     {"id": "melhor_sacador", "titulo": "Melhor sacador", "descricao": "Ranking dos atletas com mais aces."},
@@ -389,10 +390,124 @@ def _montar_fichas_inscricao(competicao_nome, equipe_logada=None, equipe_filtro=
     return "Fichas de inscrição", linhas
 
 
-def _montar_relatorio(tipo, competicao_nome, equipe_logada=None, equipe_filtro=None, partida_id=None):
+
+def _valor_partida(partida, *chaves, padrao="-"):
+    for chave in chaves:
+        valor = partida.get(chave)
+        if valor is not None and str(valor).strip():
+            return str(valor).strip()
+    return padrao
+
+
+def _quadra_partida(partida):
+    """
+    Nome exibido da quadra no relatório.
+
+    Prioriza campos de NOME da quadra. Alguns cadastros salvam somente o
+    número/id em `quadra`; quando for só número, mostra como "Quadra X" para
+    não sair apenas "2" no PDF.
+    """
+    valor = _valor_partida(
+        partida,
+        "nome_quadra",
+        "quadra_nome",
+        "quadra_descricao",
+        "local_quadra",
+        "quadra",
+        "court",
+        padrao="Sem quadra",
+    )
+    if valor != "Sem quadra" and str(valor).strip().isdigit():
+        return f"Quadra {str(valor).strip()}"
+    return valor
+
+
+def _grupo_partida(partida):
+    return _valor_partida(partida, "grupo", "nome_grupo", "chave", "grupo_nome", "fase_grupo", padrao="-")
+
+
+def _ordem_partida(partida):
+    for chave in ("ordem", "ordem_jogo", "numero_jogo", "jogo", "sequencia"):
+        try:
+            if partida.get(chave) is not None and str(partida.get(chave)).strip():
+                return _int(partida.get(chave))
+        except Exception:
+            pass
+    return _int(partida.get("id"))
+
+
+def _listar_quadras_partidas(partidas):
+    quadras = []
+    vistos = set()
+    for p in partidas or []:
+        q = _quadra_partida(dict(p))
+        if not q or q == "Sem quadra":
+            continue
+        chave = q.lower()
+        if chave not in vistos:
+            vistos.add(chave)
+            quadras.append(q)
+    return sorted(quadras, key=lambda x: x.lower())
+
+
+def _montar_ordem_jogos(competicao_nome, equipe_logada=None, quadra_filtro=None):
+    equipe_restrita = equipe_logada.get("nome") if equipe_logada else None
+    partidas = _todas_partidas(competicao_nome, equipe_nome=equipe_restrita, somente_finalizadas=False)
+
+    filtro = (quadra_filtro or "").strip().lower()
+    if filtro:
+        partidas = [p for p in partidas if _quadra_partida(p).lower() == filtro]
+
+    # ORDEM REAL DOS JOGOS:
+    # nunca ordena por grupo nem por quadra, porque isso embaralha a sequência geral.
+    # A ordem oficial é a ordem/sequência salva na partida; se não existir, usa o id.
+    # Quando filtra por quadra, mantém a mesma ordem geral e apenas remove as outras quadras.
+    partidas = sorted(
+        partidas,
+        key=lambda p: (
+            _ordem_partida(p),
+            _int(p.get("id")),
+        )
+    )
+
+    titulo = "Ordem dos jogos"
+    if quadra_filtro:
+        titulo = f"Ordem dos jogos - {quadra_filtro}"
+
+    linhas = _linhas_titulo(titulo, competicao_nome)
+
+    if not partidas:
+        if quadra_filtro:
+            linhas.append(f"Nenhum jogo encontrado para a quadra {quadra_filtro}.")
+        else:
+            linhas.append("Nenhum jogo encontrado na competição.")
+        return titulo, linhas
+
+    for pos, p in enumerate(partidas, start=1):
+        grupo = _grupo_partida(p)
+        quadra = _quadra_partida(p)
+        fase = _valor_partida(p, "fase", "fase_nome", "etapa", padrao="-")
+        status = _valor_partida(p, "status", "fase_partida", "status_jogo", padrao="-")
+        ordem = _ordem_partida(p) or pos
+        equipe_a = _txt(p.get("equipe_a"), "Equipe A")
+        equipe_b = _txt(p.get("equipe_b"), "Equipe B")
+
+        # O número inicial também usa a ordem real para o PDF/preview não parecer
+        # que a ordem foi recalculada por grupo/quadra.
+        linhas.append(
+            f"{ordem}. Ordem={ordem} | Grupo={grupo} | Quadra={quadra} | "
+            f"Fase={fase} | Partida={equipe_a} x {equipe_b} | Status={status}"
+        )
+
+    return titulo, linhas
+
+def _montar_relatorio(tipo, competicao_nome, equipe_logada=None, equipe_filtro=None, partida_id=None, quadra_filtro=None):
     equipe_restrita = equipe_logada.get("nome") if equipe_logada else None
     equipe_alvo = equipe_restrita or equipe_filtro
     partidas_finalizadas = _todas_partidas(competicao_nome, equipe_nome=equipe_restrita, somente_finalizadas=True)
+
+    if tipo == "ordem_jogos":
+        return _montar_ordem_jogos(competicao_nome, equipe_logada=equipe_logada, quadra_filtro=quadra_filtro)
 
     if tipo == "fichas_inscricao":
         return _montar_fichas_inscricao(competicao_nome, equipe_logada=equipe_logada, equipe_filtro=equipe_filtro)
@@ -819,6 +934,22 @@ def _pdf_response(titulo, linhas, competicao_nome=None):
             dados.append([m.group(1), m.group(3) or "-", atleta, equipe, extrair_valor(l, "Pontos"), extrair_valor(l, "Ataques"), extrair_valor(l, "Bloqueios"), extrair_valor(l, "Aces"), extrair_valor(l, "Jogos")])
         story.append(tabela(dados, [12*mm, 13*mm, 47*mm, 35*mm, 17*mm, 17*mm, 18*mm, 14*mm, 13*mm]) or Paragraph("Nenhum dado encontrado.", styles["Texto"]))
 
+    elif "ordem dos jogos" in titulo.lower():
+        dados = [["Ordem real", "Grupo", "Nome da quadra", "Fase", "Partida", "Status"]]
+        for l in linhas_corpo:
+            m = re.match(r"(\d+)\.\s*", l)
+            if not m:
+                continue
+            dados.append([
+                extrair_valor(l, "Ordem"),
+                extrair_valor(l, "Grupo"),
+                extrair_valor(l, "Quadra"),
+                extrair_valor(l, "Fase"),
+                extrair_valor(l, "Partida"),
+                extrair_valor(l, "Status"),
+            ])
+        story.append(tabela(dados, [19*mm, 23*mm, 34*mm, 25*mm, 64*mm, 21*mm]) or Paragraph("Nenhum jogo encontrado.", styles["Texto"]))
+
     elif "histórico de jogos" in titulo.lower():
         dados = [["Jogo", "Partida", "Parciais/Sets", "Vencedor"]]
         for l in linhas_corpo:
@@ -910,6 +1041,8 @@ def relatorios_home():
     if perfil == "organizador":
         equipes = _listar_equipes_inscritas(competicao_nome)
 
+    quadras = _listar_quadras_partidas(partidas)
+
     return render_template(
         "relatorios.html",
         competicao=competicao,
@@ -918,6 +1051,7 @@ def relatorios_home():
         relatorios=RELATORIOS_EQUIPE if perfil == "equipe" else RELATORIOS_ORGANIZADOR,
         partidas=partidas,
         equipes=equipes,
+        quadras=quadras,
     )
 
 
@@ -929,12 +1063,21 @@ def relatorios_visualizar(tipo):
         flash(erro, "erro")
         return redirect(url_for("painel.inicio"))
 
+    quadra_filtro = request.args.get("quadra", "")
+
+    # Guarda o filtro selecionado na visualização para o botão "Gerar PDF"
+    # do template antigo continuar gerando o PDF da mesma quadra.
+    # Sem isso, o preview aparece filtrado, mas o PDF volta para todas as quadras.
+    if tipo == "ordem_jogos":
+        session["relatorio_ordem_jogos_quadra"] = quadra_filtro
+
     titulo, linhas = _montar_relatorio(
         tipo,
         competicao.get("nome"),
         equipe_logada=equipe,
         equipe_filtro=request.args.get("equipe"),
         partida_id=request.args.get("partida_id"),
+        quadra_filtro=quadra_filtro,
     )
 
     return render_template(
@@ -944,6 +1087,7 @@ def relatorios_visualizar(tipo):
         tipo=tipo,
         equipe_filtro=request.args.get("equipe", ""),
         partida_id=request.args.get("partida_id", ""),
+        quadra_filtro=quadra_filtro,
     )
 
 
@@ -955,12 +1099,21 @@ def relatorios_pdf(tipo):
         flash(erro, "erro")
         return redirect(url_for("painel.inicio"))
 
+    quadra_filtro = request.args.get("quadra", "")
+
+    # Quando o PDF é gerado a partir do preview, alguns templates antigos
+    # mandam só equipe/partida_id e perdem ?quadra=. Para ordem dos jogos,
+    # reaproveita a última quadra escolhida na visualização.
+    if tipo == "ordem_jogos" and not quadra_filtro:
+        quadra_filtro = session.get("relatorio_ordem_jogos_quadra", "")
+
     titulo, linhas = _montar_relatorio(
         tipo,
         competicao.get("nome"),
         equipe_logada=equipe,
         equipe_filtro=request.args.get("equipe"),
         partida_id=request.args.get("partida_id"),
+        quadra_filtro=quadra_filtro,
     )
     resp = _pdf_response(titulo, linhas, competicao.get("nome"))
     if resp is None:

@@ -3200,9 +3200,20 @@ def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
 
 def excluir_equipe(nome_equipe, nome_competicao):
     """
-    No modelo novo, excluir equipe dentro da competição significa DESVINCULAR.
-    O cadastro global, login e senha permanecem salvos e funcionais.
+    Remove a equipe somente da competição atual.
+
+    IMPORTANTE:
+    - Não apaga o cadastro global da equipe.
+    - Não apaga login/senha da equipe.
+    - Remove o vínculo correto mesmo quando o nome exibido vem de equipes.nome
+      e o vínculo antigo em equipes_competicoes.equipe_nome está diferente.
     """
+    nome_equipe = (nome_equipe or "").strip()
+    nome_competicao = (nome_competicao or "").strip()
+
+    if not nome_equipe or not nome_competicao:
+        return False
+
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
     if not ok_edicao:
         return False
@@ -3211,25 +3222,82 @@ def excluir_equipe(nome_equipe, nome_competicao):
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            # Localiza o vínculo real da equipe nesta competição.
+            # Usa ec.equipe_nome E e.nome porque o nome pode ter sido alterado
+            # depois do vínculo ter sido criado.
+            cur.execute("""
+                SELECT
+                    ec.id,
+                    ec.equipe_login,
+                    ec.equipe_nome,
+                    e.login AS login_global,
+                    e.nome AS nome_global
+                FROM equipes_competicoes ec
+                LEFT JOIN equipes e
+                  ON e.login = ec.equipe_login
+                  OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
+                WHERE ec.competicao = %s
+                  AND (
+                        LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(e.nome)) = LOWER(TRIM(%s))
+                  )
+                ORDER BY ec.id
+                LIMIT 1
+            """, (nome_competicao, nome_equipe, nome_equipe))
+            vinculo = cur.fetchone()
+
+            if not vinculo:
+                return False
+
+            vinculo_id = vinculo.get("id")
+            login_equipe = (vinculo.get("equipe_login") or vinculo.get("login_global") or "").strip()
+            nome_vinculo = (vinculo.get("equipe_nome") or "").strip()
+            nome_global = (vinculo.get("nome_global") or nome_equipe).strip()
+
+            # Remove exatamente o vínculo encontrado.
             cur.execute("""
                 DELETE FROM equipes_competicoes
-                WHERE LOWER(equipe_nome) = LOWER(%s)
+                WHERE id = %s
                   AND competicao = %s
-            """, (nome_equipe, nome_competicao))
+            """, (vinculo_id, nome_competicao))
+            removidas = cur.rowcount
 
-            cur.execute("""
-                UPDATE usuarios
-                SET competicao_vinculada = NULL
-                WHERE perfil = 'equipe'
-                  AND LOWER(equipe) = LOWER(%s)
-                  AND competicao_vinculada = %s
-            """, (nome_equipe, nome_competicao))
+            if removidas <= 0:
+                conn.rollback()
+                return False
 
+            # Remove atletas somente dessa competição, tentando os nomes antigo/atual.
             cur.execute("""
                 DELETE FROM atletas
-                WHERE equipe = %s
-                  AND competicao = %s
-            """, (nome_equipe, nome_competicao))
+                WHERE competicao = %s
+                  AND (
+                        LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                  )
+            """, (nome_competicao, nome_equipe, nome_vinculo, nome_global))
+
+            # Limpa vínculo antigo do usuário apenas se ele apontava para essa competição.
+            if login_equipe:
+                cur.execute("""
+                    UPDATE usuarios
+                    SET competicao_vinculada = NULL
+                    WHERE perfil = 'equipe'
+                      AND login = %s
+                      AND competicao_vinculada = %s
+                """, (login_equipe, nome_competicao))
+            else:
+                cur.execute("""
+                    UPDATE usuarios
+                    SET competicao_vinculada = NULL
+                    WHERE perfil = 'equipe'
+                      AND competicao_vinculada = %s
+                      AND (
+                            LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                      )
+                """, (nome_competicao, nome_equipe, nome_vinculo, nome_global))
 
         conn.commit()
 

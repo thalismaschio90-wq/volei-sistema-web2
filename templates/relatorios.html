@@ -242,8 +242,15 @@
             equipeA: {{ (p.equipe_a or 'Equipe A')|tojson }},
             equipeB: {{ (p.equipe_b or 'Equipe B')|tojson }},
             fase: {{ (p.fase or 'fase')|tojson }},
-            status: {{ (p.status or p.fase_partida or p.status_jogo or '')|tojson }}
+            status: {{ (p.status or p.fase_partida or p.status_jogo or '')|tojson }},
+            quadra: {{ (p.quadra or p.nome_quadra or p.quadra_nome or '')|default('', true)|tojson }}
         }{{ "," if not loop.last }}
+        {% endfor %}
+    ];
+
+    const quadras = [
+        {% for q in quadras %}
+        {{ q|tojson }}{{ "," if not loop.last }}
         {% endfor %}
     ];
 
@@ -252,6 +259,7 @@
         ? new Set(["fichas_inscricao", "relatorio_equipe", "ranking_equipes"])
         : new Set([]);
     const tiposComPartida = new Set(["relatorio_partida", "historico_partida", "atletas_partida"]);
+    const tiposComQuadra = new Set(["ordem_jogos"]);
 
     const modal = document.getElementById("modalSelecaoRelatorio");
     const lista = document.getElementById("listaOpcoesRelatorio");
@@ -306,6 +314,49 @@
         });
     }
 
+    function renderQuadras() {
+        titulo.textContent = "Selecionar quadra";
+        subtitulo.textContent = "Escolha se deseja gerar a ordem completa ou somente uma quadra.";
+        lista.innerHTML = "";
+
+        const btnTodos = document.createElement("button");
+        btnTodos.type = "button";
+        btnTodos.className = "rel-opcao";
+        btnTodos.innerHTML = `
+            <span style="width:46px;height:46px;border-radius:14px;background:#eef4fb;border:1px solid #dbe5ef;display:flex;align-items:center;justify-content:center;font-weight:950;color:var(--primary);">📋</span>
+            <span>
+                <span class="rel-opcao-titulo">Todas as quadras</span>
+                <span class="rel-opcao-meta">Gera a ordem completa dos jogos da competição.</span>
+            </span>
+        `;
+        btnTodos.addEventListener("click", function(){ window.location.href = urlBase; });
+        lista.appendChild(btnTodos);
+
+        if (!quadras.length) {
+            const aviso = document.createElement("div");
+            aviso.className = "rel-vazio";
+            aviso.textContent = "Nenhuma quadra encontrada nas partidas. A opção geral continua disponível.";
+            lista.appendChild(aviso);
+            return;
+        }
+
+        quadras.forEach(function(q){
+            const qtd = partidas.filter(function(p){ return (p.quadra || "") === q; }).length;
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "rel-opcao";
+            btn.innerHTML = `
+                <span style="width:46px;height:46px;border-radius:14px;background:#eef4fb;border:1px solid #dbe5ef;display:flex;align-items:center;justify-content:center;font-weight:950;color:var(--primary);">🏐</span>
+                <span>
+                    <span class="rel-opcao-titulo">${q}</span>
+                    <span class="rel-opcao-meta">${qtd} jogo(s) nesta quadra.</span>
+                </span>
+            `;
+            btn.addEventListener("click", function(){ irComParametro("quadra", q); });
+            lista.appendChild(btn);
+        });
+    }
+
     function renderPartidas() {
         titulo.textContent = "Selecionar partida";
         subtitulo.textContent = "Escolha uma partida cadastrada para gerar este relatório.";
@@ -340,6 +391,13 @@
             if (tiposComEquipe.has(tipoAtual)) {
                 e.preventDefault();
                 renderEquipes();
+                abrirModal();
+                return;
+            }
+
+            if (tiposComQuadra.has(tipoAtual)) {
+                e.preventDefault();
+                renderQuadras();
                 abrirModal();
                 return;
             }
