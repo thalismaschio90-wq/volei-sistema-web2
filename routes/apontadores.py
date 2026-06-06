@@ -353,6 +353,26 @@ def _json_no_cache(payload, status=200):
     return resposta
 
 
+def _escudo_payload_leve(valor):
+    """Evita mandar base64 gigante em polling/estado.
+
+    Escudos base64 continuam salvos e aparecem na renderização inicial, mas o
+    endpoint /apontador/estado não precisa reenviar 30KB a cada sincronização.
+    """
+    valor = str(valor or "").strip()
+    if not valor:
+        return ESCUDO_PADRAO_URL
+    if valor.startswith("data:image") or len(valor) > 500:
+        return ESCUDO_PADRAO_URL
+    return valor
+
+
+def _lista_curta(valor, limite=8):
+    if not isinstance(valor, list):
+        return []
+    return valor[:limite]
+
+
 
 def _int_seguro(valor, padrao=0):
     try:
@@ -3831,10 +3851,10 @@ def estado_jogo_view(competicao, partida_id):
             "equipe_b": equipe_b_op,
             "equipe_a_operacional": equipe_a_op,
             "equipe_b_operacional": equipe_b_op,
-            "escudo_a": estado.get("escudo_a") or ESCUDO_PADRAO_URL,
-            "escudo_b": estado.get("escudo_b") or ESCUDO_PADRAO_URL,
-            "escudo_a_operacional": estado.get("escudo_a_operacional") or estado.get("escudo_a") or ESCUDO_PADRAO_URL,
-            "escudo_b_operacional": estado.get("escudo_b_operacional") or estado.get("escudo_b") or ESCUDO_PADRAO_URL,
+            "escudo_a": _escudo_payload_leve(estado.get("escudo_a")),
+            "escudo_b": _escudo_payload_leve(estado.get("escudo_b")),
+            "escudo_a_operacional": _escudo_payload_leve(estado.get("escudo_a_operacional") or estado.get("escudo_a")),
+            "escudo_b_operacional": _escudo_payload_leve(estado.get("escudo_b_operacional") or estado.get("escudo_b")),
             "cor_a": estado.get("cor_a") or "#2E6BE6",
             "cor_b": estado.get("cor_b") or "#E53935",
             "tempos_a": tempos_a,
@@ -3857,11 +3877,11 @@ def estado_jogo_view(competicao, partida_id):
             },
             "status_jogadores_a": estado.get("status_jogadores_a") or {},
             "status_jogadores_b": estado.get("status_jogadores_b") or {},
-            "sancoes_a": estado.get("sancoes_a") or [],
-            "sancoes_b": estado.get("sancoes_b") or [],
-            "cartoes_verdes_a": estado.get("cartoes_verdes_a") or [],
-            "cartoes_verdes_b": estado.get("cartoes_verdes_b") or [],
-            "historico": historico,
+            "sancoes_a": _lista_curta(estado.get("sancoes_a"), 8),
+            "sancoes_b": _lista_curta(estado.get("sancoes_b"), 8),
+            "cartoes_verdes_a": _lista_curta(estado.get("cartoes_verdes_a"), 8),
+            "cartoes_verdes_b": _lista_curta(estado.get("cartoes_verdes_b"), 8),
+            "historico": _lista_curta(historico, 5),
             "ultima_acao": ultima_acao,
             "partida_finalizada": str(estado.get("fase_partida") or "").lower() == "encerrado"
         })

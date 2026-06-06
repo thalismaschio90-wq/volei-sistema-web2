@@ -7,6 +7,7 @@ import base64
 from io import BytesIO
 from datetime import datetime
 from threading import Lock
+from contextlib import contextmanager
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -198,33 +199,36 @@ def _fechar_pool_quebrado():
     _DB_POOL = None
 
 
+@contextmanager
 def conectar():
-    """Abre conexão com o banco com pool seguro e fallback.
+    """Abre conexão com o banco com pool seguro e fallback real.
 
-    Regras desta versão:
-    - usa pool quando disponível;
-    - se o pool falhar, recria uma vez;
-    - se ainda falhar, usa conexão direta para não derrubar login/painéis;
-    - mantém compatibilidade com `with conectar() as conn:`.
+    A versão anterior retornava `pool.connection(...)` sem entrar no context
+    manager; assim o PoolTimeout acontecia fora do try/except e derrubava login
+    e painéis. Aqui o `with` é feito dentro da função, então conseguimos cair
+    para conexão direta quando o pool estiver saturado.
     """
     pool = _obter_pool()
-    timeout_pool = _env_float("DB_POOL_TIMEOUT", 10, minimo=2, maximo=60)
+    timeout_pool = _env_float("DB_POOL_TIMEOUT", 6, minimo=2, maximo=30)
 
     if pool is not None:
         try:
-            return pool.connection(timeout=timeout_pool)
+            with pool.connection(timeout=timeout_pool) as conn:
+                yield conn
+                return
         except Exception as e:
-            print("AVISO: pool do banco falhou; tentando recriar:", repr(e))
-            _fechar_pool_quebrado()
+            print("AVISO: pool do banco indisponível; usando conexão direta:", repr(e))
 
-            try:
-                pool = _obter_pool()
-                if pool is not None:
-                    return pool.connection(timeout=timeout_pool)
-            except Exception as e2:
-                print("AVISO: pool recriado também falhou; usando conexão direta:", repr(e2))
-
-    return _conexao_direta()
+    conn = None
+    try:
+        conn = _conexao_direta()
+        yield conn
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
 
 
 # =========================================================

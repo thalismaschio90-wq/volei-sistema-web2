@@ -62,6 +62,55 @@ app.secret_key = os.environ.get(
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 60 * 60 * 24 * 30
 
 
+# Chaves que nunca devem ficar na cookie-session do Flask.
+# O Flask assina a session no próprio cookie do navegador; guardar dicts grandes
+# ou escudos base64 aqui estoura o limite de ~4KB e quebra login no Safari/mobile.
+_SESSION_CHAVES_PESADAS = {
+    "topbar_equipe_cache",
+    "partidas",
+    "equipes",
+    "atletas",
+    "classificacao",
+    "estado",
+    "competicao_obj",
+    "dados",
+    "eventos",
+    "papeleta",
+    "escudo",
+    "escudo_blob",
+}
+
+
+def _limpar_session_pesada():
+    removidas = False
+    for chave in list(_SESSION_CHAVES_PESADAS):
+        if chave in session:
+            session.pop(chave, None)
+            removidas = True
+
+    # Compatibilidade: remove qualquer cache/dado grande salvo por versões anteriores.
+    for chave in list(session.keys()):
+        valor = session.get(chave)
+        if chave.endswith("_cache") and chave not in {"_flashes"}:
+            session.pop(chave, None)
+            removidas = True
+            continue
+        if isinstance(valor, (dict, list, tuple)) and chave not in {"_flashes"}:
+            texto = str(valor)
+            if len(texto) > 1200:
+                session.pop(chave, None)
+                removidas = True
+        elif isinstance(valor, str) and len(valor) > 1800:
+            session.pop(chave, None)
+            removidas = True
+    return removidas
+
+
+@app.before_request
+def limpar_session_pesada_antes_request():
+    _limpar_session_pesada()
+
+
 @app.after_request
 def aplicar_headers_cache(response):
     path = request.path or ""
@@ -156,19 +205,13 @@ def injetar_dados_topbar_global():
         equipe = None
         competicao_atual = (session.get("competicao_equipe_atual") or "").strip() or None
 
-        # Evita consulta no Neon em todo render_template.
-        # O cache é por sessão e pode ser renovado quando a equipe altera dados/escudo.
-        cache_key = f"{usuario}|{competicao_atual or ''}"
-        topbar_cache = session.get("topbar_equipe_cache") or {}
-        if topbar_cache.get("key") == cache_key:
-            equipe = topbar_cache.get("equipe") or None
-
-        if not equipe:
-            try:
-                equipe = buscar_equipe_por_login(usuario, competicao_atual)
-            except Exception as e:
-                print("AVISO topbar equipe por competição:", e)
-                equipe = None
+        # Nunca cacheia a equipe dentro da session: escudo em base64 pode passar de
+        # 30KB e quebrar o cookie no iPhone/Safari. Busca de forma leve a cada render.
+        try:
+            equipe = buscar_equipe_por_login(usuario, competicao_atual)
+        except Exception as e:
+            print("AVISO topbar equipe por competição:", e)
+            equipe = None
 
         if not equipe:
             try:
@@ -178,10 +221,6 @@ def injetar_dados_topbar_global():
                 equipe = None
 
         if equipe:
-            try:
-                session["topbar_equipe_cache"] = {"key": cache_key, "equipe": dict(equipe)}
-            except Exception:
-                pass
             nome_equipe = (
                 equipe.get("nome")
                 or equipe.get("nome_equipe")
