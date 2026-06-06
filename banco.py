@@ -13021,6 +13021,12 @@ def salvar_perfil_equipe_por_login(
 ):
     """
     Atualiza o perfil global da equipe sem mexer no vínculo com competições.
+
+    Versão robusta:
+    - tenta atualizar por equipes.login;
+    - se o login da sessão mudou e a linha de equipes ficou antiga, tenta
+      localizar a equipe pelo nome salvo em usuarios.equipe;
+    - como último fallback, usa o vínculo em equipes_competicoes.
     """
     login = (login or "").strip()
     if not login:
@@ -13044,7 +13050,7 @@ def salvar_perfil_equipe_por_login(
         "instagram = %s",
         "perfil_completo = %s",
     ]
-    valores = [
+    valores_base = [
         cidade,
         responsavel,
         telefone,
@@ -13056,29 +13062,77 @@ def salvar_perfil_equipe_por_login(
     if escudo is not None:
         escudo_valor = (escudo or "").strip()
         sets.append("escudo = %s")
-        valores.append(escudo_valor)
+        valores_base.append(escudo_valor)
         try:
             colunas_equipes = _buscar_colunas_tabela("equipes")
             if "escudo_blob" in colunas_equipes:
                 sets.append("escudo_blob = %s")
-                valores.append(escudo_valor)
+                valores_base.append(escudo_valor)
         except Exception:
             pass
 
-    valores.append(login)
+    set_sql = ", ".join(sets)
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
                 UPDATE equipes
-                SET {", ".join(sets)}
+                SET {set_sql}
                 WHERE login = %s
                 """,
-                tuple(valores)
+                tuple(valores_base + [login])
             )
+            alteradas = cur.rowcount or 0
 
-            alteradas = cur.rowcount
+            if alteradas <= 0:
+                cur.execute("""
+                    SELECT equipe
+                    FROM usuarios
+                    WHERE login = %s
+                    LIMIT 1
+                """, (login,))
+                row_usuario = cur.fetchone()
+                nome_equipe = ""
+                try:
+                    nome_equipe = (row_usuario.get("equipe") if hasattr(row_usuario, "get") else row_usuario[0]) or ""
+                except Exception:
+                    nome_equipe = ""
+                nome_equipe = str(nome_equipe).strip()
+
+                if nome_equipe:
+                    cur.execute(
+                        f"""
+                        UPDATE equipes
+                        SET {set_sql}
+                        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+                        """,
+                        tuple(valores_base + [nome_equipe])
+                    )
+                    alteradas = cur.rowcount or 0
+
+            if alteradas <= 0:
+                try:
+                    criar_tabela_equipes_competicoes()
+                    cur.execute(
+                        f"""
+                        UPDATE equipes e
+                        SET {set_sql}
+                        FROM equipes_competicoes ec
+                        WHERE (
+                            ec.equipe_login = %s
+                            OR LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(e.nome))
+                        )
+                        AND (
+                            e.login = ec.equipe_login
+                            OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
+                        )
+                        """,
+                        tuple(valores_base + [login])
+                    )
+                    alteradas = cur.rowcount or 0
+                except Exception as e:
+                    print("AVISO salvar_perfil_equipe_por_login/fallback_vinculo:", repr(e))
 
         conn.commit()
 

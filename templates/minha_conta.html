@@ -300,7 +300,7 @@
             {% if perfil_base == 'equipe' %}O nome da equipe não pode ser alterado por esta tela. O login pode ser atualizado, desde que esteja disponível no banco.{% else %}O login só será salvo se estiver disponível no banco. O perfil não pode ser alterado por esta tela.{% endif %}
         </div>
 
-        <form method="POST" action="{{ url_for('painel.salvar_dados_minha_conta') }}" class="form-conta">
+        <form method="POST" action="{% if perfil_base == 'equipe' %}{{ url_for('equipes.salvar_dados_minha_conta_equipe') }}{% else %}{{ url_for('painel.salvar_dados_minha_conta') }}{% endif %}" class="form-conta">
             <div class="form-duplo">
                 <div>
                     <label>Nome exibido</label>

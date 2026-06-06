@@ -50,6 +50,7 @@ from banco import (
     listar_equipes_por_grupo,
     listar_equipes_por_grupos_competicao,
     atualizar_escudo_equipe_por_login,
+    atualizar_dados_conta_usuario,
     escudo_padrao_equipe,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -468,6 +469,71 @@ def gerenciar_equipe_view(nome):
     sucesso=sucesso,
     competicao=competicao,
 )
+
+
+
+
+@equipes_bp.route("/minha-conta/equipe/salvar-dados", methods=["POST"])
+@exigir_perfil("equipe")
+def salvar_dados_minha_conta_equipe():
+    """
+    Salva a tela Minha Conta da equipe sem passar pelo painel genérico.
+
+    Corrige o caso em que o formulário parecia salvar, mas os dados da equipe
+    (cidade, responsável, telefone, e-mail e Instagram) não eram persistidos ou
+    eram salvos em lugar diferente do que as telas leem.
+    """
+    login_atual = (session.get("usuario") or "").strip()
+    if not login_atual:
+        flash("Sessão expirada. Faça login novamente.", "erro")
+        return redirect(url_for("auth.login"))
+
+    novo_login = (request.form.get("login") or login_atual).strip()
+    nome = (request.form.get("nome") or session.get("equipe") or session.get("nome") or login_atual).strip()
+
+    cidade = (request.form.get("cidade") or "").strip()
+    responsavel = (request.form.get("responsavel") or "").strip()
+    telefone = (request.form.get("telefone") or "").strip()
+    email = (request.form.get("email") or "").strip()
+    instagram = (request.form.get("instagram") or "").strip()
+
+    resultado = atualizar_dados_conta_usuario(login_atual, novo_login, nome)
+    if not resultado or not resultado.get("ok"):
+        flash((resultado or {}).get("erro") or "Não foi possível salvar os dados da conta.", "erro")
+        return redirect(url_for("painel.minha_conta"))
+
+    login_salvo = resultado.get("login") or novo_login or login_atual
+
+    ok_perfil = salvar_perfil_equipe_por_login(
+        login_salvo,
+        cidade,
+        responsavel,
+        telefone,
+        email,
+        instagram,
+    )
+
+    if not ok_perfil and login_salvo != login_atual:
+        # Fallback para bancos onde a linha global de equipes ainda está com o login antigo.
+        ok_perfil = salvar_perfil_equipe_por_login(
+            login_atual,
+            cidade,
+            responsavel,
+            telefone,
+            email,
+            instagram,
+        )
+
+    if not ok_perfil:
+        flash("Login salvo, mas não foi possível salvar os dados da equipe.", "erro")
+        session["usuario"] = login_salvo
+        return redirect(url_for("painel.minha_conta"))
+
+    session["usuario"] = login_salvo
+    session["nome"] = nome
+    session["equipe"] = nome
+    flash("Dados da conta salvos com sucesso.", "sucesso")
+    return redirect(url_for("painel.minha_conta"))
 
 
 # =========================
