@@ -72,10 +72,8 @@ function render(){
 }
 function abrirTempo(s){let n=s;clearInterval(tempoTimer);document.getElementById('tnum').textContent=n;document.getElementById('tempo').classList.add('aberto');tempoTimer=setInterval(()=>{n--;document.getElementById('tnum').textContent=Math.max(0,n);if(n<=0){clearInterval(tempoTimer);setTimeout(()=>document.getElementById('tempo').classList.remove('aberto'),800)}},1000)}
 function inv(){invertido=!invertido;localStorage.setItem(LS_INV,invertido?'1':'0');render()}
-async function sync(){try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json();if(j.estado){estado=j.estado;render()}}catch(e){}}
-render();
-setInterval(() => { if (document.visibilityState === "visible") sync(); }, 3000);
-sync();
+async function sync(){if(document.visibilityState&&document.visibilityState!=='visible')return;try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json();if(j.estado){estado=j.estado;render()}}catch(e){}}
+render();setInterval(sync,2500);sync();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync();});
 </script>
 </body>
 </html>

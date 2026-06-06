@@ -18,7 +18,6 @@ try:
 except Exception:
     ConnectionPool = None
 
-
 # --- ESSA LINHA ABAIXO É A QUE ESTÁ FALTANDO ---
 _CACHE_COLUNAS = {} 
 # -----------------------------------------------
@@ -3723,33 +3722,22 @@ def criar_indices_desempenho(force=False):
     if _schema_ja_pronto(chave, force=force):
         return
 
-    indices = [
-        "CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao ON atletas (equipe, competicao)",
-        "CREATE INDEX IF NOT EXISTS idx_atletas_competicao_status_nome ON atletas (competicao, status, nome)",
-        "CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao_numero ON atletas (equipe, competicao, numero)",
-        "CREATE INDEX IF NOT EXISTS idx_equipes_nome_competicao ON equipes (nome, competicao)",
-        "CREATE INDEX IF NOT EXISTS idx_equipes_login ON equipes (login)",
-        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_status ON partidas (competicao, status)",
-        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_equipes ON partidas (competicao, equipe_a, equipe_b)",
-        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_id ON partidas (competicao, id)",
-        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_ordem ON partidas (competicao, ordem)",
-        "CREATE INDEX IF NOT EXISTS idx_eventos_partida_competicao ON eventos (partida_id, competicao)",
-        "CREATE INDEX IF NOT EXISTS idx_eventos_competicao_partida_ordem ON eventos (competicao, partida_id, id)",
-        "CREATE INDEX IF NOT EXISTS idx_papeletas_partida_competicao_set ON papeletas (partida_id, competicao, set_numero)",
-        "CREATE INDEX IF NOT EXISTS idx_usuarios_login_perfil ON usuarios (login, perfil)",
-        "CREATE INDEX IF NOT EXISTS idx_competicoes_nome ON competicoes (nome)",
-    ]
-
     with conectar() as conn:
         with conn.cursor() as cur:
-            for sql in indices:
-                try:
-                    cur.execute(sql)
-                except Exception as e:
-                    conn.rollback()
-                    print("AVISO criar_indices_desempenho:", sql, repr(e))
-                else:
-                    conn.commit()
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao ON atletas (equipe, competicao)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_competicao_status_nome ON atletas (competicao, status, nome)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao_numero ON atletas (equipe, competicao, numero)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_equipes_nome_competicao ON equipes (nome, competicao)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_equipes_login ON equipes (login)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_status ON partidas (competicao, status)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_equipes ON partidas (competicao, equipe_a, equipe_b)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_id ON partidas (competicao, id)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_ordem ON partidas (competicao, ordem)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_eventos_partida_competicao ON eventos (partida_id, competicao)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_papeletas_partida_competicao_set ON papeletas (partida_id, competicao, set_numero)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_usuarios_login_perfil ON usuarios (login, perfil)""")
+            cur.execute("""CREATE INDEX IF NOT EXISTS idx_competicoes_nome ON competicoes (nome)""")
+        conn.commit()
 
     _marcar_schema_pronto(chave)
 
@@ -4301,7 +4289,6 @@ def criar_grupo(nome, competicao):
                 VALUES (%s, %s)
             """, (nome, competicao))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4327,7 +4314,6 @@ def adicionar_equipe_no_grupo(grupo_id, equipe, competicao):
                 VALUES (%s, %s, %s)
             """, (grupo_id, equipe, competicao))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4414,7 +4400,6 @@ def remover_equipe_do_grupo(grupo_id, equipe, competicao):
                       AND (equipe_a = %s OR equipe_b = %s)
                 """, (competicao, grupo["nome"], equipe, equipe))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4446,7 +4431,6 @@ def excluir_grupo(grupo_id, competicao):
                   AND competicao = %s
             """, (grupo_id, competicao))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4520,9 +4504,13 @@ def criar_tabela_partidas():
 
 
 def listar_partidas(competicao):
-    # Performance: listar partidas deve apenas consultar dados.
-    # Criação de campos/tabelas e normalização de quadras precisam rodar em telas administrativas,
-    # geração de competição ou rotina de migração, não em toda abertura de painel.
+    criar_campo_escudo_equipes()
+    criar_tabela_equipes_competicoes()
+    try:
+        normalizar_vinculos_quadras_competicao(competicao)
+    except Exception as e:
+        print("AVISO listar_partidas/normalizar_quadras:", repr(e))
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -4565,9 +4553,8 @@ def listar_partidas(competicao):
 
 
 def buscar_partida_por_id(partida_id, competicao):
-    criar_campo_escudo_equipes()
-    criar_tabela_equipes_competicoes()
-
+    # Performance: esta função é chamada por relatórios, apontador e telas de consulta.
+    # Não rode criação/verificação de schema aqui; isso deve acontecer no boot/migração.
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -4770,7 +4757,6 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
                 tuple(valores)
             )
         conn.commit()
-    invalidar_cache_classificacao(competicao)
 
 
 def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='aguardando', rodada=None, quadra_id=None, quadra_nome=None):
@@ -4816,7 +4802,6 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
                   AND competicao = %s
             """, (grupo, fase, equipe_a, equipe_b, quadra, quadra_id, quadra_nome or quadra or '', data_hora, status, status, status, rodada, partida_id, competicao))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4840,7 +4825,6 @@ def excluir_partida(partida_id, competicao):
                   AND competicao = %s
             """, (partida_id, competicao))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
     return True, "Partida excluída com sucesso."
 
 def limpar_partidas(competicao):
@@ -4854,7 +4838,6 @@ def limpar_partidas(competicao):
                 WHERE competicao = %s
             """, (competicao,))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
 
 
 def limpar_partidas_por_fase(competicao, fase):
@@ -4870,7 +4853,6 @@ def limpar_partidas_por_fase(competicao, fase):
                   AND COALESCE(fase, 'grupos') = %s
             """, (competicao, fase))
             conn.commit()
-    invalidar_cache_classificacao(competicao)
 
 
 # =========================================================
@@ -10474,9 +10456,6 @@ def finalizar_set_e_avancar(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
     status_jogo = (estado.get("status_jogo") or "").lower()
 
-    if status_jogo == "finalizada":
-        invalidar_cache_classificacao(competicao)
-
     retorno = {
         "set_finalizado": True,
         "partida_finalizada": status_jogo == "finalizada",
@@ -10591,7 +10570,6 @@ def encerrar_partida(partida_id, competicao, observacoes):
                 WHERE id = %s AND competicao = %s
             """, (observacoes, datetime.now(), partida_id, competicao))
         conn.commit()
-    invalidar_cache_classificacao(competicao)
 
 
 

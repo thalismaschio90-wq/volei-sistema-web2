@@ -9,6 +9,7 @@ from routes.utils import exigir_perfil
 from banco import (
     buscar_competicao_por_organizador,
     buscar_equipe_por_login,
+    buscar_partida_por_id,
     listar_partidas,
     listar_eventos_partida,
     resumir_scout_equipe_partida,
@@ -119,12 +120,33 @@ def _todas_partidas(competicao_nome, equipe_nome=None, somente_finalizadas=True)
 
 
 def _partida_por_id(competicao_nome, partida_id, equipe_nome=None):
+    """Busca uma partida específica sem varrer todas as partidas da competição.
+
+    Antes, qualquer relatório por jogo chamava _todas_partidas(), que carregava a
+    lista completa da competição só para achar um ID. Em competições grandes isso
+    deixava a abertura/geração de relatório lenta.
+    """
     if not partida_id:
         return None
-    for p in _todas_partidas(competicao_nome, equipe_nome=equipe_nome, somente_finalizadas=False):
-        if _int(p.get("id")) == _int(partida_id):
-            return p
-    return None
+
+    try:
+        partida = buscar_partida_por_id(partida_id, competicao_nome)
+    except Exception as exc:
+        print("AVISO relatorios._partida_por_id buscar_partida_por_id:", exc)
+        partida = None
+
+    if not partida:
+        return None
+
+    p = dict(partida)
+    equipe_nome_lower = (equipe_nome or "").strip().lower()
+    if equipe_nome_lower:
+        ea = _txt(p.get("equipe_a"), "").lower()
+        eb = _txt(p.get("equipe_b"), "").lower()
+        if equipe_nome_lower not in {ea, eb}:
+            return None
+
+    return p
 
 
 def _lado_da_equipe(partida, equipe_nome):
