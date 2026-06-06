@@ -20,8 +20,6 @@ from banco import (
     cpf_valido,
     somente_digitos,
     listar_partidas,
-    listar_partidas_apontador_resumo,
-    buscar_competicao_resumo,
     buscar_partida_operacional,
     assumir_partida_operacional,
     abandonar_partida_operacional,
@@ -1648,27 +1646,21 @@ def entrar_competicao_apontador(competicao):
     # Não sincroniza o Avanço ao abrir o painel do apontador.
     # A sincronização acontece após finalizar/lançar resultado, evitando travar a tela.
 
-    # Entrada rápida: a lista inicial do apontador não precisa carregar atletas,
-    # papeletas, escudos completos nem regras avançadas por partida. Esses dados
-    # entram somente quando o apontador abre uma partida.
-    competicao_cfg = buscar_competicao_resumo(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3", "modo_operacao": "simples"}
-    partidas = listar_partidas_apontador_resumo(competicao)
+    partidas = listar_partidas(competicao)
+    competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
     partidas = normalizar_status_partidas_apontador(partidas, competicao)
     partidas = aplicar_placar_exibicao_lista(partidas, competicao_cfg)
     partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
 
-    sets_tipo_cfg = str(competicao_cfg.get("sets_tipo") or "melhor_de_3").strip().lower()
-    sets_max_manual = 1 if sets_tipo_cfg == "set_unico" else (5 if sets_tipo_cfg == "melhor_de_5" else 3)
-    sets_para_vencer_manual = 1 if sets_max_manual == 1 else (3 if sets_max_manual == 5 else 2)
-    modo_padrao_competicao = str(competicao_cfg.get("modo_operacao") or "simples").strip().lower()
-    if modo_padrao_competicao not in {"simples", "avancado"}:
-        modo_padrao_competicao = "simples"
+    sets_max_manual = _sets_max_competicao(competicao)
+    sets_para_vencer_manual = _sets_para_vencer_competicao(competicao)
 
     for p in partidas:
-        # Evita buscar configuração avançada repetidamente para cada partida na entrada.
-        # Ao abrir o jogo, o modo completo continua sendo resolvido pela rota da partida.
-        p["modo_operacao_resolvido"] = modo_padrao_competicao
-        p["permite_scout"] = modo_padrao_competicao == "avancado"
+        try:
+            p["modo_operacao_resolvido"] = _resolver_modo_operacao_partida(competicao, p)
+        except Exception:
+            p["modo_operacao_resolvido"] = "simples"
+        p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
         fase_txt = str(p.get("fase") or p.get("fase_partida") or "grupos").strip().lower()
         if fase_txt in {"grupo", "grupos", "classificatoria", "classificatorias"}:
             p["fase_normalizada"] = "grupos"

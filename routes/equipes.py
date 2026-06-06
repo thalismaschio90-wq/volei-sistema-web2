@@ -46,9 +46,6 @@ from banco import (
     validar_edicao_atletas_equipe,
     equipe_tem_partida_iniciada,
     listar_partidas,
-    listar_partidas_equipe_resumo,
-    contar_atletas_equipe_status,
-    buscar_competicao_resumo,
     listar_grupos,
     listar_equipes_por_grupo,
     listar_equipes_por_grupos_competicao,
@@ -994,31 +991,24 @@ def painel_equipe_inicio_view():
         flash("Não foi possível carregar essa competição para a equipe. Escolha novamente.", "erro")
         return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
-    # Entrada rápida da equipe: o dashboard não precisa transferir todos os atletas
-    # nem todas as partidas da competição. Traz apenas contadores e partidas da equipe.
+    atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
     controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
-    resumo_atletas = contar_atletas_equipe_status(equipe["competicao"], equipe["nome"])
-    competicao_cfg = buscar_competicao_resumo(equipe["competicao"]) or {"nome": equipe["competicao"]}
-    partidas_leves = listar_partidas_equipe_resumo(equipe["competicao"], equipe["nome"])
-    try:
-        partidas = aplicar_placar_exibicao_lista(partidas_leves, competicao_cfg)
-    except Exception:
-        partidas = partidas_leves
+    partidas = _preparar_partidas_para_equipe(equipe)
 
-    for p in partidas:
-        p["fase_label"] = _fase_label_partida_equipe((p.get("fase") or "grupos").strip().lower())
-        p["fase_ordem"] = _ordem_fase_partida_equipe((p.get("fase") or "grupos").strip().lower())
-        p["status_visual"] = _status_visual_partida_equipe(p)
-        p["ao_vivo"] = _partida_ao_vivo_equipe(p)
-        p["finalizada"] = _partida_finalizada_equipe(p)
-        p["parciais_formatadas"] = _parciais_partida_equipe(p)
-        p["minha_partida"] = True
-
-    atletas = []
-    total_atletas = int(resumo_atletas.get("total") or 0)
-    atletas_aprovados = [None] * int(resumo_atletas.get("aprovados") or 0)
-    atletas_pendentes = [None] * int(resumo_atletas.get("pendentes") or 0)
-    atletas_reprovados = [None] * int(resumo_atletas.get("reprovados") or 0)
+    total_atletas = len(atletas)
+    atletas_aprovados = [
+        a for a in atletas
+        if (a.get("status") or "").strip().lower() == "aprovado"
+    ]
+    atletas_pendentes = [
+        a for a in atletas
+        if (a.get("status") or "").strip().lower()
+        in {"", "pendente", "aguardando", "em análise", "em analise", "em_analise"}
+    ]
+    atletas_reprovados = [
+        a for a in atletas
+        if (a.get("status") or "").strip().lower() == "reprovado"
+    ]
 
     limite_atletas = 12
     try:
