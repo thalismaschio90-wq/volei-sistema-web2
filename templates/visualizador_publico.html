@@ -287,40 +287,33 @@
     <div class="card vazio">Nenhum grupo criado ainda para exibir classificação.</div>
     {% endif %}
 
-    {% set avanco_publico = avanco if avanco is defined and avanco else {} %}
-    {% if avanco_publico.get('jogos') %}
+    {% if avanco_espelho is defined and avanco_espelho %}
     <section class="bracket-publico">
         <h2>Avanço / Chaveamento</h2>
-        <div class="hint">O quadro mostra a configuração oficial do avanço. Antes das classificatórias terminarem, aparece a origem; depois de gerar o avanço, os confrontos passam a mostrar os times reais.</div>
-        {% for serie in avanco_publico.get('series', []) if serie.get('ativa') %}
-            {% set jogos_serie = avanco_publico.get('jogos', []) | selectattr('serie', 'equalto', serie.get('id')) | list %}
-            {% if jogos_serie %}
+        <div class="hint">O quadro mostra como a próxima fase foi configurada. Quando uma posição já estiver definida, o nome real da equipe entra automaticamente no lugar da origem.</div>
+        {% for serie in avanco_espelho %}
             <div class="bracket-serie">
-                <h3>{{ serie.get('nome') or serie.get('id') }}</h3>
+                <h3>{{ serie.nome }}</h3>
                 <div class="bracket-scroll">
                     <div class="bracket-board">
-                        {% for fase in serie.get('fases', []) %}
-                            {% set jogos_fase = jogos_serie | selectattr('fase', 'equalto', fase) | list %}
-                            {% if jogos_fase %}
+                        {% for fase in serie.fases %}
                             <div class="bracket-col">
-                                <div class="bracket-fase">
-                                    {% if fase == 'quartas' %}Quartas{% elif fase == 'semifinal' %}Semifinal{% elif fase == 'final' %}Final{% elif fase == 'oitavas' %}Oitavas{% elif fase == 'terceiro_lugar' %}3º lugar{% else %}{{ fase }}{% endif %}
-                                </div>
-                                {% for jogo in jogos_fase|sort(attribute='ordem') %}
+                                <div class="bracket-fase">{{ fase.nome }}</div>
+                                {% for jogo in fase.jogos %}
                                 <div class="bracket-card">
-                                    <div class="bracket-card-top"><span>{{ jogo.get('id') }}</span><span>{{ serie.get('nome') }}</span></div>
-                                    <div class="bracket-team"><span>A</span>{{ jogo.get('origem_a', {}).get('label') or jogo.get('origem_a', {}).get('valor') or 'A definir' }}</div>
-                                    <div class="bracket-team"><span>B</span>{{ jogo.get('origem_b', {}).get('label') or jogo.get('origem_b', {}).get('valor') or 'A definir' }}</div>
-                                    {% if jogo.get('proximo_vencedor') %}<div class="bracket-meta">Vencedor → {{ jogo.get('proximo_vencedor') }}</div>{% endif %}
+                                    <div class="bracket-card-top"><span>{{ jogo.id }}</span><span>{{ jogo.status_exibicao }}</span></div>
+                                    <div class="bracket-team"><span>A</span>{{ jogo.equipe_a or jogo.origem_a_label }}</div>
+                                    <div class="bracket-team"><span>B</span>{{ jogo.equipe_b or jogo.origem_b_label }}</div>
+                                    {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
+                                        <div class="bracket-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
+                                    {% endif %}
                                 </div>
                                 {% endfor %}
                             </div>
-                            {% endif %}
                         {% endfor %}
                     </div>
                 </div>
             </div>
-            {% endif %}
         {% endfor %}
     </section>
     {% endif %}

@@ -27,6 +27,7 @@
 .ap-meta { color:var(--muted); font-weight:800; font-size:13px; margin-bottom:8px; }
 .ap-score-inline { display:inline-flex; align-items:center; gap:6px; margin:0 0 8px; padding:6px 10px; border-radius:12px; background:#f1f5f9; color:#0f2f4a; font-weight:1000; font-size:15px; }
 .ap-score-inline small { color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
+.ap-badge-avanco { background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; margin-left:8px; }
 .ap-badge { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:1000; text-transform:uppercase; white-space:nowrap; }
 .ap-live { background:#dcfce7; color:#166534; }
 .ap-pre { background:#fef3c7; color:#92400e; }
@@ -147,7 +148,8 @@
     .ap-team-name { max-width:112px; }
     .ap-escudo-mini { width:28px; height:28px; }
     .ap-meta { font-size:12px; margin-bottom:6px; }
-    .ap-badge { font-size:10px; padding:4px 8px; }
+    .ap-badge-avanco { background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; margin-left:8px; }
+.ap-badge { font-size:10px; padding:4px 8px; }
     .ap-score-inline { display:none; }
     .ap-score-box { min-width:74px; padding:8px; }
     .ap-score-num { font-size:23px; }
@@ -297,7 +299,10 @@ document.addEventListener("keydown", function(e) {
                 <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}"><span class="ap-team-name">{{ p.equipe_b }}</span></span>
             </div>
             <div class="ap-meta">
-                Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {{ p.grupo or '-' }}
+                Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {% if p.fase_normalizada and p.fase_normalizada != 'grupos' %}{{ p.fase_normalizada|replace('_',' ')|title }}{% else %}{{ p.grupo or '-' }}{% endif %}
+                {% if (p.origem or '') is string and (p.origem or '').startswith('avanco:') and not jogo_finalizado %}
+                    <span class="ap-badge ap-badge-avanco">Novo jogo do avanço</span>
+                {% endif %}
             </div>
             {% set placar_tipo = p.placar_exibicao_tipo if p.placar_exibicao_tipo is defined and p.placar_exibicao_tipo else ('pontos' if p.set_unico else 'sets') %}
             {% if placar_tipo == 'pontos' %}

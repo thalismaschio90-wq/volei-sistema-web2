@@ -37,6 +37,7 @@ from banco import (
     inicializar_configuracao_agenda_competicao,
     _buscar_colunas_tabela,
     buscar_avanco_config_competicao,
+    gerar_partidas_avanco_competicao,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -116,22 +117,166 @@ def _fases_disponiveis(competicao):
 
 
 def _fase_subaba_para_banco(fase_subaba):
+    fase_subaba = (fase_subaba or "classificatorias").strip().lower()
     mapa = {
         "classificatorias": "grupos",
+        "oitavas": "oitavas",
         "quartas": "quartas",
         "semifinais": "semifinal",
+        "semifinal": "semifinal",
         "finais": "final",
+        "final": "final",
+        "terceiro_lugar": "terceiro_lugar",
+        "terceiro": "terceiro_lugar",
     }
     return mapa.get(fase_subaba, "grupos")
 
 
+def _fase_subaba_canonica(fase_subaba):
+    fase_banco = _fase_subaba_para_banco(fase_subaba)
+    mapa = {
+        "grupos": "classificatorias",
+        "semifinal": "semifinal",
+        "final": "final",
+    }
+    return mapa.get(fase_banco, fase_banco)
+
+
 def _nome_fase_mata_mata(fase_subaba):
     mapa = {
+        "oitavas": "Oitavas",
         "quartas": "Quartas",
         "semifinais": "Semifinal",
+        "semifinal": "Semifinal",
         "finais": "Final",
+        "final": "Final",
+        "terceiro_lugar": "3º lugar",
     }
-    return mapa.get(fase_subaba, "")
+    return mapa.get((fase_subaba or "").strip().lower(), "")
+
+
+FASES_AVANCO_ORDEM = ["oitavas", "quartas", "semifinal", "terceiro_lugar", "final"]
+FASES_AVANCO_LABELS = {
+    "classificatorias": "Classificatórias",
+    "oitavas": "Oitavas",
+    "quartas": "Quartas",
+    "semifinal": "Semifinal",
+    "terceiro_lugar": "3º lugar",
+    "final": "Final",
+}
+
+
+def _fases_do_avanco_para_tabela(avanco):
+    fases = []
+    for serie in (avanco or {}).get("series") or []:
+        if not serie.get("ativa", True):
+            continue
+        for fase in serie.get("fases") or []:
+            fase = _fase_subaba_canonica(fase)
+            if fase != "classificatorias" and fase not in fases:
+                fases.append(fase)
+
+    for jogo in (avanco or {}).get("jogos") or []:
+        fase = _fase_subaba_canonica(jogo.get("fase"))
+        if fase != "classificatorias" and fase not in fases:
+            fases.append(fase)
+
+    return sorted(fases, key=lambda f: FASES_AVANCO_ORDEM.index(f) if f in FASES_AVANCO_ORDEM else 99)
+
+
+def _series_do_avanco_por_fase(avanco, fase):
+    fase = _fase_subaba_canonica(fase)
+    series = []
+    ids_com_jogo = {
+        str(j.get("serie") or "").strip().lower()
+        for j in ((avanco or {}).get("jogos") or [])
+        if _fase_subaba_canonica(j.get("fase")) == fase
+    }
+    for serie in (avanco or {}).get("series") or []:
+        sid = str(serie.get("id") or "").strip().lower()
+        if not sid or not serie.get("ativa", True):
+            continue
+        fases = [_fase_subaba_canonica(f) for f in (serie.get("fases") or [])]
+        if fase in fases or sid in ids_com_jogo:
+            series.append({"id": sid, "nome": serie.get("nome") or sid.title()})
+    return series
+
+
+def _origem_partida_avanco(partida):
+    origem = str((partida or {}).get("origem") or "").strip()
+    if not origem.startswith("avanco:"):
+        return "", ""
+    partes = origem.split(":", 2)
+    if len(partes) >= 3:
+        return partes[1].strip().lower(), partes[2].strip()
+    return "", ""
+
+
+def _filtrar_partidas_por_serie_avanco(partidas, serie):
+    serie = str(serie or "").strip().lower()
+    if not serie:
+        return partidas
+    filtradas = []
+    for p in partidas or []:
+        serie_p, _jogo_id = _origem_partida_avanco(p)
+        if serie_p == serie or not serie_p:
+            filtradas.append(p)
+    return filtradas
+
+
+def _label_origem_avanco(origem):
+    origem = origem if isinstance(origem, dict) else {}
+    return origem.get("label") or origem.get("valor") or "A definir"
+
+
+def _montar_espelho_avanco(avanco, partidas):
+    mapa_partidas = {}
+    for p in partidas or []:
+        serie, jogo_id = _origem_partida_avanco(p)
+        if serie and jogo_id:
+            mapa_partidas[(serie, jogo_id)] = p
+
+    saida = []
+    for serie in (avanco or {}).get("series") or []:
+        if not serie.get("ativa", True):
+            continue
+        sid = str(serie.get("id") or "").strip().lower()
+        if not sid:
+            continue
+        item_serie = {
+            "id": sid,
+            "nome": serie.get("nome") or sid.title(),
+            "fases": [],
+        }
+        for fase in _fases_do_avanco_para_tabela({"series": [serie], "jogos": (avanco or {}).get("jogos") or []}):
+            jogos = []
+            for jogo in (avanco or {}).get("jogos") or []:
+                if str(jogo.get("serie") or "").strip().lower() != sid:
+                    continue
+                if _fase_subaba_canonica(jogo.get("fase")) != fase:
+                    continue
+                jid = str(jogo.get("id") or "").strip()
+                partida = mapa_partidas.get((sid, jid))
+                equipe_a = (partida or {}).get("equipe_a") or ""
+                equipe_b = (partida or {}).get("equipe_b") or ""
+                jogos.append({
+                    "id": jid,
+                    "ordem": jogo.get("ordem") or 999,
+                    "fase": fase,
+                    "origem_a_label": _label_origem_avanco(jogo.get("origem_a")),
+                    "origem_b_label": _label_origem_avanco(jogo.get("origem_b")),
+                    "equipe_a": "" if equipe_a in {"A definir", ""} else equipe_a,
+                    "equipe_b": "" if equipe_b in {"A definir", ""} else equipe_b,
+                    "partida_id": (partida or {}).get("id"),
+                    "status_exibicao": (partida or {}).get("status_exibicao") or "Aguardando origem",
+                    "proximo_vencedor": jogo.get("proximo_vencedor") or "",
+                    "proximo_perdedor": jogo.get("proximo_perdedor") or "",
+                })
+            if jogos:
+                item_serie["fases"].append({"id": fase, "nome": FASES_AVANCO_LABELS.get(fase, fase), "jogos": sorted(jogos, key=lambda j: j.get("ordem") or 999)})
+        if item_serie["fases"]:
+            saida.append(item_serie)
+    return saida
 
 
 def _to_int_or_none(valor):
@@ -573,6 +718,8 @@ def _fase_partida_normalizada(partida):
         return "quartas"
     if "semi" in fase:
         return "semifinal"
+    if "terceiro" in fase or "3" in fase and "lugar" in fase:
+        return "terceiro_lugar"
     if "final" in fase:
         return "final"
 
@@ -588,10 +735,14 @@ def _filtrar_partidas_por_fase(partidas, fase_subaba):
             return fase == "grupos"
         if fase_subaba == "quartas":
             return fase == "quartas"
-        if fase_subaba == "semifinais":
+        if fase_subaba in {"oitavas"}:
+            return fase == "oitavas"
+        if fase_subaba in {"semifinais", "semifinal"}:
             return fase in {"semifinal", "semifinais"}
-        if fase_subaba == "finais":
+        if fase_subaba in {"finais", "final"}:
             return fase == "final"
+        if fase_subaba == "terceiro_lugar":
+            return fase == "terceiro_lugar"
 
         return False
 
@@ -1413,6 +1564,7 @@ def visualizador_publico(competicao_nome):
     colunas_classificacao = _colunas_classificacao_publica(competicao)
     set_unico = _competicao_eh_set_unico_tabela(competicao)
     avanco = buscar_avanco_config_competicao(competicao_nome)
+    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas)
 
     return render_template(
         "visualizador_publico.html",
@@ -1424,6 +1576,8 @@ def visualizador_publico(competicao_nome):
         colunas_classificacao=colunas_classificacao,
         set_unico=set_unico,
         avanco=avanco,
+        avanco_espelho=avanco_espelho,
+        fase_labels=FASES_AVANCO_LABELS,
     )
 
 
@@ -1451,9 +1605,26 @@ def tabela_view():
     if aba not in {"geracao", "partidas", "classificacao", "visualizador"}:
         aba = "geracao"
 
-    fase_subaba = (request.args.get("fase") or "classificatorias").strip().lower()
-    if fase_subaba not in {"classificatorias", "quartas", "semifinais", "finais"}:
+    avanco = buscar_avanco_config_competicao(competicao["nome"])
+    avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
+
+    fase_subaba = _fase_subaba_canonica(request.args.get("fase") or "classificatorias")
+    fases_validas = {"classificatorias", "quartas", "semifinal", "final", "oitavas", "terceiro_lugar"}
+    if fase_subaba not in fases_validas:
         fase_subaba = "classificatorias"
+
+    # A Tabela agora espelha o Avanço: se houver chaveamento configurado,
+    # atualiza/cria as partidas do avanço antes de listar os jogos.
+    if avanco.get("jogos"):
+        try:
+            gerar_partidas_avanco_competicao(competicao["nome"])
+        except Exception as e:
+            print("AVISO tabela/gerar_partidas_avanco:", repr(e))
+
+    series_fase = _series_do_avanco_por_fase(avanco, fase_subaba) if fase_subaba != "classificatorias" else []
+    serie_ativa = (request.args.get("serie") or "").strip().lower()
+    if series_fase and not any(s.get("id") == serie_ativa for s in series_fase):
+        serie_ativa = series_fase[0].get("id")
 
     quadras = garantir_quadras_competicao(competicao["nome"], competicao.get("qtd_quadras") or 1)
     try:
@@ -1477,6 +1648,9 @@ def tabela_view():
 
     partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
     partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
+    if fase_subaba != "classificatorias":
+        partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa)
+    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas)
     classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
@@ -1499,6 +1673,12 @@ def tabela_view():
         colunas_classificacao=colunas_classificacao,
         aba_ativa=aba,
         fase_ativa=fase_subaba,
+        fase_labels=FASES_AVANCO_LABELS,
+        avanco=avanco,
+        avanco_fases_tabs=avanco_fases_tabs,
+        avanco_series_fase=series_fase,
+        avanco_serie_ativa=serie_ativa,
+        avanco_espelho=avanco_espelho,
         competicao_travada=competicao_esta_travada(competicao["nome"]),
         config_agenda=config_agenda,
         config_geracao=config_agenda,

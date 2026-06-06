@@ -75,6 +75,7 @@ from banco import (
     atualizar_atleta_conferencia_apontador,
     listar_dados_finalizacao_partida,
     salvar_destaque_partida,
+    gerar_partidas_avanco_competicao,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
@@ -92,6 +93,20 @@ try:
 except Exception:
     def offline_global_habilitado():
         return False
+
+def _atualizar_avanco_apos_finalizacao(competicao):
+    """Atualiza/cria partidas do Avanço sem travar o apontador.
+
+    É chamada ao abrir o painel e depois de finalizar/lançar resultado, para que
+    quartas, semifinais, finais, 3º lugar, Série Ouro/Prata etc. apareçam
+    automaticamente quando suas origens forem resolvidas.
+    """
+    try:
+        return gerar_partidas_avanco_competicao(competicao)
+    except Exception as e:
+        print("AVISO apontador/atualizar_avanco_apos_finalizacao:", repr(e), flush=True)
+        return {}
+
 
 apontadores_bp = Blueprint("apontadores", __name__)
 
@@ -1497,6 +1512,10 @@ def painel_apontador():
 def entrar_competicao_apontador(competicao):
     session["competicao_apontador"] = competicao
 
+    # Mantém o painel do apontador sincronizado com o desenho do Avanço.
+    # Se uma origem já foi resolvida, o jogo aparece aqui sem precisar abrir a tabela.
+    _atualizar_avanco_apos_finalizacao(competicao)
+
     partidas = listar_partidas(competicao)
     competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
     partidas = normalizar_status_partidas_apontador(partidas, competicao)
@@ -1512,6 +1531,19 @@ def entrar_competicao_apontador(competicao):
         except Exception:
             p["modo_operacao_resolvido"] = "simples"
         p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
+        fase_txt = str(p.get("fase") or p.get("fase_partida") or "grupos").strip().lower()
+        if fase_txt in {"grupo", "grupos", "classificatoria", "classificatorias"}:
+            p["fase_normalizada"] = "grupos"
+        elif "quarta" in fase_txt:
+            p["fase_normalizada"] = "quartas"
+        elif "semi" in fase_txt:
+            p["fase_normalizada"] = "semifinal"
+        elif "terceiro" in fase_txt or "3" in fase_txt and "lugar" in fase_txt:
+            p["fase_normalizada"] = "terceiro_lugar"
+        elif "final" in fase_txt:
+            p["fase_normalizada"] = "final"
+        else:
+            p["fase_normalizada"] = fase_txt or "grupos"
 
     try:
         pin_operacional = garantir_pin_operacional_apontador(competicao, _login_apontador_sessao())
@@ -1769,7 +1801,16 @@ def salvar_resultado_manual_view(competicao, partida_id):
         origem=origem,
     )
 
-    flash(msg, "sucesso" if ok else "erro")
+    if ok:
+        resultado_avanco = _atualizar_avanco_apos_finalizacao(competicao)
+        novas = (resultado_avanco or {}).get("criadas", 0)
+        atualizadas = (resultado_avanco or {}).get("atualizadas", 0)
+        if novas or atualizadas:
+            flash(f"{msg} Novo(s) jogo(s) do avanço atualizado(s).", "sucesso")
+        else:
+            flash(msg, "sucesso")
+    else:
+        flash(msg, "erro")
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
 
@@ -3810,7 +3851,10 @@ def encerrar_partida_view(competicao, partida_id):
             estado = dict(obter_estado_cache(partida_id) or estado_final_cliente or {})
 
         encerrar_partida(partida_id, competicao, observacoes)
+        resultado_avanco = _atualizar_avanco_apos_finalizacao(competicao)
         estado = buscar_estado_jogo_partida(partida_id, competicao) or estado or {}
+        if resultado_avanco:
+            estado["avanco_atualizado"] = resultado_avanco
         estado["encerrado"] = True
         estado["partida_finalizada"] = True
         estado["status_jogo"] = "finalizada"

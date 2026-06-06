@@ -480,6 +480,23 @@
     .visualizador-preview, .visualizador-preview iframe { min-height:520px; }
     .acoes-partida .edicao-mata-mata { grid-template-columns:1fr; }
 }
+.avanco-espelho { margin-bottom:18px; border:1px solid var(--border); border-radius:18px; padding:16px; background:linear-gradient(180deg, rgba(37,99,235,.06), rgba(255,255,255,.02)); }
+.avanco-espelho-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+.avanco-espelho-title { font-size:18px; font-weight:1000; color:var(--text); }
+.avanco-espelho-hint { color:var(--muted); font-size:13px; font-weight:700; line-height:1.45; margin-top:4px; }
+.avanco-serie-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 16px; }
+.avanco-serie-tab { padding:8px 13px; border:1px solid var(--border); border-radius:999px; font-weight:900; text-decoration:none; color:inherit; background:rgba(148,163,184,.08); }
+.avanco-serie-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
+.avanco-board-mini { display:flex; gap:14px; overflow-x:auto; padding:4px 2px 8px; }
+.avanco-col-mini { min-width:245px; display:grid; gap:10px; align-content:start; }
+.avanco-col-mini-title { font-weight:1000; color:#123852; text-transform:uppercase; font-size:12px; letter-spacing:.08em; }
+.avanco-card-mini { border:1px solid var(--border); border-radius:15px; background:#fff; padding:12px; box-shadow:0 8px 18px rgba(15,23,42,.06); }
+.avanco-card-mini-top { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); font-weight:900; margin-bottom:8px; }
+.avanco-slot-mini { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:8px 9px; border-radius:11px; background:rgba(148,163,184,.08); margin-bottom:6px; font-weight:900; }
+.avanco-slot-mini .origem { color:var(--muted); font-size:11px; font-weight:800; }
+.avanco-slot-mini.resolvido { background:rgba(34,197,94,.10); }
+.avanco-card-mini-meta { color:var(--muted); font-size:12px; font-weight:800; line-height:1.35; margin-top:6px; }
+
 </style>
 
 <div class="tabela-tabs">
@@ -656,34 +673,33 @@
 {% if aba_ativa == 'partidas' %}
 <div class="tabela-tabs">
     <a class="tabela-tab {% if fase_ativa == 'classificatorias' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='classificatorias') }}">Classificatórias</a>
-    {% if tem_quartas %}
-        <a class="tabela-tab {% if fase_ativa == 'quartas' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='quartas') }}">Quartas</a>
-    {% endif %}
-    {% if tem_semifinais %}
-        <a class="tabela-tab {% if fase_ativa == 'semifinais' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='semifinais') }}">Semifinais</a>
-    {% endif %}
-    {% if tem_finais %}
-        <a class="tabela-tab {% if fase_ativa == 'finais' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='finais') }}">Finais</a>
+    {% if avanco_fases_tabs %}
+        {% for fase_tab in avanco_fases_tabs %}
+            <a class="tabela-tab {% if fase_ativa == fase_tab %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase=fase_tab) }}">{{ fase_labels.get(fase_tab, fase_tab) }}</a>
+        {% endfor %}
+    {% else %}
+        {% if tem_quartas %}<a class="tabela-tab {% if fase_ativa == 'quartas' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='quartas') }}">Quartas</a>{% endif %}
+        {% if tem_semifinais %}<a class="tabela-tab {% if fase_ativa in ['semifinal','semifinais'] %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='semifinal') }}">Semifinais</a>{% endif %}
+        {% if tem_finais %}<a class="tabela-tab {% if fase_ativa in ['final','finais'] %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='final') }}">Finais</a>{% endif %}
     {% endif %}
 </div>
 
 <div class="card-painel">
     <div class="topo-secao" style="margin-bottom: 12px;">
         <h3 style="margin:0;">
-            {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% endif %}
-            {% if fase_ativa == 'quartas' %}Quartas de final{% endif %}
-            {% if fase_ativa == 'semifinais' %}Semifinais{% endif %}
-            {% if fase_ativa == 'finais' %}Finais{% endif %}
+            {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% else %}{{ fase_labels.get(fase_ativa, fase_ativa) }}{% endif %}
         </h3>
     </div>
 
     <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        {% if fase_ativa == 'classificatorias' %}
         <form method="post" action="{{ url_for('tabela.gerar_automatico') }}" onsubmit="return confirm('Gerar automaticamente vai substituir os jogos ainda não iniciados desta fase. Deseja continuar?');">
             <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
-            <button class="btn-padrao" type="submit" {% if fase_atual_travada %}disabled{% endif %}>
-                {% if fase_ativa == 'classificatorias' %}Gerar jogos automaticamente{% else %}Gerar mata-mata automaticamente{% endif %}
-            </button>
+            <button class="btn-padrao" type="submit" {% if fase_atual_travada %}disabled{% endif %}>Gerar jogos automaticamente</button>
         </form>
+        {% else %}
+        <a class="btn-padrao" href="{{ url_for('competicoes.avanco_competicao_view') }}">Editar desenho do avanço</a>
+        {% endif %}
 
         {% if fase_ativa == 'classificatorias' %}
         <button
@@ -695,7 +711,7 @@
         {% endif %}
 
         {% if fase_ativa != 'classificatorias' %}
-        <div style="color: var(--muted); display:flex; align-items:center;">No mata-mata, o grupo não é obrigatório e não precisa esperar a classificatória acabar. Você pode selecionar as equipes e salvar manualmente.</div>
+        <div style="color: var(--muted); display:flex; align-items:center;">Esta fase vem do quadro configurado em Avanço. A tabela mostra os jogos e permite ajuste manual fino se algum confronto precisar ser corrigido.</div>
         {% endif %}
 
         <form method="post" action="{{ url_for('tabela.limpar_fase_view') }}" onsubmit="return confirm('Deseja apagar todas as partidas desta fase?');">
@@ -791,8 +807,58 @@
 </div>
 {% endif %}
 
+{% if fase_ativa != 'classificatorias' and avanco_series_fase %}
+<div class="avanco-serie-tabs">
+    {% for serie in avanco_series_fase %}
+        <a class="avanco-serie-tab {% if avanco_serie_ativa == serie.id %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase=fase_ativa, serie=serie.id) }}">{{ serie.nome }}</a>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if fase_ativa != 'classificatorias' and avanco_espelho %}
+<div class="avanco-espelho">
+    <div class="avanco-espelho-head">
+        <div>
+            <div class="avanco-espelho-title">Espelho do Avanço</div>
+            <div class="avanco-espelho-hint">O quadro abaixo vem da aba Avanço. Enquanto a origem não estiver resolvida, aparece “1º Grupo A”, “Vencedor J1” etc.; quando o jogo/classificação fecha, a equipe entra automaticamente.</div>
+        </div>
+    </div>
+    {% for serie in avanco_espelho %}
+        {% if not avanco_serie_ativa or serie.id == avanco_serie_ativa %}
+        <div style="font-weight:1000; margin:10px 0 8px; color:#123852;">{{ serie.nome }}</div>
+        <div class="avanco-board-mini">
+            {% for fase in serie.fases %}
+                {% if fase.id == fase_ativa %}
+                <div class="avanco-col-mini">
+                    <div class="avanco-col-mini-title">{{ fase.nome }}</div>
+                    {% for jogo in fase.jogos %}
+                    <div class="avanco-card-mini">
+                        <div class="avanco-card-mini-top"><span>{{ jogo.id }}</span><span>{{ jogo.status_exibicao }}</span></div>
+                        <div class="avanco-slot-mini {% if jogo.equipe_a %}resolvido{% endif %}">
+                            <span>{{ jogo.equipe_a or jogo.origem_a_label }}</span>
+                            {% if jogo.equipe_a %}<span class="origem">{{ jogo.origem_a_label }}</span>{% endif %}
+                        </div>
+                        <div class="avanco-slot-mini {% if jogo.equipe_b %}resolvido{% endif %}">
+                            <span>{{ jogo.equipe_b or jogo.origem_b_label }}</span>
+                            {% if jogo.equipe_b %}<span class="origem">{{ jogo.origem_b_label }}</span>{% endif %}
+                        </div>
+                        {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
+                            <div class="avanco-card-mini-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if fase_ativa == 'classificatorias' or not avanco_fases_tabs %}
 <div class="card-painel">
-    <h3 style="margin-top: 0;">Criar jogo manual</h3>
+    <h3 style="margin-top: 0;">{% if fase_ativa == 'classificatorias' %}Criar jogo manual{% else %}Criar jogo extra/manual{% endif %}</h3>
 
     <form id="form-nova-partida" method="post" action="{{ url_for('tabela.nova_partida') }}" novalidate>
         <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
@@ -811,7 +877,7 @@
                 <input type="hidden" name="grupo" value="">
                 <div style="min-width:180px; flex:1;">
                     <label>Identificação da fase</label>
-                    <input type="text" value="{% if fase_ativa == 'quartas' %}Quartas de final{% elif fase_ativa == 'semifinais' %}Semifinal{% else %}Final{% endif %}" disabled>
+                    <input type="text" value="{{ fase_labels.get(fase_ativa, fase_ativa) }}" disabled>
                 </div>
             {% endif %}
 
@@ -851,19 +917,17 @@
 
             {% if fase_ativa != 'classificatorias' %}
             <div style="width:100%; color:var(--muted); font-size:13px; margin-top:-4px;">
-                Nas quartas, semifinais e finais você pode criar antes da classificatória acabar. Selecione as equipes e salve; o grupo não é obrigatório.
+                Use isso apenas para jogo extra fora do desenho do Avanço. O chaveamento principal vem da aba Avanço.
             </div>
             {% endif %}
         </div>
     </form>
 </div>
+{% endif %}
 
 <div class="card-painel">
     <h3 style="margin-top: 0;">
-        {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% endif %}
-        {% if fase_ativa == 'quartas' %}Quartas de final{% endif %}
-        {% if fase_ativa == 'semifinais' %}Semifinais{% endif %}
-        {% if fase_ativa == 'finais' %}Finais{% endif %}
+        {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% else %}{{ fase_labels.get(fase_ativa, fase_ativa) }}{% endif %}
     </h3>
 
     {% if partidas_fase %}
