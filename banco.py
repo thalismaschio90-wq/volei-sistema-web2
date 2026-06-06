@@ -8786,12 +8786,30 @@ def _buscar_estado_jogo_partida_base(partida_id, competicao, garantir=False, per
 
 
 def buscar_estado_jogo_partida(partida_id, competicao):
-    return _buscar_estado_jogo_partida_base(
+    estado = _buscar_estado_jogo_partida_base(
         partida_id,
         competicao,
         garantir=False,
         permitir_reconstrucao=False,
     )
+
+    # Caminho rápido: se já tem rotação dos dois lados, não faz mais nada.
+    # Caminho de correção: se o cache/snapshot nasceu sem atletas, reconstrói
+    # uma única vez a partir da papeleta salva, sem varrer relatórios/tabelas pesadas.
+    try:
+        rot_a = (estado or {}).get("rotacao_a") or []
+        rot_b = (estado or {}).get("rotacao_b") or []
+        if _rotacao_estado_tem_atletas(rot_a) and _rotacao_estado_tem_atletas(rot_b):
+            return estado
+
+        partida = buscar_partida_operacional(partida_id, competicao)
+        if not partida:
+            return estado
+
+        return _reconstruir_e_salvar_snapshot(partida_id, competicao, partida) or estado
+    except Exception as e:
+        print("AVISO buscar_estado_jogo_partida/fallback_rotacao:", repr(e), flush=True)
+        return estado
 
 
 def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
@@ -13808,6 +13826,9 @@ def _normalizar_json_avanco(valor):
             "fase": str(jogo.get("fase") or "quartas").strip(),
             "ordem": int(jogo.get("ordem") or idx + 1),
             "data_hora": str(jogo.get("data_hora") or "").strip(),
+            "quadra_id": str(jogo.get("quadra_id") or "").strip(),
+            "quadra_nome": str(jogo.get("quadra_nome") or "").strip(),
+            "ginasio": str(jogo.get("ginasio") or jogo.get("local") or "").strip(),
             "origem_a": jogo.get("origem_a") if isinstance(jogo.get("origem_a"), dict) else {},
             "origem_b": jogo.get("origem_b") if isinstance(jogo.get("origem_b"), dict) else {},
             "proximo_vencedor": str(jogo.get("proximo_vencedor") or "").strip(),
@@ -13981,7 +14002,7 @@ def _calcular_classificacao_simples_avanco(nome_competicao):
         if str(p.get("fase") or "grupos").strip().lower() != "grupos":
             continue
         status = str(p.get("status") or p.get("status_jogo") or "").strip().lower()
-        if status not in {"finalizada", "finalizado", "encerrada", "encerrado"} and not p.get("finalizado_em"):
+        if status not in {"finalizada", "finalizado", "encerrada", "encerrado"} and not p.get("data_fim"):
             continue
         grupo = str(p.get("grupo") or "").strip().upper()
         if grupo not in tabela:
@@ -14077,7 +14098,7 @@ def _mapa_fechamento_classificatoria_avanco(nome_competicao):
         if grupo:
             grupos_info.setdefault(grupo, {"qtd_equipes": 0, "tem_partida": False, "pendentes": 0})
             grupos_info[grupo]["tem_partida"] = True
-            status_ok = _status_finalizado_avanco(p.get("status")) or _status_finalizado_avanco(p.get("status_jogo")) or bool(p.get("finalizado_em"))
+            status_ok = _status_finalizado_avanco(p.get("status")) or _status_finalizado_avanco(p.get("status_jogo")) or bool(p.get("data_fim"))
             if not status_ok:
                 grupos_info[grupo]["pendentes"] += 1
 
@@ -14091,7 +14112,7 @@ def _mapa_fechamento_classificatoria_avanco(nome_competicao):
     else:
         # Competição sem grupos: exige que todos os jogos classificatórios existentes estejam finalizados.
         geral_fechado = bool(classificatorias) and all(
-            _status_finalizado_avanco(p.get("status")) or _status_finalizado_avanco(p.get("status_jogo")) or bool(p.get("finalizado_em"))
+            _status_finalizado_avanco(p.get("status")) or _status_finalizado_avanco(p.get("status_jogo")) or bool(p.get("data_fim"))
             for p in classificatorias
         )
 
@@ -14237,7 +14258,7 @@ def _partida_finalizada_avanco(partida):
     if not partida:
         return False
     status = str(partida.get("status") or partida.get("status_jogo") or "").strip().lower()
-    return status in {"finalizada", "finalizado", "encerrada", "encerrado"} or bool(partida.get("finalizado_em"))
+    return status in {"finalizada", "finalizado", "encerrada", "encerrado"} or bool(partida.get("data_fim"))
 
 
 def _vencedor_perdedor_partida_avanco(partida):
@@ -14344,14 +14365,14 @@ def _limpar_partidas_avanco_prematuras_cur(cur, nome_competicao, origem_tag=None
     anteriores e evita duplicação visual na tabela/apontador.
     """
     params = [nome_competicao]
-    filtro_origem = "AND origem LIKE 'avanco:%'"
+    filtro_origem = "AND origem LIKE 'avanco:%%'"
     if origem_tag:
         filtro_origem = "AND origem = %s"
         params.append(origem_tag)
 
     cur.execute(f"""
         SELECT id, origem, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b,
-               pre_jogo_iniciado_em, pre_jogo_finalizado, finalizado_em
+               pre_jogo_iniciado_em, pre_jogo_finalizado, data_fim
         FROM partidas
         WHERE competicao = %s
           {filtro_origem}
@@ -14382,10 +14403,10 @@ def limpar_partidas_avanco_nao_iniciadas_competicao(nome_competicao):
 def _remover_duplicadas_avanco_cur(cur, nome_competicao):
     cur.execute("""
         SELECT id, origem, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b,
-               pre_jogo_iniciado_em, pre_jogo_finalizado, finalizado_em
+               pre_jogo_iniciado_em, pre_jogo_finalizado, data_fim
         FROM partidas
         WHERE competicao = %s
-          AND origem LIKE 'avanco:%'
+          AND origem LIKE 'avanco:%%'
         ORDER BY origem, id
     """, (nome_competicao,))
     por_origem = {}
@@ -14410,6 +14431,52 @@ def _remover_duplicadas_avanco_cur(cur, nome_competicao):
                 cur.execute("DELETE FROM partidas WHERE id = %s", (p["id"],))
                 removidas += 1
     return removidas
+
+
+def _resolver_agenda_jogo_avanco(nome_competicao, jogo):
+    """Resolve data/hora e quadra do quadro de avanço para a partida real.
+
+    O avanço guarda agenda no desenho do jogo. Quando a origem fecha, a partida
+    nasce já com data_hora, quadra_id e quadra_nome, sem precisar reagendar.
+    """
+    jogo = jogo if isinstance(jogo, dict) else {}
+    data_hora = str(jogo.get("data_hora") or "").strip() or None
+
+    quadra_id = None
+    quadra_nome = str(jogo.get("quadra_nome") or "").strip()
+    ginasio = str(jogo.get("ginasio") or jogo.get("local") or "").strip()
+
+    try:
+        if str(jogo.get("quadra_id") or "").strip():
+            quadra_id = int(jogo.get("quadra_id"))
+    except Exception:
+        quadra_id = None
+
+    try:
+        q = None
+        if quadra_id:
+            q = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
+        elif quadra_nome:
+            q = buscar_quadra_competicao_por_texto(nome_competicao, quadra_nome)
+
+        if q:
+            quadra_id = int(q.get("id") or quadra_id or 0) or None
+            quadra_nome = formatar_quadra_exibicao(q)
+            if not ginasio:
+                ginasio = str(q.get("local") or "").strip()
+    except Exception as e:
+        print("AVISO resolver_agenda_jogo_avanco:", repr(e))
+
+    # A coluna quadra antiga recebe o id quando houver, senão o texto da quadra.
+    quadra = str(quadra_id) if quadra_id else (quadra_nome or "")
+
+    return {
+        "data_hora": data_hora,
+        "quadra": quadra,
+        "quadra_id": quadra_id,
+        "quadra_nome": quadra_nome,
+        "ginasio": ginasio,
+    }
 
 
 def gerar_partidas_avanco_competicao(nome_competicao):
@@ -14449,7 +14516,7 @@ def gerar_partidas_avanco_competicao(nome_competicao):
 
                 cur.execute("""
                     SELECT id, origem, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b,
-                           pre_jogo_iniciado_em, pre_jogo_finalizado, finalizado_em
+                           pre_jogo_iniciado_em, pre_jogo_finalizado, data_fim
                     FROM partidas
                     WHERE competicao = %s AND origem = %s
                     ORDER BY id
@@ -14502,22 +14569,38 @@ def gerar_partidas_avanco_competicao(nome_competicao):
 
                 regra_efetiva = _regra_efetiva_jogo_avanco(avanco, jogo)
                 sets_max_avanco, sets_para_vencer_avanco = _sets_avanco_por_regra(regra_efetiva, comp_regra)
+                agenda_avanco = _resolver_agenda_jogo_avanco(nome_competicao, jogo)
 
                 if existente_principal:
                     if partida_ja_iniciou_ou_finalizou(existente_principal):
                         continue
 
-                    cur.execute("""
-                        UPDATE partidas
-                        SET fase = %s,
-                            grupo = NULL,
-                            equipe_a = %s,
-                            equipe_b = %s,
-                            ordem = %s,
-                            quadra = COALESCE(quadra, ''),
-                            status = COALESCE(NULLIF(status, ''), 'aguardando')
-                        WHERE id = %s
-                    """, (fase, equipe_a, equipe_b, idx, existente_principal["id"]))
+                    update_campos = [
+                        "fase = %s",
+                        "grupo = NULL",
+                        "equipe_a = %s",
+                        "equipe_b = %s",
+                        "ordem = %s",
+                        "status = COALESCE(NULLIF(status, ''), 'aguardando')",
+                    ]
+                    update_valores = [fase, equipe_a, equipe_b, idx]
+                    if "data_hora" in colunas:
+                        update_campos.append("data_hora = %s")
+                        update_valores.append(agenda_avanco.get("data_hora"))
+                    if "quadra" in colunas:
+                        update_campos.append("quadra = %s")
+                        update_valores.append(agenda_avanco.get("quadra") or "")
+                    if "quadra_id" in colunas:
+                        update_campos.append("quadra_id = %s")
+                        update_valores.append(agenda_avanco.get("quadra_id"))
+                    if "quadra_nome" in colunas:
+                        update_campos.append("quadra_nome = %s")
+                        update_valores.append(agenda_avanco.get("quadra_nome") or "")
+                    update_valores.append(existente_principal["id"])
+                    cur.execute(
+                        f"UPDATE partidas SET {', '.join(update_campos)} WHERE id = %s",
+                        tuple(update_valores),
+                    )
 
                     sets_update = []
                     sets_valores = []
@@ -14534,6 +14617,18 @@ def gerar_partidas_avanco_competicao(nome_competicao):
                 else:
                     campos = ["competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem", "origem", "status"]
                     valores = [nome_competicao, None, equipe_a, equipe_b, fase, idx, origem_tag, "aguardando"]
+                    if "data_hora" in colunas:
+                        campos.append("data_hora")
+                        valores.append(agenda_avanco.get("data_hora"))
+                    if "quadra" in colunas:
+                        campos.append("quadra")
+                        valores.append(agenda_avanco.get("quadra") or "")
+                    if "quadra_id" in colunas:
+                        campos.append("quadra_id")
+                        valores.append(agenda_avanco.get("quadra_id"))
+                    if "quadra_nome" in colunas:
+                        campos.append("quadra_nome")
+                        valores.append(agenda_avanco.get("quadra_nome") or "")
                     if "status_jogo" in colunas:
                         campos.append("status_jogo")
                         valores.append("aguardando")

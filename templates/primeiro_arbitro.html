@@ -374,7 +374,8 @@
         const URL_ESTADO = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
 
         let estadoAtual = ESTADO_INICIAL || {};
-        let invertido = false;
+        const CHAVE_INVERSAO_VISUAL = `arbitro_primeiro_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
+        let invertido = localStorage.getItem(CHAVE_INVERSAO_VISUAL) === "1";
         let ultimoSaqueChave = "";
         let ultimaAcaoTexto = "";
         let popupTimer = null;
@@ -577,6 +578,7 @@
 
         function inverterQuadra() {
             invertido = !invertido;
+            localStorage.setItem(CHAVE_INVERSAO_VISUAL, invertido ? "1" : "0");
             render();
         }
 

@@ -872,6 +872,9 @@ def _coletar_avanco_form():
     jogo_fases = request.form.getlist("jogo_fase[]")
     jogo_ordens = request.form.getlist("jogo_ordem[]")
     jogo_datas = request.form.getlist("jogo_data_hora[]")
+    jogo_quadras_id = request.form.getlist("jogo_quadra_id[]")
+    jogo_quadras_nome = request.form.getlist("jogo_quadra_nome[]")
+    jogo_ginasios = request.form.getlist("jogo_ginasio[]")
     prox_vencedores = request.form.getlist("jogo_proximo_vencedor[]")
     prox_perdedores = request.form.getlist("jogo_proximo_perdedor[]")
 
@@ -892,6 +895,9 @@ def _coletar_avanco_form():
             "fase": fase,
             "ordem": ordem,
             "data_hora": (jogo_datas[idx] if idx < len(jogo_datas) else "").strip(),
+            "quadra_id": (jogo_quadras_id[idx] if idx < len(jogo_quadras_id) else "").strip(),
+            "quadra_nome": (jogo_quadras_nome[idx] if idx < len(jogo_quadras_nome) else "").strip(),
+            "ginasio": (jogo_ginasios[idx] if idx < len(jogo_ginasios) else "").strip(),
             "origem_a": _origem_avanco_form(f"jogo_{idx}_a"),
             "origem_b": _origem_avanco_form(f"jogo_{idx}_b"),
             "proximo_vencedor": (prox_vencedores[idx] if idx < len(prox_vencedores) else "").strip(),

@@ -129,16 +129,47 @@ html, body {
     overflow: hidden;
 }
 .bolinha-saque {
-    width: 28px;
-    height: 28px;
+    width: 34px;
+    height: 34px;
     border-radius: 999px;
     background: rgba(255,255,255,.20);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
     box-shadow: inset 0 0 0 2px rgba(255,255,255,.20);
+    transition: box-shadow .28s ease, transform .28s ease, opacity .28s ease, filter .28s ease;
 }
 .bolinha-saque.ativo {
-    background: var(--gold);
-    box-shadow: 0 0 0 8px rgba(246,201,69,.16), 0 0 34px rgba(246,201,69,1);
+    background-image: url('/static/img/bola_volei.png');
+    background-color: transparent;
+    box-shadow: 0 0 0 8px rgba(246,201,69,.14), 0 0 34px rgba(246,201,69,.95);
+    transform: scale(1.12);
+    filter: drop-shadow(0 8px 14px rgba(0,0,0,.35));
 }
+.bolinha-saque.saindo {
+    opacity: .22;
+    transform: scale(.76);
+}
+#saqueAnimador {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background-image: url('/static/img/bola_volei.png');
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
+    filter: drop-shadow(0 8px 14px rgba(0,0,0,.35));
+    box-shadow: 0 0 0 8px rgba(246,201,69,.14), 0 0 34px rgba(246,201,69,.95);
+    pointer-events: none;
+    opacity: 0;
+    z-index: 9999;
+    transform: translate3d(-999px, -999px, 0) scale(1);
+    transition: transform .52s cubic-bezier(.22, 1, .36, 1), opacity .18s ease;
+}
+#saqueAnimador.mostrar { opacity: 1; }
 .escudo-telao {
     width: 104px;
     height: 104px;
@@ -175,9 +206,34 @@ html, body {
     color: #fff;
     font-variant-numeric: tabular-nums;
     text-shadow: 0 22px 40px rgba(0,0,0,.32);
+    perspective: 900px;
+    transform-style: preserve-3d;
+    overflow: visible;
 }
-.pontos.animar { animation: popPonto .24s ease-out; }
-@keyframes popPonto { 0%{transform:scale(1)}45%{transform:scale(1.06)}100%{transform:scale(1)} }
+.pontos.animar { animation: virarPaginaPlacar .58s cubic-bezier(.2,.85,.25,1); }
+.pontos.animar::after {
+    content: "";
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    top: 10%;
+    height: 48%;
+    border-radius: 28px 28px 12px 12px;
+    background: linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,0));
+    transform-origin: bottom center;
+    animation: brilhoPaginaPlacar .58s cubic-bezier(.2,.85,.25,1);
+    pointer-events: none;
+}
+@keyframes virarPaginaPlacar {
+    0% { transform: rotateX(0deg) scale(1); filter: brightness(1); }
+    42% { transform: rotateX(-72deg) scale(.985); filter: brightness(1.20); }
+    100% { transform: rotateX(0deg) scale(1); filter: brightness(1); }
+}
+@keyframes brilhoPaginaPlacar {
+    0% { opacity: 0; transform: rotateX(0deg); }
+    38% { opacity: .95; transform: rotateX(-58deg); }
+    100% { opacity: 0; transform: rotateX(0deg); }
+}
 .centro-vertical {
     min-width: 0;
     display: grid;
@@ -369,6 +425,7 @@ html, body {
 </style>
 </head>
 <body>
+<div id="saqueAnimador" aria-hidden="true"></div>
 <div id="telao" class="telao sem-jogo">
     <div class="topo">
         <div></div>
@@ -447,6 +504,7 @@ const setAtualEl = document.getElementById("setAtual");
 
 const saqueA = document.getElementById("saqueA");
 const saqueB = document.getElementById("saqueB");
+const saqueAnimador = document.getElementById("saqueAnimador");
 
 const btnInverter = document.getElementById("btnInverter");
 const rodapeEvolucao = document.getElementById("rodapeEvolucao");
@@ -456,8 +514,10 @@ const labelVerticalA = document.getElementById("labelVerticalA");
 const labelVerticalB = document.getElementById("labelVerticalB");
 
 let ultimoEstado = null;
-let ultimosPontosA = 0;
-let ultimosPontosB = 0;
+let ultimosPontosA = null;
+let ultimosPontosB = null;
+let ultimoSaqueVisual = "";
+let primeiraAplicacaoSaque = true;
 
 /*
   EVOLUÇÃO PERSISTENTE:
@@ -474,11 +534,8 @@ let evolucaoPontos = [];
 function chaveInversao(dados) {
     const partida = dados && dados.partida_id ? String(dados.partida_id) : "sem_partida";
     const ap = apontador || "sem_apontador";
-    return `placar_invertido_${ap}_${partida}`;
-}
-
-function chaveInversaoPartidaId(partidaId) {
-    return `placar_inversao_apontador_${String(partidaId || "sem_partida")}`;
+    // Inversão exclusiva do TELÃO: não lê nem grava a inversão do apontador.
+    return `telao_invertido_visual_${ap}_${partida}`;
 }
 
 function boolInversao(valor) {
@@ -486,39 +543,18 @@ function boolInversao(valor) {
 }
 
 function getInvertidoVisual(dados) {
-    // Prioridade máxima: o jogo do apontador manda esta flag.
-    // Assim o telão fica igual ao que o apontador está vendo.
-    if (dados && Object.prototype.hasOwnProperty.call(dados, "lados_invertidos_apontador")) {
-        return boolInversao(dados.lados_invertidos_apontador);
-    }
-    if (dados && Object.prototype.hasOwnProperty.call(dados, "lados_invertidos")) {
-        return boolInversao(dados.lados_invertidos);
-    }
-
-    const partidaId = dados && dados.partida_id ? String(dados.partida_id) : "";
-    if (partidaId) {
-        try {
-            const salvo = JSON.parse(localStorage.getItem(chaveInversaoPartidaId(partidaId)) || "null");
-            if (salvo && Object.prototype.hasOwnProperty.call(salvo, "invertido")) {
-                return boolInversao(salvo.invertido);
-            }
-        } catch (e) {}
-    }
-
-    return localStorage.getItem(chaveInversao(dados)) === "1";
+    // 100% visual e local desta tela.
+    // Não usa lados_invertidos_apontador/lados_invertidos vindos do socket,
+    // para o telão não mexer e não seguir a lógica do apontador.
+    return localStorage.getItem(chaveInversao(dados || {})) === "1";
 }
 
 function setInvertidoVisual(dados, valor) {
-    localStorage.setItem(chaveInversao(dados), valor ? "1" : "0");
-    if (dados) {
-        dados.lados_invertidos_apontador = !!valor;
-        dados.lados_invertidos = !!valor;
-    }
+    // Salva apenas no navegador do telão. Não altera payload, banco, socket ou estado real.
+    localStorage.setItem(chaveInversao(dados || {}), valor ? "1" : "0");
 }
 
 btnInverter.addEventListener("click", function () {
-    // Botão local do telão fica só para emergência.
-    // Quando o apontador inverter, o evento dele sobrescreve este valor.
     const atual = getInvertidoVisual(ultimoEstado || {});
     setInvertidoVisual(ultimoEstado || {}, !atual);
     if (ultimoEstado) aplicarEstado(ultimoEstado);
@@ -530,34 +566,15 @@ socket.on("connect", () => {
     }
 });
 
-socket.on("inversao_lados_apontador", (dados) => {
-    if (!dados || typeof dados !== "object") return;
-    const partidaId = String(dados.partida_id || "");
-
-    if (ultimoEstado && partidaId && String(ultimoEstado.partida_id || "") !== partidaId) {
-        return;
-    }
-
-    const invertido = boolInversao(dados.lados_invertidos_apontador ?? dados.invertido);
-    if (ultimoEstado) {
-        ultimoEstado.lados_invertidos_apontador = invertido;
-        ultimoEstado.lados_invertidos = invertido;
-        aplicarEstado(ultimoEstado);
-    }
+socket.on("inversao_lados_apontador", () => {
+    // O telão agora ignora a inversão do apontador.
+    // A inversão desta tela é somente visual/local e permanece salva no localStorage.
 });
 
 window.addEventListener("storage", (ev) => {
-    if (!ev.key || !ev.key.startsWith("placar_inversao_apontador_")) return;
-    if (!ultimoEstado) return;
-    try {
-        const dados = JSON.parse(ev.newValue || "{}");
-        const partidaId = String(dados.partida_id || "");
-        if (partidaId && String(ultimoEstado.partida_id || "") !== partidaId) return;
-        const invertido = boolInversao(dados.lados_invertidos_apontador ?? dados.invertido);
-        ultimoEstado.lados_invertidos_apontador = invertido;
-        ultimoEstado.lados_invertidos = invertido;
-        aplicarEstado(ultimoEstado);
-    } catch (e) {}
+    // Reaplica apenas quando outra aba deste mesmo telão alterar a chave visual do telão.
+    if (!ev.key || !ev.key.startsWith("telao_invertido_visual_")) return;
+    if (ultimoEstado) aplicarEstado(ultimoEstado);
 });
 
 function normalizarLado(valor) {
@@ -787,20 +804,84 @@ function renderizarEvolucao(mostrar) {
     }
 }
 
-function animarSeMudou(el, novo, antigo) {
-    const n = Number(novo) || 0;
-    const a = Number(antigo) || 0;
+function animarPontoReal(el) {
+    if (!el) return;
+    el.classList.remove("animar");
+    void el.offsetWidth;
+    el.classList.add("animar");
+}
 
-    if (n !== a) {
-        el.classList.remove("animar");
-        void el.offsetWidth;
-        el.classList.add("animar");
-    }
+function descobrirLadoPontuouOriginal(pAOriginal, pBOriginal) {
+    if (ultimosPontosA === null || ultimosPontosB === null) return "";
+
+    const antigoA = Number(ultimosPontosA) || 0;
+    const antigoB = Number(ultimosPontosB) || 0;
+    const novoA = Number(pAOriginal) || 0;
+    const novoB = Number(pBOriginal) || 0;
+
+    const difA = novoA - antigoA;
+    const difB = novoB - antigoB;
+
+    if (difA === 1 && difB === 0) return "A";
+    if (difB === 1 && difA === 0) return "B";
+    return "";
+}
+
+function centroBolinha(el) {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return {
+        x: r.left + (r.width / 2) - 17,
+        y: r.top + (r.height / 2) - 17,
+    };
+}
+
+function moverBolinhaSaque(origemEl, destinoEl) {
+    if (!saqueAnimador || !destinoEl) return;
+
+    const destino = centroBolinha(destinoEl);
+    if (!destino) return;
+
+    const origem = centroBolinha(origemEl) || destino;
+
+    saqueAnimador.classList.remove("mostrar");
+    saqueAnimador.style.transition = "none";
+    saqueAnimador.style.transform = `translate3d(${origem.x}px, ${origem.y}px, 0) scale(.82)`;
+    void saqueAnimador.offsetWidth;
+
+    saqueAnimador.style.transition = "transform .52s cubic-bezier(.22, 1, .36, 1), opacity .18s ease";
+    saqueAnimador.classList.add("mostrar");
+    saqueAnimador.style.transform = `translate3d(${destino.x}px, ${destino.y}px, 0) scale(1.12)`;
+
+    window.setTimeout(() => {
+        saqueAnimador.style.transform = `translate3d(${destino.x}px, ${destino.y}px, 0) scale(1)`;
+    }, 420);
+
+    window.setTimeout(() => {
+        saqueAnimador.classList.remove("mostrar");
+    }, 680);
 }
 
 function aplicarSaque(saque) {
-    saqueA.classList.toggle("ativo", saque === "A");
-    saqueB.classList.toggle("ativo", saque === "B");
+    const novoSaque = saque === "A" || saque === "B" ? saque : "";
+    const origemEl = ultimoSaqueVisual === "A" ? saqueA : (ultimoSaqueVisual === "B" ? saqueB : null);
+    const destinoEl = novoSaque === "A" ? saqueA : (novoSaque === "B" ? saqueB : null);
+
+    if (!primeiraAplicacaoSaque && novoSaque && novoSaque !== ultimoSaqueVisual) {
+        if (origemEl) origemEl.classList.add("saindo");
+        moverBolinhaSaque(origemEl, destinoEl);
+        window.setTimeout(() => {
+            saqueA.classList.remove("saindo");
+            saqueB.classList.remove("saindo");
+        }, 560);
+    }
+
+    saqueA.classList.toggle("ativo", novoSaque === "A");
+    saqueB.classList.toggle("ativo", novoSaque === "B");
+
+    ultimoSaqueVisual = novoSaque;
+    primeiraAplicacaoSaque = false;
 }
 
 function normalizarListaEvolucaoBackend(lista) {
@@ -882,6 +963,8 @@ function aplicarEstado(dados) {
         registrarEvolucaoSeForPonto(dados, pAOriginal, pBOriginal, setAtual);
     }
 
+    const ladoPontuouOriginal = descobrirLadoPontuouOriginal(pAOriginal, pBOriginal);
+
     if (invertido) {
         [equipeA, equipeB] = [equipeB, equipeA];
         [pA, pB] = [pB, pA];
@@ -891,8 +974,13 @@ function aplicarEstado(dados) {
         else if (saque === "B") saque = "A";
     }
 
-    animarSeMudou(pontosA, pA, ultimosPontosA);
-    animarSeMudou(pontosB, pB, ultimosPontosB);
+    // Anima SOMENTE quando entrou ponto novo de verdade.
+    // Re-render de socket, F5, reconnect, inversão visual ou troca de nome/escudo não anima o placar.
+    if (ladoPontuouOriginal) {
+        const ladoPontuouVisual = invertido ? (ladoPontuouOriginal === "A" ? "B" : "A") : ladoPontuouOriginal;
+        if (ladoPontuouVisual === "A") animarPontoReal(pontosA);
+        if (ladoPontuouVisual === "B") animarPontoReal(pontosB);
+    }
 
     ultimosPontosA = pAOriginal;
     ultimosPontosB = pBOriginal;

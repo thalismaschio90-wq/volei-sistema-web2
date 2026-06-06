@@ -2312,8 +2312,45 @@ function montarPayloadTempoReal(extra = {}) {
     let renderAnteriorA = [];
     let renderAnteriorB = [];
 
-    const atletasA = {{ (atletas_a if atletas_a is defined else []) | tojson }};
-    const atletasB = {{ (atletas_b if atletas_b is defined else []) | tojson }};
+    function numeroAtletaOperacional(valor) {
+        if (valor && typeof valor === "object") {
+            valor = valor.numero || valor.camisa || valor.numero_camisa || valor.atleta_numero || valor.n || "";
+        }
+        return String(valor ?? "").trim();
+    }
+
+    function normalizarAtletaOperacional(atleta, numeroFallback = "") {
+        const base = (atleta && typeof atleta === "object") ? { ...atleta } : {};
+        const numero = numeroAtletaOperacional(
+            base.numero || base.camisa || base.numero_camisa || base.atleta_numero || numeroFallback
+        );
+        if (!numero) return null;
+        base.numero = numero;
+        base.camisa = base.camisa || numero;
+        base.numero_camisa = base.numero_camisa || numero;
+        base.nome = String(base.nome || base.atleta_nome || "Atleta").trim() || "Atleta";
+        return base;
+    }
+
+    function mesclarAtletasComRotacao(atletas, rotacao) {
+        const saida = [];
+        const vistos = new Set();
+
+        function add(item, numeroFallback = "") {
+            const atleta = normalizarAtletaOperacional(item, numeroFallback);
+            if (!atleta || !atleta.numero || vistos.has(atleta.numero)) return;
+            vistos.add(atleta.numero);
+            saida.push(atleta);
+        }
+
+        (Array.isArray(atletas) ? atletas : []).forEach((a) => add(a));
+        (Array.isArray(rotacao) ? rotacao : []).forEach((n) => add({ numero: n, nome: "Atleta" }, n));
+
+        return saida;
+    }
+
+    const atletasAOriginais = {{ (atletas_a if atletas_a is defined else []) | tojson }};
+    const atletasBOriginais = {{ (atletas_b if atletas_b is defined else []) | tojson }};
 
     const fallbackRotA = [
         "{{ papeleta_a.get(4, '') }}",
@@ -2423,6 +2460,9 @@ function montarPayloadTempoReal(extra = {}) {
         {{ (estado.rotacao_b if estado.rotacao_b is defined else []) | tojson }},
         fallbackRotB
     );
+
+    const atletasA = mesclarAtletasComRotacao(atletasAOriginais, rotA);
+    const atletasB = mesclarAtletasComRotacao(atletasBOriginais, rotB);
 
     let estadoAtual = normalizarRespostaJogo({{ estado | tojson }});
     estadoAtual.pontos_a = numeroInteiro(estadoAtual.pontos_a ?? {{ (estado.pontos_a if estado.pontos_a is defined else 0) | tojson }}, 0);
@@ -2680,7 +2720,7 @@ function montarPayloadTempoReal(extra = {}) {
     function buscarAtletaPorNumero(lado, numero) {
         const lista = atletasEquipePorLado(lado) || [];
         const alvo = String(numero || "").trim();
-        return lista.find((a) => String(a.numero || "").trim() === alvo) || null;
+        return lista.find((a) => numeroAtletaOperacional(a.numero) === alvo) || null;
     }
 
     function nomeCurtoAtleta(lado, numero) {
@@ -3741,42 +3781,44 @@ function inverterLadosVisual() {
 
     function opcoesSaidaPorLado(lado) {
         const rotacao = lado === "A" ? rotA : rotB;
-        const elenco = atletasEquipePorLado(lado);
-        const emQuadra = new Set(rotacao.map((n) => String(n || "").trim()).filter(Boolean));
+        const elenco = mesclarAtletasComRotacao(atletasEquipePorLado(lado), rotacao);
+        const emQuadra = new Set((rotacao || []).map((n) => numeroAtletaOperacional(n)).filter(Boolean));
 
-        return elenco
-            .filter((a) => emQuadra.has(String(a.numero).trim()))
-            .map((a) => ({
-                valor: String(a.numero).trim(),
-                label: String(a.numero).trim(),
-                title: `${a.numero} - ${a.nome || "Atleta"}`,
-                baseClass: "substituicao-card"
-            }));
+        return Array.from(emQuadra)
+            .map((numero) => {
+                const atleta = elenco.find((a) => numeroAtletaOperacional(a.numero) === numero) || { numero, nome: "Atleta" };
+                return {
+                    valor: numero,
+                    label: numero,
+                    title: `${numero} - ${atleta.nome || "Atleta"}`,
+                    baseClass: "substituicao-card"
+                };
+            });
     }
 
     function opcoesEntradaPorLado(lado, numeroSai) {
         const rotacao = lado === "A" ? rotA : rotB;
-        const elenco = atletasEquipePorLado(lado);
-        const emQuadra = new Set(rotacao.map((n) => String(n || "").trim()).filter(Boolean));
+        const elenco = mesclarAtletasComRotacao(atletasEquipePorLado(lado), rotacao);
+        const emQuadra = new Set((rotacao || []).map((n) => numeroAtletaOperacional(n)).filter(Boolean));
         const mapaStatus = statusMapaPorLado(lado);
         const statusSai = mapaStatus[String(numeroSai || "").trim()];
 
         if (statusSai && statusSai.tipo === "substituto" && statusSai.vinculo) {
             return elenco
-                .filter((a) => String(a.numero).trim() === String(statusSai.vinculo).trim())
+                .filter((a) => numeroAtletaOperacional(a.numero) === String(statusSai.vinculo).trim())
                 .map((a) => ({
-                    valor: String(a.numero).trim(),
-                    label: String(a.numero).trim(),
+                    valor: numeroAtletaOperacional(a.numero),
+                    label: numeroAtletaOperacional(a.numero),
                     title: `${a.numero} - ${a.nome || "Atleta"}`,
                     baseClass: "substituicao-card"
                 }));
         }
 
         return elenco
-            .filter((a) => !emQuadra.has(String(a.numero).trim()))
+            .filter((a) => !emQuadra.has(numeroAtletaOperacional(a.numero)))
             .map((a) => ({
-                valor: String(a.numero).trim(),
-                label: String(a.numero).trim(),
+                valor: numeroAtletaOperacional(a.numero),
+                label: numeroAtletaOperacional(a.numero),
                 title: `${a.numero} - ${a.nome || "Atleta"}`,
                 baseClass: "substituicao-card"
             }));
@@ -3878,8 +3920,9 @@ function inverterLadosVisual() {
     }
 
     function membrosEquipePorLado(lado, tipoPessoa) {
-        const atletas = atletasEquipePorLado(lado).map((a) => {
-            const numero = String(a.numero || a.id || a.nome || "").trim();
+        const rotacao = lado === "A" ? rotA : rotB;
+        const atletas = mesclarAtletasComRotacao(atletasEquipePorLado(lado), rotacao).map((a) => {
+            const numero = numeroAtletaOperacional(a.numero || a.id || a.nome || "");
             const nome = String(a.nome || "Atleta").trim();
             return {
                 valor: numero,
@@ -4045,10 +4088,12 @@ function fecharModalSubExcepcional() {
 
 function renderSubExSai() {
     const rotacao = equipeSubExAtual === "A" ? rotA : rotB;
-    const atletas = atletasEquipePorLado(equipeSubExAtual);
-    const opcoes = atletas
-        .filter((a) => rotacao.map((n) => String(n || "").trim()).includes(String(a.numero || "").trim()))
-        .map((a) => ({ valor: String(a.numero || "").trim(), label: String(a.numero || "").trim(), title: `${a.numero || "-"} - ${a.nome || "Atleta"}`, baseClass: "substituicao-card" }));
+    const atletas = mesclarAtletasComRotacao(atletasEquipePorLado(equipeSubExAtual), rotacao);
+    const emQuadra = Array.from(new Set((rotacao || []).map((n) => numeroAtletaOperacional(n)).filter(Boolean)));
+    const opcoes = emQuadra.map((numero) => {
+        const atleta = atletas.find((a) => numeroAtletaOperacional(a.numero) === numero) || { numero, nome: "Atleta" };
+        return { valor: numero, label: numero, title: `${numero || "-"} - ${atleta.nome || "Atleta"}`, baseClass: "substituicao-card" };
+    });
     renderLista(subExSaiLista, opcoes, numeroSaiSubEx, "ativo-sai", function (valor) {
         numeroSaiSubEx = valor;
         if (numeroEntraSubEx === valor) numeroEntraSubEx = "";
@@ -4065,11 +4110,11 @@ function renderSubExEntra() {
     const emQuadra = rotacao.map((n) => String(n || "").trim());
     const opcoes = atletas
         .filter((a) => {
-            const n = String(a.numero || "").trim();
+            const n = numeroAtletaOperacional(a.numero);
             if (!n || emQuadra.includes(n) || n === numeroSaiSubEx) return false;
             return !bloqueios[n];
         })
-        .map((a) => ({ valor: String(a.numero || "").trim(), label: String(a.numero || "").trim(), title: `${a.numero || "-"} - ${a.nome || "Atleta"}`, baseClass: "substituicao-card" }));
+        .map((a) => ({ valor: numeroAtletaOperacional(a.numero), label: numeroAtletaOperacional(a.numero), title: `${a.numero || "-"} - ${a.nome || "Atleta"}`, baseClass: "substituicao-card" }));
     renderLista(subExEntraLista, opcoes, numeroEntraSubEx, "ativo-entra", function (valor) {
         numeroEntraSubEx = valor;
         renderSubExEntra();

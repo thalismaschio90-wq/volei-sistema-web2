@@ -1370,6 +1370,14 @@
                 <label>Data/hora</label>
                 <input id="avancoModalData" type="datetime-local">
             </div>
+            <div class="avanco-field">
+                <label>Quadra</label>
+                <select id="avancoModalQuadra"></select>
+            </div>
+            <div class="avanco-field" style="grid-column:1/-1;">
+                <label>Ginásio / Local</label>
+                <input id="avancoModalGinasio" placeholder="Ex.: Floresta, Polo, Ginásio principal...">
+            </div>
             <div class="avanco-field" style="grid-column:1/-1;">
                 <label class="competicao-check-inline" style="margin-top:4px;">
                     <input type="checkbox" id="avancoModalUsarRegra" style="width:auto;">
@@ -1407,6 +1415,7 @@
 <script>
 (function () {
     const origemBase = {{ origens_cfg|tojson }};
+    const quadrasBase = {{ (quadras if quadras is defined else [])|tojson }};
     window.avancoEstado = {{ avanco_cfg|tojson }};
     window.avancoSerieAtual = (window.avancoEstado.series || []).find(s => s.ativa)?.id || (window.avancoEstado.series?.[0]?.id || 'ouro');
     window.avancoFaseNome = {oitavas:'Oitavas', quartas:'Quartas', semifinal:'Semifinal', terceiro_lugar:'3º lugar', final:'Final'};
@@ -1420,6 +1429,37 @@
             return tipo + pts + scout;
         }
         return 'Regra da série';
+    };
+
+    window.avancoAgendaResumo = function (j) {
+        const partes = [];
+        if (j && j.data_hora) partes.push(j.data_hora);
+        if (j && j.quadra_nome) partes.push(j.quadra_nome);
+        else if (j && j.ginasio) partes.push(j.ginasio);
+        return partes.length ? ' • ' + partes.join(' • ') : '';
+    };
+
+    window.avancoQuadraValue = function (q) {
+        q = q || {};
+        return `${q.id || ''}|${q.nome || ''}|${q.local || ''}`;
+    };
+
+    window.avancoPreencherQuadras = function (select, jogo) {
+        select.innerHTML = '<option value="||">Sem quadra definida</option>';
+        (quadrasBase || []).forEach(q => {
+            const opt = document.createElement('option');
+            opt.value = window.avancoQuadraValue(q);
+            opt.textContent = q.local ? `${q.nome} — ${q.local}` : (q.nome || 'Quadra');
+            const jogoVal = `${(jogo && jogo.quadra_id) || ''}|${(jogo && jogo.quadra_nome) || ''}|${(jogo && jogo.ginasio) || ''}`;
+            if (String(jogo && jogo.quadra_id || '') && String(q.id || '') === String(jogo.quadra_id || '')) opt.selected = true;
+            else if (!String(jogo && jogo.quadra_id || '') && opt.value === jogoVal) opt.selected = true;
+            select.appendChild(opt);
+        });
+    };
+
+    window.avancoQuadraFromValue = function (valor) {
+        const partes = String(valor || '').split('|');
+        return {quadra_id: partes[0] || '', quadra_nome: partes[1] || '', ginasio: partes[2] || ''};
     };
 
     window.avancoAdicionarSerie = function () {
@@ -1510,7 +1550,7 @@
                         <div class="avanco-card-id">${j.id || ''}</div>
                         <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_a)}</span></div>
                         <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_b)}</span></div>
-                        <div class="avanco-card-meta">${window.avancoRegraResumo(j)}${j.data_hora ? ' • '+j.data_hora : ''}${j.proximo_vencedor ? ' • vencedor → ' + j.proximo_vencedor : ''}</div>
+                        <div class="avanco-card-meta">${window.avancoRegraResumo(j)}${window.avancoAgendaResumo(j)}${j.proximo_vencedor ? ' • vencedor → ' + j.proximo_vencedor : ''}</div>
                     `;
                     col.appendChild(card);
                 });
@@ -1562,6 +1602,9 @@
             addInput('jogo_fase[]', j.fase);
             addInput('jogo_ordem[]', j.ordem || idx + 1);
             addInput('jogo_data_hora[]', j.data_hora || '');
+            addInput('jogo_quadra_id[]', j.quadra_id || '');
+            addInput('jogo_quadra_nome[]', j.quadra_nome || '');
+            addInput('jogo_ginasio[]', j.ginasio || '');
             addInput('jogo_proximo_vencedor[]', j.proximo_vencedor || '');
             addInput('jogo_proximo_perdedor[]', j.proximo_perdedor || '');
             const regra = j.regra || {};
@@ -1604,6 +1647,9 @@
             proximo_vencedor: '',
             proximo_perdedor: '',
             data_hora: '',
+            quadra_id: '',
+            quadra_nome: '',
+            ginasio: '',
             regra: {usar_regra_propria:false, sets_tipo:'padrao', pontos_set:'', tem_tiebreak:'padrao', pontos_tiebreak:'', modo_operacao:'padrao'}
         });
         window.avancoRenderTudo();
@@ -1669,6 +1715,8 @@
         document.getElementById('avancoModalId').value = j.id || '';
         document.getElementById('avancoModalFase').value = j.fase || 'quartas';
         document.getElementById('avancoModalData').value = j.data_hora || '';
+        window.avancoPreencherQuadras(document.getElementById('avancoModalQuadra'), j);
+        document.getElementById('avancoModalGinasio').value = j.ginasio || '';
         const regra = j.regra || {};
         document.getElementById('avancoModalUsarRegra').checked = !!regra.usar_regra_propria;
         document.getElementById('avancoModalSetsTipo').value = regra.sets_tipo || 'padrao';
@@ -1695,6 +1743,10 @@
         j.id = document.getElementById('avancoModalId').value || j.id;
         j.fase = document.getElementById('avancoModalFase').value;
         j.data_hora = document.getElementById('avancoModalData').value || '';
+        const q = window.avancoQuadraFromValue(document.getElementById('avancoModalQuadra').value);
+        j.quadra_id = q.quadra_id || '';
+        j.quadra_nome = q.quadra_nome || '';
+        j.ginasio = document.getElementById('avancoModalGinasio').value || q.ginasio || '';
         j.origem_a = window.avancoOrigemFromValue(document.getElementById('avancoModalOrigemA').value, document.getElementById('avancoModalManualA').value);
         j.origem_b = window.avancoOrigemFromValue(document.getElementById('avancoModalOrigemB').value, document.getElementById('avancoModalManualB').value);
         j.proximo_vencedor = document.getElementById('avancoModalProxV').value;

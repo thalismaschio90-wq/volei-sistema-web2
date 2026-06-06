@@ -876,41 +876,138 @@ def _buscar_historico_resumido(partida_id, competicao, limite=5):
     return historico[:limite], ultima_acao
 
 
+def _numero_atleta_operacional(valor):
+    """Normaliza número/camisa de atleta para string.
+
+    Várias telas dependem de `numero`, mas alguns registros podem chegar como
+    dict da papeleta, int, texto, `numero_camisa` ou `camisa`. Mantém leve e
+    sem consulta extra.
+    """
+    if isinstance(valor, dict):
+        valor = (
+            valor.get("numero")
+            or valor.get("camisa")
+            or valor.get("numero_camisa")
+            or valor.get("atleta_numero")
+            or valor.get("n")
+            or ""
+        )
+    return str(valor or "").strip()
+
+
+def _normalizar_atleta_operacional(atleta, numero_fallback=""):
+    atleta = dict(atleta or {})
+    numero = _numero_atleta_operacional(
+        atleta.get("numero")
+        or atleta.get("camisa")
+        or atleta.get("numero_camisa")
+        or atleta.get("atleta_numero")
+        or numero_fallback
+    )
+    if not numero:
+        return None
+
+    atleta["numero"] = numero
+    atleta.setdefault("camisa", numero)
+    atleta.setdefault("numero_camisa", numero)
+    atleta["nome"] = str(atleta.get("nome") or atleta.get("atleta_nome") or "Atleta").strip() or "Atleta"
+    return atleta
+
+
+def _merge_atletas_operacionais(atletas, papeleta=None, rotacao=None):
+    """Garante lista de atletas para modais sem depender só do SELECT de atletas.
+
+    Se o elenco vier vazio/desatualizado, os números da papeleta/rotação ainda
+    aparecem na substituição, sanção, cartão verde e scout. Não faz consulta
+    pesada; usa somente dados já carregados na rota.
+    """
+    saida = []
+    vistos = set()
+
+    def add(item, numero_fallback=""):
+        atleta = _normalizar_atleta_operacional(item, numero_fallback)
+        if not atleta:
+            return
+        numero = atleta["numero"]
+        if numero in vistos:
+            return
+        vistos.add(numero)
+        saida.append(atleta)
+
+    for atleta in atletas or []:
+        add(atleta)
+
+    if isinstance(papeleta, dict):
+        for pos in range(1, 7):
+            add({"numero": papeleta.get(pos), "nome": "Atleta"}, papeleta.get(pos))
+
+    if isinstance(rotacao, dict):
+        rotacao = rotacao.get("equipe_a") or rotacao.get("equipe_b") or []
+
+    if isinstance(rotacao, (list, tuple)):
+        for numero in rotacao:
+            add({"numero": numero, "nome": "Atleta"}, numero)
+
+    return saida
+
+
 def _buscar_papeletas_set_atual(partida_id, competicao, partida, estado=None):
-    equipe_a = partida.get("equipe_a_operacional")
-    equipe_b = partida.get("equipe_b_operacional")
+    equipe_a = (
+        partida.get("equipe_a_operacional")
+        or partida.get("equipe_a")
+        or (estado or {}).get("equipe_a_operacional")
+        or (estado or {}).get("equipe_a")
+    )
+    equipe_b = (
+        partida.get("equipe_b_operacional")
+        or partida.get("equipe_b")
+        or (estado or {}).get("equipe_b_operacional")
+        or (estado or {}).get("equipe_b")
+    )
     set_atual = int(partida.get("set_atual") or (estado or {}).get("set_atual") or 1)
 
-    papeleta_a = {}
-    papeleta_b = {}
+    def carregar_papeleta(equipe_principal, equipe_fallback):
+        papeleta = {}
+        nomes = []
+        for nome in (equipe_principal, equipe_fallback):
+            nome = str(nome or "").strip()
+            if nome and nome not in nomes:
+                nomes.append(nome)
 
-    try:
-        if equipe_a:
-            dados_a = listar_papeleta(partida_id, competicao, equipe_a, set_atual) or []
-            papeleta_a = {row["posicao"]: row["numero"] for row in dados_a}
+        for nome in nomes:
+            try:
+                dados = listar_papeleta(partida_id, competicao, nome, set_atual) or []
+            except Exception:
+                dados = []
+            if dados:
+                for row in dados:
+                    try:
+                        pos = int(row.get("posicao") or 0)
+                    except Exception:
+                        continue
+                    if 1 <= pos <= 6:
+                        papeleta[pos] = _numero_atleta_operacional(row.get("numero"))
+                break
 
-        if equipe_b:
-            dados_b = listar_papeleta(partida_id, competicao, equipe_b, set_atual) or []
-            papeleta_b = {row["posicao"]: row["numero"] for row in dados_b}
-    except Exception:
-        papeleta_a = {}
-        papeleta_b = {}
+        for i in range(1, 7):
+            papeleta.setdefault(i, "")
 
-    for i in range(1, 7):
-        papeleta_a.setdefault(i, "")
-        papeleta_b.setdefault(i, "")
+        return papeleta
+
+    papeleta_a = carregar_papeleta(equipe_a, partida.get("equipe_a"))
+    papeleta_b = carregar_papeleta(equipe_b, partida.get("equipe_b"))
 
     return equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b
 
 
 def _rotacao_fallback_por_papeleta(papeleta):
     return [
-        papeleta.get(4, ""),
-        papeleta.get(3, ""),
-        papeleta.get(2, ""),
-        papeleta.get(5, ""),
-        papeleta.get(6, ""),
-        papeleta.get(1, ""),
+        _numero_atleta_operacional(papeleta.get(4, "")),
+        _numero_atleta_operacional(papeleta.get(3, "")),
+        _numero_atleta_operacional(papeleta.get(2, "")),
+        _numero_atleta_operacional(papeleta.get(5, "")),
+        _numero_atleta_operacional(papeleta.get(6, "")),
+        _numero_atleta_operacional(papeleta.get(1, "")),
     ]
 
 
@@ -2571,14 +2668,16 @@ def jogo_view(competicao, partida_id):
         atletas_a = []
         atletas_b = []
 
-    atletas_a = [a for a in atletas_a if a.get("numero")]
-    atletas_b = [a for a in atletas_b if a.get("numero")]
-
     if not _rotacao_tem_atletas_front(estado.get("rotacao_a")):
         estado["rotacao_a"] = _rotacao_fallback_por_papeleta(papeleta_a)
 
     if not _rotacao_tem_atletas_front(estado.get("rotacao_b")):
         estado["rotacao_b"] = _rotacao_fallback_por_papeleta(papeleta_b)
+
+    # Garante que os modais tenham números mesmo se o SELECT de atletas vier vazio
+    # ou com numeração em campo antigo. Usa papeleta/rotação já carregadas.
+    atletas_a = _merge_atletas_operacionais(atletas_a, papeleta_a, estado.get("rotacao_a"))
+    atletas_b = _merge_atletas_operacionais(atletas_b, papeleta_b, estado.get("rotacao_b"))
 
     estado["rotacao"] = {
         "equipe_a": estado.get("rotacao_a") or ["", "", "", "", "", ""],
