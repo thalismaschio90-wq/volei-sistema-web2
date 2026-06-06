@@ -1613,13 +1613,10 @@ def tabela_view():
     if fase_subaba not in fases_validas:
         fase_subaba = "classificatorias"
 
-    # A Tabela agora espelha o Avanço: se houver chaveamento configurado,
-    # atualiza/cria as partidas do avanço antes de listar os jogos.
-    if avanco.get("jogos"):
-        try:
-            gerar_partidas_avanco_competicao(competicao["nome"])
-        except Exception as e:
-            print("AVISO tabela/gerar_partidas_avanco:", repr(e))
+    # IMPORTANTE: não gerar/atualizar partidas do Avanço no GET da Tabela.
+    # Isso travava a abertura da aba quando o banco ficava muito tempo em transação.
+    # A Tabela apenas lê e mostra o espelho do Avanço. A geração/atualização fica
+    # nos POSTs próprios e no fechamento/finalização de partidas.
 
     series_fase = _series_do_avanco_por_fase(avanco, fase_subaba) if fase_subaba != "classificatorias" else []
     serie_ativa = (request.args.get("serie") or "").strip().lower()

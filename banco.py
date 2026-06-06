@@ -4598,19 +4598,53 @@ def criar_campos_rotacao_partidas(force=False):
     if _schema_ja_pronto(chave, force=force):
         return
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                ALTER TABLE partidas
-                ADD COLUMN IF NOT EXISTS rotacao_a TEXT[],
-                ADD COLUMN IF NOT EXISTS rotacao_b TEXT[],
-                ADD COLUMN IF NOT EXISTS saque_atual TEXT,
-                ADD COLUMN IF NOT EXISTS saque_inicial TEXT,
-                ADD COLUMN IF NOT EXISTS rotacao_validacao_ativa BOOLEAN DEFAULT TRUE
-            """)
-        conn.commit()
+    # IMPORTANTE:
+    # Não podemos deixar o app travar na inicialização esperando ALTER TABLE.
+    # Em banco remoto (Neon/Postgres), ALTER TABLE pode ficar preso se existir
+    # alguma transação aberta/idle usando a tabela partidas. Por isso primeiro
+    # conferimos as colunas existentes e, se faltar algo, usamos lock_timeout
+    # curto. Se o banco estiver bloqueado, o app sobe normalmente e tenta de novo
+    # em outra inicialização, sem deixar o terminal parado por vários minutos.
+    try:
+        colunas = _buscar_colunas_tabela("partidas")
+    except Exception as e:
+        print("AVISO criar_campos_rotacao_partidas/colunas:", repr(e))
+        return
 
-    _marcar_schema_pronto(chave)
+    campos_necessarios = {
+        "rotacao_a": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rotacao_a TEXT[]",
+        "rotacao_b": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rotacao_b TEXT[]",
+        "saque_atual": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS saque_atual TEXT",
+        "saque_inicial": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS saque_inicial TEXT",
+        "rotacao_validacao_ativa": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rotacao_validacao_ativa BOOLEAN DEFAULT TRUE",
+    }
+
+    faltantes = [nome for nome in campos_necessarios if nome not in colunas]
+
+    if not faltantes:
+        _marcar_schema_pronto(chave)
+        return
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL lock_timeout = '1500ms'")
+                cur.execute("SET LOCAL statement_timeout = '5000ms'")
+
+                for nome in faltantes:
+                    cur.execute(campos_necessarios[nome])
+
+            conn.commit()
+
+        _marcar_schema_pronto(chave)
+
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print("AVISO criar_campos_rotacao_partidas: banco ocupado/bloqueado, app continuará sem travar:", repr(e))
+        return
 
 
 def criar_tabela_historico_rotacao(force=False):
@@ -5860,54 +5894,98 @@ TRAVA_OPERACIONAL_TIMEOUT_SEGUNDOS = 75
 
 
 def garantir_campos_trava_operacional_partida(force=False):
-    """Garante os campos usados para impedir dois apontadores na mesma partida."""
-    if _schema_ja_pronto("campos_trava_operacional_partida", force=force):
+    """Garante os campos usados para impedir dois apontadores na mesma partida.
+
+    IMPORTANTE:
+    Esta função é chamada na inicialização do app. Por isso ela NÃO pode ficar
+    presa em ALTER TABLE quando o Neon/Postgres estiver com alguma transação
+    antiga segurando lock na tabela partidas.
+
+    Estratégia:
+    - primeiro consulta as colunas existentes;
+    - só tenta criar o que realmente estiver faltando;
+    - usa lock_timeout/statement_timeout curtos;
+    - se o banco estiver ocupado, pula sem derrubar o app;
+    - marca como pronto quando as colunas já existem ou quando conseguiu criar.
+    """
+    chave = "campos_trava_operacional_partida"
+
+    if _schema_ja_pronto(chave, force=force):
         return
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_login TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_operacao TEXT DEFAULT 'livre'")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_heartbeat TIMESTAMP")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_socket_id TEXT")
+    try:
+        colunas = _buscar_colunas_tabela("partidas")
+    except Exception as e:
+        print("AVISO garantir_campos_trava_operacional_partida/colunas:", repr(e))
+        return
 
-            # Corrige defaults antigos: partida nova deve nascer AGUARDANDO,
-            # e só virar PRÉ-JOGO quando o apontador realmente abrir a conferência.
-            cur.execute("ALTER TABLE partidas ALTER COLUMN status_jogo SET DEFAULT 'aguardando'")
-            cur.execute("ALTER TABLE partidas ALTER COLUMN fase_partida SET DEFAULT 'aguardando'")
+    campos_necessarios = {
+        "operador_login": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT",
+        "operador_nome": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_nome TEXT",
+        "apontador_login": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_login TEXT",
+        "apontador_nome": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_nome TEXT",
+        "status_operacao": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_operacao TEXT DEFAULT 'livre'",
+        "reservado_em": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP",
+        "operador_heartbeat": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_heartbeat TIMESTAMP",
+        "operador_socket_id": "ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_socket_id TEXT",
+    }
 
-            cur.execute("""
-                UPDATE partidas
-                SET status = CASE
-                        WHEN LOWER(COALESCE(status, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
-                        THEN 'aguardando'
-                        ELSE status
-                    END,
-                    status_jogo = CASE
-                        WHEN LOWER(COALESCE(status_jogo, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
-                        THEN 'aguardando'
-                        ELSE status_jogo
-                    END,
-                    fase_partida = CASE
-                        WHEN LOWER(COALESCE(fase_partida, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
-                        THEN 'aguardando'
-                        ELSE fase_partida
-                    END
-                WHERE COALESCE(pontos_a, 0) = 0
-                  AND COALESCE(pontos_b, 0) = 0
-                  AND COALESCE(sets_a, 0) = 0
-                  AND COALESCE(sets_b, 0) = 0
-                  AND pre_jogo_iniciado_em IS NULL
-                  AND COALESCE(pre_jogo_finalizado, FALSE) = FALSE
-                  AND LOWER(COALESCE(status_jogo, '')) IN ('', 'pre_jogo', 'pré_jogo', 'pre jogo', 'pré jogo')
-            """)
-        conn.commit()
+    ddls = [
+        ddl
+        for campo, ddl in campos_necessarios.items()
+        if force or campo not in colunas
+    ]
 
-    _marcar_schema_pronto("campos_trava_operacional_partida")
+    # Se as colunas já existem, não faz ALTER TABLE no startup.
+    if not ddls:
+        _marcar_schema_pronto(chave)
+        return
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                # Evita travar o app esperando lock no banco.
+                cur.execute("SET LOCAL lock_timeout = '1500ms'")
+                cur.execute("SET LOCAL statement_timeout = '4000ms'")
+
+                for ddl in ddls:
+                    cur.execute(ddl)
+
+                # Só altera defaults quando conseguimos obter lock rápido.
+                try:
+                    cur.execute("ALTER TABLE partidas ALTER COLUMN status_jogo SET DEFAULT 'aguardando'")
+                except Exception as e:
+                    print("AVISO default status_jogo ignorado:", repr(e))
+                    conn.rollback()
+                    return
+
+                try:
+                    cur.execute("SET LOCAL lock_timeout = '1500ms'")
+                    cur.execute("SET LOCAL statement_timeout = '4000ms'")
+                    cur.execute("ALTER TABLE partidas ALTER COLUMN fase_partida SET DEFAULT 'aguardando'")
+                except Exception as e:
+                    print("AVISO default fase_partida ignorado:", repr(e))
+                    conn.rollback()
+                    return
+
+            conn.commit()
+
+        try:
+            _CACHE_COLUNAS.pop("partidas", None)
+        except Exception:
+            pass
+
+        _marcar_schema_pronto(chave)
+
+    except Exception as e:
+        # Não derruba o servidor se o banco estiver segurando lock.
+        # Em outra inicialização ou em manutenção SQL as colunas podem ser criadas.
+        print("AVISO garantir_campos_trava_operacional_partida:", repr(e))
+        try:
+            _fechar_pool_quebrado()
+        except Exception:
+            pass
+        return
 
 
 def _lock_expirado(row):

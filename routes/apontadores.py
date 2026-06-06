@@ -1512,9 +1512,8 @@ def painel_apontador():
 def entrar_competicao_apontador(competicao):
     session["competicao_apontador"] = competicao
 
-    # Mantém o painel do apontador sincronizado com o desenho do Avanço.
-    # Se uma origem já foi resolvida, o jogo aparece aqui sem precisar abrir a tabela.
-    _atualizar_avanco_apos_finalizacao(competicao)
+    # Não sincroniza o Avanço ao abrir o painel do apontador.
+    # A sincronização acontece após finalizar/lançar resultado, evitando travar a tela.
 
     partidas = listar_partidas(competicao)
     competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
