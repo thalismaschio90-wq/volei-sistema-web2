@@ -65,7 +65,8 @@ async function verificarPartidaArbitro(manual = false) {
 }
 verificarPartidaArbitro(false);
 setInterval(function() {
-    if (document.visibilityState === "visible") verificarPartidaArbitro(false);
+    if (document.visibilityState !== "visible") return;
+    verificarPartidaArbitro(false);
 }, 4000);
 </script>
 {% endblock %}

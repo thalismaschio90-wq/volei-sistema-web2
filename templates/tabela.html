@@ -1152,7 +1152,7 @@
     </div>
 
     <div class="visualizador-preview">
-        <iframe src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
+        <iframe loading="lazy" src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
     </div>
 </div>
 {% endif %}
@@ -1203,10 +1203,16 @@ async function atualizarPartidasAoVivoTabela() {
     }
 }
 
-setInterval(() => {
-    if (document.visibilityState === "visible") atualizarPartidasAoVivoTabela();
-}, 15000);
-document.addEventListener("DOMContentLoaded", atualizarPartidasAoVivoTabela);
+document.addEventListener("DOMContentLoaded", function () {
+    const linhasAoVivo = document.querySelectorAll('tr[data-partida-id][data-ao-vivo="1"]');
+    if (!linhasAoVivo.length) return;
+    atualizarPartidasAoVivoTabela();
+    setInterval(function () {
+        if (document.visibilityState !== "visible") return;
+        if (!document.querySelector('tr[data-partida-id][data-ao-vivo="1"]')) return;
+        atualizarPartidasAoVivoTabela();
+    }, 15000);
+});
 
 document.addEventListener("DOMContentLoaded", function sincronizarQuadraDoGrupo() {
     const grupoSelect = document.getElementById('grupo');

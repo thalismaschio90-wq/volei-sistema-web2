@@ -3719,6 +3719,32 @@ def estado_jogo_view(competicao, partida_id):
             garantir_estado_partida(partida_id, competicao)
             estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
 
+        # MODO LEVE: usado por tabela/minhas partidas/visualizações pequenas.
+        # Não busca papeleta, não reconcilia eventos, não calcula escudos/cores e não monta rotação.
+        # Isso derruba drasticamente a carga de polling sem mudar o painel completo do jogo.
+        if str(request.args.get("leve") or "").strip() == "1":
+            pontos_a = int(estado.get("pontos_a") or estado.get("placar_a") or 0)
+            pontos_b = int(estado.get("pontos_b") or estado.get("placar_b") or 0)
+            sets_a = int(estado.get("sets_a") or partida.get("sets_a") or 0)
+            sets_b = int(estado.get("sets_b") or partida.get("sets_b") or 0)
+            fase_estado = str(estado.get("fase_partida") or estado.get("status_jogo") or "").lower().strip()
+            fase_partida = str(partida.get("fase_partida") or partida.get("status_jogo") or partida.get("status") or "").lower().strip()
+            finalizada = fase_estado in ("encerrado", "finalizada", "finalizado") or fase_partida in ("encerrado", "finalizada", "finalizado")
+            return _json_no_cache({
+                "ok": True,
+                "leve": True,
+                "pontos_a": pontos_a,
+                "pontos_b": pontos_b,
+                "placar_a": pontos_a,
+                "placar_b": pontos_b,
+                "placar_exibicao_a": pontos_a,
+                "placar_exibicao_b": pontos_b,
+                "sets_a": sets_a,
+                "sets_b": sets_b,
+                "set_atual": int(estado.get("set_atual") or partida.get("set_atual") or 1),
+                "partida_finalizada": finalizada
+            })
+
         equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
             partida_id, competicao, partida, estado
         )

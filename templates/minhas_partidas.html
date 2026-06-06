@@ -681,9 +681,15 @@ async function atualizarPartidasEquipeAoVivo() {
     }
 }
 
-setInterval(() => {
-    if (document.visibilityState === "visible") atualizarPartidasEquipeAoVivo();
-}, 15000);
-document.addEventListener("DOMContentLoaded", atualizarPartidasEquipeAoVivo);
+document.addEventListener("DOMContentLoaded", function () {
+    const cardsAoVivo = document.querySelectorAll('[data-partida-id][data-ao-vivo="1"]');
+    if (!cardsAoVivo.length) return;
+    atualizarPartidasEquipeAoVivo();
+    setInterval(function () {
+        if (document.visibilityState !== "visible") return;
+        if (!document.querySelector('[data-partida-id][data-ao-vivo="1"]')) return;
+        atualizarPartidasEquipeAoVivo();
+    }, 15000);
+});
 </script>
 {% endblock %}

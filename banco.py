@@ -173,6 +173,165 @@ def conectar():
 
 
 # =========================================================
+# CACHE DE CLASSIFICAÇÃO
+# =========================================================
+def criar_tabela_cache_classificacao():
+    """Tabela pequena para guardar a classificação pronta por competição.
+
+    A assinatura muda quando partidas/grupos/equipes do grupo mudam. Assim a
+    tela usa cache quando nada mudou e recalcula automaticamente quando houve
+    alteração relevante.
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS classificacao_cache (
+                        competicao TEXT PRIMARY KEY,
+                        assinatura TEXT NOT NULL,
+                        payload_json JSONB NOT NULL,
+                        atualizado_em TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+            conn.commit()
+    except Exception as e:
+        print("AVISO criar_tabela_cache_classificacao:", repr(e))
+
+
+def assinatura_classificacao_competicao(competicao):
+    """Assinatura leve dos dados que afetam a classificação.
+
+    Evita transferir todas as partidas só para saber se o cache continua válido.
+    O PostgreSQL calcula um MD5 dos campos relevantes.
+    """
+    try:
+        criar_tabela_cache_classificacao()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    WITH partidas_sig AS (
+                        SELECT COALESCE(
+                            md5(string_agg(
+                                CONCAT_WS('|',
+                                    id,
+                                    COALESCE(grupo, ''),
+                                    COALESCE(fase, ''),
+                                    COALESCE(equipe_a, ''),
+                                    COALESCE(equipe_b, ''),
+                                    COALESCE(status, ''),
+                                    COALESCE(status_jogo, ''),
+                                    COALESCE(fase_partida, ''),
+                                    COALESCE(vencedor, ''),
+                                    COALESCE(sets_a::TEXT, ''),
+                                    COALESCE(sets_b::TEXT, ''),
+                                    COALESCE(set1_a::TEXT, ''),
+                                    COALESCE(set1_b::TEXT, ''),
+                                    COALESCE(set2_a::TEXT, ''),
+                                    COALESCE(set2_b::TEXT, ''),
+                                    COALESCE(set3_a::TEXT, ''),
+                                    COALESCE(set3_b::TEXT, ''),
+                                    COALESCE(set4_a::TEXT, ''),
+                                    COALESCE(set4_b::TEXT, ''),
+                                    COALESCE(set5_a::TEXT, ''),
+                                    COALESCE(set5_b::TEXT, ''),
+                                    COALESCE(pontos_a::TEXT, ''),
+                                    COALESCE(pontos_b::TEXT, ''),
+                                    COALESCE(origem_resultado, ''),
+                                    COALESCE(tipo_encerramento, '')
+                                ), '§' ORDER BY id
+                            )), 'sem_partidas') AS sig
+                        FROM partidas
+                        WHERE competicao = %s
+                    ), grupos_sig AS (
+                        SELECT COALESCE(
+                            md5(string_agg(
+                                CONCAT_WS('|',
+                                    COALESCE(g.id::TEXT, ''),
+                                    COALESCE(g.nome, ''),
+                                    COALESCE(ge.equipe, '')
+                                ), '§' ORDER BY g.id, ge.equipe
+                            )), 'sem_grupos') AS sig
+                        FROM grupos g
+                        LEFT JOIN grupos_equipes ge
+                               ON ge.grupo_id = g.id
+                              AND ge.competicao = g.competicao
+                        WHERE g.competicao = %s
+                    )
+                    SELECT md5((SELECT sig FROM partidas_sig) || '::' || (SELECT sig FROM grupos_sig)) AS assinatura
+                """, (competicao, competicao))
+                row = cur.fetchone() or {}
+                return row.get("assinatura") or "sem_assinatura"
+    except Exception as e:
+        print("AVISO assinatura_classificacao_competicao:", repr(e))
+        return None
+
+
+def obter_cache_classificacao(competicao, assinatura):
+    if not assinatura:
+        return None
+    try:
+        criar_tabela_cache_classificacao()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT payload_json
+                    FROM classificacao_cache
+                    WHERE competicao = %s
+                      AND assinatura = %s
+                    LIMIT 1
+                """, (competicao, assinatura))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                payload = row.get("payload_json")
+                if isinstance(payload, str):
+                    return json.loads(payload)
+                return payload
+    except Exception as e:
+        print("AVISO obter_cache_classificacao:", repr(e))
+        return None
+
+
+def salvar_cache_classificacao(competicao, assinatura, payload):
+    if not assinatura:
+        return False
+    try:
+        criar_tabela_cache_classificacao()
+        payload_json = json.dumps(payload, ensure_ascii=False, default=str)
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO classificacao_cache (competicao, assinatura, payload_json, atualizado_em)
+                    VALUES (%s, %s, %s::jsonb, NOW())
+                    ON CONFLICT (competicao)
+                    DO UPDATE SET
+                        assinatura = EXCLUDED.assinatura,
+                        payload_json = EXCLUDED.payload_json,
+                        atualizado_em = NOW()
+                """, (competicao, assinatura, payload_json))
+            conn.commit()
+        return True
+    except Exception as e:
+        print("AVISO salvar_cache_classificacao:", repr(e))
+        return False
+
+
+def invalidar_cache_classificacao(competicao):
+    if not competicao:
+        return False
+    try:
+        criar_tabela_cache_classificacao()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM classificacao_cache WHERE competicao = %s", (competicao,))
+            conn.commit()
+        return True
+    except Exception as e:
+        print("AVISO invalidar_cache_classificacao:", repr(e))
+        return False
+
+
+# =========================================================
 # HELPERS
 # =========================================================
 def _normalizar_texto_base(texto):
@@ -4142,6 +4301,7 @@ def criar_grupo(nome, competicao):
                 VALUES (%s, %s)
             """, (nome, competicao))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4167,6 +4327,7 @@ def adicionar_equipe_no_grupo(grupo_id, equipe, competicao):
                 VALUES (%s, %s, %s)
             """, (grupo_id, equipe, competicao))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4253,6 +4414,7 @@ def remover_equipe_do_grupo(grupo_id, equipe, competicao):
                       AND (equipe_a = %s OR equipe_b = %s)
                 """, (competicao, grupo["nome"], equipe, equipe))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4284,6 +4446,7 @@ def excluir_grupo(grupo_id, competicao):
                   AND competicao = %s
             """, (grupo_id, competicao))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4607,6 +4770,7 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
                 tuple(valores)
             )
         conn.commit()
+    invalidar_cache_classificacao(competicao)
 
 
 def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='aguardando', rodada=None, quadra_id=None, quadra_nome=None):
@@ -4652,6 +4816,7 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
                   AND competicao = %s
             """, (grupo, fase, equipe_a, equipe_b, quadra, quadra_id, quadra_nome or quadra or '', data_hora, status, status, status, rodada, partida_id, competicao))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
     return True
 
 
@@ -4675,6 +4840,7 @@ def excluir_partida(partida_id, competicao):
                   AND competicao = %s
             """, (partida_id, competicao))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
     return True, "Partida excluída com sucesso."
 
 def limpar_partidas(competicao):
@@ -4688,6 +4854,7 @@ def limpar_partidas(competicao):
                 WHERE competicao = %s
             """, (competicao,))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
 
 
 def limpar_partidas_por_fase(competicao, fase):
@@ -4703,6 +4870,7 @@ def limpar_partidas_por_fase(competicao, fase):
                   AND COALESCE(fase, 'grupos') = %s
             """, (competicao, fase))
             conn.commit()
+    invalidar_cache_classificacao(competicao)
 
 
 # =========================================================
@@ -10306,6 +10474,9 @@ def finalizar_set_e_avancar(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
     status_jogo = (estado.get("status_jogo") or "").lower()
 
+    if status_jogo == "finalizada":
+        invalidar_cache_classificacao(competicao)
+
     retorno = {
         "set_finalizado": True,
         "partida_finalizada": status_jogo == "finalizada",
@@ -10420,6 +10591,7 @@ def encerrar_partida(partida_id, competicao, observacoes):
                 WHERE id = %s AND competicao = %s
             """, (observacoes, datetime.now(), partida_id, competicao))
         conn.commit()
+    invalidar_cache_classificacao(competicao)
 
 
 

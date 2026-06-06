@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, session, url_for, flash
+from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify
 from functools import wraps
 import random
 import json
@@ -41,6 +41,9 @@ from banco import (
     status_avanco_classificatorias_competicao,
     avanco_ja_gerado_competicao,
     limpar_partidas_avanco_nao_iniciadas_competicao,
+    assinatura_classificacao_competicao,
+    obter_cache_classificacao,
+    salvar_cache_classificacao,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -1549,13 +1552,34 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
     return classificacao
 
 
+def _calcular_ou_obter_classificacao_cacheada(nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos=None):
+    """Usa classificação cacheada quando nada mudou.
+
+    Se o cache falhar por qualquer motivo, usa o cálculo original para não
+    alterar o comportamento do sistema.
+    """
+    assinatura = assinatura_classificacao_competicao(nome_competicao)
+    if assinatura:
+        payload = obter_cache_classificacao(nome_competicao, assinatura)
+        if isinstance(payload, dict) and isinstance(payload.get("classificacao"), dict):
+            return payload["classificacao"], True
+
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
+    if assinatura:
+        salvar_cache_classificacao(nome_competicao, assinatura, {"classificacao": classificacao})
+    return classificacao, False
+
+
 # =========================================================
 # VISUALIZADOR PÚBLICO
 # =========================================================
 @tabela_bp.route("/visualizador/<competicao_nome>")
 def visualizador_publico(competicao_nome):
-    # PERFORMANCE: visualizador publico deve apenas ler dados.
-    # Normalizacao de quadras em GET deixava a pagina lenta e podia disputar lock no Neon.
+    try:
+        normalizar_vinculos_quadras_competicao(competicao_nome)
+    except Exception as e:
+        print("AVISO visualizador/normalizar_quadras:", repr(e))
+
     grupos_raw = listar_grupos(competicao_nome)
     partidas = listar_partidas(competicao_nome)
     equipes_competicao = listar_equipes_da_competicao(competicao_nome)
@@ -1576,7 +1600,7 @@ def visualizador_publico(competicao_nome):
     }
 
     partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
+    classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
     colunas_classificacao = _colunas_classificacao_publica(competicao)
@@ -1629,102 +1653,184 @@ def tabela_view():
     if aba not in {"geracao", "partidas", "classificacao", "visualizador"}:
         aba = "geracao"
 
-    avanco = buscar_avanco_config_competicao(competicao["nome"])
-    status_avanco = status_avanco_classificatorias_competicao(competicao["nome"])
-    avanco_gerado = avanco_ja_gerado_competicao(competicao["nome"])
-    status_avanco["gerado"] = avanco_gerado
-    if not avanco_gerado:
-        try:
-            limpar_partidas_avanco_nao_iniciadas_competicao(competicao["nome"])
-        except Exception as e:
-            print("AVISO tabela/limpar_avanco_nao_gerado:", repr(e))
-    avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
-
     fase_subaba = _fase_subaba_canonica(request.args.get("fase") or "classificatorias")
     fases_validas = {"classificatorias", "quartas", "semifinal", "final", "oitavas", "terceiro_lugar"}
     if fase_subaba not in fases_validas:
         fase_subaba = "classificatorias"
 
-    # IMPORTANTE: não gerar/atualizar partidas do Avanço no GET da Tabela.
-    # Isso travava a abertura da aba quando o banco ficava muito tempo em transação.
-    # A Tabela apenas lê e mostra o espelho do Avanço. A geração/atualização fica
-    # nos POSTs próprios e no fechamento/finalização de partidas.
+    # Base leve: dados que a navegação superior e travas usam em qualquer aba.
+    # O restante só é carregado conforme a aba ativa. Isso evita que abrir
+    # "Configurações" carregue classificação, partidas e avanço completos.
+    nome_competicao = competicao["nome"]
+    fases = _fases_disponiveis(competicao)
+    grupos_travados = fase_grupos_esta_travada_por_jogo(nome_competicao)
+    fase_banco_ativa = _fase_subaba_para_banco(fase_subaba)
+    fase_atual_travada = not _fase_pode_ser_alterada_sem_travar_mata_mata(nome_competicao, fase_banco_ativa)
 
-    series_fase = _series_do_avanco_por_fase(avanco, fase_subaba) if fase_subaba != "classificatorias" else []
-    serie_ativa = (request.args.get("serie") or "").strip().lower()
-    if series_fase and not any(s.get("id") == serie_ativa for s in series_fase):
-        serie_ativa = series_fase[0].get("id")
+    contexto = {
+        "competicao": competicao,
+        "aba_ativa": aba,
+        "fase_ativa": fase_subaba,
+        "fase_labels": FASES_AVANCO_LABELS,
+        "competicao_travada": competicao_esta_travada(nome_competicao),
+        "grupos_travados": grupos_travados,
+        "fase_atual_travada": fase_atual_travada,
+        "fase_banco_ativa": fase_banco_ativa,
+        "grupos": [],
+        "equipes": [],
+        "quadras": [],
+        "partidas": [],
+        "partidas_fase": [],
+        "classificacao": {},
+        "criterios_classificacao": [],
+        "colunas_classificacao": [],
+        "avanco": {},
+        "avanco_status": {"gerado": False},
+        "avanco_fases_tabs": [],
+        "avanco_series_fase": [],
+        "avanco_serie_ativa": "",
+        "avanco_espelho": [],
+        "config_agenda": None,
+        "config_geracao": None,
+        **fases,
+    }
 
-    quadras = garantir_quadras_competicao(competicao["nome"], competicao.get("qtd_quadras") or 1)
-    # PERFORMANCE: nao normaliza quadras em toda abertura da tabela.
-    # Essa rotina faz varredura/updates e deve rodar apenas quando agenda/quadras forem alteradas.
-    grupos_raw = listar_grupos(competicao["nome"])
-    equipes = listar_equipes_da_competicao(competicao["nome"])
-    mapa_escudos = _mapa_escudos_equipes(equipes)
-    partidas = listar_partidas(competicao["nome"])
-    if not avanco_gerado:
-        partidas = [p for p in partidas if not _partida_eh_avanco(p)]
-
-    grupos = []
-    for g in grupos_raw:
-        equipes_grupo = listar_equipes_por_grupo(g["id"])
-        grupos.append({
-            "grupo": g,
-            "equipes": equipes_grupo,
-            "quadra_label": _quadra_label_por_id(competicao["nome"], _quadra_id_do_grupo(g)),
-            "quadra_id": _quadra_id_do_grupo(g),
+    # Aba Configurações: carrega apenas grupos, equipes, quadras e agenda.
+    if aba == "geracao":
+        quadras = garantir_quadras_competicao(nome_competicao, competicao.get("qtd_quadras") or 1)
+        grupos_raw = listar_grupos(nome_competicao)
+        equipes = listar_equipes_da_competicao(nome_competicao)
+        grupos = []
+        for g in grupos_raw:
+            equipes_grupo = listar_equipes_por_grupo(g["id"])
+            grupos.append({
+                "grupo": g,
+                "equipes": equipes_grupo,
+                "quadra_label": _quadra_label_por_id(nome_competicao, _quadra_id_do_grupo(g)),
+                "quadra_id": _quadra_id_do_grupo(g),
+            })
+        inicializar_configuracao_agenda_competicao(nome_competicao)
+        config_agenda = buscar_configuracao_agenda_competicao(nome_competicao)
+        contexto.update({
+            "grupos": grupos,
+            "equipes": equipes,
+            "quadras": quadras,
+            "config_agenda": config_agenda,
+            "config_geracao": config_agenda,
         })
 
-    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-    partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
-    if fase_subaba != "classificatorias":
+    # Aba Partidas: carrega partidas, quadras e avanço; não calcula classificação.
+    elif aba == "partidas":
+        avanco = buscar_avanco_config_competicao(nome_competicao)
+        status_avanco = status_avanco_classificatorias_competicao(nome_competicao)
+        avanco_gerado = avanco_ja_gerado_competicao(nome_competicao)
+        status_avanco["gerado"] = avanco_gerado
         if not avanco_gerado:
-            partidas_fase = []
-        else:
-            partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa)
-    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
-    regras_classificacao = _obter_regras_classificacao(competicao)
-    criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
-    colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
+            try:
+                limpar_partidas_avanco_nao_iniciadas_competicao(nome_competicao)
+            except Exception as e:
+                print("AVISO tabela/limpar_avanco_nao_gerado:", repr(e))
 
-    fases = _fases_disponiveis(competicao)
-    inicializar_configuracao_agenda_competicao(competicao["nome"])
-    config_agenda = buscar_configuracao_agenda_competicao(competicao["nome"])
+        avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
+        series_fase = _series_do_avanco_por_fase(avanco, fase_subaba) if fase_subaba != "classificatorias" else []
+        serie_ativa = (request.args.get("serie") or "").strip().lower()
+        if series_fase and not any(s.get("id") == serie_ativa for s in series_fase):
+            serie_ativa = series_fase[0].get("id")
 
-    return render_template(
-        "tabela.html",
-        competicao=competicao,
-        grupos=grupos,
-        equipes=equipes,
-        quadras=quadras,
-        partidas=partidas_preparadas,
-        partidas_fase=partidas_fase,
-        classificacao=classificacao,
-        criterios_classificacao=criterios_classificacao,
-        colunas_classificacao=colunas_classificacao,
-        aba_ativa=aba,
-        fase_ativa=fase_subaba,
-        fase_labels=FASES_AVANCO_LABELS,
-        avanco=avanco,
-        avanco_status=status_avanco,
-        avanco_fases_tabs=avanco_fases_tabs,
-        avanco_series_fase=series_fase,
-        avanco_serie_ativa=serie_ativa,
-        avanco_espelho=avanco_espelho,
-        competicao_travada=competicao_esta_travada(competicao["nome"]),
-        config_agenda=config_agenda,
-        config_geracao=config_agenda,
-        grupos_travados=fase_grupos_esta_travada_por_jogo(competicao["nome"]),
-        fase_atual_travada=not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao["nome"], _fase_subaba_para_banco(fase_subaba)),
-        fase_banco_ativa=_fase_subaba_para_banco(fase_subaba),
-        **fases,
-    )
+        quadras = garantir_quadras_competicao(nome_competicao, competicao.get("qtd_quadras") or 1)
+        grupos_raw = listar_grupos(nome_competicao)
+        equipes = listar_equipes_da_competicao(nome_competicao)
+        mapa_escudos = _mapa_escudos_equipes(equipes)
+        partidas = listar_partidas(nome_competicao)
+        if not avanco_gerado:
+            partidas = [p for p in partidas if not _partida_eh_avanco(p)]
+
+        grupos = []
+        for g in grupos_raw:
+            equipes_grupo = listar_equipes_por_grupo(g["id"])
+            grupos.append({
+                "grupo": g,
+                "equipes": equipes_grupo,
+                "quadra_label": _quadra_label_por_id(nome_competicao, _quadra_id_do_grupo(g)),
+                "quadra_id": _quadra_id_do_grupo(g),
+            })
+        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
+        partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
+        if fase_subaba != "classificatorias":
+            partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa) if avanco_gerado else []
+        avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
+        inicializar_configuracao_agenda_competicao(nome_competicao)
+        config_agenda = buscar_configuracao_agenda_competicao(nome_competicao)
+        contexto.update({
+            "grupos": grupos,
+            "equipes": equipes,
+            "quadras": quadras,
+            "partidas": partidas_preparadas,
+            "partidas_fase": partidas_fase,
+            "avanco": avanco,
+            "avanco_status": status_avanco,
+            "avanco_fases_tabs": avanco_fases_tabs,
+            "avanco_series_fase": series_fase,
+            "avanco_serie_ativa": serie_ativa,
+            "avanco_espelho": avanco_espelho,
+            "config_agenda": config_agenda,
+            "config_geracao": config_agenda,
+        })
+
+    # Aba Classificação: carrega somente o necessário para calcular classificação.
+    elif aba == "classificacao":
+        grupos_raw = listar_grupos(nome_competicao)
+        equipes = listar_equipes_da_competicao(nome_competicao)
+        mapa_escudos = _mapa_escudos_equipes(equipes)
+        partidas = listar_partidas(nome_competicao)
+        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
+        grupos = []
+        for g in grupos_raw:
+            equipes_grupo = listar_equipes_por_grupo(g["id"])
+            grupos.append({
+                "grupo": g,
+                "equipes": equipes_grupo,
+                "quadra_label": _quadra_label_por_id(nome_competicao, _quadra_id_do_grupo(g)),
+                "quadra_id": _quadra_id_do_grupo(g),
+            })
+        classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos)
+        regras_classificacao = _obter_regras_classificacao(competicao)
+        criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
+        colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
+        contexto.update({
+            "grupos": grupos,
+            "equipes": equipes,
+            "partidas": partidas_preparadas,
+            "classificacao": classificacao,
+            "criterios_classificacao": criterios_classificacao,
+            "colunas_classificacao": colunas_classificacao,
+        })
+
+    # Aba Visualizador: não carrega partidas nem classificação do organizador.
+    # O iframe/link público carrega a rota pública quando necessário.
+
+    return render_template("tabela.html", **contexto)
 
 
-# =========================================================
-# GERAR AVANÇO MANUALMENTE
-# =========================================================
+@tabela_bp.route("/tabela/api/resumo")
+@exigir_organizador_da_competicao
+def tabela_api_resumo():
+    """API leve para futuras cargas por aba sem renderizar a tela inteira."""
+    usuario = session.get("usuario")
+    competicao = buscar_competicao_por_organizador(usuario)
+    if not competicao:
+        return jsonify({"ok": False, "erro": "competicao_nao_encontrada"}), 404
+    nome = competicao["nome"]
+    aba = (request.args.get("aba") or "geracao").strip().lower()
+    return jsonify({
+        "ok": True,
+        "competicao": nome,
+        "aba": aba,
+        "grupos_travados": fase_grupos_esta_travada_por_jogo(nome),
+        "competicao_travada": competicao_esta_travada(nome),
+    })
+
+
 @tabela_bp.route("/tabela/avanco/gerar", methods=["POST"])
 @exigir_organizador_da_competicao
 def gerar_avanco_tabela_view():

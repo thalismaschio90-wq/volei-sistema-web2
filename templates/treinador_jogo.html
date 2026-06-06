@@ -1690,10 +1690,11 @@ setInterval(() => {
 
 // Scout em tempo real apenas quando a aba Scout estiver aberta.
 setInterval(() => {
+    if (document.visibilityState !== "visible") return;
     if ((ABA_ATIVA || "papeleta") === "scout" && (!socket || !socket.connected)) {
         scoutCarregado = false;
         carregarScoutTreinador(true);
     }
-}, 5000);
+}, 15000);
 </script>
 {% endblock %}
