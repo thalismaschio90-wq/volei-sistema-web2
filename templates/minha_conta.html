@@ -384,7 +384,7 @@
 
         <form method="POST" action="{{ url_for('equipes.atualizar_escudo_equipe_view') }}" enctype="multipart/form-data" class="escudo-conta-form">
             <label>Enviar novo escudo</label>
-            <input type="file" name="escudo" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="input-estilizado" required>
+            <input type="file" name="escudo" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif" class="input-estilizado" required>
             <div class="escudo-conta-botoes">
                 <button type="submit" class="btn-conta">🏐 Atualizar escudo</button>
                 {% if dados_equipe and dados_equipe.escudo %}

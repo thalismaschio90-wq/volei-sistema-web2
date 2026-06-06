@@ -482,7 +482,7 @@
                                                 class="classificacao-escudo"
                                                 src="{{ linha.escudo or escudo_padrao or '/static/img/escudo_padrao.svg' }}"
                                                 alt="Escudo {{ linha.equipe }}"
-                                            >
+                                             loading="lazy" decoding="async">
                                             <span class="classificacao-equipe-texto">{{ linha.equipe }}</span>
                                         </div>
                                     </td>
@@ -555,7 +555,7 @@
                         class="placar-escudo-time"
                         src="{{ p.escudo_a or escudo_padrao or '/static/img/escudo_padrao.svg' }}"
                         alt="Escudo {{ p.equipe_a or 'Equipe A' }}"
-                    >
+                     loading="lazy" decoding="async">
                     <div>
                         <div class="placar-nome-time">{{ p.equipe_a or 'A definir' }}</div>
                         <div class="placar-label-time">Equipe A</div>
@@ -579,7 +579,7 @@
                         class="placar-escudo-time"
                         src="{{ p.escudo_b or escudo_padrao or '/static/img/escudo_padrao.svg' }}"
                         alt="Escudo {{ p.equipe_b or 'Equipe B' }}"
-                    >
+                     loading="lazy" decoding="async">
                     <div>
                         <div class="placar-nome-time">{{ p.equipe_b or 'A definir' }}</div>
                         <div class="placar-label-time">Equipe B</div>
@@ -681,15 +681,9 @@ async function atualizarPartidasEquipeAoVivo() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", function () {
-    const cardsAoVivo = document.querySelectorAll('[data-partida-id][data-ao-vivo="1"]');
-    if (!cardsAoVivo.length) return;
-    atualizarPartidasEquipeAoVivo();
-    setInterval(function () {
-        if (document.visibilityState !== "visible") return;
-        if (!document.querySelector('[data-partida-id][data-ao-vivo="1"]')) return;
-        atualizarPartidasEquipeAoVivo();
-    }, 15000);
-});
+setInterval(() => {
+    if (document.visibilityState === "visible") atualizarPartidasEquipeAoVivo();
+}, 15000);
+document.addEventListener("DOMContentLoaded", atualizarPartidasEquipeAoVivo);
 </script>
 {% endblock %}

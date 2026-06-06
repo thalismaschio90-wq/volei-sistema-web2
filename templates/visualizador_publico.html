@@ -268,7 +268,7 @@
                                 <td><span class="posicao {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span></td>
                                 <td class="equipe">
                                     <div class="equipe-inline">
-                                        <img class="escudo-mini" src="{{ l.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ l.equipe }}">
+                                        <img class="escudo-mini" src="{{ l.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
                                         <span>{{ l.equipe }}</span>
                                     </div>
                                 </td>
@@ -350,12 +350,12 @@
                     <div>
                         <div class="confronto">
                             <span class="time-jogo">
-                                <img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}">
+                                <img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
                                 <span data-equipe-a>{{ p.equipe_a }}</span>
                             </span>
                             <span class="versus">x</span>
                             <span class="time-jogo">
-                                <img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}">
+                                <img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
                                 <span data-equipe-b>{{ p.equipe_b }}</span>
                             </span>
                         </div>

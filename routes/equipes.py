@@ -64,11 +64,18 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from io import BytesIO
 import base64
 
+# Suporte opcional para fotos HEIC/HEIF de iPhone.
+# Se a biblioteca não estiver instalada, PNG/JPG/WebP continuam funcionando normalmente.
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:
+    pillow_heif = None
 
 equipes_bp = Blueprint("equipes", __name__)
 
 
-_EXTENSOES_ESCUDO_PERMITIDAS = {"png", "jpg", "jpeg", "webp"}
+_EXTENSOES_ESCUDO_PERMITIDAS = {"png", "jpg", "jpeg", "webp", "heic", "heif"}
 
 
 def _extensao_arquivo(nome_arquivo):
@@ -93,7 +100,7 @@ def _salvar_upload_escudo(arquivo, login):
 
     extensao = _extensao_arquivo(arquivo.filename)
     if extensao not in _EXTENSOES_ESCUDO_PERMITIDAS:
-        return None, "Formato inválido. Envie PNG, JPG, JPEG ou WebP."
+        return None, "Formato inválido. Envie PNG, JPG, JPEG, WebP, HEIC ou HEIF."
 
     try:
         arquivo.stream.seek(0)
@@ -136,7 +143,7 @@ def _salvar_upload_escudo(arquivo, login):
     except UnidentifiedImageError:
         return None, "Não foi possível ler essa imagem. Envie uma imagem válida."
     except Exception as e:
-        print("ERRO PROCESSAR ESCUDO:", repr(e))
+        current_app.logger.exception("ERRO PROCESSAR ESCUDO")
         return None, "Não foi possível processar a imagem. Tente outra imagem."
 
     return data_url, None

@@ -297,7 +297,7 @@
     <div class="equipe-card-novo">
         <div class="equipe-card-corpo">
             <div class="equipe-escudo-box">
-                <img class="equipe-escudo-grande" src="{{ equipe.escudo_exibicao or equipe.escudo_blob or equipe.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ equipe.nome }}">
+                <img class="equipe-escudo-grande" src="{{ equipe.escudo_exibicao or equipe.escudo_blob or equipe.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ equipe.nome }}" loading="lazy" decoding="async">
             </div>
 
             <div>

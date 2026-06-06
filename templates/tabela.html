@@ -626,7 +626,7 @@
                                         {% set tem_disponivel.valor = true %}
                                         <div class="item-equipe-modal" data-equipe-modal-item data-equipe-nome="{{ e.nome|lower }}">
                                             <div class="dados-equipe">
-                                                <img src="{{ e.escudo or e.escudo_url or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ e.nome }}">
+                                                <img src="{{ e.escudo or e.escudo_url or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ e.nome }}" loading="lazy" decoding="async">
                                                 <span class="nome-equipe-modal">{{ e.nome }}</span>
                                             </div>
                                             <form method="post" action="{{ url_for('tabela.adicionar_equipe_grupo') }}">
@@ -989,12 +989,12 @@
                 <td class="col-equipe jogo-nome">
                     <div class="confronto-com-escudos">
                         <span class="confronto-time">
-                            <img src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}">
+                            <img src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
                             <span>{{ p.equipe_a or 'A definir' }}</span>
                         </span>
                         <span style="color:var(--muted); font-weight:900;">x</span>
                         <span class="confronto-time">
-                            <img src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}">
+                            <img src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
                             <span>{{ p.equipe_b or 'A definir' }}</span>
                         </span>
                     </div>
@@ -1109,7 +1109,7 @@
                             <td><span class="posicao">{{ loop.index }}</span></td>
                             <td class="col-equipe">
                                 <div class="equipe-inline">
-                                    <img class="escudo-mini" src="{{ linha.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ linha.equipe }}">
+                                    <img class="escudo-mini" src="{{ linha.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ linha.equipe }}" loading="lazy" decoding="async">
                                     <span>{{ linha.equipe }}</span>
                                 </div>
                             </td>
@@ -1152,7 +1152,7 @@
     </div>
 
     <div class="visualizador-preview">
-        <iframe loading="lazy" src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
+        <iframe src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
     </div>
 </div>
 {% endif %}
@@ -1203,16 +1203,10 @@ async function atualizarPartidasAoVivoTabela() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", function () {
-    const linhasAoVivo = document.querySelectorAll('tr[data-partida-id][data-ao-vivo="1"]');
-    if (!linhasAoVivo.length) return;
-    atualizarPartidasAoVivoTabela();
-    setInterval(function () {
-        if (document.visibilityState !== "visible") return;
-        if (!document.querySelector('tr[data-partida-id][data-ao-vivo="1"]')) return;
-        atualizarPartidasAoVivoTabela();
-    }, 15000);
-});
+setInterval(() => {
+    if (document.visibilityState === "visible") atualizarPartidasAoVivoTabela();
+}, 15000);
+document.addEventListener("DOMContentLoaded", atualizarPartidasAoVivoTabela);
 
 document.addEventListener("DOMContentLoaded", function sincronizarQuadraDoGrupo() {
     const grupoSelect = document.getElementById('grupo');

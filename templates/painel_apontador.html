@@ -294,9 +294,9 @@ document.addEventListener("keydown", function(e) {
          data-quadra-chave="{{ quadra_chave }}">
         <div class="ap-info">
             <div class="ap-match-line">
-                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}"><span class="ap-team-name">{{ p.equipe_a }}</span></span>
+                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async"><span class="ap-team-name">{{ p.equipe_a }}</span></span>
                 <span style="color:var(--muted);">x</span>
-                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}"><span class="ap-team-name">{{ p.equipe_b }}</span></span>
+                <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async"><span class="ap-team-name">{{ p.equipe_b }}</span></span>
             </div>
             <div class="ap-meta">
                 Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {% if p.fase_normalizada and p.fase_normalizada != 'grupos' %}{{ p.fase_normalizada|replace('_',' ')|title }}{% else %}{{ p.grupo or '-' }}{% endif %}

@@ -303,7 +303,7 @@
             btn.type = "button";
             btn.className = "rel-opcao";
             btn.innerHTML = `
-                <img class="rel-escudo" src="${eq.escudo || '/static/img/escudo_padrao.svg'}" alt="Escudo ${eq.nome}">
+                <img class="rel-escudo" src="${eq.escudo || '/static/img/escudo_padrao.svg'}" alt="Escudo ${eq.nome}" loading="lazy" decoding="async">
                 <span>
                     <span class="rel-opcao-titulo">${eq.nome}</span>
                     <span class="rel-opcao-meta">${[eq.cidade, eq.responsavel ? 'Responsável: ' + eq.responsavel : ''].filter(Boolean).join(' • ') || 'Equipe cadastrada'}</span>

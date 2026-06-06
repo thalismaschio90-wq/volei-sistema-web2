@@ -12782,6 +12782,19 @@ def aplicar_escudo_exibicao_lista(equipes):
 
 
 def atualizar_escudo_equipe_por_login(login, escudo, escudo_blob=None):
+    """Atualiza o escudo global da equipe de forma robusta.
+
+    Em alguns bancos antigos, o usuário da equipe pode ter o login atualizado em
+    `usuarios`, mas a linha global de `equipes` ainda permanecer com outro login
+    ou apenas com o mesmo nome da equipe. Antes essa situação fazia o upload
+    processar a imagem corretamente, mas o UPDATE não alterava nenhuma linha e a
+    tela mostrava "Não foi possível salvar o escudo".
+
+    Agora tenta, nesta ordem:
+    1) atualizar pela coluna equipes.login;
+    2) localizar o nome da equipe em usuarios.equipe e atualizar por esse nome;
+    3) se existir vínculo em equipes_competicoes, atualizar pelo vínculo.
+    """
     login = (login or "").strip()
     escudo = (escudo or "").strip()
     if escudo_blob is None:
@@ -12791,32 +12804,89 @@ def atualizar_escudo_equipe_por_login(login, escudo, escudo_blob=None):
     if not login:
         return False
 
-    criar_campo_escudo_equipes()
+    try:
+        criar_campo_escudo_equipes()
+    except Exception as e:
+        print("ERRO GARANTIR CAMPO ESCUDO:", repr(e))
+        return False
+
     colunas = _buscar_colunas_tabela("equipes")
 
     sets = []
-    valores = []
+    valores_base = []
 
     if "escudo" in colunas:
         sets.append("escudo = %s")
-        valores.append(escudo)
+        valores_base.append(escudo)
     if "escudo_blob" in colunas:
         sets.append("escudo_blob = %s")
-        valores.append(escudo_blob)
+        valores_base.append(escudo_blob)
 
     if not sets:
         return False
 
-    valores.append(login)
+    set_sql = ", ".join(sets)
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"""
-                UPDATE equipes
-                SET {', '.join(sets)}
-                WHERE login = %s
-            """, tuple(valores))
-            alteradas = cur.rowcount
+            # 1) Caminho normal: login da equipe igual ao login da sessão.
+            cur.execute(
+                f"UPDATE equipes SET {set_sql} WHERE login = %s",
+                tuple(valores_base + [login])
+            )
+            alteradas = cur.rowcount or 0
+
+            # 2) Fallback: login da sessão está em usuarios, mas equipes.login ficou antigo.
+            if alteradas <= 0:
+                cur.execute("""
+                    SELECT equipe
+                    FROM usuarios
+                    WHERE login = %s
+                    LIMIT 1
+                """, (login,))
+                row_usuario = cur.fetchone()
+                nome_equipe = ""
+                try:
+                    nome_equipe = (row_usuario.get("equipe") if hasattr(row_usuario, "get") else row_usuario[0]) or ""
+                except Exception:
+                    nome_equipe = ""
+                nome_equipe = str(nome_equipe).strip()
+
+                if nome_equipe:
+                    cur.execute(
+                        f"""
+                        UPDATE equipes
+                        SET {set_sql}
+                        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+                        """,
+                        tuple(valores_base + [nome_equipe])
+                    )
+                    alteradas = cur.rowcount or 0
+
+            # 3) Fallback extra: vínculo de competição guarda o login/nome antigo.
+            if alteradas <= 0:
+                try:
+                    criar_tabela_equipes_competicoes()
+                    cur.execute(
+                        f"""
+                        UPDATE equipes e
+                        SET {set_sql}
+                        FROM equipes_competicoes ec
+                        WHERE (
+                            ec.equipe_login = %s
+                            OR LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(e.nome))
+                        )
+                        AND (
+                            e.login = ec.equipe_login
+                            OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
+                        )
+                        """,
+                        tuple(valores_base + [login])
+                    )
+                    alteradas = cur.rowcount or 0
+                except Exception as e:
+                    print("ERRO FALLBACK ESCUDO VINCULO:", repr(e))
+
         conn.commit()
 
     return alteradas > 0
