@@ -48,6 +48,7 @@ from banco import (
     listar_partidas,
     listar_grupos,
     listar_equipes_por_grupo,
+    listar_equipes_por_grupos_competicao,
     atualizar_escudo_equipe_por_login,
     escudo_padrao_equipe,
 )
@@ -686,12 +687,22 @@ def _buscar_escudo_equipe_mapa(mapa_escudos, nome_equipe):
 
 
 def _montar_grupos_classificacao_equipe(nome_competicao):
-    grupos = []
+    grupos_raw = listar_grupos(nome_competicao) or []
+    try:
+        equipes_por_grupo = listar_equipes_por_grupos_competicao(nome_competicao) or {}
+    except Exception as e:
+        print("AVISO equipe/grupos_classificacao_cacheados:", repr(e))
+        equipes_por_grupo = None
 
-    for grupo in listar_grupos(nome_competicao) or []:
+    grupos = []
+    for grupo in grupos_raw:
+        gid = grupo.get("id")
+        equipes = (equipes_por_grupo or {}).get(gid)
+        if equipes is None:
+            equipes = listar_equipes_por_grupo(gid) or []
         grupos.append({
             "grupo": grupo,
-            "equipes": listar_equipes_por_grupo(grupo["id"]) or [],
+            "equipes": equipes,
         })
 
     return grupos

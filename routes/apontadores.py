@@ -1288,6 +1288,28 @@ def _reconciliar_placar_com_eventos(partida_id, competicao, estado):
     return estado
 
 
+def _deve_rebuild_pesado_estado(origem="", estado=None, forcar=False):
+    """
+    Decide quando vale consultar eventos no banco para reconstruir placar/evolução.
+
+    Antes, todo ponto/heartbeat/sync fazia rebuild a partir de eventos. Isso deixa o
+    apontador lento e causa atraso visual no saque/rotação. Agora o cache/socket é
+    dominante durante o jogo; o rebuild fica para abertura sem cache, desfazer, WO,
+    finalização ou quando for explicitamente forçado.
+    """
+    if forcar:
+        return True
+    estado = estado or {}
+    origem = str(origem or "").upper()
+    if estado.get("_forcar_rebuild_eventos") or estado.get("rebuild_eventos"):
+        return True
+    if origem in {"DESFAZER", "WO", "FINALIZAR", "ENCERRAR", "ABERTURA_SEM_CACHE"}:
+        return True
+    if origem.startswith("SINCRONIZAR_FINAL"):
+        return True
+    return False
+
+
 def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=None):
     """
     Garante que o payload enviado ao telão sempre tenha:
@@ -1344,13 +1366,15 @@ def _preparar_estado_para_placar(partida_id, competicao, estado=None, partida=No
     if "placar_b" not in estado:
         estado["placar_b"] = estado.get("pontos_b", 0)
 
-    estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
-
-    estado["evolucao_pontos"] = _montar_evolucao_pontos(
-        partida_id,
-        competicao,
-        estado.get("set_atual") or 1,
-    )
+    if _deve_rebuild_pesado_estado(estado=estado):
+        estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+        estado["evolucao_pontos"] = _montar_evolucao_pontos(
+            partida_id,
+            competicao,
+            estado.get("set_atual") or 1,
+        )
+    else:
+        estado.setdefault("evolucao_pontos", estado.get("evolucao") or [])
 
     estado = _aplicar_escudos_estado(estado, competicao, estado.get("equipe_a"), estado.get("equipe_b"))
 
@@ -1382,15 +1406,17 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
     estado["equipe_b"] = equipe_b_op
     estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
 
-    estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
-
-    # Sempre envia a evolução reconstruída pelos eventos do banco.
-    # Assim, atualizar o telão, sair e voltar não zera a evolução ponto a ponto.
-    estado["evolucao_pontos"] = _montar_evolucao_pontos(
-        partida_id,
-        competicao,
-        estado.get("set_atual") or 1,
-    )
+    if _deve_rebuild_pesado_estado(origem=origem, estado=estado):
+        estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+        estado["evolucao_pontos"] = _montar_evolucao_pontos(
+            partida_id,
+            competicao,
+            estado.get("set_atual") or 1,
+        )
+    else:
+        # Durante ponto/tempo/substituição, evita consultar eventos no Neon.
+        # Usa a evolução já presente no cache/retorno; se não houver, envia lista vazia.
+        estado.setdefault("evolucao_pontos", estado.get("evolucao") or [])
 
     estado.setdefault("pontos_a", estado.get("placar_a", 0))
     estado.setdefault("pontos_b", estado.get("placar_b", 0))
@@ -2830,9 +2856,15 @@ def ponto_view(competicao, partida_id):
         estado["competicao"] = competicao
         estado["partida_id"] = partida_id
         if not estado.get("historico") or not estado.get("ultima_acao"):
-            historico, ultima_acao = _buscar_historico_resumido(partida_id, competicao, limite=5)
-            estado["historico"] = historico
-            estado["ultima_acao"] = ultima_acao or "Ponto registrado"
+            desc = "Ponto registrado"
+            if atleta_label:
+                desc = f"Ponto {equipe_pontuadora} • {atleta_label}"
+            estado["historico"] = [{"descricao": desc}]
+            estado["ultima_acao"] = desc
+
+        # Não reconstruir histórico/evolução pelo banco a cada ponto.
+        # O estado retornado por registrar_ponto_partida + socket é a fonte viva.
+        estado["_forcar_rebuild_eventos"] = False
 
         estado = _emitir_estado_e_placar(
             partida_id,
@@ -3714,7 +3746,9 @@ def estado_jogo_view(competicao, partida_id):
             return _json_no_cache({"ok": False, "mensagem": "Partida não encontrada"}, 404)
 
         # Primeiro tenta o cache vivo. Evita consultar várias tabelas a cada sync/fallback.
-        estado = dict(obter_estado_cache(partida_id) or {})
+        estado_cache = obter_estado_cache(partida_id) or {}
+        veio_do_cache = bool(estado_cache)
+        estado = dict(estado_cache)
         if not estado:
             garantir_estado_partida(partida_id, competicao)
             estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
@@ -3771,7 +3805,10 @@ def estado_jogo_view(competicao, partida_id):
         tempos_b = estado.get("tempos_b")
 
         estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
-        estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
+        # Se já existe cache vivo, não consulta eventos no banco em todo sync do apontador.
+        # Reconciliar fica reservado para abertura sem cache ou chamada manual ?reconciliar=1.
+        if (not veio_do_cache) or str(request.args.get("reconciliar") or "").strip() == "1":
+            estado = _reconciliar_placar_com_eventos(partida_id, competicao, estado)
         equipe_a_op = partida.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
         equipe_b_op = partida.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
         estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)

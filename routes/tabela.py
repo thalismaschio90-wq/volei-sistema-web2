@@ -11,6 +11,7 @@ from banco import (
     listar_grupos,
     adicionar_equipe_no_grupo,
     listar_equipes_por_grupo,
+    listar_equipes_por_grupos_competicao,
     criar_partida,
     listar_partidas,
     limpar_partidas,
@@ -103,6 +104,37 @@ def _remover_flash_permissao_falso():
             and str(item[1]).strip() == "Você não tem permissão para acessar esta área."
         )
     ]
+
+
+def _grupos_com_equipes_cacheados(competicao_nome, grupos_raw=None, incluir_quadra=True):
+    """Monta grupos com suas equipes usando 1 consulta para todas as equipes dos grupos.
+
+    Evita o padrão lento: for grupo -> listar_equipes_por_grupo(grupo_id).
+    Mantém fallback individual caso a função nova falhe em algum banco antigo.
+    """
+    grupos_raw = grupos_raw if grupos_raw is not None else (listar_grupos(competicao_nome) or [])
+    try:
+        equipes_por_grupo = listar_equipes_por_grupos_competicao(competicao_nome) or {}
+    except Exception as e:
+        print("AVISO grupos_cacheados/listar_equipes_por_grupos_competicao:", repr(e))
+        equipes_por_grupo = None
+
+    grupos = []
+    for g in grupos_raw or []:
+        gid = g.get("id")
+        equipes_grupo = (equipes_por_grupo or {}).get(gid)
+        if equipes_grupo is None:
+            equipes_grupo = listar_equipes_por_grupo(gid) or []
+
+        item = {"grupo": g, "equipes": equipes_grupo}
+        if incluir_quadra:
+            quadra_id = _quadra_id_do_grupo(g)
+            item.update({
+                "quadra_label": _quadra_label_por_id(competicao_nome, quadra_id),
+                "quadra_id": quadra_id,
+            })
+        grupos.append(item)
+    return grupos
 
 
 # =========================================================
@@ -1552,24 +1584,6 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
     return classificacao
 
 
-def _calcular_ou_obter_classificacao_cacheada(nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos=None):
-    """Usa classificação cacheada quando nada mudou.
-
-    Se o cache falhar por qualquer motivo, usa o cálculo original para não
-    alterar o comportamento do sistema.
-    """
-    assinatura = assinatura_classificacao_competicao(nome_competicao)
-    if assinatura:
-        payload = obter_cache_classificacao(nome_competicao, assinatura)
-        if isinstance(payload, dict) and isinstance(payload.get("classificacao"), dict):
-            return payload["classificacao"], True
-
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
-    if assinatura:
-        salvar_cache_classificacao(nome_competicao, assinatura, {"classificacao": classificacao})
-    return classificacao, False
-
-
 # =========================================================
 # VISUALIZADOR PÚBLICO
 # =========================================================
@@ -1585,15 +1599,7 @@ def visualizador_publico(competicao_nome):
     equipes_competicao = listar_equipes_da_competicao(competicao_nome)
     mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
 
-    grupos = []
-    for g in grupos_raw:
-        equipes_grupo = listar_equipes_por_grupo(g["id"])
-        grupos.append({
-            "grupo": g,
-            "equipes": equipes_grupo,
-            "quadra_label": _quadra_label_por_id(competicao_nome, _quadra_id_do_grupo(g)),
-            "quadra_id": _quadra_id_do_grupo(g),
-        })
+    grupos = _grupos_com_equipes_cacheados(competicao_nome, grupos_raw)
 
     competicao = buscar_competicao_por_nome(competicao_nome) or {
         "nome": competicao_nome
@@ -1700,15 +1706,7 @@ def tabela_view():
         quadras = garantir_quadras_competicao(nome_competicao, competicao.get("qtd_quadras") or 1)
         grupos_raw = listar_grupos(nome_competicao)
         equipes = listar_equipes_da_competicao(nome_competicao)
-        grupos = []
-        for g in grupos_raw:
-            equipes_grupo = listar_equipes_por_grupo(g["id"])
-            grupos.append({
-                "grupo": g,
-                "equipes": equipes_grupo,
-                "quadra_label": _quadra_label_por_id(nome_competicao, _quadra_id_do_grupo(g)),
-                "quadra_id": _quadra_id_do_grupo(g),
-            })
+        grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
         inicializar_configuracao_agenda_competicao(nome_competicao)
         config_agenda = buscar_configuracao_agenda_competicao(nome_competicao)
         contexto.update({
@@ -1745,15 +1743,7 @@ def tabela_view():
         if not avanco_gerado:
             partidas = [p for p in partidas if not _partida_eh_avanco(p)]
 
-        grupos = []
-        for g in grupos_raw:
-            equipes_grupo = listar_equipes_por_grupo(g["id"])
-            grupos.append({
-                "grupo": g,
-                "equipes": equipes_grupo,
-                "quadra_label": _quadra_label_por_id(nome_competicao, _quadra_id_do_grupo(g)),
-                "quadra_id": _quadra_id_do_grupo(g),
-            })
+        grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
         partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
         partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
         if fase_subaba != "classificatorias":
@@ -1784,15 +1774,7 @@ def tabela_view():
         mapa_escudos = _mapa_escudos_equipes(equipes)
         partidas = listar_partidas(nome_competicao)
         partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-        grupos = []
-        for g in grupos_raw:
-            equipes_grupo = listar_equipes_por_grupo(g["id"])
-            grupos.append({
-                "grupo": g,
-                "equipes": equipes_grupo,
-                "quadra_label": _quadra_label_por_id(nome_competicao, _quadra_id_do_grupo(g)),
-                "quadra_id": _quadra_id_do_grupo(g),
-            })
+        grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
         classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos)
         regras_classificacao = _obter_regras_classificacao(competicao)
         criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))

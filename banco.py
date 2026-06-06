@@ -105,10 +105,49 @@ def _obter_database_url():
     return url
 
 
+def _env_int(nome, padrao, minimo=None, maximo=None):
+    try:
+        valor = int(os.environ.get(nome, padrao))
+    except Exception:
+        valor = int(padrao)
+    if minimo is not None:
+        valor = max(minimo, valor)
+    if maximo is not None:
+        valor = min(maximo, valor)
+    return valor
+
+
+def _env_float(nome, padrao, minimo=None, maximo=None):
+    try:
+        valor = float(os.environ.get(nome, padrao))
+    except Exception:
+        valor = float(padrao)
+    if minimo is not None:
+        valor = max(minimo, valor)
+    if maximo is not None:
+        valor = min(maximo, valor)
+    return valor
+
+
+def _pool_habilitado():
+    valor = str(os.environ.get("DB_POOL_ENABLED", "1")).strip().lower()
+    return valor not in {"0", "false", "no", "off", "nao", "não"}
+
+
+def _conexao_direta():
+    return connect(
+        _obter_database_url(),
+        row_factory=dict_row,
+        sslmode="require",
+        connect_timeout=_env_int("DB_CONNECT_TIMEOUT", 8, minimo=3, maximo=30),
+        prepare_threshold=None,
+    )
+
+
 def _obter_pool():
     global _DB_POOL
 
-    if ConnectionPool is None:
+    if ConnectionPool is None or not _pool_habilitado():
         return None
 
     if _DB_POOL is not None:
@@ -118,20 +157,29 @@ def _obter_pool():
         if _DB_POOL is not None:
             return _DB_POOL
 
+        # Neon/Render em plano pequeno pode recusar muitos sockets abertos.
+        # Por isso o padrão é conservador: min_size=0 e max_size=5.
+        # Se precisar, aumente via variáveis no Render:
+        # DB_POOL_MIN_SIZE=0 / DB_POOL_MAX_SIZE=5 ou 8.
+        min_size = _env_int("DB_POOL_MIN_SIZE", 0, minimo=0, maximo=10)
+        max_size = _env_int("DB_POOL_MAX_SIZE", 5, minimo=1, maximo=20)
+        if max_size < min_size:
+            max_size = min_size or 1
+
         _DB_POOL = ConnectionPool(
             conninfo=_obter_database_url(),
             kwargs={
                 "row_factory": dict_row,
                 "sslmode": "require",
-                "connect_timeout": 5,
+                "connect_timeout": _env_int("DB_CONNECT_TIMEOUT", 8, minimo=3, maximo=30),
                 "prepare_threshold": None,
             },
-            min_size=int(os.environ.get("DB_POOL_MIN_SIZE", 2)),
-            max_size=int(os.environ.get("DB_POOL_MAX_SIZE", 30)),
-            timeout=float(os.environ.get("DB_POOL_TIMEOUT", 5)),
-            max_idle=60,
-            max_lifetime=300,
-            reconnect_timeout=5,
+            min_size=min_size,
+            max_size=max_size,
+            timeout=_env_float("DB_POOL_TIMEOUT", 10, minimo=2, maximo=60),
+            max_idle=_env_float("DB_POOL_MAX_IDLE", 120, minimo=20, maximo=600),
+            max_lifetime=_env_float("DB_POOL_MAX_LIFETIME", 600, minimo=60, maximo=1800),
+            reconnect_timeout=_env_float("DB_POOL_RECONNECT_TIMEOUT", 15, minimo=3, maximo=60),
             open=True,
         )
 
@@ -151,24 +199,32 @@ def _fechar_pool_quebrado():
 
 
 def conectar():
+    """Abre conexão com o banco com pool seguro e fallback.
+
+    Regras desta versão:
+    - usa pool quando disponível;
+    - se o pool falhar, recria uma vez;
+    - se ainda falhar, usa conexão direta para não derrubar login/painéis;
+    - mantém compatibilidade com `with conectar() as conn:`.
+    """
     pool = _obter_pool()
+    timeout_pool = _env_float("DB_POOL_TIMEOUT", 10, minimo=2, maximo=60)
 
     if pool is not None:
         try:
-            return pool.connection(timeout=float(os.environ.get("DB_POOL_TIMEOUT", 20)))
+            return pool.connection(timeout=timeout_pool)
         except Exception as e:
-            print("ERRO AO PEGAR CONEXAO DO POOL, RECRIANDO:", repr(e))
+            print("AVISO: pool do banco falhou; tentando recriar:", repr(e))
             _fechar_pool_quebrado()
-            pool = _obter_pool()
-            return pool.connection(timeout=float(os.environ.get("DB_POOL_TIMEOUT", 20)))
 
-    return connect(
-        _obter_database_url(),
-        row_factory=dict_row,
-        sslmode="require",
-        connect_timeout=5,
-        prepare_threshold=None,
-    )
+            try:
+                pool = _obter_pool()
+                if pool is not None:
+                    return pool.connection(timeout=timeout_pool)
+            except Exception as e2:
+                print("AVISO: pool recriado também falhou; usando conexão direta:", repr(e2))
+
+    return _conexao_direta()
 
 
 # =========================================================
@@ -4328,6 +4384,34 @@ def listar_equipes_por_grupo(grupo_id):
             return cur.fetchall()
 
 
+def listar_equipes_por_grupos_competicao(competicao):
+    """
+    Retorna todas as equipes de todos os grupos da competição em uma única consulta.
+
+    Antes, várias telas chamavam listar_equipes_por_grupo() dentro de loop,
+    gerando uma ida ao Neon para cada grupo. Em competições com muitos grupos,
+    isso deixava tabela, visualizador público e painel da equipe bem mais lentos.
+
+    Formato de retorno:
+        {grupo_id: [linhas_de_grupos_equipes]}
+    """
+    resultado = {}
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT ge.*
+                FROM grupos_equipes ge
+                JOIN grupos g ON g.id = ge.grupo_id
+                WHERE ge.competicao = %s
+                  AND g.competicao = %s
+                ORDER BY g.nome, ge.equipe
+            """, (competicao, competicao))
+            for row in cur.fetchall() or []:
+                gid = row.get("grupo_id")
+                resultado.setdefault(gid, []).append(row)
+    return resultado
+
+
 def buscar_grupo_por_id(grupo_id, competicao):
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -4504,13 +4588,9 @@ def criar_tabela_partidas():
 
 
 def listar_partidas(competicao):
-    criar_campo_escudo_equipes()
-    criar_tabela_equipes_competicoes()
-    try:
-        normalizar_vinculos_quadras_competicao(competicao)
-    except Exception as e:
-        print("AVISO listar_partidas/normalizar_quadras:", repr(e))
-
+    # Performance: listar partidas precisa ser somente leitura.
+    # Criação de campos/tabelas e normalização de quadras devem rodar no boot/migração
+    # ou em ações administrativas, nunca em toda abertura de painel.
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
