@@ -1308,8 +1308,15 @@
                 </div>
             </div>
         </form>
-        <form method="post" action="{{ url_for('competicoes.gerar_avanco_competicao_view') }}" onsubmit="return confirm('Gerar ou atualizar as partidas do avanço agora?');" style="margin-top:14px; display:flex; justify-content:flex-end;">
-            <button class="btn-padrao" type="submit" {% if competicao_travada %}disabled{% endif %}>Gerar/atualizar partidas do avanço</button>
+        <div style="margin-top:14px; padding:12px 14px; border:1px solid #d7dee7; border-radius:14px; background:#fbfdff; color:#425466; line-height:1.45; font-weight:700;">
+            {% if avanco_status and avanco_status.fechada %}
+                Classificatórias finalizadas. Agora você pode gerar os confrontos reais do avanço.
+            {% else %}
+                Avanço bloqueado: finalize todos os jogos classificatórios antes de puxar equipes reais para o mata-mata. Até lá, o sistema mantém apenas os placeholders das regras, como “1º Grupo A”.
+            {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('competicoes.gerar_avanco_competicao_view') }}" onsubmit="return confirm('Gerar os confrontos reais do avanço agora?');" style="margin-top:14px; display:flex; justify-content:flex-end;">
+            <button class="btn-padrao" type="submit" {% if competicao_travada or not avanco_status or not avanco_status.fechada %}disabled{% endif %}>Gerar jogos da próxima fase</button>
         </form>
     </div>
 

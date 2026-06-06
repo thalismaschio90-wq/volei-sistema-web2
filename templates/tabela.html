@@ -698,7 +698,12 @@
             <button class="btn-padrao" type="submit" {% if fase_atual_travada %}disabled{% endif %}>Gerar jogos automaticamente</button>
         </form>
         {% else %}
-        <a class="btn-padrao" href="{{ url_for('competicoes.avanco_competicao_view') }}">Editar desenho do avanço</a>
+        <a class="btn-secundario" href="{{ url_for('competicoes.avanco_competicao_view') }}">Editar desenho do avanço</a>
+        <form method="post" action="{{ url_for('tabela.gerar_avanco_tabela_view') }}" onsubmit="return confirm('Gerar os confrontos reais do avanço agora? O sistema só vai liberar se todos os jogos classificatórios estiverem finalizados.');">
+            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+            <input type="hidden" name="serie" value="{{ avanco_serie_ativa or '' }}">
+            <button class="btn-padrao" type="submit" {% if not avanco_status or not avanco_status.fechada %}disabled{% endif %}>Gerar jogos da próxima fase</button>
+        </form>
         {% endif %}
 
         {% if fase_ativa == 'classificatorias' %}
@@ -711,7 +716,13 @@
         {% endif %}
 
         {% if fase_ativa != 'classificatorias' %}
-        <div style="color: var(--muted); display:flex; align-items:center;">Esta fase vem do quadro configurado em Avanço. A tabela mostra os jogos e permite ajuste manual fino se algum confronto precisar ser corrigido.</div>
+        <div style="color: var(--muted); display:flex; align-items:center; line-height:1.45;">
+            {% if avanco_status and avanco_status.fechada %}
+                Classificatórias finalizadas. Clique em “Gerar jogos da próxima fase” para congelar os classificados e criar os confrontos reais.
+            {% else %}
+                Avanço bloqueado: enquanto houver jogo classificatório pendente, o sistema mostra só os placeholders configurados, como “1º Grupo A”, sem puxar nomes reais.
+            {% endif %}
+        </div>
         {% endif %}
 
         <form method="post" action="{{ url_for('tabela.limpar_fase_view') }}" onsubmit="return confirm('Deseja apagar todas as partidas desta fase?');">
@@ -820,7 +831,7 @@
     <div class="avanco-espelho-head">
         <div>
             <div class="avanco-espelho-title">Espelho do Avanço</div>
-            <div class="avanco-espelho-hint">O quadro abaixo vem da aba Avanço. Enquanto a origem não estiver resolvida, aparece “1º Grupo A”, “Vencedor J1” etc.; quando o jogo/classificação fecha, a equipe entra automaticamente.</div>
+            <div class="avanco-espelho-hint">O quadro abaixo vem da aba Avanço. Enquanto a classificatória inteira não estiver finalizada e o botão de geração não for acionado, aparecem apenas os placeholders configurados, como “1º Grupo A” e “Vencedor J1”.</div>
         </div>
     </div>
     {% for serie in avanco_espelho %}

@@ -290,7 +290,7 @@
     {% if avanco_espelho is defined and avanco_espelho %}
     <section class="bracket-publico">
         <h2>Avanço / Chaveamento</h2>
-        <div class="hint">O quadro mostra como a próxima fase foi configurada. Quando uma posição já estiver definida, o nome real da equipe entra automaticamente no lugar da origem.</div>
+        <div class="hint">O quadro mostra como a próxima fase foi configurada. Enquanto a classificatória não estiver totalmente finalizada e o organizador não gerar os jogos, aparecem apenas os placeholders das regras, como “1º Grupo A”.</div>
         {% for serie in avanco_espelho %}
             <div class="bracket-serie">
                 <h3>{{ serie.nome }}</h3>

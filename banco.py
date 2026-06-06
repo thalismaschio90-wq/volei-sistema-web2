@@ -3112,28 +3112,61 @@ def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
     }
 
 def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
+    """
+    Atualiza o nome de exibição da equipe mantendo todos os vínculos antigos.
+
+    Ponto importante: várias partes antigas do sistema ainda guardam o nome da
+    equipe como texto (partidas.equipe_a/equipe_b, grupos_equipes.equipe,
+    atletas.equipe, vencedor etc.). Quando o organizador renomeava a equipe,
+    somente equipes/equipes_competicoes/usuarios eram atualizadas, e a tabela
+    continuava mostrando o nome antigo. Aqui atualizamos todos os campos legados
+    que dependem do nome para que tabela, jogos, visualizador público e escudos
+    passem a apontar para o cadastro atual.
+    """
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
     if not ok_edicao:
+        return False
+
+    nome_atual = (nome_atual or "").strip()
+    novo_nome = (novo_nome or "").strip()
+    nome_competicao = (nome_competicao or "").strip()
+
+    if not nome_atual or not novo_nome or not nome_competicao:
         return False
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT e.login
+                SELECT
+                    e.login,
+                    e.nome AS nome_global,
+                    ec.equipe_nome AS nome_vinculo
                 FROM equipes_competicoes ec
                 JOIN equipes e
                   ON e.login = ec.equipe_login
-                  OR LOWER(e.nome) = LOWER(ec.equipe_nome)
-                WHERE LOWER(ec.equipe_nome) = LOWER(%s)
-                  AND ec.competicao = %s
+                  OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
+                WHERE ec.competicao = %s
+                  AND (
+                        LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(e.nome)) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(e.login)) = LOWER(TRIM(%s))
+                  )
                 LIMIT 1
-            """, (nome_atual, nome_competicao))
+            """, (nome_competicao, nome_atual, nome_atual, nome_atual))
             equipe = cur.fetchone()
 
             if not equipe:
                 return False
 
-            login_equipe = equipe["login"]
+            login_equipe = (equipe.get("login") or "").strip()
+            nome_global_antigo = (equipe.get("nome_global") or "").strip()
+            nome_vinculo_antigo = (equipe.get("nome_vinculo") or "").strip()
+
+            nomes_antigos = []
+            for valor in (nome_atual, nome_global_antigo, nome_vinculo_antigo):
+                valor = (valor or "").strip()
+                if valor and valor.lower() not in {v.lower() for v in nomes_antigos}:
+                    nomes_antigos.append(valor)
 
             cur.execute("""
                 UPDATE equipes
@@ -3143,9 +3176,14 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
 
             cur.execute("""
                 UPDATE equipes_competicoes
-                SET equipe_nome = %s
-                WHERE equipe_login = %s
-            """, (novo_nome, login_equipe))
+                SET equipe_nome = %s,
+                    equipe_login = %s
+                WHERE competicao = %s
+                  AND (
+                        equipe_login = %s
+                     OR LOWER(TRIM(equipe_nome)) = ANY(%s)
+                  )
+            """, (novo_nome, login_equipe, nome_competicao, login_equipe, [n.lower() for n in nomes_antigos]))
 
             cur.execute("""
                 UPDATE usuarios
@@ -3155,17 +3193,85 @@ def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
                   AND perfil = 'equipe'
             """, (novo_nome, novo_nome, login_equipe))
 
-            cur.execute("""
-                UPDATE atletas
-                SET equipe = %s
-                WHERE equipe = %s
-                  AND competicao = %s
-            """, (novo_nome, nome_atual, nome_competicao))
+            # Campos legados que guardam o NOME da equipe como texto.
+            # Mantém a tabela/jogos/público coerentes logo após renomear.
+            for nome_antigo in nomes_antigos:
+                cur.execute("""
+                    UPDATE grupos_equipes
+                    SET equipe = %s
+                    WHERE competicao = %s
+                      AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                """, (novo_nome, nome_competicao, nome_antigo))
+
+                cur.execute("""
+                    UPDATE partidas
+                    SET equipe_a = CASE WHEN LOWER(TRIM(COALESCE(equipe_a, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_a END,
+                        equipe_b = CASE WHEN LOWER(TRIM(COALESCE(equipe_b, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_b END,
+                        equipe_a_operacional = CASE WHEN LOWER(TRIM(COALESCE(equipe_a_operacional, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_a_operacional END,
+                        equipe_b_operacional = CASE WHEN LOWER(TRIM(COALESCE(equipe_b_operacional, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_b_operacional END,
+                        lado_esquerdo = CASE WHEN LOWER(TRIM(COALESCE(lado_esquerdo, ''))) = LOWER(TRIM(%s)) THEN %s ELSE lado_esquerdo END,
+                        saque_inicial = CASE WHEN LOWER(TRIM(COALESCE(saque_inicial, ''))) = LOWER(TRIM(%s)) THEN %s ELSE saque_inicial END,
+                        sorteio_vencedor = CASE WHEN LOWER(TRIM(COALESCE(sorteio_vencedor, ''))) = LOWER(TRIM(%s)) THEN %s ELSE sorteio_vencedor END,
+                        vencedor = CASE WHEN LOWER(TRIM(COALESCE(vencedor, ''))) = LOWER(TRIM(%s)) THEN %s ELSE vencedor END
+                    WHERE competicao = %s
+                      AND (
+                            LOWER(TRIM(COALESCE(equipe_a, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(equipe_b, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(equipe_a_operacional, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(equipe_b_operacional, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(lado_esquerdo, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(saque_inicial, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(sorteio_vencedor, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(vencedor, ''))) = LOWER(TRIM(%s))
+                      )
+                """, (
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_antigo, novo_nome,
+                    nome_competicao,
+                    nome_antigo, nome_antigo, nome_antigo, nome_antigo,
+                    nome_antigo, nome_antigo, nome_antigo, nome_antigo,
+                ))
+
+                cur.execute("""
+                    UPDATE atletas
+                    SET equipe = %s
+                    WHERE competicao = %s
+                      AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                """, (novo_nome, nome_competicao, nome_antigo))
+
+                # Papeletas/ações antigas podem existir em bancos que já têm essas tabelas.
+                # Usa try para não quebrar bancos sem as tabelas/colunas.
+                for tabela, campo in (
+                    ("papeletas", "equipe"),
+                    ("papeleta", "equipe"),
+                    ("eventos_partida", "equipe"),
+                    ("eventos", "equipe"),
+                    ("historico_rotacao", "equipe"),
+                ):
+                    try:
+                        colunas = _buscar_colunas_tabela(tabela)
+                        if campo in colunas and "competicao" in colunas:
+                            cur.execute(
+                                f"""
+                                UPDATE {tabela}
+                                SET {campo} = %s
+                                WHERE competicao = %s
+                                  AND LOWER(TRIM({campo})) = LOWER(TRIM(%s))
+                                """,
+                                (novo_nome, nome_competicao, nome_antigo),
+                            )
+                    except Exception as e:
+                        print(f"AVISO atualizar_nome_equipe/{tabela}.{campo}:", repr(e))
 
         conn.commit()
 
     return True, "Atualizado com sucesso!"
-
 
 def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
     nova_senha = _gerar_senha_aleatoria(8)
@@ -13823,6 +13929,213 @@ def _calcular_classificacao_simples_avanco(nome_competicao):
     return por_grupo, geral
 
 
+
+def _fase_grupos_avanco(valor):
+    texto = str(valor or "grupos").strip().lower().replace("á", "a").replace("í", "i").replace(" ", "_").replace("-", "_")
+    return texto in {"", "grupo", "grupos", "classificatoria", "classificatorias", "classificatoria_grupos", "fase_de_grupos"}
+
+
+def _status_finalizado_avanco(valor):
+    texto = str(valor or "").strip().lower().replace("-", "_")
+    return texto in {"finalizada", "finalizado", "encerrada", "encerrado", "partida_encerrada"}
+
+
+def _mapa_fechamento_classificatoria_avanco(nome_competicao):
+    """Indica se a classificatória inteira já pode alimentar o avanço.
+
+    Regra de segurança do mata-mata:
+    - enquanto existir qualquer jogo classificatório não finalizado, nenhuma
+      origem real é resolvida, nem mesmo 1º Grupo A ou 2º Grupo B;
+    - o chaveamento continua mostrando apenas os rótulos configurados
+      (ex.: 1º Grupo A x 4º Grupo B);
+    - as equipes reais só entram depois do fechamento completo e do clique
+      manual em gerar partidas do avanço.
+    """
+    grupos = listar_grupos(nome_competicao) or []
+    partidas = listar_partidas(nome_competicao) or []
+
+    grupos_info = {}
+    for g in grupos:
+        nome_g = str(g.get("nome") or "").strip().upper()
+        if not nome_g:
+            continue
+        try:
+            qtd_equipes = len([
+                e for e in (listar_equipes_por_grupo(g.get("id")) or [])
+                if str(e.get("equipe") or e.get("nome") or "").strip()
+            ])
+        except Exception:
+            qtd_equipes = 0
+        grupos_info[nome_g] = {"qtd_equipes": qtd_equipes, "tem_partida": False, "pendentes": 0}
+
+    classificatorias = []
+    for p in partidas:
+        if not _fase_grupos_avanco(p.get("fase")):
+            continue
+        origem = str(p.get("origem") or "").strip()
+        if origem.startswith("avanco:"):
+            continue
+        classificatorias.append(p)
+        grupo = str(p.get("grupo") or "").strip().upper()
+        if grupo:
+            grupos_info.setdefault(grupo, {"qtd_equipes": 0, "tem_partida": False, "pendentes": 0})
+            grupos_info[grupo]["tem_partida"] = True
+            status_ok = _status_finalizado_avanco(p.get("status")) or _status_finalizado_avanco(p.get("status_jogo")) or bool(p.get("finalizado_em"))
+            if not status_ok:
+                grupos_info[grupo]["pendentes"] += 1
+
+    grupos_fechados = {}
+    for grupo, info in grupos_info.items():
+        # Só consideramos fechado se existe tabela/jogos daquele grupo e não há pendências.
+        grupos_fechados[grupo] = bool(info.get("tem_partida") and info.get("pendentes", 0) == 0)
+
+    if grupos_info:
+        geral_fechado = bool(grupos_fechados) and all(grupos_fechados.values())
+    else:
+        # Competição sem grupos: exige que todos os jogos classificatórios existentes estejam finalizados.
+        geral_fechado = bool(classificatorias) and all(
+            _status_finalizado_avanco(p.get("status")) or _status_finalizado_avanco(p.get("status_jogo")) or bool(p.get("finalizado_em"))
+            for p in classificatorias
+        )
+
+    pendentes_total = sum(int(info.get("pendentes") or 0) for info in grupos_info.values())
+    total_classificatorias = len(classificatorias)
+
+    return {
+        "grupos": grupos_fechados,
+        "geral": geral_fechado,
+        "pendentes": pendentes_total,
+        "total_classificatorias": total_classificatorias,
+    }
+
+
+def status_avanco_classificatorias_competicao(nome_competicao):
+    """Resumo usado pelas telas para liberar/bloquear o botão do avanço."""
+    fechamento = _mapa_fechamento_classificatoria_avanco(nome_competicao)
+    return {
+        "fechada": bool(fechamento.get("geral")),
+        "pendentes": int(fechamento.get("pendentes") or 0),
+        "total_classificatorias": int(fechamento.get("total_classificatorias") or 0),
+        "mensagem": (
+            "Classificatórias finalizadas. Você já pode gerar os jogos da próxima fase."
+            if fechamento.get("geral")
+            else "Finalize todos os jogos classificatórios antes de gerar os confrontos reais do avanço."
+        ),
+    }
+
+
+def _rotulo_origem_avanco(origem):
+    origem = origem if isinstance(origem, dict) else {}
+    tipo = str(origem.get("tipo") or "").strip()
+    valor = str(origem.get("valor") or "").strip()
+    label = str(origem.get("label") or "").strip()
+
+    if label:
+        return label
+    if tipo == "manual":
+        return valor or "Equipe manual"
+    if tipo == "bye":
+        return "BYE"
+    if tipo == "vencedor_jogo":
+        return f"Vencedor {valor}".strip()
+    if tipo == "perdedor_jogo":
+        return f"Perdedor {valor}".strip()
+    if tipo == "grupo_posicao":
+        m = re.match(r"^(\d+)([A-Za-zÀ-ÿ0-9_-]+)$", valor.replace(" ", ""))
+        if m:
+            return f"{_rotulo_posicao(m.group(1))} Grupo {m.group(2).upper()}"
+        return valor or "A definir"
+    if tipo == "geral_posicao":
+        return f"{_rotulo_posicao(valor)} Geral" if valor else "A definir"
+    if tipo == "melhor_terceiro":
+        return "Melhor 3º"
+    if tipo == "melhor_quarto":
+        return "Melhor 4º"
+    return valor or "A definir"
+
+
+def resolver_origem_avanco_competicao_se_fechada(nome_competicao, origem, serie=None):
+    """Resolve origem somente quando ela pode virar partida real.
+
+    Retorna (ok, equipe_ou_rotulo, motivo).
+
+    Regra central do Avanço:
+    - o quadro pode estar desenhado desde o começo;
+    - partida real só é criada/liberada quando a origem já fechou;
+    - antes disso, devolve apenas o rótulo configurado (ex.: 1º Grupo A).
+    """
+    origem = origem if isinstance(origem, dict) else {}
+    tipo = str(origem.get("tipo") or "").strip()
+    valor = str(origem.get("valor") or "").strip()
+    label = _rotulo_origem_avanco(origem)
+
+    if tipo == "manual":
+        equipe = valor or str(origem.get("label") or "").strip()
+        return (bool(equipe), equipe or label, "manual_sem_equipe" if not equipe else "")
+
+    if tipo == "bye":
+        return True, "BYE", "bye"
+
+    if tipo in {"vencedor_jogo", "perdedor_jogo"}:
+        partida = _buscar_partida_avanco_por_jogo(nome_competicao, valor, serie=serie)
+        if not partida:
+            return False, label, "jogo_origem_nao_criado"
+        if not _partida_finalizada_avanco(partida):
+            return False, label, "jogo_origem_nao_finalizado"
+        vencedor, perdedor = _vencedor_perdedor_partida_avanco(partida)
+        equipe = vencedor if tipo == "vencedor_jogo" else perdedor
+        return (bool(equipe), equipe or label, "sem_vencedor" if not equipe else "")
+
+    fechamento = _mapa_fechamento_classificatoria_avanco(nome_competicao)
+
+    if tipo == "grupo_posicao":
+        m = re.match(r"^(\d+)([A-Za-zÀ-ÿ0-9_-]+)$", valor.replace(" ", ""))
+        if not m:
+            return False, label, "origem_grupo_invalida"
+        pos = int(m.group(1))
+        grupo = m.group(2).upper()
+        if not fechamento.get("geral"):
+            return False, label, "classificatoria_nao_finalizada"
+        por_grupo, _geral = _calcular_classificacao_simples_avanco(nome_competicao)
+        linhas = por_grupo.get(grupo) or []
+        if len(linhas) >= pos:
+            equipe = linhas[pos - 1].get("equipe") or ""
+            return (bool(equipe), equipe or label, "equipe_nao_encontrada" if not equipe else "")
+        return False, label, "posicao_indisponivel"
+
+    if tipo == "geral_posicao":
+        if not fechamento.get("geral"):
+            return False, label, "classificatoria_nao_finalizada"
+        try:
+            pos = int(valor)
+        except Exception:
+            return False, label, "origem_geral_invalida"
+        _por_grupo, geral = _calcular_classificacao_simples_avanco(nome_competicao)
+        if len(geral) >= pos:
+            equipe = geral[pos - 1].get("equipe") or ""
+            return (bool(equipe), equipe or label, "equipe_nao_encontrada" if not equipe else "")
+        return False, label, "posicao_indisponivel"
+
+    if tipo == "melhor_terceiro":
+        if not fechamento.get("geral"):
+            return False, label, "classificatoria_nao_finalizada"
+        por_grupo, _geral = _calcular_classificacao_simples_avanco(nome_competicao)
+        terceiros = [linhas[2] for linhas in por_grupo.values() if len(linhas) >= 3]
+        terceiros = sorted(terceiros, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
+        equipe = terceiros[0].get("equipe") if terceiros else ""
+        return (bool(equipe), equipe or label, "equipe_nao_encontrada" if not equipe else "")
+
+    if tipo == "melhor_quarto":
+        if not fechamento.get("geral"):
+            return False, label, "classificatoria_nao_finalizada"
+        por_grupo, _geral = _calcular_classificacao_simples_avanco(nome_competicao)
+        quartos = [linhas[3] for linhas in por_grupo.values() if len(linhas) >= 4]
+        quartos = sorted(quartos, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
+        equipe = quartos[0].get("equipe") if quartos else ""
+        return (bool(equipe), equipe or label, "equipe_nao_encontrada" if not equipe else "")
+
+    return False, label, "tipo_origem_nao_resolvido"
+
 def _partida_finalizada_avanco(partida):
     if not partida:
         return False
@@ -13869,64 +14182,13 @@ def _buscar_partida_avanco_por_jogo(nome_competicao, jogo_id, serie=None):
 
 
 def resolver_origem_avanco_competicao(nome_competicao, origem, serie=None):
-    origem = origem if isinstance(origem, dict) else {}
-    tipo = str(origem.get("tipo") or "").strip()
-    valor = str(origem.get("valor") or "").strip()
-    label = str(origem.get("label") or "").strip()
+    """Retorna o que deve aparecer no espelho do avanço.
 
-    if tipo == "manual":
-        return valor or label or "Equipe manual"
-    if tipo == "bye":
-        return "BYE"
-    if tipo in {"vencedor_jogo", "perdedor_jogo"}:
-        partida = _buscar_partida_avanco_por_jogo(nome_competicao, valor, serie=serie)
-        if partida and _partida_finalizada_avanco(partida):
-            vencedor, perdedor = _vencedor_perdedor_partida_avanco(partida)
-            if tipo == "vencedor_jogo" and vencedor:
-                return vencedor
-            if tipo == "perdedor_jogo" and perdedor:
-                return perdedor
-        rot = "Vencedor" if tipo == "vencedor_jogo" else "Perdedor"
-        return f"{rot} {valor}".strip()
-
-    por_grupo, geral = _calcular_classificacao_simples_avanco(nome_competicao)
-
-    if tipo == "grupo_posicao":
-        m = re.match(r"^(\d+)([A-Za-zÀ-ÿ0-9_-]+)$", valor.replace(" ", ""))
-        if m:
-            pos = int(m.group(1))
-            grupo = m.group(2).upper()
-            linhas = por_grupo.get(grupo) or []
-            if len(linhas) >= pos:
-                return linhas[pos - 1].get("equipe") or label or valor
-        return label or valor
-
-    if tipo == "geral_posicao":
-        try:
-            pos = int(valor)
-            if len(geral) >= pos:
-                return geral[pos - 1].get("equipe") or label or valor
-        except Exception:
-            pass
-        return label or f"{valor}º Geral"
-
-    if tipo == "melhor_terceiro":
-        terceiros = []
-        for linhas in por_grupo.values():
-            if len(linhas) >= 3:
-                terceiros.append(linhas[2])
-        terceiros = sorted(terceiros, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
-        return (terceiros[0].get("equipe") if terceiros else "Melhor 3º")
-
-    if tipo == "melhor_quarto":
-        quartos = []
-        for linhas in por_grupo.values():
-            if len(linhas) >= 4:
-                quartos.append(linhas[3])
-        quartos = sorted(quartos, key=lambda x: (x["pontos"], x["vitorias"], x["saldo_sets"], x["saldo_pontos"], x["pontos_pro"]), reverse=True)
-        return (quartos[0].get("equipe") if quartos else "Melhor 4º")
-
-    return label or valor or "A definir"
+    Antes da origem fechar, mostra o rótulo configurado (1º Grupo A, Vencedor J1).
+    Depois que fecha, mostra a equipe real.
+    """
+    ok, valor, _motivo = resolver_origem_avanco_competicao_se_fechada(nome_competicao, origem, serie=serie)
+    return valor if valor else _rotulo_origem_avanco(origem)
 
 
 def _regra_efetiva_jogo_avanco(avanco, jogo):
@@ -13978,78 +14240,181 @@ def _aplicar_regras_avanco_em_fases_config(fases_config, avanco):
     return fases_config
 
 
+def _limpar_partidas_avanco_prematuras_cur(cur, nome_competicao, origem_tag=None):
+    """Remove jogos do Avanço criados antes da origem fechar.
+
+    Só apaga partidas que ainda não começaram. Isso corrige restos de versões
+    anteriores e evita duplicação visual na tabela/apontador.
+    """
+    params = [nome_competicao]
+    filtro_origem = "AND origem LIKE 'avanco:%'"
+    if origem_tag:
+        filtro_origem = "AND origem = %s"
+        params.append(origem_tag)
+
+    cur.execute(f"""
+        SELECT id, origem, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b,
+               pre_jogo_iniciado_em, pre_jogo_finalizado, finalizado_em
+        FROM partidas
+        WHERE competicao = %s
+          {filtro_origem}
+        ORDER BY origem, id
+    """, tuple(params))
+
+    removidas = 0
+    for partida in cur.fetchall() or []:
+        if not partida_ja_iniciou_ou_finalizou(partida):
+            cur.execute("DELETE FROM partidas WHERE id = %s", (partida["id"],))
+            removidas += 1
+    return removidas
+
+
 def gerar_partidas_avanco_competicao(nome_competicao):
-    """Cria/atualiza partidas a partir dos quadros configurados no Avanço.
-    Evita duplicar usando origem='avanco:<serie>:<jogo>'.
+    """Cria/atualiza somente partidas reais do Avanço com origens resolvidas.
+
+    A configuração do chaveamento pode existir desde o início, mas partida real
+    só nasce quando as duas origens já estão fechadas. Isso evita quartas/semi
+    aparecerem no apontador antes da hora e remove duplicações prematuras.
     """
     avanco = buscar_avanco_config_competicao(nome_competicao)
     jogos = avanco.get("jogos") or []
     criadas = 0
     atualizadas = 0
+    aguardando = 0
+    removidas_prematuras = 0
+    duplicadas_removidas = 0
+    fechamento = _mapa_fechamento_classificatoria_avanco(nome_competicao)
+    classificatoria_fechada = bool(fechamento.get("geral"))
 
     with conectar() as conn:
         with conn.cursor() as cur:
             colunas = _buscar_colunas_tabela("partidas")
+            comp_regra = buscar_competicao_por_nome(nome_competicao) or {}
+
             for idx, jogo in enumerate(jogos, start=1):
                 if not isinstance(jogo, dict):
                     continue
+
                 jid = str(jogo.get("id") or f"J{idx}").strip()
+                if not jid:
+                    continue
+
                 serie = str(jogo.get("serie") or "ouro").strip().lower()
                 fase = _normalizar_fase_avanco_para_partida(jogo.get("fase"))
                 origem_tag = f"avanco:{serie}:{jid}"
-                equipe_a = resolver_origem_avanco_competicao(nome_competicao, jogo.get("origem_a") or {}, serie=serie)
-                equipe_b = resolver_origem_avanco_competicao(nome_competicao, jogo.get("origem_b") or {}, serie=serie)
-                if not equipe_a:
-                    equipe_a = "A definir"
-                if not equipe_b:
-                    equipe_b = "A definir"
 
-                comp_regra = buscar_competicao_por_nome(nome_competicao) or {}
+                cur.execute("""
+                    SELECT id, origem, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b,
+                           pre_jogo_iniciado_em, pre_jogo_finalizado, finalizado_em
+                    FROM partidas
+                    WHERE competicao = %s AND origem = %s
+                    ORDER BY id
+                """, (nome_competicao, origem_tag))
+                existentes = list(cur.fetchall() or [])
+
+                if not classificatoria_fechada:
+                    aguardando += 1
+                    for existente in existentes:
+                        if not partida_ja_iniciou_ou_finalizou(existente):
+                            cur.execute("DELETE FROM partidas WHERE id = %s", (existente["id"],))
+                            removidas_prematuras += 1
+                    continue
+
+                ok_a, equipe_a, motivo_a = resolver_origem_avanco_competicao_se_fechada(
+                    nome_competicao, jogo.get("origem_a") or {}, serie=serie
+                )
+                ok_b, equipe_b, motivo_b = resolver_origem_avanco_competicao_se_fechada(
+                    nome_competicao, jogo.get("origem_b") or {}, serie=serie
+                )
+
+                # BYE é estrutura de avanço, não jogo jogável no apontador.
+                tem_bye = str(equipe_a or "").strip().upper() == "BYE" or str(equipe_b or "").strip().upper() == "BYE"
+                pronto_para_jogo = bool(ok_a and ok_b and equipe_a and equipe_b and not tem_bye)
+
+                if not pronto_para_jogo:
+                    aguardando += 1
+                    for existente in existentes:
+                        if not partida_ja_iniciou_ou_finalizou(existente):
+                            cur.execute("DELETE FROM partidas WHERE id = %s", (existente["id"],))
+                            removidas_prematuras += 1
+                    continue
+
+                # Mantém no máximo uma partida real por origem. Se existirem várias,
+                # preserva a iniciada/finalizada se houver; senão preserva a mais antiga.
+                existente_principal = None
+                for partida in existentes:
+                    if partida_ja_iniciou_ou_finalizou(partida):
+                        existente_principal = partida
+                        break
+                if existente_principal is None and existentes:
+                    existente_principal = existentes[0]
+
+                for partida in existentes:
+                    if existente_principal and partida["id"] == existente_principal["id"]:
+                        continue
+                    if not partida_ja_iniciou_ou_finalizou(partida):
+                        cur.execute("DELETE FROM partidas WHERE id = %s", (partida["id"],))
+                        duplicadas_removidas += 1
+
                 regra_efetiva = _regra_efetiva_jogo_avanco(avanco, jogo)
                 sets_max_avanco, sets_para_vencer_avanco = _sets_avanco_por_regra(regra_efetiva, comp_regra)
 
-                cur.execute("""
-                    SELECT id, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b
-                    FROM partidas
-                    WHERE competicao = %s AND origem = %s
-                    LIMIT 1
-                """, (nome_competicao, origem_tag))
-                existente = cur.fetchone()
-
-                if existente:
-                    if partida_ja_iniciou_ou_finalizou(existente):
+                if existente_principal:
+                    if partida_ja_iniciou_ou_finalizou(existente_principal):
                         continue
+
                     cur.execute("""
                         UPDATE partidas
-                        SET fase = %s, grupo = NULL, equipe_a = %s, equipe_b = %s, ordem = %s,
-                            quadra = COALESCE(quadra, ''), status = COALESCE(NULLIF(status, ''), 'aguardando')
+                        SET fase = %s,
+                            grupo = NULL,
+                            equipe_a = %s,
+                            equipe_b = %s,
+                            ordem = %s,
+                            quadra = COALESCE(quadra, ''),
+                            status = COALESCE(NULLIF(status, ''), 'aguardando')
                         WHERE id = %s
-                    """, (fase, equipe_a, equipe_b, idx, existente["id"]))
-                    if "sets_max" in colunas or "sets_para_vencer" in colunas:
-                        sets_update = []
-                        sets_valores = []
-                        if "sets_max" in colunas:
-                            sets_update.append("sets_max = %s"); sets_valores.append(sets_max_avanco)
-                        if "sets_para_vencer" in colunas:
-                            sets_update.append("sets_para_vencer = %s"); sets_valores.append(sets_para_vencer_avanco)
-                        if sets_update:
-                            sets_valores.append(existente["id"])
-                            cur.execute(f"UPDATE partidas SET {', '.join(sets_update)} WHERE id = %s", tuple(sets_valores))
+                    """, (fase, equipe_a, equipe_b, idx, existente_principal["id"]))
+
+                    sets_update = []
+                    sets_valores = []
+                    if "sets_max" in colunas:
+                        sets_update.append("sets_max = %s")
+                        sets_valores.append(sets_max_avanco)
+                    if "sets_para_vencer" in colunas:
+                        sets_update.append("sets_para_vencer = %s")
+                        sets_valores.append(sets_para_vencer_avanco)
+                    if sets_update:
+                        sets_valores.append(existente_principal["id"])
+                        cur.execute(f"UPDATE partidas SET {', '.join(sets_update)} WHERE id = %s", tuple(sets_valores))
                     atualizadas += 1
                 else:
                     campos = ["competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem", "origem", "status"]
                     valores = [nome_competicao, None, equipe_a, equipe_b, fase, idx, origem_tag, "aguardando"]
                     if "status_jogo" in colunas:
-                        campos.append("status_jogo"); valores.append("aguardando")
+                        campos.append("status_jogo")
+                        valores.append("aguardando")
                     if "fase_partida" in colunas:
-                        campos.append("fase_partida"); valores.append("aguardando")
+                        campos.append("fase_partida")
+                        valores.append("aguardando")
                     if "sets_max" in colunas:
-                        campos.append("sets_max"); valores.append(sets_max_avanco)
+                        campos.append("sets_max")
+                        valores.append(sets_max_avanco)
                     if "sets_para_vencer" in colunas:
-                        campos.append("sets_para_vencer"); valores.append(sets_para_vencer_avanco)
+                        campos.append("sets_para_vencer")
+                        valores.append(sets_para_vencer_avanco)
                     placeholders = ", ".join(["%s"] * len(valores))
                     cur.execute(f"INSERT INTO partidas ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
                     criadas += 1
         conn.commit()
-    return {"ok": True, "criadas": criadas, "atualizadas": atualizadas}
 
+    return {
+        "ok": True,
+        "criadas": criadas,
+        "atualizadas": atualizadas,
+        "aguardando": aguardando,
+        "removidas_prematuras": removidas_prematuras,
+        "duplicadas_removidas": duplicadas_removidas,
+        "bloqueada": not classificatoria_fechada,
+        "pendentes_classificatoria": int(fechamento.get("pendentes") or 0),
+        "total_classificatorias": int(fechamento.get("total_classificatorias") or 0),
+    }

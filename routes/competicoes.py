@@ -26,6 +26,7 @@ from banco import (
     salvar_avanco_config_competicao,
     listar_origens_avanco_competicao,
     gerar_partidas_avanco_competicao,
+    status_avanco_classificatorias_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -188,6 +189,7 @@ def listar_competicoes_view():
         fases = config.get("fases_config") or {}
 
         avanco = buscar_avanco_config_competicao(competicao["nome"])
+        avanco_status = status_avanco_classificatorias_competicao(competicao["nome"])
         origens = listar_origens_avanco_competicao(competicao["nome"])
 
         return render_template(
@@ -198,6 +200,7 @@ def listar_competicoes_view():
             config_agenda=config_agenda,
             fases=fases,
             avanco=avanco,
+            avanco_status=avanco_status,
             origens=origens,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
         )
@@ -914,11 +917,13 @@ def avanco_competicao_view():
         return redirect(url_for("competicoes.avanco_competicao_view"))
 
     avanco = buscar_avanco_config_competicao(comp["nome"])
+    avanco_status = status_avanco_classificatorias_competicao(comp["nome"])
     origens = listar_origens_avanco_competicao(comp["nome"])
     return render_template(
         "avanco_competicao.html",
         competicao=comp,
         avanco=avanco,
+        avanco_status=avanco_status,
         origens=origens,
         competicao_travada=competicao_esta_travada(comp["nome"]),
     )
@@ -932,7 +937,10 @@ def gerar_avanco_competicao_view():
         flash("Competição não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
     resultado = gerar_partidas_avanco_competicao(comp["nome"])
-    flash(f"Mata-mata gerado: {resultado.get('criadas', 0)} novas e {resultado.get('atualizadas', 0)} atualizadas.", "sucesso")
+    if resultado.get("bloqueada"):
+        flash(f"Avanço bloqueado: ainda existem {resultado.get('pendentes_classificatoria', 0)} jogo(s) classificatório(s) pendente(s). Finalize todos antes de gerar os confrontos reais.", "erro")
+    else:
+        flash(f"Mata-mata gerado: {resultado.get('criadas', 0)} novas, {resultado.get('atualizadas', 0)} atualizadas e {resultado.get('duplicadas_removidas', 0)} duplicada(s) removida(s).", "sucesso")
     return redirect(url_for("competicoes.avanco_competicao_view"))
 
 

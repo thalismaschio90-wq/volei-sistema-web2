@@ -38,6 +38,7 @@ from banco import (
     _buscar_colunas_tabela,
     buscar_avanco_config_competicao,
     gerar_partidas_avanco_competicao,
+    status_avanco_classificatorias_competicao,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -229,7 +230,7 @@ def _label_origem_avanco(origem):
     return origem.get("label") or origem.get("valor") or "A definir"
 
 
-def _montar_espelho_avanco(avanco, partidas):
+def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
     mapa_partidas = {}
     for p in partidas or []:
         serie, jogo_id = _origem_partida_avanco(p)
@@ -259,6 +260,10 @@ def _montar_espelho_avanco(avanco, partidas):
                 partida = mapa_partidas.get((sid, jid))
                 equipe_a = (partida or {}).get("equipe_a") or ""
                 equipe_b = (partida or {}).get("equipe_b") or ""
+                if not classificatorias_fechadas:
+                    equipe_a = ""
+                    equipe_b = ""
+                    partida = None
                 jogos.append({
                     "id": jid,
                     "ordem": jogo.get("ordem") or 999,
@@ -312,18 +317,23 @@ def _normalizar_url_escudo_tabela(valor):
 
 
 def _mapa_escudos_equipes(equipes):
+    """Monta mapa de escudos usando nome atual e login da equipe.
+
+    O nome da equipe pode mudar pelo organizador. Por isso, sempre que o dado
+    estiver disponível, o login também entra como chave estável. Mantemos as
+    chaves por nome para compatibilidade com partidas/grupos antigos que ainda
+    guardam texto no lugar de login.
+    """
     mapa = {}
 
     for equipe in equipes or []:
-        nome = (
+        nome = str(
             equipe.get("nome")
             or equipe.get("equipe")
             or equipe.get("nome_equipe")
             or ""
         ).strip()
-
-        if not nome:
-            continue
+        login = str(equipe.get("login") or equipe.get("equipe_login") or "").strip()
 
         escudo = (
             equipe.get("escudo")
@@ -332,10 +342,15 @@ def _mapa_escudos_equipes(equipes):
             or equipe.get("imagem")
             or ""
         )
+        escudo_url = _normalizar_url_escudo_tabela(escudo)
 
-        mapa[nome] = _normalizar_url_escudo_tabela(escudo)
-        mapa[nome.lower()] = mapa[nome]
-        mapa[nome.upper()] = mapa[nome]
+        for chave in (nome, login):
+            chave = str(chave or "").strip()
+            if not chave:
+                continue
+            mapa[chave] = escudo_url
+            mapa[chave.lower()] = escudo_url
+            mapa[chave.upper()] = escudo_url
 
     return mapa
 
@@ -831,8 +846,8 @@ def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
         partida["quadra_label"] = _quadra_label(partida)
         partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
 
-        partida["escudo_a"] = _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_a"))
-        partida["escudo_b"] = _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_b"))
+        partida["escudo_a"] = _normalizar_url_escudo_tabela(partida.get("escudo_a")) if partida.get("escudo_a") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_a"))
+        partida["escudo_b"] = _normalizar_url_escudo_tabela(partida.get("escudo_b")) if partida.get("escudo_b") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_b"))
         partida["equipe_a_escudo"] = partida["escudo_a"]
         partida["equipe_b_escudo"] = partida["escudo_b"]
 
@@ -1564,7 +1579,8 @@ def visualizador_publico(competicao_nome):
     colunas_classificacao = _colunas_classificacao_publica(competicao)
     set_unico = _competicao_eh_set_unico_tabela(competicao)
     avanco = buscar_avanco_config_competicao(competicao_nome)
-    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas)
+    status_avanco = status_avanco_classificatorias_competicao(competicao_nome)
+    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, status_avanco.get("fechada"))
 
     return render_template(
         "visualizador_publico.html",
@@ -1576,6 +1592,7 @@ def visualizador_publico(competicao_nome):
         colunas_classificacao=colunas_classificacao,
         set_unico=set_unico,
         avanco=avanco,
+        avanco_status=status_avanco,
         avanco_espelho=avanco_espelho,
         fase_labels=FASES_AVANCO_LABELS,
     )
@@ -1606,6 +1623,7 @@ def tabela_view():
         aba = "geracao"
 
     avanco = buscar_avanco_config_competicao(competicao["nome"])
+    status_avanco = status_avanco_classificatorias_competicao(competicao["nome"])
     avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
 
     fase_subaba = _fase_subaba_canonica(request.args.get("fase") or "classificatorias")
@@ -1647,7 +1665,7 @@ def tabela_view():
     partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
     if fase_subaba != "classificatorias":
         partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa)
-    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas)
+    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, status_avanco.get("fechada"))
     classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
@@ -1672,6 +1690,7 @@ def tabela_view():
         fase_ativa=fase_subaba,
         fase_labels=FASES_AVANCO_LABELS,
         avanco=avanco,
+        avanco_status=status_avanco,
         avanco_fases_tabs=avanco_fases_tabs,
         avanco_series_fase=series_fase,
         avanco_serie_ativa=serie_ativa,
@@ -1684,6 +1703,36 @@ def tabela_view():
         fase_banco_ativa=_fase_subaba_para_banco(fase_subaba),
         **fases,
     )
+
+
+# =========================================================
+# GERAR AVANÇO MANUALMENTE
+# =========================================================
+@tabela_bp.route("/tabela/avanco/gerar", methods=["POST"])
+@exigir_organizador_da_competicao
+def gerar_avanco_tabela_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    if not competicao:
+        flash("Nenhuma competição encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    resultado = gerar_partidas_avanco_competicao(competicao["nome"])
+    fase_destino = (request.form.get("fase_subaba") or "quartas").strip().lower()
+    serie_destino = (request.form.get("serie") or "").strip().lower()
+
+    if resultado.get("bloqueada"):
+        pendentes = resultado.get("pendentes_classificatoria", 0)
+        flash(f"Avanço bloqueado: ainda existem {pendentes} jogo(s) classificatório(s) pendente(s). Finalize todos antes de gerar os confrontos reais.", "erro")
+    else:
+        flash(
+            f"Avanço gerado: {resultado.get('criadas', 0)} nova(s), {resultado.get('atualizadas', 0)} atualizada(s) e {resultado.get('duplicadas_removidas', 0)} duplicada(s) removida(s).",
+            "sucesso",
+        )
+
+    args = {"aba": "partidas", "fase": fase_destino}
+    if serie_destino:
+        args["serie"] = serie_destino
+    return redirect(url_for("tabela.tabela_view", **args))
 
 
 # =========================================================
