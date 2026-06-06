@@ -1203,7 +1203,9 @@ async function atualizarPartidasAoVivoTabela() {
     }
 }
 
-setInterval(atualizarPartidasAoVivoTabela, 7000);
+setInterval(() => {
+    if (document.visibilityState === "visible") atualizarPartidasAoVivoTabela();
+}, 15000);
 document.addEventListener("DOMContentLoaded", atualizarPartidasAoVivoTabela);
 
 document.addEventListener("DOMContentLoaded", function sincronizarQuadraDoGrupo() {

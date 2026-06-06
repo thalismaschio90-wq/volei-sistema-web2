@@ -59,26 +59,21 @@ app.secret_key = os.environ.get(
 )
 
 # 🔥 Evita cache quebrado em iPhone/Safari/PWA
-app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 60 * 60 * 24 * 30
 
 
 @app.after_request
 def aplicar_headers_cache(response):
     path = request.path or ""
 
-    if (
-        path.endswith(".css")
-        or path.endswith(".js")
-        or path.endswith(".json")
-        or path.startswith("/static/uploads/escudos/")
-        or path == "/sw.js"
-        or path == "/manifest.json"
-        or path == "/app-login"
-        or path == "/app"
-    ):
-        response.headers["Cache-Control"] = (
-            "no-cache, no-store, must-revalidate, max-age=0"
-        )
+    # Performance: estáticos versionados podem ficar no navegador.
+    # Páginas dinâmicas e arquivos críticos do PWA continuam sem cache agressivo.
+    if path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=2592000"
+        response.headers.pop("Pragma", None)
+        response.headers.pop("Expires", None)
+    elif path in ("/sw.js", "/manifest.json", "/app-login", "/app"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
 
@@ -161,11 +156,19 @@ def injetar_dados_topbar_global():
         equipe = None
         competicao_atual = (session.get("competicao_equipe_atual") or "").strip() or None
 
-        try:
-            equipe = buscar_equipe_por_login(usuario, competicao_atual)
-        except Exception as e:
-            print("AVISO topbar equipe por competição:", e)
-            equipe = None
+        # Evita consulta no Neon em todo render_template.
+        # O cache é por sessão e pode ser renovado quando a equipe altera dados/escudo.
+        cache_key = f"{usuario}|{competicao_atual or ''}"
+        topbar_cache = session.get("topbar_equipe_cache") or {}
+        if topbar_cache.get("key") == cache_key:
+            equipe = topbar_cache.get("equipe") or None
+
+        if not equipe:
+            try:
+                equipe = buscar_equipe_por_login(usuario, competicao_atual)
+            except Exception as e:
+                print("AVISO topbar equipe por competição:", e)
+                equipe = None
 
         if not equipe:
             try:
@@ -175,6 +178,10 @@ def injetar_dados_topbar_global():
                 equipe = None
 
         if equipe:
+            try:
+                session["topbar_equipe_cache"] = {"key": cache_key, "equipe": dict(equipe)}
+            except Exception:
+                pass
             nome_equipe = (
                 equipe.get("nome")
                 or equipe.get("nome_equipe")
@@ -268,9 +275,7 @@ def app_login_pwa():
         render_template("app_login.html")
     )
 
-    resposta.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate, max-age=0"
-    )
+    resposta.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 
@@ -311,9 +316,7 @@ def manifest_pwa():
     )
 
     resposta.headers["Content-Type"] = "application/manifest+json"
-    resposta.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate, max-age=0"
-    )
+    resposta.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 
@@ -331,9 +334,7 @@ def service_worker_pwa():
 
     resposta.headers["Content-Type"] = "application/javascript"
     resposta.headers["Service-Worker-Allowed"] = "/"
-    resposta.headers["Cache-Control"] = (
-        "no-cache, no-store, must-revalidate, max-age=0"
-    )
+    resposta.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
     resposta.headers["Pragma"] = "no-cache"
     resposta.headers["Expires"] = "0"
 

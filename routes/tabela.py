@@ -1554,11 +1554,8 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
 # =========================================================
 @tabela_bp.route("/visualizador/<competicao_nome>")
 def visualizador_publico(competicao_nome):
-    try:
-        normalizar_vinculos_quadras_competicao(competicao_nome)
-    except Exception as e:
-        print("AVISO visualizador/normalizar_quadras:", repr(e))
-
+    # PERFORMANCE: visualizador publico deve apenas ler dados.
+    # Normalizacao de quadras em GET deixava a pagina lenta e podia disputar lock no Neon.
     grupos_raw = listar_grupos(competicao_nome)
     partidas = listar_partidas(competicao_nome)
     equipes_competicao = listar_equipes_da_competicao(competicao_nome)
@@ -1659,10 +1656,8 @@ def tabela_view():
         serie_ativa = series_fase[0].get("id")
 
     quadras = garantir_quadras_competicao(competicao["nome"], competicao.get("qtd_quadras") or 1)
-    try:
-        normalizar_vinculos_quadras_competicao(competicao["nome"])
-    except Exception as e:
-        print("AVISO tabela/normalizar_quadras:", repr(e))
+    # PERFORMANCE: nao normaliza quadras em toda abertura da tabela.
+    # Essa rotina faz varredura/updates e deve rodar apenas quando agenda/quadras forem alteradas.
     grupos_raw = listar_grupos(competicao["nome"])
     equipes = listar_equipes_da_competicao(competicao["nome"])
     mapa_escudos = _mapa_escudos_equipes(equipes)

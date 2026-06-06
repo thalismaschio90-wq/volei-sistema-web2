@@ -1,4 +1,4 @@
-const CACHE_NAME = "voleitable-pwa-v20260528-offline1";
+const CACHE_NAME = "voleitable-pwa-v20260606-perf2";
 const OFFLINE_URL = "/offline-apontador?v=20260528-offline1";
 
 const APP_SHELL = [
@@ -99,7 +99,7 @@ self.addEventListener("fetch", event => {
 
     if (request.mode === "navigate") {
         event.respondWith(
-            fetch(request, { cache: "no-store", credentials: "include" })
+            fetch(request, { cache: "no-cache", credentials: "include" })
                 .then(response => {
                     if (response && response.ok && ehPaginaDoSistema(url)) {
                         colocarNoCache(request, response.clone());
@@ -131,7 +131,7 @@ self.addEventListener("fetch", event => {
         url.pathname.endsWith(".svg")
     ) {
         event.respondWith(
-            fetch(request, { cache: "no-store" })
+            fetch(request, { cache: "default" })
                 .then(response => {
                     colocarNoCache(request, response.clone());
                     return response;

@@ -13,8 +13,11 @@ load_dotenv()
 
 from psycopg import connect
 from psycopg.rows import dict_row
+try:
+    from psycopg_pool import ConnectionPool
+except Exception:
+    ConnectionPool = None
 
-ConnectionPool = None
 
 # --- ESSA LINHA ABAIXO É A QUE ESTÁ FALTANDO ---
 _CACHE_COLUNAS = {} 
@@ -3561,22 +3564,33 @@ def criar_indices_desempenho(force=False):
     if _schema_ja_pronto(chave, force=force):
         return
 
+    indices = [
+        "CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao ON atletas (equipe, competicao)",
+        "CREATE INDEX IF NOT EXISTS idx_atletas_competicao_status_nome ON atletas (competicao, status, nome)",
+        "CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao_numero ON atletas (equipe, competicao, numero)",
+        "CREATE INDEX IF NOT EXISTS idx_equipes_nome_competicao ON equipes (nome, competicao)",
+        "CREATE INDEX IF NOT EXISTS idx_equipes_login ON equipes (login)",
+        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_status ON partidas (competicao, status)",
+        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_equipes ON partidas (competicao, equipe_a, equipe_b)",
+        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_id ON partidas (competicao, id)",
+        "CREATE INDEX IF NOT EXISTS idx_partidas_competicao_ordem ON partidas (competicao, ordem)",
+        "CREATE INDEX IF NOT EXISTS idx_eventos_partida_competicao ON eventos (partida_id, competicao)",
+        "CREATE INDEX IF NOT EXISTS idx_eventos_competicao_partida_ordem ON eventos (competicao, partida_id, id)",
+        "CREATE INDEX IF NOT EXISTS idx_papeletas_partida_competicao_set ON papeletas (partida_id, competicao, set_numero)",
+        "CREATE INDEX IF NOT EXISTS idx_usuarios_login_perfil ON usuarios (login, perfil)",
+        "CREATE INDEX IF NOT EXISTS idx_competicoes_nome ON competicoes (nome)",
+    ]
+
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao ON atletas (equipe, competicao)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_competicao_status_nome ON atletas (competicao, status, nome)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_atletas_equipe_competicao_numero ON atletas (equipe, competicao, numero)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_equipes_nome_competicao ON equipes (nome, competicao)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_equipes_login ON equipes (login)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_status ON partidas (competicao, status)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_equipes ON partidas (competicao, equipe_a, equipe_b)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_id ON partidas (competicao, id)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_partidas_competicao_ordem ON partidas (competicao, ordem)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_eventos_partida_competicao ON eventos (partida_id, competicao)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_papeletas_partida_competicao_set ON papeletas (partida_id, competicao, set_numero)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_usuarios_login_perfil ON usuarios (login, perfil)""")
-            cur.execute("""CREATE INDEX IF NOT EXISTS idx_competicoes_nome ON competicoes (nome)""")
-        conn.commit()
+            for sql in indices:
+                try:
+                    cur.execute(sql)
+                except Exception as e:
+                    conn.rollback()
+                    print("AVISO criar_indices_desempenho:", sql, repr(e))
+                else:
+                    conn.commit()
 
     _marcar_schema_pronto(chave)
 
@@ -4343,13 +4357,9 @@ def criar_tabela_partidas():
 
 
 def listar_partidas(competicao):
-    criar_campo_escudo_equipes()
-    criar_tabela_equipes_competicoes()
-    try:
-        normalizar_vinculos_quadras_competicao(competicao)
-    except Exception as e:
-        print("AVISO listar_partidas/normalizar_quadras:", repr(e))
-
+    # Performance: listar partidas deve apenas consultar dados.
+    # Criação de campos/tabelas e normalização de quadras precisam rodar em telas administrativas,
+    # geração de competição ou rotina de migração, não em toda abertura de painel.
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""

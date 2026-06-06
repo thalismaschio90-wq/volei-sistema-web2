@@ -681,7 +681,9 @@ async function atualizarPartidasEquipeAoVivo() {
     }
 }
 
-setInterval(atualizarPartidasEquipeAoVivo, 7000);
+setInterval(() => {
+    if (document.visibilityState === "visible") atualizarPartidasEquipeAoVivo();
+}, 15000);
 document.addEventListener("DOMContentLoaded", atualizarPartidasEquipeAoVivo);
 </script>
 {% endblock %}
