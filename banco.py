@@ -7739,11 +7739,25 @@ def inicializar_jogo_partida(partida_id, competicao):
         return None
 
     try:
-        estado = buscar_estado_jogo_partida(partida_id, competicao)
+        estado = _buscar_estado_jogo_partida_base(
+            partida_id,
+            competicao,
+            garantir=False,
+            permitir_reconstrucao=False,
+        )
     except Exception:
         estado = None
 
-    if not estado:
+    rot_a = (estado or {}).get("rotacao_a") or []
+    rot_b = (estado or {}).get("rotacao_b") or []
+
+    # Reconstrói somente quando abriu o jogo e a rotação veio realmente vazia.
+    # Não roda em todo refresh/clique, então não deixa o sistema lento.
+    if (
+        not estado
+        or not _rotacao_estado_tem_atletas(rot_a)
+        or not _rotacao_estado_tem_atletas(rot_b)
+    ):
         _reconstruir_e_salvar_snapshot(partida_id, competicao, partida)
 
     return buscar_partida_operacional(partida_id, competicao)
@@ -8193,6 +8207,49 @@ def _girar_rotacao_visual_horario(rotacao):
     return [rot[3], rot[0], rot[1], rot[4], rot[5], rot[2]]
 
 
+
+
+def _rotacao_snapshot_partida(partida, lado):
+    """
+    Recupera a rotação salva da partida sem fazer consulta pesada.
+
+    Prioridade:
+    1. *_json válido com 6 atletas;
+    2. campo array rotacao_* válido;
+    3. titulares_iniciais_*_json válido;
+    4. melhor valor disponível normalizado.
+
+    Isso evita que um JSON antigo/vazio sobrescreva a rotação correta salva
+    pela papeleta e deixe substituição/sanção/cartão verde sem atletas.
+    """
+    lado = str(lado or "").strip().lower()
+    campo_json = f"rotacao_{lado}_json"
+    campo_array = f"rotacao_{lado}"
+    campo_titulares = f"titulares_iniciais_{lado}_json"
+
+    candidatos = [
+        _json_load_text(partida.get(campo_json), []),
+        partida.get(campo_array),
+        _json_load_text(partida.get(campo_titulares), []),
+    ]
+
+    for candidato in candidatos:
+        rotacao = _normalizar_rotacao_oficial(candidato)
+        if _rotacao_tem_6_validos(rotacao):
+            return rotacao
+
+    for candidato in candidatos:
+        rotacao = _normalizar_rotacao_oficial(candidato)
+        if any(str(x).strip() for x in rotacao):
+            return rotacao
+
+    return ["", "", "", "", "", ""]
+
+
+def _rotacao_estado_tem_atletas(rotacao):
+    rotacao = _normalizar_rotacao_oficial(rotacao)
+    return len(rotacao) == 6 and any(str(x).strip() for x in rotacao)
+
 def _snapshot_estado_partida(partida, competicao):
     comp = buscar_competicao_por_nome(competicao) or {}
     return {
@@ -8214,8 +8271,8 @@ def _snapshot_estado_partida(partida, competicao):
         "saque_inicial": partida.get("saque_inicial") or "",
         "status_jogo": partida.get("status_jogo") or "pre_jogo",
         "status": partida.get("status") or "",
-        "rotacao_a": _normalizar_rotacao_oficial(_json_load_text(partida.get("rotacao_a_json"), partida.get("rotacao_a") or ["", "", "", "", "", ""])),
-        "rotacao_b": _normalizar_rotacao_oficial(_json_load_text(partida.get("rotacao_b_json"), partida.get("rotacao_b") or ["", "", "", "", "", ""])),
+        "rotacao_a": _rotacao_snapshot_partida(partida, "a"),
+        "rotacao_b": _rotacao_snapshot_partida(partida, "b"),
         "status_jogadores_a": _json_load_text(partida.get("status_jogadores_a_json"), {}),
         "status_jogadores_b": _json_load_text(partida.get("status_jogadores_b_json"), {}),
         "subs_a": int(partida.get("subs_a") or 0),

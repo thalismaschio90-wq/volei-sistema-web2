@@ -914,6 +914,14 @@ def _rotacao_fallback_por_papeleta(papeleta):
     ]
 
 
+
+
+def _rotacao_tem_atletas_front(rotacao):
+    if isinstance(rotacao, dict):
+        rotacao = rotacao.get("equipe_a") or rotacao.get("equipe_b") or []
+    if not isinstance(rotacao, list):
+        return False
+    return any(str(x.get("numero") if isinstance(x, dict) else x or "").strip() for x in rotacao)
 def _rotacao_segura_estado(estado, lado):
     """
     Garante que a rotação usada no clique do ponto nunca venha vazia.
@@ -2566,11 +2574,16 @@ def jogo_view(competicao, partida_id):
     atletas_a = [a for a in atletas_a if a.get("numero")]
     atletas_b = [a for a in atletas_b if a.get("numero")]
 
-    if not estado.get("rotacao_a"):
+    if not _rotacao_tem_atletas_front(estado.get("rotacao_a")):
         estado["rotacao_a"] = _rotacao_fallback_por_papeleta(papeleta_a)
 
-    if not estado.get("rotacao_b"):
+    if not _rotacao_tem_atletas_front(estado.get("rotacao_b")):
         estado["rotacao_b"] = _rotacao_fallback_por_papeleta(papeleta_b)
+
+    estado["rotacao"] = {
+        "equipe_a": estado.get("rotacao_a") or ["", "", "", "", "", ""],
+        "equipe_b": estado.get("rotacao_b") or ["", "", "", "", "", ""],
+    }
 
     # Não busca histórico/eventos aqui. Isso destravava o "Retomar partida".
     estado.setdefault("historico", [])
@@ -3625,6 +3638,9 @@ def estado_jogo_view(competicao, partida_id):
 
         if not any(str(x).strip() for x in rotacao_b):
             rotacao_b = _rotacao_fallback_por_papeleta(papeleta_b)
+
+        estado["rotacao_a"] = rotacao_a
+        estado["rotacao_b"] = rotacao_b
 
         tempos_a = estado.get("tempos_a")
         tempos_b = estado.get("tempos_b")
