@@ -27,6 +27,7 @@ from banco import (
     listar_origens_avanco_competicao,
     gerar_partidas_avanco_competicao,
     status_avanco_classificatorias_competicao,
+    avanco_ja_gerado_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -190,6 +191,7 @@ def listar_competicoes_view():
 
         avanco = buscar_avanco_config_competicao(competicao["nome"])
         avanco_status = status_avanco_classificatorias_competicao(competicao["nome"])
+        avanco_status["gerado"] = avanco_ja_gerado_competicao(competicao["nome"])
         origens = listar_origens_avanco_competicao(competicao["nome"])
 
         return render_template(
@@ -918,6 +920,7 @@ def avanco_competicao_view():
 
     avanco = buscar_avanco_config_competicao(comp["nome"])
     avanco_status = status_avanco_classificatorias_competicao(comp["nome"])
+    avanco_status["gerado"] = avanco_ja_gerado_competicao(comp["nome"])
     origens = listar_origens_avanco_competicao(comp["nome"])
     return render_template(
         "avanco_competicao.html",

@@ -39,6 +39,8 @@ from banco import (
     buscar_avanco_config_competicao,
     gerar_partidas_avanco_competicao,
     status_avanco_classificatorias_competicao,
+    avanco_ja_gerado_competicao,
+    limpar_partidas_avanco_nao_iniciadas_competicao,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -211,6 +213,10 @@ def _origem_partida_avanco(partida):
     if len(partes) >= 3:
         return partes[1].strip().lower(), partes[2].strip()
     return "", ""
+
+
+def _partida_eh_avanco(partida):
+    return str((partida or {}).get("origem") or "").strip().startswith("avanco:")
 
 
 def _filtrar_partidas_por_serie_avanco(partidas, serie):
@@ -1580,7 +1586,11 @@ def visualizador_publico(competicao_nome):
     set_unico = _competicao_eh_set_unico_tabela(competicao)
     avanco = buscar_avanco_config_competicao(competicao_nome)
     status_avanco = status_avanco_classificatorias_competicao(competicao_nome)
-    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, status_avanco.get("fechada"))
+    avanco_gerado = avanco_ja_gerado_competicao(competicao_nome)
+    status_avanco["gerado"] = avanco_gerado
+    if not avanco_gerado:
+        partidas_preparadas = [p for p in partidas_preparadas if not _partida_eh_avanco(p)]
+    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
 
     return render_template(
         "visualizador_publico.html",
@@ -1624,6 +1634,13 @@ def tabela_view():
 
     avanco = buscar_avanco_config_competicao(competicao["nome"])
     status_avanco = status_avanco_classificatorias_competicao(competicao["nome"])
+    avanco_gerado = avanco_ja_gerado_competicao(competicao["nome"])
+    status_avanco["gerado"] = avanco_gerado
+    if not avanco_gerado:
+        try:
+            limpar_partidas_avanco_nao_iniciadas_competicao(competicao["nome"])
+        except Exception as e:
+            print("AVISO tabela/limpar_avanco_nao_gerado:", repr(e))
     avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
 
     fase_subaba = _fase_subaba_canonica(request.args.get("fase") or "classificatorias")
@@ -1650,6 +1667,8 @@ def tabela_view():
     equipes = listar_equipes_da_competicao(competicao["nome"])
     mapa_escudos = _mapa_escudos_equipes(equipes)
     partidas = listar_partidas(competicao["nome"])
+    if not avanco_gerado:
+        partidas = [p for p in partidas if not _partida_eh_avanco(p)]
 
     grupos = []
     for g in grupos_raw:
@@ -1664,8 +1683,11 @@ def tabela_view():
     partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
     partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
     if fase_subaba != "classificatorias":
-        partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa)
-    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, status_avanco.get("fechada"))
+        if not avanco_gerado:
+            partidas_fase = []
+        else:
+            partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa)
+    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
     classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
     regras_classificacao = _obter_regras_classificacao(competicao)
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))

@@ -13618,6 +13618,11 @@ def migrar_escudos_arquivos_para_banco(app_static_folder):
 
         conn.commit()
 
+    try:
+        _salvar_flag_avanco_gerado_competicao(nome_competicao, classificatoria_fechada and (criadas > 0 or atualizadas > 0 or aguardando >= 0))
+    except Exception as e:
+        print("AVISO gerar_avanco/salvar_flag:", repr(e))
+
     return {
         "ok": True,
         "total": total,
@@ -13763,13 +13768,48 @@ def buscar_avanco_config_competicao(nome_competicao):
     return _normalizar_json_avanco(fases_config.get("avanco"))
 
 
+def avanco_ja_gerado_competicao(nome_competicao):
+    """Retorna True somente depois do clique manual que materializa o avanço."""
+    config = buscar_configuracao_avancada_competicao(nome_competicao) or {}
+    fases_config = config.get("fases_config") or {}
+    return bool(fases_config.get("avanco_gerado"))
+
+
+def _salvar_flag_avanco_gerado_competicao(nome_competicao, gerado):
+    config = buscar_configuracao_avancada_competicao(nome_competicao) or {}
+    fases_config = config.get("fases_config") or {}
+    fases_config["avanco_gerado"] = bool(gerado)
+    return atualizar_configuracao_avancada_competicao(
+        nome_competicao=nome_competicao,
+        tipo_classificacao=config.get("tipo_classificacao") or "grupo",
+        qtd_classificados=config.get("qtd_classificados") or 0,
+        formato_finais=config.get("formato_finais") or "mata_mata",
+        possui_bye=config.get("possui_bye") or False,
+        qtd_bye=config.get("qtd_bye") or 0,
+        fases_config=fases_config,
+        tipo_confronto=config.get("tipo_confronto") or "grupo_interno",
+        cruzamentos_grupos=config.get("cruzamentos_grupos") or "",
+        data_limite_inscricao=config.get("data_limite_inscricao"),
+        hora_limite_inscricao=config.get("hora_limite_inscricao"),
+        bloquear_apos_inicio=config.get("bloquear_apos_inicio") or False,
+    )
+
+
 def salvar_avanco_config_competicao(nome_competicao, avanco_config):
     """Salva o construtor de avanço sem criar coluna nova no banco."""
     config = buscar_configuracao_avancada_competicao(nome_competicao) or {}
     fases_config = config.get("fases_config") or {}
     avanco_normalizado = _normalizar_json_avanco(avanco_config)
     fases_config["avanco"] = avanco_normalizado
+    # Sempre que o desenho do avanço muda, as partidas reais deixam de ser confiáveis.
+    # O sistema volta a mostrar só os placeholders até o organizador clicar em gerar.
+    fases_config["avanco_gerado"] = False
     fases_config = _aplicar_regras_avanco_em_fases_config(fases_config, avanco_normalizado)
+
+    try:
+        limpar_partidas_avanco_nao_iniciadas_competicao(nome_competicao)
+    except Exception as e:
+        print("AVISO salvar_avanco_config/limpar_avanco:", repr(e))
 
     return atualizar_configuracao_avancada_competicao(
         nome_competicao=nome_competicao,
@@ -14269,6 +14309,52 @@ def _limpar_partidas_avanco_prematuras_cur(cur, nome_competicao, origem_tag=None
     return removidas
 
 
+def limpar_partidas_avanco_nao_iniciadas_competicao(nome_competicao):
+    """Remove partidas reais do avanço ainda não iniciadas.
+
+    Usado quando o avanço ainda não foi gerado manualmente ou quando o desenho
+    do chaveamento foi alterado. Não toca em jogo já iniciado/finalizado.
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            removidas = _limpar_partidas_avanco_prematuras_cur(cur, nome_competicao)
+        conn.commit()
+    return removidas
+
+
+def _remover_duplicadas_avanco_cur(cur, nome_competicao):
+    cur.execute("""
+        SELECT id, origem, status, status_jogo, pontos_a, pontos_b, sets_a, sets_b,
+               pre_jogo_iniciado_em, pre_jogo_finalizado, finalizado_em
+        FROM partidas
+        WHERE competicao = %s
+          AND origem LIKE 'avanco:%'
+        ORDER BY origem, id
+    """, (nome_competicao,))
+    por_origem = {}
+    for p in cur.fetchall() or []:
+        por_origem.setdefault(p.get("origem"), []).append(p)
+
+    removidas = 0
+    for _origem, itens in por_origem.items():
+        if len(itens) <= 1:
+            continue
+        principal = None
+        for p in itens:
+            if partida_ja_iniciou_ou_finalizou(p):
+                principal = p
+                break
+        if principal is None:
+            principal = itens[0]
+        for p in itens:
+            if p["id"] == principal["id"]:
+                continue
+            if not partida_ja_iniciou_ou_finalizou(p):
+                cur.execute("DELETE FROM partidas WHERE id = %s", (p["id"],))
+                removidas += 1
+    return removidas
+
+
 def gerar_partidas_avanco_competicao(nome_competicao):
     """Cria/atualiza somente partidas reais do Avanço com origens resolvidas.
 
@@ -14290,6 +14376,7 @@ def gerar_partidas_avanco_competicao(nome_competicao):
         with conn.cursor() as cur:
             colunas = _buscar_colunas_tabela("partidas")
             comp_regra = buscar_competicao_por_nome(nome_competicao) or {}
+            duplicadas_removidas += _remover_duplicadas_avanco_cur(cur, nome_competicao)
 
             for idx, jogo in enumerate(jogos, start=1):
                 if not isinstance(jogo, dict):
@@ -14406,6 +14493,11 @@ def gerar_partidas_avanco_competicao(nome_competicao):
                     cur.execute(f"INSERT INTO partidas ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
                     criadas += 1
         conn.commit()
+
+    try:
+        _salvar_flag_avanco_gerado_competicao(nome_competicao, classificatoria_fechada and (criadas > 0 or atualizadas > 0 or aguardando >= 0))
+    except Exception as e:
+        print("AVISO gerar_avanco/salvar_flag:", repr(e))
 
     return {
         "ok": True,
