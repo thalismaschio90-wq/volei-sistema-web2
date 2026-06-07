@@ -203,57 +203,131 @@ def _fechar_pool_quebrado():
 
 @contextmanager
 def conectar():
-    """Abre conexão com o banco usando pool de forma segura.
+    """Abre conexão com o banco usando pool com fallback seguro.
 
-    Correções importantes:
-    - o pool agora é a via principal;
-    - PoolTimeout não libera uma enxurrada ilimitada de conexões diretas;
-    - fallback direto é limitado por semáforo e pode ser desligado com
-      DB_DIRECT_FALLBACK_ENABLED=0;
-    - toda conexão direta é sempre fechada no finally.
+    Esta versão evita o erro:
+        RuntimeError("generator didn't stop after throw()")
+
+    O problema acontecia porque o generator do contextmanager podia receber
+    uma exceção depois do yield do pool e ainda tentar seguir para outro yield
+    no fallback. Agora a conexão do pool é obtida antes do yield e qualquer
+    erro ocorrido dentro do bloco do chamador é apenas repassado, sem acionar
+    o fallback indevidamente.
     """
     global _DIRECT_FALLBACK_SEMAPHORE
 
     pool = _obter_pool()
     timeout_pool = _env_float("DB_POOL_TIMEOUT", 3, minimo=1, maximo=30)
 
+    # =====================================================
+    # 1) TENTA PEGAR UMA CONEXÃO DO POOL ANTES DO YIELD
+    # =====================================================
+    pool_cm = None
+    conn_pool = None
+
     if pool is not None:
         try:
-            with pool.connection(timeout=timeout_pool) as conn:
-                yield conn
-                return
+            pool_cm = pool.connection(timeout=timeout_pool)
+            conn_pool = pool_cm.__enter__()
         except Exception as e:
             print("AVISO: pool do banco indisponível:", repr(e), flush=True)
-            fallback_ligado = str(os.environ.get("DB_DIRECT_FALLBACK_ENABLED", "1")).strip().lower()
+
+            mensagem = repr(e).lower()
+            if (
+                "closed" in mensagem
+                or "bad" in mensagem
+                or "ssl connection has been closed" in mensagem
+                or "consuming input failed" in mensagem
+            ):
+                _fechar_pool_quebrado()
+
+            fallback_ligado = str(
+                os.environ.get("DB_DIRECT_FALLBACK_ENABLED", "1")
+            ).strip().lower()
+
             if fallback_ligado in {"0", "false", "no", "off", "nao", "não"}:
                 raise
+        else:
+            erro_do_bloco = None
+            try:
+                yield conn_pool
+            except BaseException as exc:
+                erro_do_bloco = exc
+                raise
+            finally:
+                try:
+                    if erro_do_bloco is None:
+                        pool_cm.__exit__(None, None, None)
+                    else:
+                        pool_cm.__exit__(
+                            type(erro_do_bloco),
+                            erro_do_bloco,
+                            erro_do_bloco.__traceback__,
+                        )
+                except Exception as e:
+                    print("AVISO: erro ao devolver conexão ao pool:", repr(e), flush=True)
+                    mensagem = repr(e).lower()
+                    if (
+                        "closed" in mensagem
+                        or "bad" in mensagem
+                        or "ssl connection has been closed" in mensagem
+                        or "consuming input failed" in mensagem
+                    ):
+                        _fechar_pool_quebrado()
+            return
 
-    # Fallback controlado. Antes, cada PoolTimeout podia abrir conexão direta
-    # sem limite. Isso mascara o erro e pode derrubar o banco em pico de uso.
-    limite_fallback = _env_int("DB_DIRECT_FALLBACK_MAX", 2, minimo=0, maximo=10)
+    # =====================================================
+    # 2) FALLBACK DIRETO CONTROLADO
+    # =====================================================
+    limite_fallback = _env_int(
+        "DB_DIRECT_FALLBACK_MAX",
+        2,
+        minimo=0,
+        maximo=10,
+    )
+
     if limite_fallback <= 0:
-        raise RuntimeError("Pool do banco indisponível e fallback direto desativado.")
+        raise RuntimeError(
+            "Pool do banco indisponível e fallback direto desativado."
+        )
 
     if _DIRECT_FALLBACK_SEMAPHORE is None:
         with _POOL_LOCK:
             if _DIRECT_FALLBACK_SEMAPHORE is None:
                 _DIRECT_FALLBACK_SEMAPHORE = BoundedSemaphore(limite_fallback)
 
-    adquiriu = _DIRECT_FALLBACK_SEMAPHORE.acquire(timeout=_env_float("DB_DIRECT_FALLBACK_TIMEOUT", 2, minimo=0.2, maximo=10))
+    adquiriu = _DIRECT_FALLBACK_SEMAPHORE.acquire(
+        timeout=_env_float(
+            "DB_DIRECT_FALLBACK_TIMEOUT",
+            2,
+            minimo=0.2,
+            maximo=10,
+        )
+    )
+
     if not adquiriu:
-        raise RuntimeError("Banco ocupado: pool indisponível e limite de conexões diretas atingido.")
+        raise RuntimeError(
+            "Banco ocupado: pool indisponível e limite de conexões diretas atingido."
+        )
 
     conn = None
+
     try:
-        print("AVISO: usando conexão direta controlada fora do pool", flush=True)
+        print(
+            "AVISO: usando conexão direta controlada fora do pool",
+            flush=True,
+        )
+
         conn = _conexao_direta()
         yield conn
+
     finally:
         try:
             if conn is not None:
                 conn.close()
         except Exception:
             pass
+
         try:
             _DIRECT_FALLBACK_SEMAPHORE.release()
         except Exception:
