@@ -6,7 +6,7 @@ import json
 import base64
 from io import BytesIO
 from datetime import datetime
-from threading import Lock
+from threading import Lock, BoundedSemaphore
 from contextlib import contextmanager
 
 from dotenv import load_dotenv
@@ -47,6 +47,7 @@ _SCHEMA_FLAGS = {
 _SCHEMA_LOCK = Lock()
 _POOL_LOCK = Lock()
 _DB_POOL = None
+_DIRECT_FALLBACK_SEMAPHORE = None
 _PINS_OPERACIONAIS_SCHEMA_OK = False
 
 
@@ -159,12 +160,12 @@ def _obter_pool():
         if _DB_POOL is not None:
             return _DB_POOL
 
-        # Neon/Render em plano pequeno pode recusar muitos sockets abertos.
-        # Por isso o padrão é conservador: min_size=0 e max_size=5.
-        # Se precisar, aumente via variáveis no Render:
-        # DB_POOL_MIN_SIZE=0 / DB_POOL_MAX_SIZE=5 ou 8.
-        min_size = _env_int("DB_POOL_MIN_SIZE", 0, minimo=0, maximo=10)
-        max_size = _env_int("DB_POOL_MAX_SIZE", 5, minimo=1, maximo=20)
+        # O sistema tem telas que disparam várias leituras seguidas (apontador,
+        # relatórios e painel da equipe). Com max_size=5 o Render/Neon entra em
+        # fila muito rápido e cada request pode esperar vários segundos.
+        # Pode ajustar no Render por ENV, mas o padrão novo já é mais adequado.
+        min_size = _env_int("DB_POOL_MIN_SIZE", 1, minimo=0, maximo=10)
+        max_size = _env_int("DB_POOL_MAX_SIZE", 12, minimo=2, maximo=30)
         if max_size < min_size:
             max_size = min_size or 1
 
@@ -202,15 +203,19 @@ def _fechar_pool_quebrado():
 
 @contextmanager
 def conectar():
-    """Abre conexão com o banco com pool seguro e fallback real.
+    """Abre conexão com o banco usando pool de forma segura.
 
-    A versão anterior retornava `pool.connection(...)` sem entrar no context
-    manager; assim o PoolTimeout acontecia fora do try/except e derrubava login
-    e painéis. Aqui o `with` é feito dentro da função, então conseguimos cair
-    para conexão direta quando o pool estiver saturado.
+    Correções importantes:
+    - o pool agora é a via principal;
+    - PoolTimeout não libera uma enxurrada ilimitada de conexões diretas;
+    - fallback direto é limitado por semáforo e pode ser desligado com
+      DB_DIRECT_FALLBACK_ENABLED=0;
+    - toda conexão direta é sempre fechada no finally.
     """
+    global _DIRECT_FALLBACK_SEMAPHORE
+
     pool = _obter_pool()
-    timeout_pool = _env_float("DB_POOL_TIMEOUT", 6, minimo=2, maximo=30)
+    timeout_pool = _env_float("DB_POOL_TIMEOUT", 3, minimo=1, maximo=30)
 
     if pool is not None:
         try:
@@ -218,16 +223,39 @@ def conectar():
                 yield conn
                 return
         except Exception as e:
-            print("AVISO: pool do banco indisponível; usando conexão direta:", repr(e))
+            print("AVISO: pool do banco indisponível:", repr(e), flush=True)
+            fallback_ligado = str(os.environ.get("DB_DIRECT_FALLBACK_ENABLED", "1")).strip().lower()
+            if fallback_ligado in {"0", "false", "no", "off", "nao", "não"}:
+                raise
+
+    # Fallback controlado. Antes, cada PoolTimeout podia abrir conexão direta
+    # sem limite. Isso mascara o erro e pode derrubar o banco em pico de uso.
+    limite_fallback = _env_int("DB_DIRECT_FALLBACK_MAX", 2, minimo=0, maximo=10)
+    if limite_fallback <= 0:
+        raise RuntimeError("Pool do banco indisponível e fallback direto desativado.")
+
+    if _DIRECT_FALLBACK_SEMAPHORE is None:
+        with _POOL_LOCK:
+            if _DIRECT_FALLBACK_SEMAPHORE is None:
+                _DIRECT_FALLBACK_SEMAPHORE = BoundedSemaphore(limite_fallback)
+
+    adquiriu = _DIRECT_FALLBACK_SEMAPHORE.acquire(timeout=_env_float("DB_DIRECT_FALLBACK_TIMEOUT", 2, minimo=0.2, maximo=10))
+    if not adquiriu:
+        raise RuntimeError("Banco ocupado: pool indisponível e limite de conexões diretas atingido.")
 
     conn = None
     try:
+        print("AVISO: usando conexão direta controlada fora do pool", flush=True)
         conn = _conexao_direta()
         yield conn
     finally:
         try:
             if conn is not None:
                 conn.close()
+        except Exception:
+            pass
+        try:
+            _DIRECT_FALLBACK_SEMAPHORE.release()
         except Exception:
             pass
 
@@ -4629,6 +4657,81 @@ def listar_partidas(competicao):
                 WHERE p.competicao = %s
                 ORDER BY COALESCE(p.rodada, 999999), p.ordem, p.id
             """, (competicao, competicao))
+            linhas = cur.fetchall() or []
+            for linha in linhas:
+                try:
+                    if linha.get("quadra_id") and linha.get("quadra_nome_cadastro"):
+                        linha["quadra_nome"] = formatar_quadra_exibicao({
+                            "nome": linha.get("quadra_nome_cadastro"),
+                            "local": linha.get("quadra_local_cadastro"),
+                            "ordem": linha.get("quadra_id"),
+                        })
+                        linha["quadra_label"] = linha["quadra_nome"]
+                except Exception:
+                    pass
+            return linhas
+
+
+def listar_partidas_da_equipe(competicao, equipe, limite=50):
+    """Lista somente as partidas de uma equipe em uma competição.
+
+    Versão leve para o painel inicial da equipe.
+    Diferente de listar_partidas(), esta função NÃO conta eventos ponto a ponto
+    e NÃO carrega todos os jogos da competição para depois filtrar em Python.
+    """
+    competicao = (competicao or "").strip()
+    equipe = (equipe or "").strip()
+
+    if not competicao or not equipe:
+        return []
+
+    try:
+        limite_int = int(limite or 50)
+    except Exception:
+        limite_int = 50
+    limite_int = max(1, min(limite_int, 200))
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    p.*,
+                    COALESCE(cq.nome, '') AS quadra_nome_cadastro,
+                    COALESCE(cq.local, '') AS quadra_local_cadastro,
+                    COALESCE(ea.escudo, '') AS escudo_a,
+                    COALESCE(eb.escudo, '') AS escudo_b
+                FROM partidas p
+                LEFT JOIN competicao_quadras cq
+                  ON cq.competicao = p.competicao
+                 AND cq.id = p.quadra_id
+                LEFT JOIN equipes_competicoes eca
+                  ON eca.competicao = p.competicao
+                 AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
+                LEFT JOIN equipes ea
+                  ON ea.login = eca.equipe_login
+                LEFT JOIN equipes_competicoes ecb
+                  ON ecb.competicao = p.competicao
+                 AND LOWER(TRIM(ecb.equipe_nome)) = LOWER(TRIM(p.equipe_b))
+                LEFT JOIN equipes eb
+                  ON eb.login = ecb.equipe_login
+                WHERE p.competicao = %s
+                  AND (
+                        LOWER(TRIM(p.equipe_a)) = LOWER(TRIM(%s))
+                     OR LOWER(TRIM(p.equipe_b)) = LOWER(TRIM(%s))
+                  )
+                ORDER BY
+                    CASE
+                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, '')) IN ('ao_vivo','em_andamento','andamento','jogo') THEN 1
+                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, '')) IN ('pre_jogo','papeleta','papeleta_pronta') THEN 2
+                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 4
+                        ELSE 3
+                    END,
+                    COALESCE(p.rodada, 999999),
+                    COALESCE(p.ordem, 999999),
+                    p.id
+                LIMIT %s
+            """, (competicao, equipe, equipe, limite_int))
+
             linhas = cur.fetchall() or []
             for linha in linhas:
                 try:
@@ -15196,3 +15299,26 @@ def gerar_partidas_avanco_competicao(nome_competicao):
         "pendentes_classificatoria": int(fechamento.get("pendentes") or 0),
         "total_classificatorias": int(fechamento.get("total_classificatorias") or 0),
     }
+
+
+
+# =========================================================
+# NUMERAÇÃO DE ATLETAS
+# =========================================================
+def atualizar_numero_atleta(atleta_id, numero):
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+
+            cur.execute("""
+                UPDATE atletas
+                SET numero = %s
+                WHERE id = %s
+            """, (
+                numero,
+                atleta_id
+            ))
+
+        conn.commit()
+
+    return True

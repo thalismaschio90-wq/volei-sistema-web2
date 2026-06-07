@@ -1,5 +1,5 @@
 print(">>> CARREGOU O ARQUIVO EQUIPES.PY CERTO <<<")
-from flask import Blueprint, render_template, request, redirect, session, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, session, url_for, flash, current_app, jsonify
 from banco import (
     buscar_competicao_por_organizador,
     buscar_competicao_por_nome,
@@ -46,6 +46,7 @@ from banco import (
     validar_edicao_atletas_equipe,
     equipe_tem_partida_iniciada,
     listar_partidas,
+    listar_partidas_da_equipe,
     listar_grupos,
     listar_equipes_por_grupo,
     listar_equipes_por_grupos_competicao,
@@ -871,6 +872,59 @@ def _preparar_partidas_para_equipe(equipe, competicao=None, mapa_escudos=None):
     )
 
 
+def _preparar_partidas_home_equipe(equipe, limite=50):
+    """Prepara somente as partidas da equipe para a HOME.
+
+    Esta função é propositalmente leve: não chama listar_partidas(), não monta
+    classificação, não busca todos os grupos e não cria mapa de escudos de toda
+    a competição. Isso evita a demora gigante ao clicar para entrar na competição.
+    """
+    nome_equipe = (equipe.get("nome") or "").strip()
+    nome_competicao = (equipe.get("competicao") or "").strip()
+
+    if not nome_equipe or not nome_competicao:
+        return []
+
+    competicao = buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
+    partidas = listar_partidas_da_equipe(nome_competicao, nome_equipe, limite=limite) or []
+    resultado = []
+
+    for p in partidas:
+        partida = aplicar_placar_exibicao_partida(dict(p or {}), competicao)
+        equipe_a = (partida.get("equipe_a") or "").strip()
+        equipe_b = (partida.get("equipe_b") or "").strip()
+        fase = (partida.get("fase") or "grupos").strip().lower()
+
+        partida["fase_label"] = _fase_label_partida_equipe(fase)
+        partida["fase_ordem"] = _ordem_fase_partida_equipe(fase)
+        partida["status_visual"] = _status_visual_partida_equipe(partida)
+        partida["ao_vivo"] = _partida_ao_vivo_equipe(partida)
+        partida["finalizada"] = _partida_finalizada_equipe(partida)
+        partida["parciais_formatadas"] = _parciais_partida_equipe(partida)
+        partida["minha_partida"] = True
+        partida["escudo_a"] = partida.get("escudo_a") or _escudo_padrao_url_equipe()
+        partida["escudo_b"] = partida.get("escudo_b") or _escudo_padrao_url_equipe()
+        partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
+        partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
+
+        if partida.get("ao_vivo") and partida.get("set_unico"):
+            partida["placar_exibicao_a"] = partida["placar_ao_vivo_a"]
+            partida["placar_exibicao_b"] = partida["placar_ao_vivo_b"]
+            partida["placar_exibicao"] = f'{partida["placar_exibicao_a"]} x {partida["placar_exibicao_b"]}'
+
+        resultado.append(partida)
+
+    return sorted(
+        resultado,
+        key=lambda p: (
+            p.get("fase_ordem") or 9,
+            p.get("rodada") or 999999,
+            p.get("ordem") or 999999,
+            p.get("id") or 999999,
+        )
+    )
+
+
 @equipes_bp.route("/painel-equipe/selecionar-competicao", methods=["POST"])
 @exigir_perfil("equipe")
 def selecionar_competicao_equipe_view():
@@ -993,7 +1047,8 @@ def painel_equipe_inicio_view():
 
     atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
     controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
-    partidas = _preparar_partidas_para_equipe(equipe)
+    # HOME leve: traz só os jogos da própria equipe, sem carregar a competição inteira.
+    partidas = _preparar_partidas_home_equipe(equipe, limite=50)
 
     total_atletas = len(atletas)
     atletas_aprovados = [
@@ -1441,3 +1496,100 @@ def encerrar_conferencia(competicao):
 
     flash("Conferência de atletas encerrada.", "sucesso")
     return redirect(url_for("equipes.listar_atletas_organizador"))
+
+
+# =========================
+# ORGANIZADOR - NUMERAÇÃO
+# =========================
+@equipes_bp.route("/equipes/numeracao")
+@exigir_perfil("organizador")
+def numeracao_atletas_view():
+
+    competicao = buscar_competicao_por_organizador(
+        session.get("usuario")
+    )
+
+    if not competicao:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    equipes = listar_equipes_da_competicao(
+        competicao["nome"]
+    )
+
+    equipes_com_atletas = []
+
+    for equipe in equipes:
+
+        atletas = listar_atletas_da_equipe(
+            equipe["nome"],
+            competicao["nome"]
+        )
+
+        atletas = sorted(
+            atletas,
+            key=lambda a: (
+                int(a.get("numero"))
+                if str(a.get("numero") or "").isdigit()
+                else 999
+            )
+        )
+
+        equipes_com_atletas.append({
+            "equipe": equipe,
+            "atletas": atletas
+        })
+
+    return render_template(
+        "numeracao_atletas.html",
+        competicao=competicao,
+        equipes_com_atletas=equipes_com_atletas
+    )
+
+
+@equipes_bp.route(
+    "/equipes/numeracao/salvar",
+    methods=["POST"]
+)
+@exigir_perfil("organizador")
+def salvar_numeracao_atletas_view():
+
+    dados = request.get_json(silent=True) or {}
+
+    atletas = dados.get("atletas") or []
+
+    numeros = []
+
+    for atleta in atletas:
+
+        numero = str(
+            atleta.get("numero") or ""
+        ).strip()
+
+        if not numero:
+            continue
+
+        if numero in numeros:
+            return jsonify({
+                "ok": False,
+                "erro": f"Número duplicado: {numero}"
+            })
+
+        numeros.append(numero)
+
+    for atleta in atletas:
+
+        atleta_id = atleta.get("id")
+
+        numero = str(
+            atleta.get("numero") or ""
+        ).strip()
+
+        atualizar_numero_atleta(
+            atleta_id,
+            numero
+        )
+
+    return jsonify({
+        "ok": True
+    })

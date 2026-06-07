@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<style>
+
+.painel-numeracao{
+    display:flex;
+    flex-direction:column;
+    gap:22px;
+}
+
+.abas-equipes{
+    display:flex;
+    gap:12px;
+    overflow-x:auto;
+    padding-bottom:8px;
+}
+
+.abas-equipes::-webkit-scrollbar{
+    height:8px;
+}
+
+.abas-equipes::-webkit-scrollbar-thumb{
+    background:#c8d3dd;
+    border-radius:999px;
+}
+
+.aba-equipe{
+    border:none;
+    background:#123852;
+    color:white;
+    padding:14px 20px;
+    border-radius:14px;
+    cursor:pointer;
+    font-weight:700;
+    white-space:nowrap;
+    transition:.18s;
+    flex-shrink:0;
+}
+
+.aba-equipe.ativa{
+    background:#d4a62a;
+    color:#123852;
+}
+
+.equipe-box{
+    display:none;
+}
+
+.equipe-box.ativa{
+    display:block;
+}
+
+.card-equipe{
+    background:white;
+    border-radius:22px;
+    padding:24px;
+    box-shadow:0 8px 24px rgba(0,0,0,.08);
+}
+
+.tabela-atletas{
+    width:100%;
+    border-collapse:collapse;
+}
+
+.tabela-atletas th{
+    text-align:left;
+    padding:14px;
+    background:#f5f7fb;
+}
+
+.tabela-atletas td{
+    padding:14px;
+    border-bottom:1px solid #edf1f5;
+}
+
+.input-numero{
+    width:62px;
+    padding:8px;
+    border-radius:10px;
+    border:1px solid #ccd7e2;
+    text-align:center;
+    font-size:15px;
+    font-weight:700;
+}
+
+.input-numero.erro{
+    border-color:#d7263d;
+    background:#fff0f0;
+}
+
+.btn-salvar{
+    margin-top:24px;
+    border:none;
+    background:#123852;
+    color:white;
+    padding:14px 24px;
+    border-radius:14px;
+    cursor:pointer;
+    font-weight:700;
+}
+
+</style>
+
+<div class="painel-numeracao">
+
+    <div class="abas-equipes">
+
+        {% for item in equipes_com_atletas %}
+
+        <button
+            class="aba-equipe {% if loop.first %}ativa{% endif %}"
+            data-equipe="{{ loop.index0 }}"
+        >
+            {{ item.equipe.nome }}
+        </button>
+
+        {% endfor %}
+
+    </div>
+
+    {% for item in equipes_com_atletas %}
+
+    <div
+        class="equipe-box {% if loop.first %}ativa{% endif %}"
+        id="equipe-{{ loop.index0 }}"
+    >
+
+        <div class="card-equipe">
+
+            <h2>{{ item.equipe.nome }}</h2>
+
+            <table class="tabela-atletas">
+
+                <thead>
+                    <tr>
+                        <th style="width:90px;">Nº</th>
+                        <th>Atleta</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    {% for atleta in item.atletas %}
+
+                    <tr>
+
+                        <td>
+
+                            <input
+                                type="number"
+                                class="input-numero"
+                                value="{{ atleta.numero or '' }}"
+                                data-atleta-id="{{ atleta.id }}"
+                            >
+
+                        </td>
+
+                        <td>
+                            {{ atleta.nome }}
+                        </td>
+
+                        <td>
+                            {{ atleta.status or "Pendente" }}
+                        </td>
+
+                    </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+
+            <button
+                class="btn-salvar"
+                onclick="salvarEquipe('{{ loop.index0 }}')"
+            >
+                Salvar numeração
+            </button>
+
+        </div>
+
+    </div>
+
+    {% endfor %}
+
+</div>
+
+<script>
+
+const abas = document.querySelectorAll(".aba-equipe");
+const equipes = document.querySelectorAll(".equipe-box");
+
+abas.forEach(aba => {
+
+    aba.addEventListener("click", () => {
+
+        abas.forEach(a => {
+            a.classList.remove("ativa");
+        });
+
+        equipes.forEach(e => {
+            e.classList.remove("ativa");
+        });
+
+        aba.classList.add("ativa");
+
+        const box = document.getElementById(
+            "equipe-" + aba.dataset.equipe
+        );
+
+        if(box){
+            box.classList.add("ativa");
+        }
+
+    });
+
+});
+
+function validarDuplicados(inputs){
+
+    inputs.forEach(i => {
+        i.classList.remove("erro");
+    });
+
+    const usados = {};
+
+    let possuiErro = false;
+
+    inputs.forEach(input => {
+
+        const numero = input.value.trim();
+
+        if(!numero){
+            return;
+        }
+
+        if(usados[numero]){
+
+            input.classList.add("erro");
+            usados[numero].classList.add("erro");
+
+            possuiErro = true;
+
+        }else{
+            usados[numero] = input;
+        }
+
+    });
+
+    return possuiErro;
+}
+
+async function salvarEquipe(index){
+
+    const box = document.getElementById(
+        "equipe-" + index
+    );
+
+    const inputs = [
+        ...box.querySelectorAll(".input-numero")
+    ];
+
+    const possuiErro = validarDuplicados(inputs);
+
+    if(possuiErro){
+
+        alert(
+            "Existem números duplicados."
+        );
+
+        return;
+    }
+
+    const atletas = [];
+
+    inputs.forEach(input => {
+
+        atletas.push({
+            id: input.dataset.atletaId,
+            numero: input.value.trim()
+        });
+
+    });
+
+    const resposta = await fetch(
+        "/equipes/numeracao/salvar",
+        {
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify({
+                atletas
+            })
+        }
+    );
+
+    const dados = await resposta.json();
+
+    if(!dados.ok){
+
+        alert(
+            dados.erro || "Erro ao salvar."
+        );
+
+        return;
+    }
+
+    alert(
+        "Numeração salva com sucesso."
+    );
+}
+
+</script>
+
+{% endblock %}

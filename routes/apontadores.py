@@ -1804,6 +1804,45 @@ def _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, part
     return modo_final
 
 
+_CAMPOS_LEVES_PARTIDA_APONTADOR = {
+    "id", "competicao", "ordem", "rodada", "grupo", "fase", "fase_partida", "origem",
+    "equipe_a", "equipe_b", "equipe_a_operacional", "equipe_b_operacional",
+    "escudo_a", "escudo_b", "escudo_equipe_a", "escudo_equipe_b",
+    "quadra", "ginasio", "local", "data", "hora", "data_hora",
+    "status", "status_jogo", "status_operacao", "operador_login", "operador_nome",
+    "placar", "placar_exibicao", "placar_sets", "placar_pontos", "resultado",
+    "sets_a", "sets_b", "pontos_a", "pontos_b", "pontos_equipe_a", "pontos_equipe_b",
+    "set_atual", "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b",
+    "vencedor", "tipo_encerramento", "origem_resultado", "modo_operacao",
+    "tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes",
+    "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo",
+}
+
+
+def _partida_leve_para_lista_apontador(partida):
+    """Reduz o payload enviado no HTML do /apontador/entrar.
+
+    O log mostrou resposta acima de 1MB. Essa lista não precisa carregar campos
+    longos/base64/eventos/papeleta/scout. Mantemos só o que o card de jogos usa.
+    """
+    item = {}
+    for campo in _CAMPOS_LEVES_PARTIDA_APONTADOR:
+        if campo in (partida or {}):
+            valor = partida.get(campo)
+            if campo.startswith("escudo"):
+                valor = _escudo_payload_leve(valor)
+            elif isinstance(valor, str) and len(valor) > 700:
+                # Proteção contra JSON/base64/textos grandes que venham da consulta.
+                valor = valor[:700]
+            item[campo] = valor
+
+    # Alguns templates usam estes campos calculados.
+    item["modo_operacao_resolvido"] = partida.get("modo_operacao_resolvido") or "simples"
+    item["permite_scout"] = bool(partida.get("permite_scout"))
+    item["fase_normalizada"] = partida.get("fase_normalizada") or _fase_normalizada_lista(partida)
+    return item
+
+
 def _montar_partidas_painel_apontador_cache(competicao):
     """Monta lista leve da competição para a tela do apontador.
 
@@ -1811,7 +1850,7 @@ def _montar_partidas_painel_apontador_cache(competicao):
     Essa tela só precisa listar jogos e placar resumido.
     """
     competicao = str(competicao or "").strip()
-    chave = ("painel_competicao", competicao, "v2")
+    chave = ("painel_competicao", competicao, "v3-leve")
     cached = _cache_get(chave)
     if cached is not None:
         return cached
@@ -1838,6 +1877,7 @@ def _montar_partidas_painel_apontador_cache(competicao):
 
     partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
 
+    partidas_leves = []
     for p in partidas:
         try:
             p["modo_operacao_resolvido"] = _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, p)
@@ -1846,14 +1886,13 @@ def _montar_partidas_painel_apontador_cache(competicao):
         p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
         p["fase_normalizada"] = _fase_normalizada_lista(p)
 
-        # Garante que nada pesado vá para o HTML dessa lista.
-        for campo_pesado in ("eventos", "historico", "scout", "atletas_a", "atletas_b", "papeleta_a", "papeleta_b", "evolucao_pontos"):
-            if campo_pesado in p:
-                p.pop(campo_pesado, None)
+        # Em vez de remover alguns campos pesados, montamos uma cópia leve.
+        # Assim nenhum campo novo enorme passa despercebido para o HTML.
+        partidas_leves.append(_partida_leve_para_lista_apontador(p))
 
     payload = {
         "competicao_cfg": competicao_cfg,
-        "partidas": partidas,
+        "partidas": partidas_leves,
         "sets_max_manual": _sets_max_competicao(competicao),
         "sets_para_vencer_manual": _sets_para_vencer_competicao(competicao),
     }

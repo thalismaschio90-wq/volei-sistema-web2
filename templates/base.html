@@ -957,8 +957,33 @@
             </div>
 
             <div class="menu-item">
-                <a class="menu-link {% if path.startswith('/atletas') %}active{% endif %}" href="/atletas">Atletas</a>
-                <div class="tooltip-texto">Acompanhe cadastros, pendências e aprovações dos atletas.</div>
+
+                <a
+                    class="menu-link {% if path.startswith('/atletas') %}active{% endif %}"
+                    href="/atletas"
+                >
+                    Atletas
+                </a>
+
+                <div class="tooltip-texto">
+                    Acompanhe cadastros, pendências e aprovações dos atletas.
+                </div>
+
+            </div>
+
+            <div class="menu-item">
+
+                <a
+                    class="menu-link {% if path.startswith('/equipes/numeracao') %}active{% endif %}"
+                    href="/equipes/numeracao"
+                >
+                    Numeração
+                </a>
+
+                <div class="tooltip-texto">
+                    Controle rápido da numeração dos atletas por equipe.
+                </div>
+
             </div>
 
             <div class="menu-section-title">Tabela e operação</div>
