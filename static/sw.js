@@ -1,13 +1,14 @@
-const CACHE_NAME = "voleitable-pwa-v20260528-offline1";
-const OFFLINE_URL = "/offline-apontador?v=20260528-offline1";
+```javascript
+const CACHE_NAME = "voleitable-pwa-v20260607-tablet1";
+const OFFLINE_URL = "/offline-apontador?v=20260607-tablet1";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260528-offline1",
+    "/app-login?app=1&v=20260607-tablet1",
     OFFLINE_URL,
-    "/static/css/app_login.css?v=20260528-offline1",
-    "/static/js/app_login.js?v=20260528-offline1",
-    "/static/img/logo.png?v=20260528-offline1",
-    "/manifest.json?v=20260528-offline1"
+    "/static/css/app_login.css?v=20260607-tablet1",
+    "/static/js/app_login.js?v=20260607-tablet1",
+    "/static/img/logo.png?v=20260607-tablet1",
+    "/manifest.json?v=20260607-tablet1"
 ];
 
 self.addEventListener("install", event => {
@@ -74,7 +75,11 @@ self.addEventListener("message", event => {
                         const url = new URL(rawUrl, self.location.origin).toString();
                         const request = new Request(url, { credentials: "include", cache: "no-store" });
                         const response = await fetch(request);
-                        if (response && response.ok) await cache.put(url, response.clone());
+
+                        if (response && response.ok) {
+                            await cache.put(url, response.clone());
+                        }
+
                     } catch (e) {
                         console.log("Falha ao cachear URL offline:", rawUrl, e);
                     }
@@ -98,25 +103,47 @@ self.addEventListener("fetch", event => {
     if (deveIgnorar(url)) return;
 
     if (request.mode === "navigate") {
+
         event.respondWith(
-            fetch(request, { cache: "default", credentials: "include" })
-                .then(response => {
-                    if (response && response.ok && ehPaginaDoSistema(url)) {
-                        colocarNoCache(request, response.clone());
-                    }
-                    return response;
-                })
-                .catch(async () => {
-                    const cache = await caches.open(CACHE_NAME);
-                    const cachedPage = await cache.match(request);
-                    if (cachedPage) return cachedPage;
+            fetch(request, {
+                cache: "default",
+                credentials: "include"
+            })
+            .then(response => {
 
-                    const cachedUrl = await cache.match(url.pathname);
-                    if (cachedUrl) return cachedUrl;
+                if (
+                    response &&
+                    response.ok &&
+                    ehPaginaDoSistema(url)
+                ) {
+                    colocarNoCache(request, response.clone());
+                }
 
-                    return cache.match(OFFLINE_URL) || cache.match("/app-login?app=1&v=20260528-offline1");
-                })
+                return response;
+            })
+            .catch(async () => {
+
+                const cache = await caches.open(CACHE_NAME);
+
+                const cachedPage = await cache.match(request);
+
+                if (cachedPage) {
+                    return cachedPage;
+                }
+
+                const cachedUrl = await cache.match(url.pathname);
+
+                if (cachedUrl) {
+                    return cachedUrl;
+                }
+
+                return (
+                    cache.match(OFFLINE_URL) ||
+                    cache.match("/app-login?app=1&v=20260607-tablet1")
+                );
+            })
         );
+
         return;
     }
 
@@ -130,26 +157,47 @@ self.addEventListener("fetch", event => {
         url.pathname.endsWith(".webp") ||
         url.pathname.endsWith(".svg")
     ) {
+
         event.respondWith(
-            fetch(request, { cache: "default" })
-                .then(response => {
-                    colocarNoCache(request, response.clone());
-                    return response;
-                })
-                .catch(() => caches.match(request))
+            fetch(request, {
+                cache: "default"
+            })
+            .then(response => {
+
+                colocarNoCache(request, response.clone());
+
+                return response;
+            })
+            .catch(() => caches.match(request))
         );
+
         return;
     }
 
     event.respondWith(
         caches.match(request)
             .then(cached => {
-                if (cached) return cached;
-                return fetch(request).then(response => {
-                    if (response && response.ok && ehPaginaDoSistema(url)) colocarNoCache(request, response.clone());
-                    return response;
-                });
+
+                if (cached) {
+                    return cached;
+                }
+
+                return fetch(request)
+                    .then(response => {
+
+                        if (
+                            response &&
+                            response.ok &&
+                            ehPaginaDoSistema(url)
+                        ) {
+                            colocarNoCache(request, response.clone());
+                        }
+
+                        return response;
+                    });
+
             })
             .catch(() => caches.match(OFFLINE_URL))
     );
 });
+```
