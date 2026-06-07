@@ -1584,6 +1584,171 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
     return classificacao
 
 
+
+def _normalizar_cache_classificacao(valor_cache, assinatura_atual=None):
+    """Extrai a classificação salva no cache sem depender de um formato único.
+
+    O banco já teve mais de uma versão dessa função de cache. Por isso este
+    helper aceita dict, JSON em texto ou tupla/lista e só usa o cache quando
+    ele realmente contém uma classificação válida.
+    """
+    if not valor_cache:
+        return None
+
+    if isinstance(valor_cache, str):
+        try:
+            valor_cache = json.loads(valor_cache)
+        except Exception:
+            return None
+
+    if isinstance(valor_cache, (list, tuple)):
+        # Compatibilidade com retornos antigos: (classificacao, assinatura) ou
+        # (assinatura, classificacao). Preferimos o item que parece dict/list.
+        candidatos = list(valor_cache)
+        for item in candidatos:
+            normalizado = _normalizar_cache_classificacao(item, assinatura_atual)
+            if normalizado:
+                return normalizado
+        return None
+
+    if not isinstance(valor_cache, dict):
+        return None
+
+    assinatura_cache = valor_cache.get("assinatura") or valor_cache.get("hash") or valor_cache.get("checksum")
+    if assinatura_atual and assinatura_cache and str(assinatura_cache) != str(assinatura_atual):
+        return None
+
+    classificacao = (
+        valor_cache.get("classificacao")
+        or valor_cache.get("dados")
+        or valor_cache.get("valor")
+        or valor_cache.get("cache")
+    )
+
+    if isinstance(classificacao, str):
+        try:
+            classificacao = json.loads(classificacao)
+        except Exception:
+            return None
+
+    return classificacao if isinstance(classificacao, dict) else None
+
+
+def _assinatura_classificacao_segura(competicao_nome, partidas_preparadas, grupos, competicao):
+    """Gera/obtém assinatura do cache sem derrubar a página pública."""
+    try:
+        return assinatura_classificacao_competicao(competicao_nome)
+    except TypeError:
+        try:
+            return assinatura_classificacao_competicao(competicao_nome, partidas_preparadas, grupos, competicao)
+        except Exception as e:
+            print("AVISO classificacao/assinatura_cache:", repr(e))
+    except Exception as e:
+        print("AVISO classificacao/assinatura_cache:", repr(e))
+
+    # Fallback local: suficiente para impedir erro 500 caso o banco antigo não
+    # tenha a função/consulta de assinatura pronta.
+    try:
+        base = {
+            "competicao": competicao_nome,
+            "criterios": (competicao or {}).get("criterios_desempate") or (competicao or {}).get("criterios_classificacao") or "",
+            "grupos": [
+                {
+                    "grupo": (g.get("grupo") or {}).get("nome"),
+                    "equipes": [e.get("equipe") for e in (g.get("equipes") or [])],
+                }
+                for g in (grupos or [])
+            ],
+            "partidas": [
+                {
+                    "id": p.get("id"),
+                    "grupo": p.get("grupo"),
+                    "a": p.get("equipe_a"),
+                    "b": p.get("equipe_b"),
+                    "status": p.get("status_normalizado") or p.get("status"),
+                    "sets_a": p.get("sets_a"),
+                    "sets_b": p.get("sets_b"),
+                    "pontos_a": p.get("pontos_a"),
+                    "pontos_b": p.get("pontos_b"),
+                    "set1_a": p.get("set1_a"), "set1_b": p.get("set1_b"),
+                    "set2_a": p.get("set2_a"), "set2_b": p.get("set2_b"),
+                    "set3_a": p.get("set3_a"), "set3_b": p.get("set3_b"),
+                    "set4_a": p.get("set4_a"), "set4_b": p.get("set4_b"),
+                    "set5_a": p.get("set5_a"), "set5_b": p.get("set5_b"),
+                }
+                for p in (partidas_preparadas or [])
+                if _partida_esta_finalizada(p)
+            ],
+        }
+        return json.dumps(base, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception as e:
+        print("AVISO classificacao/assinatura_fallback:", repr(e))
+        return None
+
+
+def _obter_cache_classificacao_seguro(competicao_nome, assinatura):
+    try:
+        return obter_cache_classificacao(competicao_nome, assinatura)
+    except TypeError:
+        try:
+            return obter_cache_classificacao(competicao_nome)
+        except Exception as e:
+            print("AVISO classificacao/obter_cache:", repr(e))
+    except Exception as e:
+        print("AVISO classificacao/obter_cache:", repr(e))
+    return None
+
+
+def _salvar_cache_classificacao_seguro(competicao_nome, assinatura, classificacao):
+    try:
+        salvar_cache_classificacao(competicao_nome, assinatura, classificacao)
+        return
+    except TypeError:
+        pass
+    except Exception as e:
+        print("AVISO classificacao/salvar_cache:", repr(e))
+        return
+
+    tentativas = [
+        (competicao_nome, classificacao, assinatura),
+        (competicao_nome, {"assinatura": assinatura, "classificacao": classificacao}),
+        (competicao_nome, classificacao),
+    ]
+    for args in tentativas:
+        try:
+            salvar_cache_classificacao(*args)
+            return
+        except TypeError:
+            continue
+        except Exception as e:
+            print("AVISO classificacao/salvar_cache:", repr(e))
+            return
+
+
+def _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparadas, grupos, competicao, mapa_escudos=None):
+    """Usa cache de classificação quando possível e calcula como fallback.
+
+    Esta função estava sendo chamada pelo visualizador público e pela aba de
+    classificação, mas não existia no arquivo. Sem ela, a rota pública quebrava
+    com NameError e retornava 500. A implementação abaixo é defensiva: qualquer
+    problema no cache apenas recalcula a classificação, sem derrubar a tela.
+    """
+    assinatura = _assinatura_classificacao_segura(competicao_nome, partidas_preparadas, grupos, competicao)
+
+    if assinatura:
+        cache_bruto = _obter_cache_classificacao_seguro(competicao_nome, assinatura)
+        classificacao_cache = _normalizar_cache_classificacao(cache_bruto, assinatura)
+        if classificacao_cache:
+            return classificacao_cache, True
+
+    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
+
+    if assinatura:
+        _salvar_cache_classificacao_seguro(competicao_nome, assinatura, classificacao)
+
+    return classificacao, False
+
+
 # =========================================================
 # VISUALIZADOR PÚBLICO
 # =========================================================

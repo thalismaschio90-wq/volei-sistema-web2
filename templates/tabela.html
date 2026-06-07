@@ -1145,10 +1145,20 @@
         onclick="this.select();"
     >
 
+    {% set link_visualizador = request.host_url.rstrip('/') ~ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) %}
+
     <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:14px;">
         <a href="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}" target="_blank">
             <button class="btn-padrao" type="button">Abrir visualizador</button>
         </a>
+
+        <button
+            class="btn-secundario"
+            type="button"
+            onclick="copiarLinkVisualizador()"
+        >
+            Copiar link
+        </button>
     </div>
 
     <div class="visualizador-preview">
@@ -1318,6 +1328,19 @@ document.addEventListener("DOMContentLoaded", function controlarFiltroQuadrasPar
 
     aplicarFiltro("todas");
 });
+
+
+function copiarLinkVisualizador() {
+    const link = `{{ link_visualizador }}`;
+
+    navigator.clipboard.writeText(link)
+        .then(() => {
+            alert("Link copiado com sucesso!");
+        })
+        .catch(() => {
+            alert("Não foi possível copiar o link.");
+        });
+}
 
 </script>
 {% endblock %}
