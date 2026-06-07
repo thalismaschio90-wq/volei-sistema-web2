@@ -1593,3 +1593,14 @@ def salvar_numeracao_atletas_view():
     return jsonify({
         "ok": True
     })
+
+
+# =========================================================
+# CACHE PAINEL EQUIPE
+# =========================================================
+from functools import lru_cache
+
+
+@lru_cache(maxsize=128)
+def _equipes_cache_competicao(nome_competicao):
+    return listar_equipes_da_competicao(nome_competicao)

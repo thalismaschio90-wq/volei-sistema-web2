@@ -15322,3 +15322,74 @@ def atualizar_numero_atleta(atleta_id, numero):
         conn.commit()
 
     return True
+
+
+# =========================================================
+# CACHE LEVE EM MEMÓRIA
+# =========================================================
+from time import time
+
+_CACHE_EQUIPES_COMPETICAO = {}
+_CACHE_ATLETAS_EQUIPE = {}
+
+_CACHE_TTL = 15
+
+
+def _cache_get(cache, chave):
+    item = cache.get(chave)
+
+    if not item:
+        return None
+
+    if (time() - item["time"]) > _CACHE_TTL:
+        cache.pop(chave, None)
+        return None
+
+    return item["data"]
+
+
+def _cache_set(cache, chave, data):
+    cache[chave] = {
+        "time": time(),
+        "data": data
+    }
+
+
+def limpar_cache_equipes():
+    _CACHE_EQUIPES_COMPETICAO.clear()
+    _CACHE_ATLETAS_EQUIPE.clear()
+
+
+# =========================================================
+# INDICES DE PERFORMANCE
+# =========================================================
+def criar_indices_performance():
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_atletas_competicao_fast
+                    ON atletas(competicao)
+                """)
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_atletas_equipe_fast
+                    ON atletas(equipe)
+                """)
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_equipes_competicao_fast
+                    ON equipes(competicao)
+                """)
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_partidas_competicao_fast
+                    ON partidas(competicao)
+                """)
+
+            conn.commit()
+
+    except Exception as e:
+        print("ERRO INDICES:", repr(e))
