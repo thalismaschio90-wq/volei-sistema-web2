@@ -1,14 +1,13 @@
-```javascript
-const CACHE_NAME = "voleitable-pwa-v20260607-tablet1";
-const OFFLINE_URL = "/offline-apontador?v=20260607-tablet1";
+const CACHE_NAME = "voleitable-pwa-v20260607-tablet2";
+const OFFLINE_URL = "/offline-apontador?v=20260607-tablet2";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260607-tablet1",
+    "/app-login?app=1&v=20260607-tablet2",
     OFFLINE_URL,
-    "/static/css/app_login.css?v=20260607-tablet1",
-    "/static/js/app_login.js?v=20260607-tablet1",
-    "/static/img/logo.png?v=20260607-tablet1",
-    "/manifest.json?v=20260607-tablet1"
+    "/static/css/app_login.css?v=20260607-tablet2",
+    "/static/js/app_login.js?v=20260607-tablet2",
+    "/static/img/logo.png?v=20260607-tablet2",
+    "/manifest.json?v=20260607-tablet2"
 ];
 
 self.addEventListener("install", event => {
@@ -103,43 +102,30 @@ self.addEventListener("fetch", event => {
     if (deveIgnorar(url)) return;
 
     if (request.mode === "navigate") {
-
         event.respondWith(
             fetch(request, {
                 cache: "default",
                 credentials: "include"
             })
             .then(response => {
-
-                if (
-                    response &&
-                    response.ok &&
-                    ehPaginaDoSistema(url)
-                ) {
+                if (response && response.ok && ehPaginaDoSistema(url)) {
                     colocarNoCache(request, response.clone());
                 }
 
                 return response;
             })
             .catch(async () => {
-
                 const cache = await caches.open(CACHE_NAME);
 
                 const cachedPage = await cache.match(request);
-
-                if (cachedPage) {
-                    return cachedPage;
-                }
+                if (cachedPage) return cachedPage;
 
                 const cachedUrl = await cache.match(url.pathname);
-
-                if (cachedUrl) {
-                    return cachedUrl;
-                }
+                if (cachedUrl) return cachedUrl;
 
                 return (
                     cache.match(OFFLINE_URL) ||
-                    cache.match("/app-login?app=1&v=20260607-tablet1")
+                    cache.match("/app-login?app=1&v=20260607-tablet2")
                 );
             })
         );
@@ -157,15 +143,12 @@ self.addEventListener("fetch", event => {
         url.pathname.endsWith(".webp") ||
         url.pathname.endsWith(".svg")
     ) {
-
         event.respondWith(
             fetch(request, {
                 cache: "default"
             })
             .then(response => {
-
                 colocarNoCache(request, response.clone());
-
                 return response;
             })
             .catch(() => caches.match(request))
@@ -177,27 +160,17 @@ self.addEventListener("fetch", event => {
     event.respondWith(
         caches.match(request)
             .then(cached => {
-
-                if (cached) {
-                    return cached;
-                }
+                if (cached) return cached;
 
                 return fetch(request)
                     .then(response => {
-
-                        if (
-                            response &&
-                            response.ok &&
-                            ehPaginaDoSistema(url)
-                        ) {
+                        if (response && response.ok && ehPaginaDoSistema(url)) {
                             colocarNoCache(request, response.clone());
                         }
 
                         return response;
                     });
-
             })
             .catch(() => caches.match(OFFLINE_URL))
     );
 });
-```
