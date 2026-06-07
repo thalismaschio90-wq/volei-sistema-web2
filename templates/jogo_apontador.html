@@ -82,13 +82,13 @@
 
         <div class="mobile-quadra-card">
             <div class="mobile-quadra-titulo"><span id="mobile-quadra-esq-titulo">Equipe A</span><span class="mobile-badge">toque no atleta</span></div>
-            <div id="mobile-quadra-esq" class="mobile-quadra-grid"></div>
+            <div id="mobile-quadra-esq" class="mobile-quadra-grid quadra-lado-esquerdo"></div>
             <button id="mobile-ponto-esq" class="mobile-ponto-btn" type="button">+ PONTO</button>
         </div>
 
         <div class="mobile-quadra-card">
             <div class="mobile-quadra-titulo"><span id="mobile-quadra-dir-titulo">Equipe B</span><span class="mobile-badge">toque no atleta</span></div>
-            <div id="mobile-quadra-dir" class="mobile-quadra-grid"></div>
+            <div id="mobile-quadra-dir" class="mobile-quadra-grid quadra-lado-direito"></div>
             <button id="mobile-ponto-dir" class="mobile-ponto-btn" type="button">+ PONTO</button>
         </div>
 
@@ -174,7 +174,7 @@
 
     .quadras-wrap {
         display: flex;
-        gap: 24px;
+        gap: 68px;
         flex-wrap: wrap;
         justify-content: center;
         align-items: flex-start;
@@ -196,23 +196,85 @@
     }
 
     .quadra {
+        position: relative;
         display: grid;
-        grid-template-columns: repeat(3, 60px);
-        grid-template-rows: repeat(2, 60px);
-        gap: 8px;
+        grid-template-columns: repeat(2, 74px);
+        grid-template-rows: repeat(3, 66px);
+        gap: 4px;
         margin-top: 4px;
+        padding: 12px;
+        background: #ffffff;
+        border: 5px solid #0f2f4a;
+        border-radius: 20px;
+        box-shadow: inset 0 0 0 3px rgba(255,255,255,.72), 0 12px 26px rgba(15, 47, 74, .16);
+        overflow: visible;
+    }
+
+    .quadra::after {
+        content: "REDE";
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%) rotate(-90deg);
+        transform-origin: center;
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: #0f2f4a;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 1000;
+        letter-spacing: .08em;
+        box-shadow: 0 6px 14px rgba(15, 47, 74, .22);
+        pointer-events: none;
+    }
+
+    .quadra .pos:nth-child(1),
+    .mobile-quadra-grid .mobile-pos:nth-child(1) { grid-area: p4; }
+    .quadra .pos:nth-child(2),
+    .mobile-quadra-grid .mobile-pos:nth-child(2) { grid-area: p3; }
+    .quadra .pos:nth-child(3),
+    .mobile-quadra-grid .mobile-pos:nth-child(3) { grid-area: p2; }
+    .quadra .pos:nth-child(4),
+    .mobile-quadra-grid .mobile-pos:nth-child(4) { grid-area: p5; }
+    .quadra .pos:nth-child(5),
+    .mobile-quadra-grid .mobile-pos:nth-child(5) { grid-area: p6; }
+    .quadra .pos:nth-child(6),
+    .mobile-quadra-grid .mobile-pos:nth-child(6) { grid-area: p1; }
+
+    .quadra-lado-esquerdo {
+        grid-template-areas:
+            "p5 p4"
+            "p6 p3"
+            "p1 p2";
+    }
+
+    .quadra-lado-direito {
+        grid-template-areas:
+            "p2 p1"
+            "p3 p6"
+            "p4 p5";
+    }
+
+    .quadra-lado-esquerdo::after {
+        right: -38px;
+        left: auto;
+    }
+
+    .quadra-lado-direito::after {
+        left: -38px;
+        right: auto;
     }
 
     .pos {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #e9f2ff;
+        background: linear-gradient(180deg, #f59e0b 0%, #ea8a04 100%);
         border-radius: 10px;
-        font-weight: 900;
-        font-size: 22px;
-        color: #183247;
-        border: 1px solid #d6e2f0;
+        font-weight: 1000;
+        font-size: 24px;
+        color: #0f2f4a;
+        border: 2px solid rgba(255,255,255,.92);
+        box-shadow: inset 0 0 0 1px rgba(15,47,74,.08);
         transition: background-color .12s ease, color .12s ease, border-color .12s ease, transform .12s ease;
         will-change: transform, background-color, color;
     }
@@ -970,7 +1032,7 @@
             min-height: 0;
             display: grid;
             grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) 44px;
-            gap: 8px;
+            gap: 14px;
             align-items: stretch;
         }
 
@@ -983,7 +1045,7 @@
             display: grid;
             grid-template-rows: auto 1fr auto;
             gap: 6px;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .mobile-quadra-titulo {
@@ -1013,18 +1075,53 @@
         }
 
         .mobile-quadra-grid {
+            position: relative;
             min-height: 0;
             display: grid;
-            grid-template-columns: repeat(3, minmax(44px, 1fr));
-            grid-template-rows: repeat(2, minmax(48px, 1fr));
-            gap: 6px;
+            grid-template-columns: repeat(2, minmax(50px, 1fr));
+            grid-template-rows: repeat(3, minmax(44px, 1fr));
+            gap: 4px;
+            padding: 8px;
+            margin-left: 18px;
+            background: #ffffff;
+            border: 4px solid #0f2f4a;
+            border-radius: 18px;
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,.70);
+            overflow: visible !important;
+            box-sizing: border-box;
+        }
+
+        .mobile-quadra-grid::after {
+            content: "REDE";
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+            transform-origin: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            background: #0f2f4a;
+            color: #ffffff;
+            font-size: 9px;
+            font-weight: 1000;
+            letter-spacing: .08em;
+            pointer-events: none;
+        }
+
+        .mobile-quadra-grid.quadra-lado-esquerdo::after {
+            right: -31px;
+            left: auto;
+        }
+
+        .mobile-quadra-grid.quadra-lado-direito::after {
+            left: -31px;
+            right: auto;
         }
 
         .mobile-pos {
-            border: 1px solid rgba(255,255,255,.15);
-            border-radius: 14px;
-            background: rgba(248,250,252,.96);
-            color: #0f172a;
+            border: 2px solid rgba(255,255,255,.92);
+            border-radius: 12px;
+            background: linear-gradient(180deg, #f59e0b 0%, #ea8a04 100%);
+            color: #0f2f4a;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1033,6 +1130,7 @@
             min-width: 0;
             cursor: pointer;
             user-select: none;
+            box-shadow: inset 0 0 0 1px rgba(15,47,74,.08);
         }
 
         .mobile-pos-numero {
@@ -1473,7 +1571,7 @@ body {
         min-width: 0 !important;
         min-height: 0 !important;
         height: 100% !important;
-        overflow: hidden !important;
+        overflow: visible !important;
     }
 }
 
@@ -1578,12 +1676,12 @@ body {
             <div class="quadras-wrap">
                 <div class="quadra-box">
                     <div id="titulo-quadra-esquerda" class="quadra-titulo">{{ nome_equipe_a_jogo }}</div>
-                    <div id="quadra-a" class="quadra"></div>
+                    <div id="quadra-a" class="quadra quadra-lado-esquerdo"></div>
                 </div>
 
                 <div class="quadra-box">
                     <div id="titulo-quadra-direita" class="quadra-titulo">{{ nome_equipe_b_jogo }}</div>
-                    <div id="quadra-b" class="quadra"></div>
+                    <div id="quadra-b" class="quadra quadra-lado-direito"></div>
                 </div>
             </div>
 
@@ -2850,9 +2948,9 @@ function montarPayloadTempoReal(extra = {}) {
         if (!container) return;
         container.innerHTML = "";
 
-        // A quadra mobile usa a MESMA ordem lógica do desktop: IV, III, II / V, VI, I.
-        // Não espelha nem inverte por equipe. A inversão de lados troca apenas qual equipe aparece
-        // em cada card, sem mudar a regra da rotação.
+        // A lista lógica continua sendo [P4, P3, P2, P5, P6, P1].
+        // A posição visual agora é feita somente pelo CSS, com quadra esquerda e direita espelhadas.
+        // Isso não altera saque, rotação, rally point, substituição nem modais.
         const lista = normalizarRotacao(Array.isArray(rotacao) ? rotacao : [], lado === "A" ? fallbackRotA : fallbackRotB, rotacao || []);
         const posicoesOficiais = [4, 3, 2, 5, 6, 1];
 
@@ -3165,9 +3263,12 @@ function inverterLadosVisual() {
     function criarCelulasQuadra(container) {
         container.innerHTML = "";
         const celulas = [];
+        const posicoesOficiais = [4, 3, 2, 5, 6, 1];
         for (let i = 0; i < 6; i++) {
             const div = document.createElement("div");
             div.className = "pos";
+            div.dataset.posicao = String(posicoesOficiais[i]);
+            div.title = `P${posicoesOficiais[i]}`;
             div.textContent = "";
             container.appendChild(div);
             celulas.push(div);
@@ -3185,6 +3286,7 @@ function inverterLadosVisual() {
             const mudou = String((anterior || [])[i] || "") !== String(numero || "");
             celulas[i].textContent = numero;
             celulas[i].className = "pos" + classeExtra + (mudou ? " pos-atualizando" : "");
+            celulas[i].title = numero ? `P${celulas[i].dataset.posicao || ""} • #${numero}` : `P${celulas[i].dataset.posicao || ""} vazia`;
         }
     }
 
