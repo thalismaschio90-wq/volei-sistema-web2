@@ -3528,6 +3528,7 @@ function inverterLadosVisual() {
         const agora = Date.now();
         const fonteEstado = String(opcoes.fonte || dados.fonte || dados.origem || "").toLowerCase();
         const ehRespostaOficialPonto = fonteEstado.includes("resposta_ponto_fetch") || fonteEstado.includes("fetch_ponto");
+        const ehDesfazer = !!dados.desfazer || fonteEstado.includes("desfazer");
 
         const atualA = numeroInteiro(estadoAtual?.pontos_a ?? estadoAtual?.placar_a ?? 0, 0);
         const atualB = numeroInteiro(estadoAtual?.pontos_b ?? estadoAtual?.placar_b ?? 0, 0);
@@ -3552,7 +3553,9 @@ function inverterLadosVisual() {
         // Proteção principal: resposta parcial de tempo/substituição/sanção/cartão nunca pode zerar
         // ou diminuir o placar atual. Só aceita queda no placar quando há troca real de set.
         const respostaZeradaOuMenor = respostaTemPlacar && totalAtual > 0 && totalNovo < totalAtual;
-        const podeAtualizarPlacar = !respostaZeradaOuMenor || mudouSetOuPlacarDeSets;
+        // Desfazer é a única ação normal que DEVE aceitar placar menor.
+        // A trava abaixo continua protegendo contra socket/autosave velho zerando a tela.
+        const podeAtualizarPlacar = ehDesfazer || !respostaZeradaOuMenor || mudouSetOuPlacarDeSets;
 
         const pontosAplicadosA = podeAtualizarPlacar ? novoA : atualA;
         const pontosAplicadosB = podeAtualizarPlacar ? novoB : atualB;
@@ -3579,7 +3582,8 @@ function inverterLadosVisual() {
 
             const veioDePonto = String(dados.tipo_evento || dados.evento || "").toLowerCase().includes("ponto") || dados.equipe_pontuadora !== undefined;
             const rotacaoProtegida = Date.now() < rotacaoProtegidaAte;
-            const podeAceitarRotacaoExterna = !veioDePonto && !rotacaoProtegida;
+            // No desfazer, a rotação correta vem reconstruída pelo servidor depois de remover o evento.
+            const podeAceitarRotacaoExterna = ehDesfazer || (!veioDePonto && !rotacaoProtegida);
 
             // Ponto é decidido localmente pelo apontador. Socket/autosave não pode sobrescrever rotação,
             // senão a quadra fica uma hora travando, outra hora girando duas vezes.
@@ -3599,7 +3603,7 @@ function inverterLadosVisual() {
             // Enquanto a ação local está protegida, só a resposta oficial do POST /ponto
             // pode trocar o saque. Isso elimina o efeito “vai, volta e vai de novo”.
             if (saqueNovo === "A" || saqueNovo === "B") {
-                if (!saqueProtegido || ehRespostaOficialPonto || saqueNovo === ultimoSaqueLocalForcado) {
+                if (ehDesfazer || !saqueProtegido || ehRespostaOficialPonto || saqueNovo === ultimoSaqueLocalForcado) {
                     saqueAtual = saqueNovo;
                     estadoAtual.saque_atual = saqueAtual;
                 } else {
@@ -5530,7 +5534,7 @@ async function registrarPonto(equipe, scout) {
             }
 
             ultimoTokenSync++;
-            aplicarEstado(normalizarRespostaJogo(dados));
+            aplicarEstado(normalizarRespostaJogo({ ...dados, desfazer: true, fonte: "desfazer_fetch", origem: "DESFAZER" }), { fonte: "desfazer_fetch" });
         } catch (e) {
             mostrarErro("Falha ao desfazer ação.");
         } finally {

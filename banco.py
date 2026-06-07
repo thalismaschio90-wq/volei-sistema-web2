@@ -10163,6 +10163,121 @@ def desfazer_ultima_acao_partida(partida_id, competicao):
     criar_campos_jogo_partida()
     criar_campos_sets_partida()
 
+    def _int_local(valor, padrao=0):
+        try:
+            if valor is None or valor == "":
+                return padrao
+            return int(valor)
+        except Exception:
+            return padrao
+
+    def _detalhes_local(valor):
+        if isinstance(valor, dict):
+            return valor
+        if isinstance(valor, str) and valor.strip():
+            try:
+                dados = json.loads(valor)
+                return dados if isinstance(dados, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def _lado_pontuador_evento(evento):
+        detalhes = _detalhes_local(evento.get("detalhes"))
+        lado = str(
+            detalhes.get("equipe_pontuadora")
+            or detalhes.get("equipe_ponto")
+            or evento.get("equipe")
+            or ""
+        ).strip().upper()
+        return lado if lado in {"A", "B"} else ""
+
+    def _limite_set(set_numero, sets_para_vencer, comp):
+        try:
+            tem_tiebreak = comp.get("tem_tiebreak")
+            if isinstance(tem_tiebreak, str):
+                tem_tiebreak = tem_tiebreak.strip().lower() not in {"0", "false", "nao", "não", "no", "off"}
+            if tem_tiebreak is None:
+                tem_tiebreak = True
+            set_decisivo = (sets_para_vencer * 2) - 1
+            if tem_tiebreak and int(set_numero or 1) == set_decisivo:
+                return _int_local(comp.get("pontos_tiebreak"), 15)
+            return _int_local(comp.get("pontos_set"), 25)
+        except Exception:
+            return 25
+
+    def _set_fechado(a, b, set_numero, sets_para_vencer, comp):
+        limite = _limite_set(set_numero, sets_para_vencer, comp)
+        diferenca = _int_local(comp.get("diferenca_minima"), 2)
+        return (a >= limite or b >= limite) and abs(a - b) >= diferenca
+
+    def _recalcular_resumo_por_eventos(cur, partida):
+        comp = buscar_competicao_por_nome(competicao) or {}
+        sets_tipo = str(comp.get("sets_tipo") or partida.get("sets_tipo") or "melhor_de_3").strip().lower()
+        try:
+            sets_para_vencer = calcular_sets_para_vencer(sets_tipo)
+        except Exception:
+            sets_para_vencer = 1 if sets_tipo in {"set_unico", "unico", "único"} else (3 if sets_tipo == "melhor_de_5" else 2)
+
+        cur.execute("""
+            SELECT id, set_numero, equipe, tipo, detalhes
+            FROM eventos
+            WHERE partida_id = %s
+              AND competicao = %s
+              AND tipo IN ('ponto', 'retardamento_penalidade')
+            ORDER BY id ASC
+        """, (partida_id, competicao))
+        eventos_ponto = cur.fetchall() or []
+
+        placares_sets = {i: {"A": 0, "B": 0} for i in range(1, 6)}
+        maior_set_com_evento = 1
+        for evento in eventos_ponto:
+            set_numero = max(1, min(_int_local(evento.get("set_numero"), 1), 5))
+            maior_set_com_evento = max(maior_set_com_evento, set_numero)
+            lado = _lado_pontuador_evento(evento)
+            if lado in {"A", "B"}:
+                placares_sets[set_numero][lado] += 1
+
+        sets_a = 0
+        sets_b = 0
+        set_atual = 1
+        pontos_a = 0
+        pontos_b = 0
+
+        for numero_set in range(1, 6):
+            a = placares_sets[numero_set]["A"]
+            b = placares_sets[numero_set]["B"]
+            if (a or b) and _set_fechado(a, b, numero_set, sets_para_vencer, comp):
+                if a > b:
+                    sets_a += 1
+                elif b > a:
+                    sets_b += 1
+                if sets_a >= sets_para_vencer or sets_b >= sets_para_vencer:
+                    set_atual = numero_set
+                    pontos_a, pontos_b = a, b
+                    break
+                set_atual = min(numero_set + 1, 5)
+                pontos_a, pontos_b = 0, 0
+                continue
+
+            set_atual = max(numero_set, maior_set_com_evento if numero_set < maior_set_com_evento else numero_set)
+            pontos_a, pontos_b = a, b
+            break
+
+        status_jogo = "em_andamento" if eventos_ponto else "pre_jogo"
+        fase_partida = "jogo" if eventos_ponto else "pre_jogo"
+
+        return {
+            "pontos_a": pontos_a,
+            "pontos_b": pontos_b,
+            "sets_a": sets_a,
+            "sets_b": sets_b,
+            "set_atual": set_atual,
+            "status_jogo": status_jogo,
+            "fase_partida": fase_partida,
+            "placares_sets": placares_sets,
+        }
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -10183,7 +10298,7 @@ def desfazer_ultima_acao_partida(partida_id, competicao):
                 WHERE partida_id = %s
                   AND competicao = %s
                 ORDER BY id DESC
-                LIMIT 3
+                LIMIT 5
             """, (partida_id, competicao))
             recentes = cur.fetchall()
 
@@ -10199,7 +10314,7 @@ def desfazer_ultima_acao_partida(partida_id, competicao):
                 if tipo == "retardamento_penalidade":
                     ids_para_remover.append(evento["id"])
                     continue
-                if tipo in {"ponto", "tempo", "substituicao", "substituicao_excepcional", "retardamento"}:
+                if tipo in {"ponto", "tempo", "substituicao", "substituicao_excepcional", "retardamento", "sancao", "cartao_verde"}:
                     ids_para_remover.append(evento["id"])
                 break
 
@@ -10210,34 +10325,69 @@ def desfazer_ultima_acao_partida(partida_id, competicao):
                 f"DELETE FROM eventos WHERE id IN ({', '.join(['%s'] * len(ids_para_remover))})",
                 tuple(ids_para_remover)
             )
-        conn.commit()
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
+            resumo = _recalcular_resumo_por_eventos(cur, partida)
+            placares_sets = resumo["placares_sets"]
+
             cur.execute("""
                 UPDATE partidas
-                SET pontos_a = 0,
-                    pontos_b = 0,
-                    sets_a = 0,
-                    sets_b = 0,
-                    set_atual = 1,
+                SET pontos_a = %s,
+                    pontos_b = %s,
+                    sets_a = %s,
+                    sets_b = %s,
+                    set_atual = %s,
+                    set1_a = %s,
+                    set1_b = %s,
+                    set2_a = %s,
+                    set2_b = %s,
+                    set3_a = %s,
+                    set3_b = %s,
+                    set4_a = %s,
+                    set4_b = %s,
+                    set5_a = %s,
+                    set5_b = %s,
                     saque_atual = NULL,
-                    status_jogo = 'pre_jogo',
+                    status_jogo = %s,
+                    fase_partida = %s,
                     status = CASE WHEN status = 'finalizada' THEN 'em_andamento' ELSE status END,
-                    status_operacao = CASE WHEN status_operacao = 'finalizada' THEN 'em_andamento' ELSE status_operacao END
+                    status_operacao = CASE WHEN status_operacao = 'finalizada' THEN 'em_andamento' ELSE status_operacao END,
+                    vencedor = CASE WHEN status = 'finalizada' THEN NULL ELSE vencedor END,
+                    data_fim = CASE WHEN status = 'finalizada' THEN NULL ELSE data_fim END,
+                    tipo_encerramento = CASE WHEN status = 'finalizada' THEN NULL ELSE tipo_encerramento END
                 WHERE id = %s
                   AND competicao = %s
-            """, (partida_id, competicao))
+            """, (
+                resumo["pontos_a"],
+                resumo["pontos_b"],
+                resumo["sets_a"],
+                resumo["sets_b"],
+                resumo["set_atual"],
+                placares_sets[1]["A"] or None, placares_sets[1]["B"] or None,
+                placares_sets[2]["A"] or None, placares_sets[2]["B"] or None,
+                placares_sets[3]["A"] or None, placares_sets[3]["B"] or None,
+                placares_sets[4]["A"] or None, placares_sets[4]["B"] or None,
+                placares_sets[5]["A"] or None, placares_sets[5]["B"] or None,
+                resumo["status_jogo"],
+                resumo["fase_partida"],
+                partida_id,
+                competicao,
+            ))
         conn.commit()
 
     partida_reconstruida = buscar_partida_operacional(partida_id, competicao)
     estado = _reconstruir_e_salvar_snapshot(partida_id, competicao, partida_reconstruida)
     tempos = buscar_tempos_restantes_partida(partida_id, competicao)
+    historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
 
     return True, {
         "mensagem": "Última ação desfeita.",
+        "desfazer": True,
+        "origem": "DESFAZER",
+        "fonte": "desfazer_fetch",
         "pontos_a": int(estado.get("pontos_a") or 0),
         "pontos_b": int(estado.get("pontos_b") or 0),
+        "placar_a": int(estado.get("pontos_a") or 0),
+        "placar_b": int(estado.get("pontos_b") or 0),
         "sets_a": int(estado.get("sets_a") or 0),
         "sets_b": int(estado.get("sets_b") or 0),
         "set_atual": int(estado.get("set_atual") or 1),
@@ -10262,6 +10412,8 @@ def desfazer_ultima_acao_partida(partida_id, competicao):
         "retardamentos_a": estado.get("retardamentos_a", []),
         "retardamentos_b": estado.get("retardamentos_b", []),
         "subs_excepcionais": estado.get("subs_excepcionais", []),
+        "historico": historico,
+        "ultima_acao": "Última ação desfeita.",
     }
 
 def registrar_tempo_partida(partida_id, competicao, equipe):
