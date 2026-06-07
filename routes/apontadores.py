@@ -112,6 +112,26 @@ apontadores_bp = Blueprint("apontadores", __name__)
 
 _CACHE_ARBITROS_COMPETICAO = {}
 _CACHE_ATLETAS_EQUIPE = {}
+_CACHE_COMPETICAO_CFG = {}
+_CACHE_MODO_OPERACAO = {}
+_CACHE_COLUNAS_ESCUDO_EQUIPE = {"valor": None}
+
+
+def _buscar_competicao_cache(competicao):
+    chave = (competicao or "").strip()
+    if not chave:
+        return {}
+    item = _CACHE_COMPETICAO_CFG.get(chave)
+    agora = time.time()
+    if item and (agora - item.get("ts", 0)) < 30:
+        return item.get("dados") or {}
+    try:
+        dados = buscar_competicao_por_nome(competicao) or {}
+    except Exception:
+        dados = {}
+    _CACHE_COMPETICAO_CFG[chave] = {"ts": agora, "dados": dados}
+    return dados
+
 
 # Cache curto para telas pesadas do apontador.
 # Evita bater no Neon a cada troca de aba/volta do tablet/celular.
@@ -155,22 +175,6 @@ def _limpar_cache_painel_competicao(competicao=None):
     for chave in list(_CACHE_PAINEL_COMPETICAO_APONTADOR.keys()):
         if isinstance(chave, tuple) and chave[:2] == prefixo:
             _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
-
-
-def _garantir_pin_operacional_cache(competicao, apontador_login):
-    """Cache curto do PIN operacional.
-
-    O PIN não muda a cada clique. Evita DDL/SELECT/INSERT toda vez que tablet
-    volta para a tela da competição.
-    """
-    competicao = str(competicao or "").strip()
-    apontador_login = str(apontador_login or "").strip()
-    chave = ("pin_operacional", competicao, apontador_login)
-    cached = _cache_get(chave, ttl=300)
-    if cached is not None:
-        return cached
-    pin = garantir_pin_operacional_apontador(competicao, apontador_login)
-    return _cache_set(chave, pin)
 
 
 def _garantir_tabelas_oficiais_once():
@@ -239,7 +243,7 @@ def _resolver_modo_operacao_partida(competicao, partida=None):
     modo_padrao = (partida.get("modo_operacao") or "simples").strip().lower()
 
     try:
-        comp = buscar_competicao_por_nome(competicao) or {}
+        comp = _buscar_competicao_cache(competicao) or {}
         modo_padrao = (comp.get("modo_operacao") or modo_padrao or "simples").strip().lower()
     except Exception:
         pass
@@ -568,7 +572,7 @@ def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, par
     # Quando esta função é chamada por ações rápidas, muitas vezes vinha partida={}
     # e a tela caía sempre no padrão 2 tempos / 6 substituições.
     try:
-        comp = buscar_competicao_por_nome(competicao) or {}
+        comp = _buscar_competicao_cache(competicao) or {}
         for campo in ("tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes", "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo"):
             if partida.get(campo) in (None, "") and comp.get(campo) not in (None, ""):
                 partida[campo] = comp.get(campo)
@@ -666,12 +670,15 @@ def _eh_escudo_padrao(valor):
 
 
 def _buscar_colunas_escudo_equipe():
-    """Retorna todas as colunas possíveis de escudo existentes na tabela equipes.
+    """Retorna colunas possíveis de escudo com cache.
 
-    Importante: algumas versões salvaram em escudo, outras em escudo_url.
-    Se buscarmos só a primeira coluna existente, podemos cair numa coluna vazia
-    e nunca chegar no arquivo real enviado pela equipe.
+    Essa função era chamada ao abrir o jogo e fazia consulta em
+    information_schema toda vez. No celular, principalmente vindo da papeleta,
+    isso somava atraso desnecessário antes da tela do apontador abrir.
     """
+    if _CACHE_COLUNAS_ESCUDO_EQUIPE.get("valor") is not None:
+        return _CACHE_COLUNAS_ESCUDO_EQUIPE.get("valor") or []
+
     try:
         with conectar() as conn:
             with conn.cursor() as cur:
@@ -688,7 +695,9 @@ def _buscar_colunas_escudo_equipe():
         existentes = set()
 
     ordem = ['escudo_url', 'escudo', 'logo_url', 'logo']
-    return [c for c in ordem if c in existentes]
+    colunas = [c for c in ordem if c in existentes]
+    _CACHE_COLUNAS_ESCUDO_EQUIPE["valor"] = colunas
+    return colunas
 
 
 def _buscar_escudos_equipes(competicao, equipe_a, equipe_b):
@@ -1871,7 +1880,7 @@ def entrar_competicao_apontador(competicao):
         }
 
     try:
-        pin_operacional = _garantir_pin_operacional_cache(competicao, _login_apontador_sessao())
+        pin_operacional = garantir_pin_operacional_apontador(competicao, _login_apontador_sessao())
     except Exception as e:
         print("ERRO garantir_pin_operacional_apontador:", e, flush=True)
         pin_operacional = None
@@ -2762,7 +2771,17 @@ def salvar_papeleta_view(competicao, partida_id):
         "status_jogo": "em_andamento",
     }
 
-    _emitir_estado_e_placar(partida_id, competicao, estado, partida=partida, origem="PAPELETA")
+    # Caminho rápido: vindo da papeleta, não precisamos recalcular escudos, regras,
+    # histórico ou evolução antes de redirecionar. Isso era um dos pontos que
+    # travava no celular/tablet. O jogo_view usa este cache já pronto.
+    try:
+        atualizar_estado_cache(partida_id, estado)
+        emitir_estado_partida(partida_id, estado)
+        apontador_login = _login_apontador_sessao()
+        if apontador_login:
+            emitir_placar_apontador(apontador_login, partida_id, estado)
+    except Exception as e:
+        print("AVISO emitir cache rápido papeleta:", repr(e), flush=True)
 
     flash("Papeleta salva com sucesso.", "sucesso")
     return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
@@ -2889,11 +2908,10 @@ def jogo_view(competicao, partida_id):
     )
 
     try:
-        # Sempre busca o elenco direto no banco ao abrir/retomar a partida.
-        # O cache antigo deixava a tela sem atletas quando os números eram cadastrados
-        # depois que o apontador já tinha aberto alguma tela da competição.
-        atletas_a = listar_atletas_aprovados_da_equipe(equipe_a, competicao) if equipe_a else []
-        atletas_b = listar_atletas_aprovados_da_equipe(equipe_b, competicao) if equipe_b else []
+        # Na passagem papeleta -> jogo estes elencos já foram carregados e ficam
+        # em cache. Evita duas consultas extras no Neon antes de renderizar a tela.
+        atletas_a = _listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else []
+        atletas_b = _listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else []
     except Exception as e:
         print("ERRO atletas jogo_view rapido:", repr(e), flush=True)
         atletas_a = []
@@ -2924,7 +2942,7 @@ def jogo_view(competicao, partida_id):
     estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
 
     try:
-        competicao_cfg_estado = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": partida.get("sets_tipo") or "melhor_de_3"}
+        competicao_cfg_estado = _buscar_competicao_cache(competicao) or {"nome": competicao, "sets_tipo": partida.get("sets_tipo") or "melhor_de_3"}
         estado = aplicar_placar_exibicao_partida(dict(estado or {}), competicao_cfg_estado)
     except Exception as e:
         print("AVISO aplicar placar exibicao jogo_view:", repr(e), flush=True)
