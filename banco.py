@@ -47,6 +47,7 @@ _SCHEMA_FLAGS = {
 _SCHEMA_LOCK = Lock()
 _POOL_LOCK = Lock()
 _DB_POOL = None
+_PINS_OPERACIONAIS_SCHEMA_OK = False
 
 
 def _schema_ja_pronto(chave, force=False):
@@ -4603,8 +4604,15 @@ def listar_partidas(competicao):
                     COALESCE(cq.nome, '') AS quadra_nome_cadastro,
                     COALESCE(cq.local, '') AS quadra_local_cadastro,
                     COALESCE(ea.escudo, '') AS escudo_a,
-                    COALESCE(eb.escudo, '') AS escudo_b
+                    COALESCE(eb.escudo, '') AS escudo_b,
+                    COALESCE(ev.eventos_total, 0) AS eventos_total
                 FROM partidas p
+                LEFT JOIN (
+                    SELECT partida_id, COUNT(*) AS eventos_total
+                    FROM eventos
+                    WHERE competicao = %s
+                    GROUP BY partida_id
+                ) ev ON ev.partida_id = p.id
                 LEFT JOIN competicao_quadras cq
                   ON cq.competicao = p.competicao
                  AND cq.id = p.quadra_id
@@ -4620,7 +4628,7 @@ def listar_partidas(competicao):
                   ON eb.login = ecb.equipe_login
                 WHERE p.competicao = %s
                 ORDER BY COALESCE(p.rodada, 999999), p.ordem, p.id
-            """, (competicao,))
+            """, (competicao, competicao))
             linhas = cur.fetchall() or []
             for linha in linhas:
                 try:
@@ -13151,10 +13159,15 @@ def criar_tabela_pins_operacionais():
     """
     PIN operacional por competição + apontador.
 
-    Diferente do login do apontador: este PIN é apenas o canal usado por
-    árbitros e telão para acompanhar o jogo que aquele apontador está operando.
+    IMPORTANTE PERFORMANCE:
+    antes esta função chamava criar_tabelas_oficiais() em toda entrada do
+    apontador na competição. No Render/Neon isso segura conexão e deixa tablet
+    travado. Agora a garantia é feita uma vez por processo e só para esta tabela.
     """
-    criar_tabelas_oficiais()
+    global _PINS_OPERACIONAIS_SCHEMA_OK
+
+    if _PINS_OPERACIONAIS_SCHEMA_OK:
+        return True
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -13205,7 +13218,8 @@ def criar_tabela_pins_operacionais():
 
         conn.commit()
 
-    _CACHE_COLUNAS.pop("competicao_pins_operacionais", None)
+        _CACHE_COLUNAS.pop("competicao_pins_operacionais", None)
+    _PINS_OPERACIONAIS_SCHEMA_OK = True
     return True
 
 

@@ -157,6 +157,22 @@ def _limpar_cache_painel_competicao(competicao=None):
             _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
 
 
+def _garantir_pin_operacional_cache(competicao, apontador_login):
+    """Cache curto do PIN operacional.
+
+    O PIN não muda a cada clique. Evita DDL/SELECT/INSERT toda vez que tablet
+    volta para a tela da competição.
+    """
+    competicao = str(competicao or "").strip()
+    apontador_login = str(apontador_login or "").strip()
+    chave = ("pin_operacional", competicao, apontador_login)
+    cached = _cache_get(chave, ttl=300)
+    if cached is not None:
+        return cached
+    pin = garantir_pin_operacional_apontador(competicao, apontador_login)
+    return _cache_set(chave, pin)
+
+
 def _garantir_tabelas_oficiais_once():
     # Criar/alterar tabela em toda abertura do painel deixava o login/apontador lento.
     # Fazemos uma vez por processo; em erro, não travamos o usuário.
@@ -1855,7 +1871,7 @@ def entrar_competicao_apontador(competicao):
         }
 
     try:
-        pin_operacional = garantir_pin_operacional_apontador(competicao, _login_apontador_sessao())
+        pin_operacional = _garantir_pin_operacional_cache(competicao, _login_apontador_sessao())
     except Exception as e:
         print("ERRO garantir_pin_operacional_apontador:", e, flush=True)
         pin_operacional = None
