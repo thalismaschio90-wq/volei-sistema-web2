@@ -113,6 +113,63 @@ apontadores_bp = Blueprint("apontadores", __name__)
 _CACHE_ARBITROS_COMPETICAO = {}
 _CACHE_ATLETAS_EQUIPE = {}
 
+# Cache curto para telas pesadas do apontador.
+# Evita bater no Neon a cada troca de aba/volta do tablet/celular.
+_CACHE_PAINEL_COMPETICAO_APONTADOR = {}
+_CACHE_PAINEL_TTL = int(os.environ.get("APONTADOR_PAINEL_CACHE_TTL", "12") or 12)
+_TABELAS_OFICIAIS_GARANTIDAS = False
+
+
+def _agora_cache():
+    try:
+        return time.time()
+    except Exception:
+        return 0
+
+
+def _cache_get(chave, ttl=None):
+    ttl = _CACHE_PAINEL_TTL if ttl is None else ttl
+    item = _CACHE_PAINEL_COMPETICAO_APONTADOR.get(chave)
+    if not item:
+        return None
+    criado, valor = item
+    if (_agora_cache() - criado) > ttl:
+        _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
+        return None
+    return valor
+
+
+def _cache_set(chave, valor):
+    # Limite simples para não crescer sem controle em torneios longos.
+    if len(_CACHE_PAINEL_COMPETICAO_APONTADOR) > 80:
+        _CACHE_PAINEL_COMPETICAO_APONTADOR.clear()
+    _CACHE_PAINEL_COMPETICAO_APONTADOR[chave] = (_agora_cache(), valor)
+    return valor
+
+
+def _limpar_cache_painel_competicao(competicao=None):
+    if not competicao:
+        _CACHE_PAINEL_COMPETICAO_APONTADOR.clear()
+        return
+    prefixo = ("painel_competicao", str(competicao or "").strip())
+    for chave in list(_CACHE_PAINEL_COMPETICAO_APONTADOR.keys()):
+        if isinstance(chave, tuple) and chave[:2] == prefixo:
+            _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
+
+
+def _garantir_tabelas_oficiais_once():
+    # Criar/alterar tabela em toda abertura do painel deixava o login/apontador lento.
+    # Fazemos uma vez por processo; em erro, não travamos o usuário.
+    global _TABELAS_OFICIAIS_GARANTIDAS
+    if _TABELAS_OFICIAIS_GARANTIDAS:
+        return
+    try:
+        criar_tabelas_oficiais()
+        _TABELAS_OFICIAIS_GARANTIDAS = True
+    except Exception as e:
+        print("AVISO garantir tabelas oficiais apontador:", repr(e), flush=True)
+
+
 
 def _listar_arbitros_competicao_cache(competicao):
     chave = (competicao or "").strip()
@@ -1501,7 +1558,7 @@ def listar_apontadores():
 @apontadores_bp.route("/apontadores", methods=["GET", "POST"])
 @exigir_perfil("superadmin")
 def apontadores():
-    criar_tabelas_oficiais()
+    _garantir_tabelas_oficiais_once()
 
     if request.method == "POST":
         nome = (request.form.get("nome") or "").strip()
@@ -1610,7 +1667,7 @@ def alterar_permissao_jogo_avulso_view(cpf, acao):
 @apontadores_bp.route("/apontador")
 @exigir_perfil("apontador")
 def painel_apontador():
-    criar_tabelas_oficiais()
+    _garantir_tabelas_oficiais_once()
 
     cpf = _login_apontador_sessao()
     pode_jogo_avulso = apontador_pode_criar_jogo_avulso(cpf) if cpf else False
@@ -1658,42 +1715,144 @@ def painel_apontador():
     )
 
 
+
+def _fase_normalizada_lista(partida):
+    fase_txt = str((partida or {}).get("fase") or (partida or {}).get("fase_partida") or "grupos").strip().lower()
+    if fase_txt in {"grupo", "grupos", "classificatoria", "classificatória", "classificatorias", "classificatórias"}:
+        return "grupos"
+    if "quarta" in fase_txt:
+        return "quartas"
+    if "semi" in fase_txt:
+        return "semifinal"
+    if "terceiro" in fase_txt or ("3" in fase_txt and "lugar" in fase_txt):
+        return "terceiro_lugar"
+    if "final" in fase_txt:
+        return "final"
+    return fase_txt or "grupos"
+
+
+def _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, partida):
+    """Versão sem consulta dentro do loop da lista do apontador."""
+    partida = partida or {}
+    modo_padrao = str(
+        partida.get("modo_operacao")
+        or (competicao_cfg or {}).get("modo_operacao")
+        or "simples"
+    ).strip().lower()
+    modo_final = modo_padrao if modo_padrao in {"simples", "avancado"} else "simples"
+
+    try:
+        fases_config = (config_avancada or {}).get("fases_config") or {}
+        regras_avancadas = fases_config.get("regras_avancadas") or {}
+        origem_partida = str(partida.get("origem") or "").strip()
+
+        if origem_partida.startswith("avanco:"):
+            partes = origem_partida.split(":")
+            serie_id = partes[1] if len(partes) > 1 else ""
+            jogo_id = partes[2] if len(partes) > 2 else ""
+
+            regra_jogo = (regras_avancadas.get("jogos") or {}).get(f"{serie_id}:{jogo_id}") or {}
+            modo_jogo = str(regra_jogo.get("modo_operacao") or "").strip().lower()
+            if modo_jogo in {"simples", "avancado"}:
+                return modo_jogo
+
+            regra_serie = (regras_avancadas.get("series") or {}).get(serie_id) or {}
+            modo_serie = str(regra_serie.get("modo_operacao") or "").strip().lower()
+            if modo_serie in {"simples", "avancado"}:
+                return modo_serie
+
+        fase_id = _normalizar_fase_operacao(partida.get("fase"))
+        regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
+        modo_fase = str(regra_fase.get("modo_operacao") or "").strip().lower()
+        if modo_fase in {"simples", "avancado"}:
+            return modo_fase
+
+        if fase_id == "grupos":
+            grupo = str(partida.get("grupo") or "").strip().upper()
+            regra_grupo = (regras_avancadas.get("grupos") or {}).get(grupo) or {}
+            modo_grupo = str(regra_grupo.get("modo_operacao") or "").strip().lower()
+            if modo_grupo in {"simples", "avancado"}:
+                return modo_grupo
+    except Exception:
+        pass
+
+    return modo_final
+
+
+def _montar_partidas_painel_apontador_cache(competicao):
+    """Monta lista leve da competição para a tela do apontador.
+
+    Não carrega atletas, papeleta, eventos nem evolução ponto a ponto.
+    Essa tela só precisa listar jogos e placar resumido.
+    """
+    competicao = str(competicao or "").strip()
+    chave = ("painel_competicao", competicao, "v2")
+    cached = _cache_get(chave)
+    if cached is not None:
+        return cached
+
+    competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
+
+    try:
+        config_avancada = buscar_configuracao_avancada_competicao(competicao) or {}
+    except Exception:
+        config_avancada = {}
+
+    partidas = listar_partidas(competicao) or []
+
+    # Mantém a normalização existente, mas só uma vez por cache curto.
+    try:
+        partidas = normalizar_status_partidas_apontador(partidas, competicao)
+    except Exception as e:
+        print("AVISO normalizar partidas apontador:", repr(e), flush=True)
+
+    try:
+        partidas = aplicar_placar_exibicao_lista(partidas, competicao_cfg)
+    except Exception as e:
+        print("AVISO placar exibicao lista apontador:", repr(e), flush=True)
+
+    partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
+
+    for p in partidas:
+        try:
+            p["modo_operacao_resolvido"] = _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, p)
+        except Exception:
+            p["modo_operacao_resolvido"] = "simples"
+        p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
+        p["fase_normalizada"] = _fase_normalizada_lista(p)
+
+        # Garante que nada pesado vá para o HTML dessa lista.
+        for campo_pesado in ("eventos", "historico", "scout", "atletas_a", "atletas_b", "papeleta_a", "papeleta_b", "evolucao_pontos"):
+            if campo_pesado in p:
+                p.pop(campo_pesado, None)
+
+    payload = {
+        "competicao_cfg": competicao_cfg,
+        "partidas": partidas,
+        "sets_max_manual": _sets_max_competicao(competicao),
+        "sets_para_vencer_manual": _sets_para_vencer_competicao(competicao),
+    }
+    return _cache_set(chave, payload)
+
+
 @apontadores_bp.route("/apontador/entrar/<competicao>")
 @exigir_perfil("apontador")
 def entrar_competicao_apontador(competicao):
     session["competicao_apontador"] = competicao
 
-    # Não sincroniza o Avanço ao abrir o painel do apontador.
-    # A sincronização acontece após finalizar/lançar resultado, evitando travar a tela.
-
-    partidas = listar_partidas(competicao)
-    competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
-    partidas = normalizar_status_partidas_apontador(partidas, competicao)
-    partidas = aplicar_placar_exibicao_lista(partidas, competicao_cfg)
-    partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
-
-    sets_max_manual = _sets_max_competicao(competicao)
-    sets_para_vencer_manual = _sets_para_vencer_competicao(competicao)
-
-    for p in partidas:
-        try:
-            p["modo_operacao_resolvido"] = _resolver_modo_operacao_partida(competicao, p)
-        except Exception:
-            p["modo_operacao_resolvido"] = "simples"
-        p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
-        fase_txt = str(p.get("fase") or p.get("fase_partida") or "grupos").strip().lower()
-        if fase_txt in {"grupo", "grupos", "classificatoria", "classificatorias"}:
-            p["fase_normalizada"] = "grupos"
-        elif "quarta" in fase_txt:
-            p["fase_normalizada"] = "quartas"
-        elif "semi" in fase_txt:
-            p["fase_normalizada"] = "semifinal"
-        elif "terceiro" in fase_txt or "3" in fase_txt and "lugar" in fase_txt:
-            p["fase_normalizada"] = "terceiro_lugar"
-        elif "final" in fase_txt:
-            p["fase_normalizada"] = "final"
-        else:
-            p["fase_normalizada"] = fase_txt or "grupos"
+    # ROTA LEVE: abrir a competição no apontador não pode carregar atletas,
+    # papeletas, eventos, scout nem gerar avanço. Tudo isso fica para as telas
+    # específicas de pré-jogo/jogo/finalização.
+    try:
+        dados = _montar_partidas_painel_apontador_cache(competicao)
+    except Exception as e:
+        print("ERRO montar painel competição apontador:", repr(e), flush=True)
+        flash("Erro ao carregar jogos da competição. Tente novamente.", "erro")
+        dados = {
+            "partidas": [],
+            "sets_max_manual": _sets_max_competicao(competicao),
+            "sets_para_vencer_manual": _sets_para_vencer_competicao(competicao),
+        }
 
     try:
         pin_operacional = garantir_pin_operacional_apontador(competicao, _login_apontador_sessao())
@@ -1701,16 +1860,26 @@ def entrar_competicao_apontador(competicao):
         print("ERRO garantir_pin_operacional_apontador:", e, flush=True)
         pin_operacional = None
 
+    try:
+        pode_jogo_avulso = apontador_pode_criar_jogo_avulso(_login_apontador_sessao())
+    except Exception:
+        pode_jogo_avulso = False
+
+    try:
+        offline_habilitado = offline_global_habilitado()
+    except Exception:
+        offline_habilitado = False
+
     return render_template(
         "painel_apontador.html",
         modo_partidas=True,
         competicao_nome=competicao,
-        partidas=partidas,
+        partidas=dados.get("partidas") or [],
         pin_operacional=pin_operacional,
-        pode_jogo_avulso=apontador_pode_criar_jogo_avulso(_login_apontador_sessao()),
-        offline_habilitado=offline_global_habilitado(),
-        sets_max_manual=sets_max_manual,
-        sets_para_vencer_manual=sets_para_vencer_manual,
+        pode_jogo_avulso=pode_jogo_avulso,
+        offline_habilitado=offline_habilitado,
+        sets_max_manual=dados.get("sets_max_manual") or 3,
+        sets_para_vencer_manual=dados.get("sets_para_vencer_manual") or 2,
     )
 
 
