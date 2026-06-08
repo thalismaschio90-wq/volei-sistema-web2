@@ -2,6 +2,8 @@ from flask import Blueprint, render_template, request, redirect, session, url_fo
 from functools import wraps
 import random
 import json
+import os
+import time
 
 from banco import (
     buscar_competicao_por_organizador,
@@ -53,6 +55,170 @@ tabela_bp = Blueprint("tabela", __name__)
 
 
 # =========================================================
+# CACHE LEVE DA TABELA / VISUALIZADOR
+# =========================================================
+# Evita que cada troca de aba ou atualização do navegador faça as mesmas
+# consultas pesadas de grupos, equipes, partidas, quadras e avanço.
+# O cache é curto e é limpo automaticamente em qualquer POST da tabela.
+_TABELA_CACHE = {}
+_TABELA_CACHE_TTL = int(os.environ.get("TABELA_CACHE_TTL", "20") or 20)
+_TABELA_CACHE_MAX_ITENS = int(os.environ.get("TABELA_CACHE_MAX_ITENS", "120") or 120)
+
+
+def _cache_agora():
+    try:
+        return time.time()
+    except Exception:
+        return 0
+
+
+def _cache_key(*partes):
+    return tuple(str(p or "").strip() for p in partes)
+
+
+def _cache_get_tabela(chave, ttl=None):
+    ttl = _TABELA_CACHE_TTL if ttl is None else ttl
+    item = _TABELA_CACHE.get(chave)
+    if not item:
+        return None
+    criado, valor = item
+    if (_cache_agora() - criado) > ttl:
+        _TABELA_CACHE.pop(chave, None)
+        return None
+    return valor
+
+
+def _cache_set_tabela(chave, valor):
+    if len(_TABELA_CACHE) > _TABELA_CACHE_MAX_ITENS:
+        _TABELA_CACHE.clear()
+    _TABELA_CACHE[chave] = (_cache_agora(), valor)
+    return valor
+
+
+def _limpar_cache_tabela(competicao_nome=None):
+    if not competicao_nome:
+        _TABELA_CACHE.clear()
+        return
+    nome = str(competicao_nome or "").strip()
+    for chave in list(_TABELA_CACHE.keys()):
+        if nome in chave:
+            _TABELA_CACHE.pop(chave, None)
+
+
+@tabela_bp.after_request
+def _invalidar_cache_tabela_apos_post(response):
+    """Qualquer alteração na tabela/grupos/partidas limpa o cache curto.
+
+    Assim o GET seguinte já busca dados novos, mas os GETs repetidos de várias
+    abas/celulares continuam rápidos e sem martelar o banco.
+    """
+    try:
+        if request.method == "POST" and request.path.startswith("/tabela"):
+            usuario = session.get("usuario")
+            if usuario:
+                comp = buscar_competicao_por_organizador(usuario) or {}
+                _limpar_cache_tabela(comp.get("nome"))
+            else:
+                _limpar_cache_tabela()
+    except Exception as e:
+        print("AVISO tabela/cache after_request:", repr(e))
+    return response
+
+
+def _buscar_competicao_organizador_cache(usuario):
+    chave = _cache_key("competicao_organizador", usuario)
+    cached = _cache_get_tabela(chave, ttl=30)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, buscar_competicao_por_organizador(usuario))
+
+
+def _listar_grupos_cache(competicao_nome):
+    chave = _cache_key("grupos", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, listar_grupos(competicao_nome) or [])
+
+
+def _listar_equipes_competicao_cache(competicao_nome):
+    chave = _cache_key("equipes", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, listar_equipes_da_competicao(competicao_nome) or [])
+
+
+def _listar_partidas_cache(competicao_nome):
+    chave = _cache_key("partidas", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, listar_partidas(competicao_nome) or [])
+
+
+def _quadras_cache(competicao_nome, qtd_quadras=1):
+    chave = _cache_key("quadras", competicao_nome, qtd_quadras)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, garantir_quadras_competicao(competicao_nome, qtd_quadras or 1) or [])
+
+
+def _config_agenda_cache(competicao_nome):
+    chave = _cache_key("config_agenda", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return cached
+    try:
+        inicializar_configuracao_agenda_competicao(competicao_nome)
+    except Exception as e:
+        print("AVISO tabela/inicializar_config_agenda:", repr(e))
+    return _cache_set_tabela(chave, buscar_configuracao_agenda_competicao(competicao_nome))
+
+
+def _avanco_cache(competicao_nome):
+    chave = _cache_key("avanco", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, buscar_avanco_config_competicao(competicao_nome) or {})
+
+
+def _status_avanco_cache(competicao_nome):
+    chave = _cache_key("status_avanco", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return dict(cached)
+    status = status_avanco_classificatorias_competicao(competicao_nome) or {}
+    return dict(_cache_set_tabela(chave, status))
+
+
+def _avanco_gerado_cache(competicao_nome):
+    chave = _cache_key("avanco_gerado", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return bool(cached)
+    return bool(_cache_set_tabela(chave, avanco_ja_gerado_competicao(competicao_nome)))
+
+
+def _competicao_travada_cache(competicao_nome):
+    chave = _cache_key("competicao_travada", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return bool(cached)
+    return bool(_cache_set_tabela(chave, competicao_esta_travada(competicao_nome)))
+
+
+def _grupos_travados_cache(competicao_nome):
+    chave = _cache_key("grupos_travados", competicao_nome)
+    cached = _cache_get_tabela(chave)
+    if cached is not None:
+        return bool(cached)
+    return bool(_cache_set_tabela(chave, fase_grupos_esta_travada_por_jogo(competicao_nome)))
+
+
+# =========================================================
 # PERMISSÃO ROBUSTA DA TABELA
 # =========================================================
 def exigir_organizador_da_competicao(func):
@@ -74,7 +240,7 @@ def exigir_organizador_da_competicao(func):
         if perfil in {"organizador", "superadmin"}:
             return func(*args, **kwargs)
 
-        competicao = buscar_competicao_por_organizador(usuario)
+        competicao = _buscar_competicao_organizador_cache(usuario)
         if competicao:
             return func(*args, **kwargs)
 
@@ -1759,9 +1925,9 @@ def visualizador_publico(competicao_nome):
     except Exception as e:
         print("AVISO visualizador/normalizar_quadras:", repr(e))
 
-    grupos_raw = listar_grupos(competicao_nome)
-    partidas = listar_partidas(competicao_nome)
-    equipes_competicao = listar_equipes_da_competicao(competicao_nome)
+    grupos_raw = _listar_grupos_cache(competicao_nome)
+    partidas = _listar_partidas_cache(competicao_nome)
+    equipes_competicao = _listar_equipes_competicao_cache(competicao_nome)
     mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
 
     grupos = _grupos_com_equipes_cacheados(competicao_nome, grupos_raw)
@@ -1776,9 +1942,9 @@ def visualizador_publico(competicao_nome):
     criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
     colunas_classificacao = _colunas_classificacao_publica(competicao)
     set_unico = _competicao_eh_set_unico_tabela(competicao)
-    avanco = buscar_avanco_config_competicao(competicao_nome)
-    status_avanco = status_avanco_classificatorias_competicao(competicao_nome)
-    avanco_gerado = avanco_ja_gerado_competicao(competicao_nome)
+    avanco = _avanco_cache(competicao_nome)
+    status_avanco = _status_avanco_cache(competicao_nome)
+    avanco_gerado = _avanco_gerado_cache(competicao_nome)
     status_avanco["gerado"] = avanco_gerado
     if not avanco_gerado:
         partidas_preparadas = [p for p in partidas_preparadas if not _partida_eh_avanco(p)]
@@ -1812,7 +1978,7 @@ def tabela_view():
         flash("Sessão expirada. Faça login novamente.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    competicao = buscar_competicao_por_organizador(usuario)
+    competicao = _buscar_competicao_organizador_cache(usuario)
 
     if not competicao:
         flash("Nenhuma competição vinculada a este organizador.", "erro")
@@ -1834,7 +2000,7 @@ def tabela_view():
     # "Configurações" carregue classificação, partidas e avanço completos.
     nome_competicao = competicao["nome"]
     fases = _fases_disponiveis(competicao)
-    grupos_travados = fase_grupos_esta_travada_por_jogo(nome_competicao)
+    grupos_travados = _grupos_travados_cache(nome_competicao)
     fase_banco_ativa = _fase_subaba_para_banco(fase_subaba)
     fase_atual_travada = not _fase_pode_ser_alterada_sem_travar_mata_mata(nome_competicao, fase_banco_ativa)
 
@@ -1843,7 +2009,7 @@ def tabela_view():
         "aba_ativa": aba,
         "fase_ativa": fase_subaba,
         "fase_labels": FASES_AVANCO_LABELS,
-        "competicao_travada": competicao_esta_travada(nome_competicao),
+        "competicao_travada": _competicao_travada_cache(nome_competicao),
         "grupos_travados": grupos_travados,
         "fase_atual_travada": fase_atual_travada,
         "fase_banco_ativa": fase_banco_ativa,
@@ -1868,12 +2034,11 @@ def tabela_view():
 
     # Aba Configurações: carrega apenas grupos, equipes, quadras e agenda.
     if aba == "geracao":
-        quadras = garantir_quadras_competicao(nome_competicao, competicao.get("qtd_quadras") or 1)
-        grupos_raw = listar_grupos(nome_competicao)
-        equipes = listar_equipes_da_competicao(nome_competicao)
+        quadras = _quadras_cache(nome_competicao, competicao.get("qtd_quadras") or 1)
+        grupos_raw = _listar_grupos_cache(nome_competicao)
+        equipes = _listar_equipes_competicao_cache(nome_competicao)
         grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
-        inicializar_configuracao_agenda_competicao(nome_competicao)
-        config_agenda = buscar_configuracao_agenda_competicao(nome_competicao)
+        config_agenda = _config_agenda_cache(nome_competicao)
         contexto.update({
             "grupos": grupos,
             "equipes": equipes,
@@ -1884,9 +2049,9 @@ def tabela_view():
 
     # Aba Partidas: carrega partidas, quadras e avanço; não calcula classificação.
     elif aba == "partidas":
-        avanco = buscar_avanco_config_competicao(nome_competicao)
-        status_avanco = status_avanco_classificatorias_competicao(nome_competicao)
-        avanco_gerado = avanco_ja_gerado_competicao(nome_competicao)
+        avanco = _avanco_cache(nome_competicao)
+        status_avanco = _status_avanco_cache(nome_competicao)
+        avanco_gerado = _avanco_gerado_cache(nome_competicao)
         status_avanco["gerado"] = avanco_gerado
         if not avanco_gerado:
             try:
@@ -1900,11 +2065,11 @@ def tabela_view():
         if series_fase and not any(s.get("id") == serie_ativa for s in series_fase):
             serie_ativa = series_fase[0].get("id")
 
-        quadras = garantir_quadras_competicao(nome_competicao, competicao.get("qtd_quadras") or 1)
-        grupos_raw = listar_grupos(nome_competicao)
-        equipes = listar_equipes_da_competicao(nome_competicao)
+        quadras = _quadras_cache(nome_competicao, competicao.get("qtd_quadras") or 1)
+        grupos_raw = _listar_grupos_cache(nome_competicao)
+        equipes = _listar_equipes_competicao_cache(nome_competicao)
         mapa_escudos = _mapa_escudos_equipes(equipes)
-        partidas = listar_partidas(nome_competicao)
+        partidas = _listar_partidas_cache(nome_competicao)
         if not avanco_gerado:
             partidas = [p for p in partidas if not _partida_eh_avanco(p)]
 
@@ -1914,8 +2079,7 @@ def tabela_view():
         if fase_subaba != "classificatorias":
             partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa) if avanco_gerado else []
         avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
-        inicializar_configuracao_agenda_competicao(nome_competicao)
-        config_agenda = buscar_configuracao_agenda_competicao(nome_competicao)
+        config_agenda = _config_agenda_cache(nome_competicao)
         contexto.update({
             "grupos": grupos,
             "equipes": equipes,
@@ -1934,10 +2098,10 @@ def tabela_view():
 
     # Aba Classificação: carrega somente o necessário para calcular classificação.
     elif aba == "classificacao":
-        grupos_raw = listar_grupos(nome_competicao)
-        equipes = listar_equipes_da_competicao(nome_competicao)
+        grupos_raw = _listar_grupos_cache(nome_competicao)
+        equipes = _listar_equipes_competicao_cache(nome_competicao)
         mapa_escudos = _mapa_escudos_equipes(equipes)
-        partidas = listar_partidas(nome_competicao)
+        partidas = _listar_partidas_cache(nome_competicao)
         partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
         grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
         classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos)
@@ -1964,7 +2128,7 @@ def tabela_view():
 def tabela_api_resumo():
     """API leve para futuras cargas por aba sem renderizar a tela inteira."""
     usuario = session.get("usuario")
-    competicao = buscar_competicao_por_organizador(usuario)
+    competicao = _buscar_competicao_organizador_cache(usuario)
     if not competicao:
         return jsonify({"ok": False, "erro": "competicao_nao_encontrada"}), 404
     nome = competicao["nome"]
@@ -1973,8 +2137,8 @@ def tabela_api_resumo():
         "ok": True,
         "competicao": nome,
         "aba": aba,
-        "grupos_travados": fase_grupos_esta_travada_por_jogo(nome),
-        "competicao_travada": competicao_esta_travada(nome),
+        "grupos_travados": _grupos_travados_cache(nome),
+        "competicao_travada": _competicao_travada_cache(nome),
     })
 
 
@@ -2915,11 +3079,11 @@ def gerar_automatico():
         flash("Esta fase já iniciou. Não é possível gerar jogos automaticamente nela.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
-    grupos_raw = listar_grupos(nome_competicao)
+    grupos_raw = _listar_grupos_cache(nome_competicao)
     mapa_quadras = _mapa_quadras_formatadas(nome_competicao)
 
     if fase_banco != "grupos":
-        partidas = listar_partidas(nome_competicao)
+        partidas = _listar_partidas_cache(nome_competicao)
         grupos = []
         for g in grupos_raw:
             grupos.append({"grupo": g, "equipes": listar_equipes_por_grupo(g["id"])})

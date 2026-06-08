@@ -1,5 +1,7 @@
 print(">>> CARREGOU O ARQUIVO EQUIPES.PY CERTO <<<")
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, current_app, jsonify
+import os
+import time
 from banco import (
     buscar_competicao_por_organizador,
     buscar_competicao_por_nome,
@@ -75,6 +77,224 @@ except Exception:
     pillow_heif = None
 
 equipes_bp = Blueprint("equipes", __name__)
+
+
+# =========================================================
+# CACHE LEVE DAS ROTAS DE EQUIPE
+# =========================================================
+# No Render/Neon, várias telas de equipe entram em sequência e acabam
+# repetindo as mesmas consultas: competição, escudos, partidas, grupos e
+# atletas. Este cache curto evita bater no banco a cada clique sem deixar a
+# tela presa em dados antigos por muito tempo.
+_CACHE_TTL_SEGUNDOS = int(os.environ.get("EQUIPES_CACHE_TTL", "20") or 20)
+_CACHE_COMPETICOES_LOGIN = {}
+_CACHE_EQUIPE_LOGIN_COMPETICAO = {}
+_CACHE_COMPETICAO_NOME = {}
+_CACHE_EQUIPES_COMPETICAO = {}
+_CACHE_ESCUDOS_COMPETICAO = {}
+_CACHE_GRUPOS_CLASSIFICACAO = {}
+_CACHE_PARTIDAS_COMPETICAO = {}
+_CACHE_PARTIDAS_EQUIPE = {}
+_CACHE_CLASSIFICACAO_EQUIPE = {}
+_CACHE_ATLETAS_EQUIPE = {}
+_CACHE_ATLETAS_COMPETICAO_AGRUPADOS = {}
+_CACHE_CONTROLE_INSCRICAO = {}
+
+
+def _cache_agora():
+    try:
+        return time.time()
+    except Exception:
+        return 0
+
+
+def _cache_get(cache, chave, ttl=None):
+    item = cache.get(chave)
+    if not item:
+        return None
+    criado, valor = item
+    ttl = _CACHE_TTL_SEGUNDOS if ttl is None else ttl
+    if (_cache_agora() - criado) > ttl:
+        cache.pop(chave, None)
+        return None
+    return valor
+
+
+def _cache_set(cache, chave, valor):
+    if len(cache) > 300:
+        cache.clear()
+    cache[chave] = (_cache_agora(), valor)
+    return valor
+
+
+def _limpar_cache_equipes(competicao=None, equipe=None, login=None):
+    """Limpa cache quando atleta/equipe/escudo são alterados."""
+    competicao = (competicao or "").strip()
+    equipe = (equipe or "").strip()
+    login = (login or "").strip()
+
+    if not competicao and not equipe and not login:
+        for cache in [
+            _CACHE_COMPETICOES_LOGIN,
+            _CACHE_EQUIPE_LOGIN_COMPETICAO,
+            _CACHE_COMPETICAO_NOME,
+            _CACHE_EQUIPES_COMPETICAO,
+            _CACHE_ESCUDOS_COMPETICAO,
+            _CACHE_GRUPOS_CLASSIFICACAO,
+            _CACHE_PARTIDAS_COMPETICAO,
+            _CACHE_PARTIDAS_EQUIPE,
+            _CACHE_CLASSIFICACAO_EQUIPE,
+            _CACHE_ATLETAS_EQUIPE,
+            _CACHE_ATLETAS_COMPETICAO_AGRUPADOS,
+            _CACHE_CONTROLE_INSCRICAO,
+        ]:
+            cache.clear()
+        return
+
+    if competicao:
+        for cache in [
+            _CACHE_COMPETICAO_NOME,
+            _CACHE_EQUIPES_COMPETICAO,
+            _CACHE_ESCUDOS_COMPETICAO,
+            _CACHE_GRUPOS_CLASSIFICACAO,
+            _CACHE_PARTIDAS_COMPETICAO,
+            _CACHE_CLASSIFICACAO_EQUIPE,
+            _CACHE_ATLETAS_COMPETICAO_AGRUPADOS,
+        ]:
+            cache.pop(competicao, None)
+
+        for cache in [_CACHE_PARTIDAS_EQUIPE, _CACHE_ATLETAS_EQUIPE, _CACHE_CONTROLE_INSCRICAO]:
+            for chave in list(cache.keys()):
+                if isinstance(chave, tuple) and chave and chave[0] == competicao:
+                    cache.pop(chave, None)
+
+    if equipe:
+        for cache in [_CACHE_PARTIDAS_EQUIPE, _CACHE_ATLETAS_EQUIPE, _CACHE_CONTROLE_INSCRICAO]:
+            for chave in list(cache.keys()):
+                if isinstance(chave, tuple) and len(chave) > 1 and chave[1] == equipe:
+                    cache.pop(chave, None)
+
+    if login:
+        for chave in list(_CACHE_EQUIPE_LOGIN_COMPETICAO.keys()):
+            if isinstance(chave, tuple) and chave and chave[0] == login:
+                _CACHE_EQUIPE_LOGIN_COMPETICAO.pop(chave, None)
+        _CACHE_COMPETICOES_LOGIN.pop(login, None)
+
+
+def _buscar_competicao_cache(nome_competicao):
+    nome_competicao = (nome_competicao or "").strip()
+    if not nome_competicao:
+        return None
+    cached = _cache_get(_CACHE_COMPETICAO_NOME, nome_competicao)
+    if cached is not None:
+        return cached
+    return _cache_set(_CACHE_COMPETICAO_NOME, nome_competicao, buscar_competicao_por_nome(nome_competicao))
+
+
+def _listar_competicoes_da_equipe_cache(login):
+    login = (login or "").strip()
+    cached = _cache_get(_CACHE_COMPETICOES_LOGIN, login)
+    if cached is not None:
+        return cached
+    return _cache_set(_CACHE_COMPETICOES_LOGIN, login, listar_competicoes_da_equipe_por_login(login) or [])
+
+
+def _buscar_equipe_por_login_cache(login, competicao=None):
+    login = (login or "").strip()
+    competicao = (competicao or "").strip()
+    chave = (login, competicao)
+    cached = _cache_get(_CACHE_EQUIPE_LOGIN_COMPETICAO, chave)
+    if cached is not None:
+        return cached
+    equipe = buscar_equipe_por_login(login, competicao or None)
+    return _cache_set(_CACHE_EQUIPE_LOGIN_COMPETICAO, chave, equipe)
+
+
+def _listar_equipes_competicao_cache(nome_competicao):
+    nome_competicao = (nome_competicao or "").strip()
+    cached = _cache_get(_CACHE_EQUIPES_COMPETICAO, nome_competicao)
+    if cached is not None:
+        return cached
+    return _cache_set(_CACHE_EQUIPES_COMPETICAO, nome_competicao, listar_equipes_da_competicao(nome_competicao) or [])
+
+
+def _mapa_escudos_competicao_cache(nome_competicao):
+    nome_competicao = (nome_competicao or "").strip()
+    cached = _cache_get(_CACHE_ESCUDOS_COMPETICAO, nome_competicao)
+    if cached is not None:
+        return cached
+    equipes = _listar_equipes_competicao_cache(nome_competicao)
+    mapa = _mapa_escudos_equipes(equipes)
+    return _cache_set(_CACHE_ESCUDOS_COMPETICAO, nome_competicao, mapa)
+
+
+def _listar_partidas_competicao_cache(nome_competicao):
+    nome_competicao = (nome_competicao or "").strip()
+    cached = _cache_get(_CACHE_PARTIDAS_COMPETICAO, nome_competicao)
+    if cached is not None:
+        return cached
+    return _cache_set(_CACHE_PARTIDAS_COMPETICAO, nome_competicao, listar_partidas(nome_competicao) or [])
+
+
+def _listar_partidas_equipe_cache(nome_competicao, nome_equipe, limite=50):
+    chave = ((nome_competicao or "").strip(), (nome_equipe or "").strip(), int(limite or 50))
+    cached = _cache_get(_CACHE_PARTIDAS_EQUIPE, chave)
+    if cached is not None:
+        return cached
+    partidas = listar_partidas_da_equipe(chave[0], chave[1], limite=limite) or []
+    return _cache_set(_CACHE_PARTIDAS_EQUIPE, chave, partidas)
+
+
+def _listar_atletas_equipe_cache(nome_equipe, nome_competicao):
+    chave = ((nome_competicao or "").strip(), (nome_equipe or "").strip())
+    cached = _cache_get(_CACHE_ATLETAS_EQUIPE, chave)
+    if cached is not None:
+        return cached
+    atletas = listar_atletas_da_equipe(chave[1], chave[0]) or []
+    return _cache_set(_CACHE_ATLETAS_EQUIPE, chave, atletas)
+
+
+def _controle_inscricao_cache(nome_competicao, nome_equipe):
+    chave = ((nome_competicao or "").strip(), (nome_equipe or "").strip())
+    cached = _cache_get(_CACHE_CONTROLE_INSCRICAO, chave)
+    if cached is not None:
+        return cached
+    controle = controle_inscricao_para_equipe(chave[0], chave[1]) or {}
+    return _cache_set(_CACHE_CONTROLE_INSCRICAO, chave, controle)
+
+
+def _listar_atletas_competicao_agrupados(nome_competicao):
+    """Busca atletas da competição em uma consulta e agrupa por equipe.
+
+    Evita o gargalo N+1 da tela de numeração: listar equipes e depois consultar
+    atletas equipe por equipe.
+    """
+    nome_competicao = (nome_competicao or "").strip()
+    cached = _cache_get(_CACHE_ATLETAS_COMPETICAO_AGRUPADOS, nome_competicao)
+    if cached is not None:
+        return cached
+
+    agrupado = {}
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT *
+                    FROM atletas
+                    WHERE competicao = %s
+                    ORDER BY equipe,
+                             CASE WHEN numero ~ '^[0-9]+$' THEN numero::INT ELSE 999999 END,
+                             nome
+                """, (nome_competicao,))
+                rows = cur.fetchall() or []
+        for atleta in rows:
+            equipe_nome = (atleta.get("equipe") or "").strip()
+            agrupado.setdefault(equipe_nome, []).append(atleta)
+    except Exception as e:
+        print("AVISO atletas_competicao_agrupados:", repr(e), flush=True)
+        agrupado = {}
+
+    return _cache_set(_CACHE_ATLETAS_COMPETICAO_AGRUPADOS, nome_competicao, agrupado)
 
 
 _EXTENSOES_ESCUDO_PERMITIDAS = {"png", "jpg", "jpeg", "webp", "heic", "heif"}
@@ -162,7 +382,7 @@ def _equipe_logada_com_competicao():
     if not competicao_atual:
         return None
 
-    return buscar_equipe_por_login(usuario, competicao_atual)
+    return _buscar_equipe_por_login_cache(usuario, competicao_atual)
 
 
 
@@ -180,7 +400,7 @@ def listar_equipes_view():
     credenciais = session.pop("credenciais_nova_equipe", None)
     senha_redefinida = session.pop("senha_redefinida_equipe", None)
 
-    equipes = listar_equipes_da_competicao(competicao["nome"])
+    equipes = _listar_equipes_competicao_cache(competicao["nome"])
 
     return render_template(
         "equipes.html",
@@ -386,6 +606,7 @@ def gerenciar_equipe_view(nome):
 
             else:
                 atualizar_nome_equipe(equipe["nome"], nome_competicao, novo_nome)
+                _limpar_cache_equipes(competicao=nome_competicao, equipe=equipe["nome"])
                 sucesso = "Nome da equipe atualizado com sucesso."
                 nome = novo_nome
 
@@ -553,6 +774,7 @@ def atualizar_escudo_equipe_view():
 
     if remover:
         ok = atualizar_escudo_equipe_por_login(usuario, "")
+        _limpar_cache_equipes(login=usuario)
         flash("Escudo removido com sucesso." if ok else "Não foi possível remover o escudo.", "sucesso" if ok else "erro")
         return redirect(request.referrer or url_for("equipes.painel_equipe_inicio_view"))
 
@@ -562,6 +784,7 @@ def atualizar_escudo_equipe_view():
         return redirect(request.referrer or url_for("equipes.painel_equipe_inicio_view"))
 
     ok = atualizar_escudo_equipe_por_login(usuario, escudo_url)
+    _limpar_cache_equipes(login=usuario)
     flash("Escudo atualizado com sucesso." if ok else "Não foi possível salvar o escudo.", "sucesso" if ok else "erro")
     return redirect(request.referrer or url_for("equipes.painel_equipe_inicio_view"))
 
@@ -570,7 +793,7 @@ def atualizar_escudo_equipe_view():
 @exigir_perfil("equipe")
 def perfil_equipe_view():
     usuario = session.get("usuario")
-    equipe = buscar_equipe_por_login(usuario, None)
+    equipe = _buscar_equipe_por_login_cache(usuario, None)
 
     if not equipe:
         flash("Equipe não encontrada. Faça login novamente.", "erro")
@@ -783,7 +1006,7 @@ def _montar_grupos_classificacao_equipe(nome_competicao):
 
 
 def _montar_classificacao_para_equipe(nome_competicao, partidas_preparadas, mapa_escudos):
-    competicao = buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
+    competicao = _buscar_competicao_cache(nome_competicao) or {"nome": nome_competicao}
     grupos = _montar_grupos_classificacao_equipe(nome_competicao)
 
     if not grupos:
@@ -828,7 +1051,7 @@ def _preparar_partidas_para_equipe(equipe, competicao=None, mapa_escudos=None):
     equipes_competicao = listar_equipes_da_competicao(nome_competicao) or []
     mapa_escudos = mapa_escudos or _mapa_escudos_equipes(equipes_competicao)
 
-    partidas = listar_partidas(nome_competicao)
+    partidas = _listar_partidas_competicao_cache(nome_competicao)
     resultado = []
 
     for p in partidas:
@@ -885,8 +1108,8 @@ def _preparar_partidas_home_equipe(equipe, limite=50):
     if not nome_equipe or not nome_competicao:
         return []
 
-    competicao = buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
-    partidas = listar_partidas_da_equipe(nome_competicao, nome_equipe, limite=limite) or []
+    competicao = _buscar_competicao_cache(nome_competicao) or {"nome": nome_competicao}
+    partidas = _listar_partidas_equipe_cache(nome_competicao, nome_equipe, limite=limite) or []
     resultado = []
 
     for p in partidas:
@@ -971,9 +1194,8 @@ def minhas_partidas_view():
         return redirect(url_for("painel.inicio"))
 
     nome_competicao = (equipe.get("competicao") or "").strip()
-    competicao = buscar_competicao_por_nome(nome_competicao) or {"nome": nome_competicao}
-    equipes_competicao = listar_equipes_da_competicao(nome_competicao) or []
-    mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
+    competicao = _buscar_competicao_cache(nome_competicao) or {"nome": nome_competicao}
+    mapa_escudos = _mapa_escudos_competicao_cache(nome_competicao)
     partidas = _preparar_partidas_para_equipe(equipe, competicao, mapa_escudos)
     dados_classificacao = _montar_classificacao_para_equipe(
         nome_competicao,
@@ -1015,10 +1237,10 @@ def painel_equipe_inicio_view():
     if perfil_equipe_incompleto_por_login(usuario):
         return redirect(url_for("equipes.perfil_equipe_view"))
 
-    competicoes_equipe = listar_competicoes_da_equipe_por_login(usuario) or []
+    competicoes_equipe = _listar_competicoes_da_equipe_cache(usuario) or []
 
     if not competicoes_equipe:
-        equipe_global = buscar_equipe_por_login(usuario, None)
+        equipe_global = _buscar_equipe_por_login_cache(usuario, None)
 
         return render_template(
             "painel_equipe_competicoes.html",
@@ -1033,7 +1255,7 @@ def painel_equipe_inicio_view():
     if not session.get("competicao_equipe_atual"):
         return render_template(
             "painel_equipe_competicoes.html",
-            equipe=buscar_equipe_por_login(usuario, None),
+            equipe=_buscar_equipe_por_login_cache(usuario, None),
             competicoes=competicoes_equipe,
             mensagem=None,
         )
@@ -1045,8 +1267,8 @@ def painel_equipe_inicio_view():
         flash("Não foi possível carregar essa competição para a equipe. Escolha novamente.", "erro")
         return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
-    atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
-    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+    atletas = _listar_atletas_equipe_cache(equipe["nome"], equipe["competicao"])
+    controle_inscricao = _controle_inscricao_cache(equipe["competicao"], equipe["nome"])
     # HOME leve: traz só os jogos da própria equipe, sem carregar a competição inteira.
     partidas = _preparar_partidas_home_equipe(equipe, limite=50)
 
@@ -1123,7 +1345,7 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
     e ainda consultava jogos iniciados, mesmo quando o usuário só queria abrir
     o formulário. Isso deixava a inscrição pesada e travando.
     """
-    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+    controle_inscricao = _controle_inscricao_cache(equipe["competicao"], equipe["nome"])
 
     atletas_liberados = bool(controle_inscricao.get("aberta", True))
     mensagem_atletas = controle_inscricao.get("motivo") or ""
@@ -1132,7 +1354,7 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
     atletas_aprovados = []
 
     if carregar_atletas:
-        atletas = listar_atletas_da_equipe(equipe["nome"], equipe["competicao"])
+        atletas = _listar_atletas_equipe_cache(equipe["nome"], equipe["competicao"])
         atletas_aprovados = [
             a for a in atletas
             if (a.get("status") or "").lower() == "aprovado"
@@ -1289,6 +1511,7 @@ def cadastrar_atleta_view():
     if not ok:
         flash(msg or "Não foi possível cadastrar o atleta. Verifique CPF duplicado, número repetido, limite de atletas ou bloqueio de inscrição.", "erro")
     else:
+        _limpar_cache_equipes(competicao=competicao, equipe=equipe, login=usuario)
         flash(msg or "Atleta cadastrado com sucesso!", "sucesso")
 
     return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
@@ -1303,7 +1526,7 @@ def editar_atleta_view(id_atleta):
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+    controle_inscricao = _controle_inscricao_cache(equipe["competicao"], equipe["nome"])
     if not controle_inscricao.get("aberta", True):
         flash(controle_inscricao.get("motivo") or "Inscrição bloqueada.", "erro")
         return redirect(url_for("equipes.meus_atletas_view"))
@@ -1316,6 +1539,10 @@ def editar_atleta_view(id_atleta):
         cpf=request.form.get("cpf", "").strip(),
         data_nascimento=request.form.get("data_nascimento", "").strip(),
     )
+    if ok:
+        _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=session.get("usuario"))
+    if ok:
+        _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=session.get("usuario"))
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("equipes.meus_atletas_view"))
 
@@ -1330,13 +1557,15 @@ def excluir_atleta_view(id_atleta):
         flash("Equipe não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+    controle_inscricao = _controle_inscricao_cache(equipe["competicao"], equipe["nome"])
     atletas_liberados, mensagem_atletas = validar_edicao_atletas_equipe(equipe["competicao"], equipe["nome"])
     if not controle_inscricao.get("aberta", True):
         flash(controle_inscricao.get("motivo") or "Inscrição bloqueada.", "erro")
         return redirect(url_for("equipes.meus_atletas_view"))
 
     ok, msg = excluir_atleta(id_atleta)
+    if ok:
+        _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=usuario)
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("equipes.meus_atletas_view"))
 
@@ -1386,6 +1615,8 @@ def aprovar_todos_pendentes():
         return redirect(url_for("painel.inicio"))
 
     ok, msg = aprovar_todos_atletas_pendentes(competicao["nome"])
+    if ok:
+        _limpar_cache_equipes(competicao=competicao["nome"])
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("equipes.listar_atletas_organizador"))
 
@@ -1394,6 +1625,8 @@ def aprovar_todos_pendentes():
 @exigir_perfil("organizador")
 def excluir_atleta_organizador(id):
     ok, msg = excluir_atleta(id)
+    if ok:
+        _limpar_cache_equipes()
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("equipes.listar_atletas_organizador"))
 
@@ -1517,24 +1750,11 @@ def numeracao_atletas_view():
         competicao["nome"]
     )
 
+    atletas_por_equipe = _listar_atletas_competicao_agrupados(competicao["nome"])
     equipes_com_atletas = []
 
     for equipe in equipes:
-
-        atletas = listar_atletas_da_equipe(
-            equipe["nome"],
-            competicao["nome"]
-        )
-
-        atletas = sorted(
-            atletas,
-            key=lambda a: (
-                int(a.get("numero"))
-                if str(a.get("numero") or "").isdigit()
-                else 999
-            )
-        )
-
+        atletas = atletas_por_equipe.get(equipe["nome"], [])
         equipes_com_atletas.append({
             "equipe": equipe,
             "atletas": atletas
@@ -1590,6 +1810,8 @@ def salvar_numeracao_atletas_view():
             numero
         )
 
+    _limpar_cache_equipes(competicao=competicao["nome"])
+
     return jsonify({
         "ok": True
     })
@@ -1598,9 +1820,5 @@ def salvar_numeracao_atletas_view():
 # =========================================================
 # CACHE PAINEL EQUIPE
 # =========================================================
-from functools import lru_cache
-
-
-@lru_cache(maxsize=128)
 def _equipes_cache_competicao(nome_competicao):
-    return listar_equipes_da_competicao(nome_competicao)
+    return _listar_equipes_competicao_cache(nome_competicao)
