@@ -189,30 +189,95 @@ def _obter_pool():
         return _DB_POOL
 
 
+def _erro_conexao_quebrada(exc):
+    """Identifica erros típicos de conexão SSL/Neon/psycopg quebrada.
+
+    Quando isso acontece, não adianta devolver a conexão para o pool: ela deve
+    ser descartada e o pool recriado. Isso evita reutilizar conexão BAD em
+    rotas como login e painel da equipe.
+    """
+    mensagem = repr(exc).lower()
+    termos = (
+        "ssl syscall error",
+        "ssl error",
+        "eof detected",
+        "bad record mac",
+        "consuming input failed",
+        "connection bad",
+        "connection is closed",
+        "closed connection",
+        "server closed the connection",
+        "terminating connection",
+        "the connection is lost",
+        "couldn't get a connection",
+        "pooltimeout",
+        "pool closed",
+    )
+    return any(t in mensagem for t in termos)
+
+
+def _conexao_fechada_ou_ruim(conn):
+    if conn is None:
+        return True
+    try:
+        if bool(getattr(conn, "closed", False)):
+            return True
+    except Exception:
+        return True
+    try:
+        if bool(getattr(conn, "broken", False)):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _validar_conexao_pool(conn):
+    """Faz um ping curto na conexão recebida do pool.
+
+    O Neon pode encerrar conexões SSL antigas. Sem esse teste, o pool entrega a
+    conexão aparentemente livre, mas o primeiro SELECT real explode com
+    "SSL SYSCALL error: EOF detected" ou "bad record mac".
+    """
+    if _conexao_fechada_ou_ruim(conn):
+        return False
+
+    testar = str(os.environ.get("DB_POOL_PING", "1")).strip().lower()
+    if testar in {"0", "false", "no", "off", "nao", "não"}:
+        return True
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return True
+    except Exception as e:
+        print("AVISO: conexão do pool falhou no ping:", repr(e), flush=True)
+        return False
+
+
 def _fechar_pool_quebrado():
     global _DB_POOL
 
+    pool = _DB_POOL
+    _DB_POOL = None
+
     try:
-        if _DB_POOL is not None:
-            _DB_POOL.close(timeout=2)
+        if pool is not None:
+            pool.close(timeout=1)
     except Exception:
         pass
-
-    _DB_POOL = None
 
 
 @contextmanager
 def conectar():
     """Abre conexão com o banco usando pool com fallback seguro.
 
-    Esta versão evita o erro:
-        RuntimeError("generator didn't stop after throw()")
-
-    O problema acontecia porque o generator do contextmanager podia receber
-    uma exceção depois do yield do pool e ainda tentar seguir para outro yield
-    no fallback. Agora a conexão do pool é obtida antes do yield e qualquer
-    erro ocorrido dentro do bloco do chamador é apenas repassado, sem acionar
-    o fallback indevidamente.
+    Ajuste importante para Render/Neon:
+    - valida a conexão antes de entregar para a rota;
+    - se detectar SSL EOF/BAD/bad record mac, fecha o pool inteiro;
+    - cai para conexão direta controlada;
+    - evita reutilizar conexão quebrada em login, painel da equipe e apontador.
     """
     global _DIRECT_FALLBACK_SEMAPHORE
 
@@ -229,16 +294,22 @@ def conectar():
         try:
             pool_cm = pool.connection(timeout=timeout_pool)
             conn_pool = pool_cm.__enter__()
+
+            if not _validar_conexao_pool(conn_pool):
+                erro_ping = RuntimeError("Conexão inválida recebida do pool.")
+                try:
+                    pool_cm.__exit__(RuntimeError, erro_ping, erro_ping.__traceback__)
+                except Exception:
+                    pass
+                _fechar_pool_quebrado()
+                pool_cm = None
+                conn_pool = None
+                raise erro_ping
+
         except Exception as e:
             print("AVISO: pool do banco indisponível:", repr(e), flush=True)
 
-            mensagem = repr(e).lower()
-            if (
-                "closed" in mensagem
-                or "bad" in mensagem
-                or "ssl connection has been closed" in mensagem
-                or "consuming input failed" in mensagem
-            ):
+            if _erro_conexao_quebrada(e):
                 _fechar_pool_quebrado()
 
             fallback_ligado = str(
@@ -253,6 +324,13 @@ def conectar():
                 yield conn_pool
             except BaseException as exc:
                 erro_do_bloco = exc
+                if _erro_conexao_quebrada(exc):
+                    try:
+                        if conn_pool is not None:
+                            conn_pool.close()
+                    except Exception:
+                        pass
+                    _fechar_pool_quebrado()
                 raise
             finally:
                 try:
@@ -266,13 +344,7 @@ def conectar():
                         )
                 except Exception as e:
                     print("AVISO: erro ao devolver conexão ao pool:", repr(e), flush=True)
-                    mensagem = repr(e).lower()
-                    if (
-                        "closed" in mensagem
-                        or "bad" in mensagem
-                        or "ssl connection has been closed" in mensagem
-                        or "consuming input failed" in mensagem
-                    ):
+                    if _erro_conexao_quebrada(e):
                         _fechar_pool_quebrado()
             return
 
@@ -281,7 +353,7 @@ def conectar():
     # =====================================================
     limite_fallback = _env_int(
         "DB_DIRECT_FALLBACK_MAX",
-        2,
+        1,
         minimo=0,
         maximo=10,
     )
@@ -321,6 +393,11 @@ def conectar():
         conn = _conexao_direta()
         yield conn
 
+    except BaseException as exc:
+        if _erro_conexao_quebrada(exc):
+            _fechar_pool_quebrado()
+        raise
+
     finally:
         try:
             if conn is not None:
@@ -332,7 +409,6 @@ def conectar():
             _DIRECT_FALLBACK_SEMAPHORE.release()
         except Exception:
             pass
-
 
 # =========================================================
 # CACHE DE CLASSIFICAÇÃO
