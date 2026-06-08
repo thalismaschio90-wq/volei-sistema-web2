@@ -1,4 +1,6 @@
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash, jsonify
+import os
+import time
 from banco import (
     conectar,
     contar_competicoes,
@@ -20,6 +22,84 @@ from banco import (
 from routes.utils import login_obrigatorio
 
 painel_bp = Blueprint("painel", __name__)
+
+
+# =========================================================
+# CACHE LEVE DO PAINEL
+# =========================================================
+# Evita consultas repetidas no Neon em telas que são abertas/polled várias vezes.
+# TTL curto para não deixar informações operacionais antigas.
+_PAINEL_CACHE_TTL = int(os.environ.get("PAINEL_CACHE_TTL", "20") or 20)
+_ARBITRO_POLL_CACHE_TTL = int(os.environ.get("PAINEL_ARBITRO_POLL_CACHE_TTL", "5") or 5)
+_CACHE_PAINEL = {}
+
+
+def _cache_key(*partes):
+    return tuple(str(p or "").strip() for p in partes)
+
+
+def _cache_get(chave, ttl=None):
+    ttl = _PAINEL_CACHE_TTL if ttl is None else ttl
+    item = _CACHE_PAINEL.get(chave)
+    if not item:
+        return None
+    criado_em, valor = item
+    if (time.time() - criado_em) > ttl:
+        _CACHE_PAINEL.pop(chave, None)
+        return None
+    return valor
+
+
+def _cache_set(chave, valor):
+    if len(_CACHE_PAINEL) > 300:
+        _CACHE_PAINEL.clear()
+    _CACHE_PAINEL[chave] = (time.time(), valor)
+    return valor
+
+
+def _cache_delete_prefix(prefixo):
+    prefixo = tuple(prefixo)
+    for chave in list(_CACHE_PAINEL.keys()):
+        if isinstance(chave, tuple) and chave[:len(prefixo)] == prefixo:
+            _CACHE_PAINEL.pop(chave, None)
+
+
+def _buscar_usuario_cache(login):
+    login = (login or "").strip()
+    if not login:
+        return None
+    chave = _cache_key("usuario", login)
+    cached = _cache_get(chave)
+    if cached is not None:
+        return cached
+    return _cache_set(chave, buscar_usuario_por_login(login))
+
+
+def _listar_competicoes_organizador_cache(login):
+    login = (login or "").strip()
+    chave = _cache_key("competicoes_organizador", login)
+    cached = _cache_get(chave)
+    if cached is not None:
+        return cached
+    return _cache_set(chave, listar_competicoes_do_organizador(login) or [])
+
+
+def _listar_competicoes_apontador_cache(cpf):
+    cpf = (cpf or "").strip()
+    chave = _cache_key("competicoes_apontador", cpf)
+    cached = _cache_get(chave)
+    if cached is not None:
+        return cached
+    return _cache_set(chave, listar_competicoes_apontador(cpf) or [])
+
+
+def _buscar_apontador_cache(login):
+    login = (login or "").strip()
+    chave = _cache_key("apontador", login)
+    cached = _cache_get(chave)
+    if cached is not None:
+        return cached
+    return _cache_set(chave, buscar_apontador(login))
 
 
 STATUS_ATIVOS_ARBITRO = (
@@ -69,7 +149,7 @@ def _competicao_arbitro_logado():
     if competicao:
         return competicao
 
-    usuario = buscar_usuario_por_login(_usuario_logado())
+    usuario = _buscar_usuario_cache(_usuario_logado())
     if usuario:
         competicao = (usuario.get("competicao_vinculada") or "").strip()
         if competicao:
@@ -159,6 +239,19 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao, quadra_id=None, quadra
 
     where = " AND ".join(filtros)
 
+    chave_cache = _cache_key(
+        "partida_ativa_arbitro",
+        competicao,
+        quadra_id or "",
+        quadra_nome or "",
+        quadra_ordem or "",
+        operador_login or "",
+        where,
+    )
+    cached = _cache_get(chave_cache, ttl=_ARBITRO_POLL_CACHE_TTL)
+    if cached is not None:
+        return cached
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -199,7 +292,7 @@ def _buscar_partida_ativa_para_painel_arbitro(competicao, quadra_id=None, quadra
                 """,
                 tuple(params),
             )
-            return cur.fetchone()
+            return _cache_set(chave_cache, cur.fetchone())
 
 
 @painel_bp.route("/inicio")
@@ -211,11 +304,18 @@ def inicio():
     # SUPER ADMIN
     # =========================
     if perfil == "superadmin":
+        totais = _cache_get(_cache_key("superadmin_totais"), ttl=30)
+        if totais is None:
+            totais = {
+                "total_competicoes": contar_competicoes(),
+                "total_equipes": contar_equipes(),
+                "total_partidas": contar_partidas(),
+            }
+            _cache_set(_cache_key("superadmin_totais"), totais)
+
         return render_template(
             "painel_superadmin.html",
-            total_competicoes=contar_competicoes(),
-            total_equipes=contar_equipes(),
-            total_partidas=contar_partidas()
+            **totais
         )
 
     # =========================
@@ -223,7 +323,7 @@ def inicio():
     # =========================
     elif perfil == "organizador":
         login_organizador = session.get("usuario")
-        competicoes = listar_competicoes_do_organizador(login_organizador) or []
+        competicoes = _listar_competicoes_organizador_cache(login_organizador)
 
         # O organizador não pode depender de competicao_vinculada.
         # A competição dele vem da relação criada no cadastro da competição
@@ -278,7 +378,7 @@ def inicio():
 
         cpf = session.get("usuario")
 
-        competicoes = listar_competicoes_apontador(cpf)
+        competicoes = _listar_competicoes_apontador_cache(cpf)
 
         if not competicoes:
             return render_template(
@@ -354,6 +454,7 @@ def painel_arbitros():
             session["arbitro_competicao"] = vinculo_operacional.get("competicao") or ""
             session["arbitro_apontador_cpf"] = vinculo_operacional.get("apontador_cpf") or ""
             session["arbitro_apontador_nome"] = vinculo_operacional.get("apontador_nome") or ""
+            _cache_delete_prefix(("partida_ativa_arbitro",))
             flash("PIN validado. Escolha 1º ou 2º árbitro.", "sucesso")
             return redirect(url_for("painel.painel_arbitros"))
 
@@ -367,6 +468,7 @@ def painel_arbitros():
             session["arbitro_quadra_nome"] = vinculo.get("nome") or ""
             session["arbitro_quadra_local"] = vinculo.get("local") or ""
             session["arbitro_quadra_ordem"] = vinculo.get("ordem")
+            _cache_delete_prefix(("partida_ativa_arbitro",))
             flash("PIN validado. Escolha 1º ou 2º árbitro.", "sucesso")
             return redirect(url_for("painel.painel_arbitros"))
 
@@ -384,6 +486,7 @@ def painel_arbitros():
             session["arbitro_jogo_avulso_codigo"] = vinculo_avulso.get("codigo") or ""
             session["arbitro_jogo_avulso_equipe_a"] = vinculo_avulso.get("equipe_a") or "Equipe A"
             session["arbitro_jogo_avulso_equipe_b"] = vinculo_avulso.get("equipe_b") or "Equipe B"
+            _cache_delete_prefix(("partida_ativa_arbitro",))
             flash("PIN do jogo rápido validado. Escolha 1º ou 2º árbitro.", "sucesso")
             return redirect(url_for("painel.painel_arbitros"))
 
@@ -514,7 +617,7 @@ def minha_conta():
     perfil_exibicao = perfil
 
     if perfil == "apontador":
-        apontador = buscar_apontador(login)
+        apontador = _buscar_apontador_cache(login)
 
         if not apontador:
             flash("Apontador não encontrado.", "erro")
@@ -529,7 +632,7 @@ def minha_conta():
             dados_equipe=None
         )
 
-    usuario_db = buscar_usuario_por_login(login)
+    usuario_db = _buscar_usuario_cache(login)
 
     if not usuario_db:
         flash("Usuário não encontrado.", "erro")
@@ -592,6 +695,11 @@ def salvar_dados_minha_conta():
             request.form.get("instagram", "").strip(),
         )
 
+    _cache_delete_prefix(("usuario",))
+    _cache_delete_prefix(("apontador",))
+    _cache_delete_prefix(("competicoes_organizador",))
+    _cache_delete_prefix(("competicoes_apontador",))
+
     flash("Dados da conta atualizados com sucesso.", "sucesso")
     return redirect(url_for("painel.minha_conta"))
 
@@ -619,7 +727,7 @@ def alterar_senha_minha_conta():
         return redirect(url_for("painel.minha_conta"))
 
     if perfil == "apontador":
-        apontador = buscar_apontador(login)
+        apontador = _buscar_apontador_cache(login)
 
         if not apontador:
             flash("Apontador não encontrado.", "erro")
@@ -632,11 +740,12 @@ def alterar_senha_minha_conta():
             return redirect(url_for("painel.minha_conta"))
 
         definir_senha_apontador(login, nova_senha)
+        _cache_delete_prefix(("apontador",))
 
         flash("Senha alterada com sucesso!", "sucesso")
         return redirect(url_for("painel.minha_conta"))
 
-    usuario_db = buscar_usuario_por_login(login)
+    usuario_db = _buscar_usuario_cache(login)
 
     if not usuario_db:
         flash("Usuário não encontrado.", "erro")
@@ -647,6 +756,7 @@ def alterar_senha_minha_conta():
         return redirect(url_for("painel.minha_conta"))
 
     atualizar_senha_usuario(login, nova_senha)
+    _cache_delete_prefix(("usuario",))
 
     flash("Senha alterada com sucesso!", "sucesso")
     return redirect(url_for("painel.minha_conta"))
