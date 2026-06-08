@@ -177,6 +177,91 @@ def _limpar_cache_painel_competicao(competicao=None):
             _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
 
 
+# Cache para a entrada do apontador (/apontador) e dados auxiliares.
+# O objetivo é fazer uma carga única por alguns segundos e reaproveitar
+# ao trocar/voltar de tela, em vez de consultar banco em todo clique.
+_CACHE_HOME_APONTADOR = {}
+_CACHE_PIN_OPERACIONAL = {}
+_CACHE_AUX_TTL = int(os.environ.get("APONTADOR_AUX_CACHE_TTL", "30") or 30)
+
+
+def _cache_aux_get(cache, chave, ttl=None):
+    ttl = _CACHE_AUX_TTL if ttl is None else ttl
+    item = cache.get(chave)
+    if not item:
+        return None
+    criado, valor = item
+    if (_agora_cache() - criado) > ttl:
+        cache.pop(chave, None)
+        return None
+    return valor
+
+
+def _cache_aux_set(cache, chave, valor):
+    if len(cache) > 200:
+        cache.clear()
+    cache[chave] = (_agora_cache(), valor)
+    return valor
+
+
+def _limpar_cache_apontador(competicao=None, cpf=None):
+    """Limpa os caches do apontador quando algo muda no jogo/competição."""
+    _limpar_cache_painel_competicao(competicao)
+
+    if cpf:
+        for chave in list(_CACHE_HOME_APONTADOR.keys()):
+            if isinstance(chave, tuple) and chave[:2] == ("home", str(cpf or "").strip()):
+                _CACHE_HOME_APONTADOR.pop(chave, None)
+    elif competicao:
+        # Se não sabemos o CPF, limpamos home para garantir que vínculo/status apareça correto.
+        _CACHE_HOME_APONTADOR.clear()
+
+    if competicao:
+        for chave in list(_CACHE_PIN_OPERACIONAL.keys()):
+            if isinstance(chave, tuple) and len(chave) >= 2 and chave[1] == str(competicao or "").strip():
+                _CACHE_PIN_OPERACIONAL.pop(chave, None)
+
+
+def _montar_home_apontador_cache(cpf):
+    cpf = str(cpf or "").strip()
+    chave = ("home", cpf, "v1")
+    cached = _cache_aux_get(_CACHE_HOME_APONTADOR, chave, ttl=30)
+    if cached is not None:
+        return cached
+
+    payload = {
+        "cpf": cpf,
+        "oficial": None,
+        "competicoes": [],
+        "pode_jogo_avulso": False,
+        "offline_habilitado": False,
+    }
+
+    if cpf:
+        payload["pode_jogo_avulso"] = bool(apontador_pode_criar_jogo_avulso(cpf))
+        payload["oficial"] = buscar_oficial_por_cpf(cpf)
+        if payload["oficial"]:
+            payload["competicoes"] = listar_competicoes_apontador(cpf) or []
+
+    try:
+        payload["offline_habilitado"] = bool(offline_global_habilitado())
+    except Exception:
+        payload["offline_habilitado"] = False
+
+    return _cache_aux_set(_CACHE_HOME_APONTADOR, chave, payload)
+
+
+def _garantir_pin_operacional_cache(competicao, login):
+    competicao = str(competicao or "").strip()
+    login = str(login or "").strip()
+    chave = ("pin", competicao, login)
+    cached = _cache_aux_get(_CACHE_PIN_OPERACIONAL, chave, ttl=60)
+    if cached is not None:
+        return cached
+    pin = garantir_pin_operacional_apontador(competicao, login)
+    return _cache_aux_set(_CACHE_PIN_OPERACIONAL, chave, pin)
+
+
 def _garantir_tabelas_oficiais_once():
     # Criar/alterar tabela em toda abertura do painel deixava o login/apontador lento.
     # Fazemos uma vez por processo; em erro, não travamos o usuário.
@@ -1692,11 +1777,24 @@ def alterar_permissao_jogo_avulso_view(cpf, acao):
 @apontadores_bp.route("/apontador")
 @exigir_perfil("apontador")
 def painel_apontador():
-    _garantir_tabelas_oficiais_once()
-
+    # Não roda criação/verificação de tabelas aqui. Essa tela precisa ser leve.
+    # O schema deve ser garantido no startup/deploy ou por rota administrativa.
     cpf = _login_apontador_sessao()
-    pode_jogo_avulso = apontador_pode_criar_jogo_avulso(cpf) if cpf else False
-    offline_habilitado = offline_global_habilitado()
+
+    try:
+        dados_home = _montar_home_apontador_cache(cpf)
+    except Exception as e:
+        print("ERRO montar home apontador:", repr(e), flush=True)
+        dados_home = {
+            "cpf": cpf,
+            "oficial": None,
+            "competicoes": [],
+            "pode_jogo_avulso": False,
+            "offline_habilitado": False,
+        }
+
+    pode_jogo_avulso = bool(dados_home.get("pode_jogo_avulso"))
+    offline_habilitado = bool(dados_home.get("offline_habilitado"))
 
     if not cpf:
         flash("CPF do apontador não encontrado na sessão.", "erro")
@@ -1706,8 +1804,7 @@ def painel_apontador():
             offline_habilitado=offline_habilitado,
         )
 
-    oficial = buscar_oficial_por_cpf(cpf)
-    if not oficial:
+    if not dados_home.get("oficial"):
         flash("Não foi possível localizar o apontador pelo CPF informado.", "erro")
         return render_template(
             "painel_apontador.html",
@@ -1715,7 +1812,7 @@ def painel_apontador():
             offline_habilitado=offline_habilitado,
         )
 
-    competicoes = listar_competicoes_apontador(cpf)
+    competicoes = dados_home.get("competicoes") or []
 
     if not competicoes:
         return render_template(
@@ -1919,7 +2016,7 @@ def entrar_competicao_apontador(competicao):
         }
 
     try:
-        pin_operacional = garantir_pin_operacional_apontador(competicao, _login_apontador_sessao())
+        pin_operacional = _garantir_pin_operacional_cache(competicao, _login_apontador_sessao())
     except Exception as e:
         print("ERRO garantir_pin_operacional_apontador:", e, flush=True)
         pin_operacional = None
@@ -2185,6 +2282,7 @@ def salvar_resultado_manual_view(competicao, partida_id):
     )
 
     if ok:
+        _limpar_cache_apontador(competicao)
         resultado_avanco = _atualizar_avanco_apos_finalizacao(competicao)
         novas = (resultado_avanco or {}).get("criadas", 0)
         atualizadas = (resultado_avanco or {}).get("atualizadas", 0)
@@ -2324,6 +2422,8 @@ def assumir_partida_view(competicao, partida_id):
         operador_nome
     )
 
+    if ok:
+        _limpar_cache_apontador(competicao)
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id, rapido="1"))
 
@@ -2333,6 +2433,8 @@ def assumir_partida_view(competicao, partida_id):
 def abandonar_partida_view(competicao, partida_id):
     cpf = _login_apontador_sessao()
     ok, msg = abandonar_partida_operacional(partida_id, competicao, cpf)
+    if ok:
+        _limpar_cache_apontador(competicao)
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
@@ -2361,6 +2463,8 @@ def salvar_pre_jogo_view(competicao, partida_id):
         lado_esquerdo=lado_esquerdo,
     )
 
+    if ok:
+        _limpar_cache_apontador(competicao)
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id, rapido="1"))
 
@@ -2412,6 +2516,8 @@ def salvar_tiebreak_view(competicao, partida_id):
         lado_esquerdo_tiebreak=lado_esquerdo_tiebreak,
     )
 
+    if ok:
+        _limpar_cache_apontador(competicao)
     flash(msg, "sucesso" if ok else "erro")
     if ok:
         return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
@@ -2822,6 +2928,7 @@ def salvar_papeleta_view(competicao, partida_id):
     except Exception as e:
         print("AVISO emitir cache rápido papeleta:", repr(e), flush=True)
 
+    _limpar_cache_apontador(competicao)
     flash("Papeleta salva com sucesso.", "sucesso")
     return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
 
@@ -3134,6 +3241,7 @@ def ponto_view(competicao, partida_id):
             estado=estado,
             origem="PONTO_OFICIAL"
         )
+        _limpar_cache_apontador(competicao)
 
         return _json_no_cache({
             "ok": True,
@@ -3185,6 +3293,7 @@ def wo_view(competicao, partida_id):
             estado,
             origem="WO"
         )
+        _limpar_cache_apontador(competicao)
 
         return _json_no_cache({
             "ok": True,
@@ -3217,6 +3326,7 @@ def desfazer_acao_view(competicao, partida_id):
         estado["desfazer"] = True
 
         estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="DESFAZER")
+        _limpar_cache_apontador(competicao)
 
         return _json_no_cache({
             "ok": True,
@@ -3677,6 +3787,7 @@ def salvar_estado_manual_view(competicao, partida_id):
             pausar=pausar,
         ) or estado
 
+        _limpar_cache_apontador(competicao)
         atualizar_estado_cache(partida_id, estado_salvo)
         estado_salvo = _emitir_estado_e_placar(
             partida_id,
@@ -4300,6 +4411,7 @@ def encerrar_partida_view(competicao, partida_id):
         estado["eventos_processados_final"] = processados
 
         estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_PARTIDA_FINAL_OFFLINE")
+        _limpar_cache_apontador(competicao)
 
         return _json_no_cache({
             "ok": True,
@@ -4365,6 +4477,7 @@ def salvar_observacoes_view(competicao, partida_id):
     estado["partida_finalizada"] = True
     estado["status_jogo"] = "finalizada"
     _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_FINALIZACAO")
+    _limpar_cache_apontador(competicao)
 
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
