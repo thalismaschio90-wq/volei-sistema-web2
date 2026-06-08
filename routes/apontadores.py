@@ -1779,7 +1779,31 @@ def alterar_permissao_jogo_avulso_view(cpf, acao):
 def painel_apontador():
     # Não roda criação/verificação de tabelas aqui. Essa tela precisa ser leve.
     # O schema deve ser garantido no startup/deploy ou por rota administrativa.
-    cpf = _login_apontador_sessao()
+    #
+    # IMPORTANTE:
+    # A tela do apontador precisa localizar o vínculo pelo CPF real.
+    # _login_apontador_sessao() pode retornar login/nome da sessão, então aqui
+    # priorizamos os campos de CPF e só usamos outros campos se eles tiverem
+    # 11 dígitos. Isso corrige o erro "Não foi possível localizar o apontador".
+    candidatos_cpf = [
+        session.get("cpf"),
+        session.get("usuario_cpf"),
+        session.get("cpf_usuario"),
+        session.get("apontador_cpf"),
+        session.get("usuario"),
+        session.get("usuario_login"),
+        session.get("login"),
+    ]
+
+    cpf = ""
+    for candidato in candidatos_cpf:
+        limpo = somente_digitos(candidato or "")
+        if len(limpo) == 11:
+            cpf = limpo
+            break
+
+    if not cpf:
+        cpf = somente_digitos(_login_apontador_sessao() or "")
 
     try:
         dados_home = _montar_home_apontador_cache(cpf)
