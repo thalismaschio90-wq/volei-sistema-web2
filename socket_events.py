@@ -1,5 +1,6 @@
 from datetime import date, datetime
 import time
+import os
 
 from flask import request, session
 from flask_socketio import join_room
@@ -15,6 +16,22 @@ PLACAR_GERAL_ROOM = "placar_geral_ao_vivo"
 _ULTIMO_PLACAR_GERAL = None
 _ULTIMO_PLACAR_APONTADOR = {}
 _INVERSAO_PLACAR_APONTADOR = {}
+
+# Controle para não reenviar payload gigante a cada ponto.
+# 0 = quase nunca envia completo automaticamente; valores maiores enviam um
+# estado completo no máximo a cada N segundos, mantendo o placar leve em tempo real.
+try:
+    SOCKET_FULL_STATE_INTERVAL = float(os.environ.get("SOCKET_FULL_STATE_INTERVAL", "3") or 3)
+except Exception:
+    SOCKET_FULL_STATE_INTERVAL = 3
+
+_ULTIMO_ESTADO_COMPLETO_EMITIDO = {}
+
+
+def _env_bool(nome, padrao=False):
+    texto = str(os.environ.get(nome, "1" if padrao else "0") or "").strip().lower()
+    return texto in {"1", "true", "sim", "s", "yes", "on"}
+
 
 
 # =========================
@@ -428,6 +445,72 @@ def _normalizar_payload(partida_id, dados=None):
     return _json_safe(payload)
 
 
+
+# =========================
+# PAYLOAD LEVE PARA TEMPO REAL
+# =========================
+def _payload_placar_rapido(payload):
+    """Payload pequeno para eventos frequentes.
+
+    Mantém os campos que o placar/apontador/telão normalmente precisam a cada
+    ponto, mas não carrega listas pesadas como atletas, eventos, histórico,
+    evolução de pontos e scout completo.
+    """
+    if not isinstance(payload, dict):
+        return {}
+
+    chaves = [
+        "ok", "partida_id", "competicao",
+        "pontos_a", "pontos_b", "placar_a", "placar_b",
+        "sets_a", "sets_b", "set_atual", "sets_tipo", "set_unico",
+        "placar_exibicao_a", "placar_exibicao_b", "placar_exibicao_tipo",
+        "placar_exibicao_rotulo", "placar_exibicao",
+        "equipe_a", "equipe_b", "equipe_a_operacional", "equipe_b_operacional",
+        "escudo_a", "escudo_b", "escudo_a_operacional", "escudo_b_operacional",
+        "equipe_a_escudo", "equipe_b_escudo",
+        "cor_a", "cor_b", "cor_a_operacional", "cor_b_operacional",
+        "equipe_a_cor", "equipe_b_cor",
+        "quadra_id", "quadra_nome", "quadra_exibicao", "quadra_label",
+        "saque_atual", "sacador_nome", "sacador_numero",
+        "rotacao_a", "rotacao_b",
+        "tempos_a", "tempos_b", "limite_tempos",
+        "subs_a", "subs_b", "limite_substituicoes",
+        "pontos_set", "ponto_alvo_set", "pontos_para_vencer_set",
+        "pontos_tiebreak", "diferenca_minima", "sets_para_vencer", "sets_max",
+        "fase_partida", "status_jogo", "fim_set", "set_finalizado", "fim_jogo",
+        "partida_finalizada", "vencedor_set", "vencedor_partida",
+        "ultima_acao", "apontador", "lados_invertidos_apontador",
+    ]
+
+    leve = {k: payload.get(k) for k in chaves if k in payload}
+    leve["payload_leve"] = True
+    return _json_safe(leve)
+
+
+def _deve_emitir_estado_completo(partida_id, payload):
+    if _env_bool("SOCKET_FULL_STATE_EVERY_POINT", False):
+        return True
+
+    if payload.get("fim_set") or payload.get("fim_jogo") or payload.get("partida_finalizada"):
+        return True
+
+    status = str(payload.get("status_jogo") or payload.get("fase_partida") or "").strip().lower()
+    if status in {"finalizada", "finalizado", "encerrada", "encerrado", "entre_sets", "tiebreak_sorteio"}:
+        return True
+
+    intervalo = SOCKET_FULL_STATE_INTERVAL
+    if intervalo <= 0:
+        return False
+
+    chave = _room(partida_id)
+    agora = time.time()
+    ultimo = _ULTIMO_ESTADO_COMPLETO_EMITIDO.get(chave, 0)
+    if (agora - ultimo) >= intervalo:
+        _ULTIMO_ESTADO_COMPLETO_EMITIDO[chave] = agora
+        return True
+
+    return False
+
 # =========================
 # EMISSÃO PRINCIPAL
 # =========================
@@ -439,14 +522,24 @@ def emitir_estado_partida(partida_id, dados=None):
 
     payload = _normalizar_payload(partida_id, dados)
 
+    # Guarda sempre o estado completo em memória para quem entrar/recarregar a tela.
     _ESTADO_PARTIDAS[sala] = payload
 
-    _emitir_salas("estado_partida", payload, partida_id)
-    _emitir_salas("estado_jogo_atualizado", payload, partida_id)
-    _emitir_salas("estado_arbitros", payload, partida_id)
+    payload_leve = _payload_placar_rapido(payload)
 
-    # NOVO APP TEMPO REAL
-    _emitir_salas("estado_partida_tempo_real", payload, partida_id)
+    # Evento novo e leve para placares/telão/apontador. É o caminho preferido.
+    _emitir_salas("placar_rapido", payload_leve, partida_id)
+
+    # Mantém compatibilidade com telas antigas, mas enviando pacote pequeno.
+    # O estado completo continua disponível no cache e é enviado ao entrar na sala.
+    _emitir_salas("estado_partida", payload_leve, partida_id)
+    _emitir_salas("estado_jogo_atualizado", payload_leve, partida_id)
+    _emitir_salas("estado_arbitros", payload_leve, partida_id)
+    _emitir_salas("estado_partida_tempo_real", payload_leve, partida_id)
+
+    # Estado completo só periodicamente ou em momentos importantes.
+    if _deve_emitir_estado_completo(partida_id, payload):
+        _emitir_salas("estado_partida_completo", payload, partida_id)
 
     ultima_acao = str(payload.get("ultima_acao") or "").strip()
 
@@ -683,7 +776,7 @@ def emitir_placar_geral(partida_id, dados=None):
     payload = _normalizar_payload(partida_id, dados)
     _ULTIMO_PLACAR_GERAL = payload
 
-    socketio.emit("placar_geral_atualizado", payload, room=PLACAR_GERAL_ROOM)
+    socketio.emit("placar_geral_atualizado", _payload_placar_rapido(payload), room=PLACAR_GERAL_ROOM)
 
 
 def emitir_placar_apontador(apontador, partida_id, dados=None):
@@ -702,7 +795,7 @@ def emitir_placar_apontador(apontador, partida_id, dados=None):
 
     _ULTIMO_PLACAR_APONTADOR[apontador] = payload
 
-    socketio.emit("placar_apontador_atualizado", payload, room=sala)
+    socketio.emit("placar_apontador_atualizado", _payload_placar_rapido(payload), room=sala)
 
 
 # =========================
