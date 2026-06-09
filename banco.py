@@ -135,27 +135,17 @@ def _env_float(nome, padrao, minimo=None, maximo=None):
 def _pool_habilitado():
     """Define se o pool local do psycopg deve ser usado.
 
-    IMPORTANTE PARA NEON/RENDER:
-    Quando a DATABASE_URL aponta para o endpoint ``-pooler`` do Neon, o banco
-    JÁ está usando PgBouncer do lado do Neon. Fazer outro pool dentro do
-    Gunicorn em cima desse pooler costuma gerar conexões presas/BAD e erros SSL
-    como:
-        - SSL SYSCALL error: EOF detected
-        - decryption failed or bad record mac
-        - PoolTimeout mesmo com poucos usuários
+    Correção para Render/Neon:
+    - o pool fica LIGADO por padrão;
+    - só desliga se DB_POOL_ENABLED=0/false/no/off;
+    - não desliga automaticamente por causa de URL contendo "pooler".
 
-    Por isso, se DB_POOL_ENABLED não foi configurado manualmente, desativamos
-    o pool local automaticamente para URLs do Neon pooler. O sistema continua
-    usando conexões diretas controladas por semáforo, que são fechadas ao fim
-    de cada request/consulta e não reutilizam conexão SSL quebrada.
+    O problema do 502 vinha de várias requisições caindo direto no fallback
+    fora do pool, abrindo conexões novas em sequência.
     """
     valor_env = os.environ.get("DB_POOL_ENABLED")
 
     if valor_env is None:
-        url = os.environ.get("DATABASE_URL", "") or ""
-        url_lower = url.lower()
-        if "-pooler." in url_lower or ".pooler." in url_lower or "pooler." in url_lower:
-            return False
         return True
 
     valor = str(valor_env).strip().lower()
@@ -190,7 +180,7 @@ def _obter_pool():
         # fila muito rápido e cada request pode esperar vários segundos.
         # Pode ajustar no Render por ENV, mas o padrão novo já é mais adequado.
         min_size = _env_int("DB_POOL_MIN_SIZE", 1, minimo=0, maximo=10)
-        max_size = _env_int("DB_POOL_MAX_SIZE", 12, minimo=2, maximo=30)
+        max_size = _env_int("DB_POOL_MAX_SIZE", 8, minimo=2, maximo=20)
         if max_size < min_size:
             max_size = min_size or 1
 
@@ -307,7 +297,7 @@ def conectar():
     global _DIRECT_FALLBACK_SEMAPHORE
 
     pool = _obter_pool()
-    timeout_pool = _env_float("DB_POOL_TIMEOUT", 3, minimo=1, maximo=30)
+    timeout_pool = _env_float("DB_POOL_TIMEOUT", 10, minimo=1, maximo=30)
 
     # =====================================================
     # 1) TENTA PEGAR UMA CONEXÃO DO POOL ANTES DO YIELD
@@ -378,9 +368,9 @@ def conectar():
     # =====================================================
     limite_fallback = _env_int(
         "DB_DIRECT_FALLBACK_MAX",
-        8,
+        2,
         minimo=0,
-        maximo=20,
+        maximo=6,
     )
 
     if limite_fallback <= 0:
@@ -396,7 +386,7 @@ def conectar():
     adquiriu = _DIRECT_FALLBACK_SEMAPHORE.acquire(
         timeout=_env_float(
             "DB_DIRECT_FALLBACK_TIMEOUT",
-            8,
+            3,
             minimo=0.2,
             maximo=10,
         )

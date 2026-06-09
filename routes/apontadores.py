@@ -95,17 +95,53 @@ except Exception:
         return False
 
 def _atualizar_avanco_apos_finalizacao(competicao):
-    """Atualiza/cria partidas do Avanço sem travar o apontador.
+    """Atualiza/cria partidas do Avanço com proteção contra chamadas duplicadas."""
+    competicao = str(competicao or "").strip()
+    if not competicao:
+        return {}
 
-    É chamada ao abrir o painel e depois de finalizar/lançar resultado, para que
-    quartas, semifinais, finais, 3º lugar, Série Ouro/Prata etc. apareçam
-    automaticamente quando suas origens forem resolvidas.
-    """
+    with _AVANCO_LOCK:
+        if competicao in _AVANCO_EM_EXECUCAO:
+            return {"em_execucao": True}
+        _AVANCO_EM_EXECUCAO.add(competicao)
+
     try:
         return gerar_partidas_avanco_competicao(competicao)
     except Exception as e:
         print("AVISO apontador/atualizar_avanco_apos_finalizacao:", repr(e), flush=True)
         return {}
+    finally:
+        with _AVANCO_LOCK:
+            _AVANCO_EM_EXECUCAO.discard(competicao)
+
+
+def _atualizar_avanco_apos_finalizacao_async(competicao):
+    """Dispara atualização do avanço em segundo plano.
+
+    O salvamento do resultado responde rápido; o painel recarrega e o avanço
+    aparece assim que o worker terminar. Isso evita 502 por timeout/saturação.
+    """
+    competicao = str(competicao or "").strip()
+    if not competicao:
+        return {"agendado": False}
+
+    with _AVANCO_LOCK:
+        if competicao in _AVANCO_EM_EXECUCAO:
+            return {"agendado": False, "em_execucao": True}
+        _AVANCO_EM_EXECUCAO.add(competicao)
+
+    def _worker():
+        try:
+            gerar_partidas_avanco_competicao(competicao)
+            _limpar_cache_apontador(competicao)
+        except Exception as e:
+            print("AVISO apontador/atualizar_avanco_async:", repr(e), flush=True)
+        finally:
+            with _AVANCO_LOCK:
+                _AVANCO_EM_EXECUCAO.discard(competicao)
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {"agendado": True}
 
 
 apontadores_bp = Blueprint("apontadores", __name__)
@@ -115,6 +151,12 @@ _CACHE_ATLETAS_EQUIPE = {}
 _CACHE_COMPETICAO_CFG = {}
 _CACHE_MODO_OPERACAO = {}
 _CACHE_COLUNAS_ESCUDO_EQUIPE = {"valor": None}
+
+# Evita que resultado manual/finalização segure a resposta da tela enquanto
+# recalcula/gera avanço. Também impede várias chamadas simultâneas para a
+# mesma competição, que estouravam conexões no Render.
+_AVANCO_EM_EXECUCAO = set()
+_AVANCO_LOCK = threading.Lock()
 
 
 def _buscar_competicao_cache(competicao):
@@ -2307,13 +2349,8 @@ def salvar_resultado_manual_view(competicao, partida_id):
 
     if ok:
         _limpar_cache_apontador(competicao)
-        resultado_avanco = _atualizar_avanco_apos_finalizacao(competicao)
-        novas = (resultado_avanco or {}).get("criadas", 0)
-        atualizadas = (resultado_avanco or {}).get("atualizadas", 0)
-        if novas or atualizadas:
-            flash(f"{msg} Novo(s) jogo(s) do avanço atualizado(s).", "sucesso")
-        else:
-            flash(msg, "sucesso")
+        _atualizar_avanco_apos_finalizacao_async(competicao)
+        flash(f"{msg} Avanço será atualizado em segundo plano.", "sucesso")
     else:
         flash(msg, "erro")
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
@@ -4425,7 +4462,7 @@ def encerrar_partida_view(competicao, partida_id):
             estado = dict(obter_estado_cache(partida_id) or estado_final_cliente or {})
 
         encerrar_partida(partida_id, competicao, observacoes)
-        resultado_avanco = _atualizar_avanco_apos_finalizacao(competicao)
+        resultado_avanco = _atualizar_avanco_apos_finalizacao_async(competicao)
         estado = buscar_estado_jogo_partida(partida_id, competicao) or estado or {}
         if resultado_avanco:
             estado["avanco_atualizado"] = resultado_avanco

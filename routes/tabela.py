@@ -4,6 +4,7 @@ import random
 import json
 import os
 import time
+import hashlib
 
 from banco import (
     buscar_competicao_por_organizador,
@@ -103,6 +104,159 @@ def _limpar_cache_tabela(competicao_nome=None):
     for chave in list(_TABELA_CACHE.keys()):
         if nome in chave:
             _TABELA_CACHE.pop(chave, None)
+
+
+def _limpar_cache_tabela_e_classificacao(competicao_nome=None):
+    """Limpa o cache curto da tabela e deixa a próxima leitura recalcular.
+
+    Mantém os dados do banco intactos. É chamada somente depois de alterações
+    reais (gerar, editar, excluir, salvar grupo/partida).
+    """
+    _limpar_cache_tabela(competicao_nome)
+
+
+def _assinatura_classificacao_local(competicao_nome, partidas_preparadas, grupos, competicao):
+    """Assinatura em memória, sem consulta extra ao banco.
+
+    A versão anterior chamava assinatura_classificacao_competicao(), que fazia
+    hash no PostgreSQL varrendo partidas/grupos. Isso tornava cada abertura da
+    tabela e cada geração de fase dependente de mais uma consulta pesada.
+    Aqui usamos os dados que a rota já carregou.
+    """
+    base = {
+        "competicao": competicao_nome,
+        "criterios": (competicao or {}).get("criterios_desempate") or (competicao or {}).get("criterios_classificacao") or "",
+        "sets_tipo": (competicao or {}).get("sets_tipo") or "",
+        "grupos": [
+            {
+                "grupo": (g.get("grupo") or {}).get("nome"),
+                "equipes": sorted(str(e.get("equipe") or "") for e in (g.get("equipes") or [])),
+            }
+            for g in (grupos or [])
+        ],
+        "partidas": [
+            {
+                "id": p.get("id"),
+                "grupo": p.get("grupo"),
+                "fase": p.get("fase_normalizada") or p.get("fase"),
+                "a": p.get("equipe_a"),
+                "b": p.get("equipe_b"),
+                "status": p.get("status_normalizado") or p.get("status"),
+                "sets_a": p.get("sets_a"),
+                "sets_b": p.get("sets_b"),
+                "pontos_a": p.get("pontos_a"),
+                "pontos_b": p.get("pontos_b"),
+                "set1_a": p.get("set1_a"), "set1_b": p.get("set1_b"),
+                "set2_a": p.get("set2_a"), "set2_b": p.get("set2_b"),
+                "set3_a": p.get("set3_a"), "set3_b": p.get("set3_b"),
+                "set4_a": p.get("set4_a"), "set4_b": p.get("set4_b"),
+                "set5_a": p.get("set5_a"), "set5_b": p.get("set5_b"),
+            }
+            for p in (partidas_preparadas or [])
+            if _partida_esta_finalizada(p)
+        ],
+    }
+    texto = json.dumps(base, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.md5(texto.encode("utf-8")).hexdigest()
+
+
+def _partidas_finalizadas_por_grupo(partidas):
+    mapa = {}
+    for p in partidas or []:
+        if not _partida_esta_finalizada(p):
+            continue
+        grupo = p.get("grupo")
+        if not grupo:
+            continue
+        mapa.setdefault(grupo, []).append(p)
+    return mapa
+
+
+def _partida_tem_resultado_ou_iniciou(partida):
+    """Proteção para nunca apagar jogo com placar/resultado/status real."""
+    if not partida:
+        return False
+    if _partida_conta_como_iniciada_para_trava(partida) or _partida_esta_finalizada(partida):
+        return True
+    for campo in ("sets_a", "sets_b", "pontos_a", "pontos_b", "placar_a", "placar_b", "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b"):
+        try:
+            if int((partida or {}).get(campo) or 0) > 0:
+                return True
+        except Exception:
+            if str((partida or {}).get(campo) or "").strip() not in {"", "0", "None", "null"}:
+                return True
+    return False
+
+
+def _limpar_partidas_fase_serie_nao_iniciadas(nome_competicao, fase_banco, serie=""):
+    """Remove somente jogos automáticos NÃO iniciados da fase/série atual.
+
+    Não apaga finalizadas, ao vivo, pré-jogo iniciado, nem partidas com sets/pontos.
+    Também evita que gerar Prata mexa na Ouro, porque filtra pelo prefixo
+    origem='avanco:<serie>:' quando houver série.
+    """
+    fase_banco = _fase_subaba_para_banco(fase_banco)
+    serie = str(serie or "").strip().lower()
+    partidas = _listar_partidas_cache(nome_competicao) or []
+    ids = []
+    for p in partidas:
+        if _fase_partida_normalizada(p) != fase_banco:
+            continue
+        if serie:
+            serie_p, _jogo_id = _origem_partida_avanco(p)
+            if serie_p and serie_p != serie:
+                continue
+            if not serie_p and str(p.get("origem") or "").startswith("avanco:"):
+                continue
+        if _partida_tem_resultado_ou_iniciou(p):
+            continue
+        ids.append(p.get("id"))
+
+    ids = [i for i in ids if i]
+    if not ids:
+        return 0
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM partidas WHERE competicao = %s AND id = ANY(%s)", (nome_competicao, ids))
+        conn.commit()
+    return len(ids)
+
+
+def _vencedor_partida_rapido(partida, placeholder="Vencedor"):
+    """Resolve vencedor com várias compatibilidades de coluna."""
+    if not partida:
+        return placeholder
+    for campo in ("vencedor", "equipe_vencedora", "ganhador"):
+        valor = str(partida.get(campo) or "").strip()
+        if valor and valor.lower() not in {"a definir", "none", "null"}:
+            return valor
+    if _partida_esta_finalizada(partida):
+        try:
+            sets_a = int(partida.get("sets_a") or 0)
+            sets_b = int(partida.get("sets_b") or 0)
+            if sets_a > sets_b:
+                return partida.get("equipe_a") or placeholder
+            if sets_b > sets_a:
+                return partida.get("equipe_b") or placeholder
+        except Exception:
+            pass
+    return placeholder
+
+
+def _ordenar_classificados_intercalado(classificacao):
+    """Retorna equipes intercalando posições dos grupos: 1ºA, 1ºB, 2ºA..."""
+    classificados = []
+    maior = max((len(linhas) for linhas in (classificacao or {}).values()), default=0)
+    for posicao in range(maior):
+        for nome_grupo in sorted((classificacao or {}).keys()):
+            linhas = classificacao.get(nome_grupo) or []
+            if posicao < len(linhas):
+                equipe = linhas[posicao].get("equipe")
+                if equipe:
+                    classificados.append(equipe)
+    return classificados
+
 
 
 @tabela_bp.after_request
@@ -216,6 +370,30 @@ def _grupos_travados_cache(competicao_nome):
     if cached is not None:
         return bool(cached)
     return bool(_cache_set_tabela(chave, fase_grupos_esta_travada_por_jogo(competicao_nome)))
+
+
+def _fase_atual_travada_cache(competicao_nome, fase_banco):
+    """Cacheia a trava por fase.
+
+    Antes cada abertura da tabela varria partidas para descobrir se a fase
+    já tinha jogo iniciado. Isso era repetido mesmo quando nada mudava.
+    """
+    chave = _cache_key("fase_travada", competicao_nome, fase_banco)
+    cached = _cache_get_tabela(chave, ttl=10)
+    if cached is not None:
+        return bool(cached)
+    travada = not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao_nome, fase_banco)
+    return bool(_cache_set_tabela(chave, travada))
+
+
+def _pacote_cache_get(nome_competicao, aba, fase_subaba, serie_ativa=""):
+    chave = _cache_key("pacote_tabela", nome_competicao, aba, fase_subaba, serie_ativa)
+    return _cache_get_tabela(chave, ttl=_TABELA_CACHE_TTL)
+
+
+def _pacote_cache_set(nome_competicao, aba, fase_subaba, serie_ativa, pacote):
+    chave = _cache_key("pacote_tabela", nome_competicao, aba, fase_subaba, serie_ativa)
+    return _cache_set_tabela(chave, pacote)
 
 
 # =========================================================
@@ -1493,13 +1671,15 @@ def _resolver_confronto_direto(bloco, partidas, grupo):
         for nome in nomes
     }
 
-    for p in partidas:
-        if not _partida_esta_finalizada(p):
-            continue
+    # Otimização: quando receber dict, já vem indexado por grupo e só varre
+    # partidas daquele grupo. Antes varria TODAS as partidas dentro de cada
+    # bloco de empate, o que fazia a classificação ficar muito lenta.
+    if isinstance(partidas, dict):
+        partidas_iter = partidas.get(grupo) or []
+    else:
+        partidas_iter = [p for p in (partidas or []) if p.get("grupo") == grupo and _partida_esta_finalizada(p)]
 
-        if p.get("grupo") != grupo:
-            continue
-
+    for p in partidas_iter:
         a = p.get("equipe_a")
         b = p.get("equipe_b")
 
@@ -1738,11 +1918,12 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
             linha.setdefault("wo", 0)
 
     criterios_ativos = regras.get("criterios") or list(CRITERIOS_CLASSIFICACAO_PADRAO)
+    partidas_por_grupo = _partidas_finalizadas_por_grupo(partidas)
 
     for grupo, linhas in classificacao.items():
         classificacao[grupo] = _aplicar_criterios_classificacao(
             linhas,
-            partidas,
+            partidas_por_grupo,
             grupo,
             criterios_ativos,
         )
@@ -1801,54 +1982,16 @@ def _normalizar_cache_classificacao(valor_cache, assinatura_atual=None):
 
 
 def _assinatura_classificacao_segura(competicao_nome, partidas_preparadas, grupos, competicao):
-    """Gera/obtém assinatura do cache sem derrubar a página pública."""
-    try:
-        return assinatura_classificacao_competicao(competicao_nome)
-    except TypeError:
-        try:
-            return assinatura_classificacao_competicao(competicao_nome, partidas_preparadas, grupos, competicao)
-        except Exception as e:
-            print("AVISO classificacao/assinatura_cache:", repr(e))
-    except Exception as e:
-        print("AVISO classificacao/assinatura_cache:", repr(e))
+    """Gera assinatura sem bater no banco.
 
-    # Fallback local: suficiente para impedir erro 500 caso o banco antigo não
-    # tenha a função/consulta de assinatura pronta.
+    Isso remove uma consulta pesada que antes rodava na abertura da tabela e na
+    geração de mata-mata. Se algo der errado, retorna None e a classificação é
+    calculada normalmente, sem cache.
+    """
     try:
-        base = {
-            "competicao": competicao_nome,
-            "criterios": (competicao or {}).get("criterios_desempate") or (competicao or {}).get("criterios_classificacao") or "",
-            "grupos": [
-                {
-                    "grupo": (g.get("grupo") or {}).get("nome"),
-                    "equipes": [e.get("equipe") for e in (g.get("equipes") or [])],
-                }
-                for g in (grupos or [])
-            ],
-            "partidas": [
-                {
-                    "id": p.get("id"),
-                    "grupo": p.get("grupo"),
-                    "a": p.get("equipe_a"),
-                    "b": p.get("equipe_b"),
-                    "status": p.get("status_normalizado") or p.get("status"),
-                    "sets_a": p.get("sets_a"),
-                    "sets_b": p.get("sets_b"),
-                    "pontos_a": p.get("pontos_a"),
-                    "pontos_b": p.get("pontos_b"),
-                    "set1_a": p.get("set1_a"), "set1_b": p.get("set1_b"),
-                    "set2_a": p.get("set2_a"), "set2_b": p.get("set2_b"),
-                    "set3_a": p.get("set3_a"), "set3_b": p.get("set3_b"),
-                    "set4_a": p.get("set4_a"), "set4_b": p.get("set4_b"),
-                    "set5_a": p.get("set5_a"), "set5_b": p.get("set5_b"),
-                }
-                for p in (partidas_preparadas or [])
-                if _partida_esta_finalizada(p)
-            ],
-        }
-        return json.dumps(base, sort_keys=True, ensure_ascii=False, default=str)
+        return _assinatura_classificacao_local(competicao_nome, partidas_preparadas, grupos, competicao)
     except Exception as e:
-        print("AVISO classificacao/assinatura_fallback:", repr(e))
+        print("AVISO classificacao/assinatura_local:", repr(e))
         return None
 
 
@@ -2002,7 +2145,7 @@ def tabela_view():
     fases = _fases_disponiveis(competicao)
     grupos_travados = _grupos_travados_cache(nome_competicao)
     fase_banco_ativa = _fase_subaba_para_banco(fase_subaba)
-    fase_atual_travada = not _fase_pode_ser_alterada_sem_travar_mata_mata(nome_competicao, fase_banco_ativa)
+    fase_atual_travada = _fase_atual_travada_cache(nome_competicao, fase_banco_ativa)
 
     contexto = {
         "competicao": competicao,
@@ -2032,6 +2175,14 @@ def tabela_view():
         **fases,
     }
 
+    serie_param_cache = (request.args.get("serie") or "").strip().lower()
+    pacote_cacheado = _pacote_cache_get(nome_competicao, aba, fase_subaba, serie_param_cache)
+    if pacote_cacheado is not None:
+        contexto.update(pacote_cacheado)
+        return render_template("tabela.html", **contexto)
+
+    pacote_contexto = {}
+
     # Aba Configurações: carrega apenas grupos, equipes, quadras e agenda.
     if aba == "geracao":
         quadras = _quadras_cache(nome_competicao, competicao.get("qtd_quadras") or 1)
@@ -2039,7 +2190,7 @@ def tabela_view():
         equipes = _listar_equipes_competicao_cache(nome_competicao)
         grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
         config_agenda = _config_agenda_cache(nome_competicao)
-        contexto.update({
+        pacote_contexto.update({
             "grupos": grupos,
             "equipes": equipes,
             "quadras": quadras,
@@ -2053,11 +2204,7 @@ def tabela_view():
         status_avanco = _status_avanco_cache(nome_competicao)
         avanco_gerado = _avanco_gerado_cache(nome_competicao)
         status_avanco["gerado"] = avanco_gerado
-        if not avanco_gerado:
-            try:
-                limpar_partidas_avanco_nao_iniciadas_competicao(nome_competicao)
-            except Exception as e:
-                print("AVISO tabela/limpar_avanco_nao_gerado:", repr(e))
+        # GET da tabela nunca deve apagar partidas. Limpeza só em POST de geração.
 
         avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
         series_fase = _series_do_avanco_por_fase(avanco, fase_subaba) if fase_subaba != "classificatorias" else []
@@ -2080,7 +2227,7 @@ def tabela_view():
             partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa) if avanco_gerado else []
         avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
         config_agenda = _config_agenda_cache(nome_competicao)
-        contexto.update({
+        pacote_contexto.update({
             "grupos": grupos,
             "equipes": equipes,
             "quadras": quadras,
@@ -2108,7 +2255,7 @@ def tabela_view():
         regras_classificacao = _obter_regras_classificacao(competicao)
         criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
         colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
-        contexto.update({
+        pacote_contexto.update({
             "grupos": grupos,
             "equipes": equipes,
             "partidas": partidas_preparadas,
@@ -2119,6 +2266,10 @@ def tabela_view():
 
     # Aba Visualizador: não carrega partidas nem classificação do organizador.
     # O iframe/link público carrega a rota pública quando necessário.
+
+    if pacote_contexto:
+        _pacote_cache_set(nome_competicao, aba, fase_subaba, serie_param_cache, pacote_contexto)
+        contexto.update(pacote_contexto)
 
     return render_template("tabela.html", **contexto)
 
@@ -2151,6 +2302,7 @@ def gerar_avanco_tabela_view():
         return redirect(url_for("painel.inicio"))
 
     resultado = gerar_partidas_avanco_competicao(competicao["nome"])
+    _limpar_cache_tabela(competicao["nome"])
     fase_destino = (request.form.get("fase_subaba") or "quartas").strip().lower()
     serie_destino = (request.form.get("serie") or "").strip().lower()
 
@@ -3083,41 +3235,47 @@ def gerar_automatico():
     mapa_quadras = _mapa_quadras_formatadas(nome_competicao)
 
     if fase_banco != "grupos":
+        serie_ativa = (request.form.get("serie") or request.args.get("serie") or "").strip().lower()
         partidas = _listar_partidas_cache(nome_competicao)
-        grupos = []
-        for g in grupos_raw:
-            grupos.append({"grupo": g, "equipes": listar_equipes_por_grupo(g["id"])})
-
-        mapa_escudos = _mapa_escudos_equipes(listar_equipes_da_competicao(nome_competicao))
+        equipes_competicao = _listar_equipes_competicao_cache(nome_competicao)
+        mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
         partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-        classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
+
+        def _filtrar_serie_atual(lista):
+            if not serie_ativa:
+                return list(lista or [])
+            filtradas = []
+            for p in lista or []:
+                serie_p, _jogo_id = _origem_partida_avanco(p)
+                # Partidas antigas sem origem de avanço continuam visíveis só
+                # quando não há série selecionada. Isso impede Prata de mexer na Ouro.
+                if serie_p == serie_ativa:
+                    filtradas.append(p)
+            return filtradas
 
         def _vencedor_ou_placeholder(partida, prefixo, indice):
-            if partida and _partida_esta_finalizada(partida):
-                try:
-                    sets_a = int(partida.get("sets_a") or 0)
-                    sets_b = int(partida.get("sets_b") or 0)
-                except (TypeError, ValueError):
-                    sets_a = sets_b = 0
-                if sets_a > sets_b:
-                    return partida.get("equipe_a") or f"Vencedor {prefixo} {indice}"
-                if sets_b > sets_a:
-                    return partida.get("equipe_b") or f"Vencedor {prefixo} {indice}"
-            return f"Vencedor {prefixo} {indice}"
+            return _vencedor_partida_rapido(partida, f"Vencedor {prefixo} {indice}")
 
         confrontos = []
-        if fase_banco == "quartas":
-            classificados = []
-            maior_tamanho = max((len(linhas) for linhas in classificacao.values()), default=0)
-            for posicao in range(maior_tamanho):
-                for nome_grupo in sorted(classificacao.keys()):
-                    linhas = classificacao.get(nome_grupo) or []
-                    if posicao < len(linhas):
-                        classificados.append(linhas[posicao]["equipe"])
 
+        # Só calcula classificação quando a fase realmente depende dela:
+        # quartas sempre; semifinal apenas se não existirem quartas suficientes.
+        classificacao = None
+        def _obter_classificacao_para_mata_mata():
+            nonlocal classificacao
+            if classificacao is not None:
+                return classificacao
+            grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw, incluir_quadra=False)
+            classificacao, _classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(
+                nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos
+            )
+            return classificacao
+
+        if fase_banco == "quartas":
+            classificados = _ordenar_classificados_intercalado(_obter_classificacao_para_mata_mata())
             if len(classificados) < 8:
                 flash("Para gerar quartas automaticamente, precisa ter pelo menos 8 equipes classificadas.", "erro")
-                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
+                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
 
             top8 = classificados[:8]
             confrontos = [
@@ -3128,6 +3286,7 @@ def gerar_automatico():
             ]
         elif fase_banco == "semifinal":
             quartas = _filtrar_partidas_por_fase(partidas_preparadas, "quartas")
+            quartas = _filtrar_serie_atual(quartas)
             quartas = sorted(quartas, key=lambda p: (p.get("ordem") or 0, p.get("id") or 0))
             if len(quartas) >= 4:
                 confrontos = [
@@ -3135,53 +3294,68 @@ def gerar_automatico():
                     (_vencedor_ou_placeholder(quartas[2], "Quartas", 3), _vencedor_ou_placeholder(quartas[3], "Quartas", 4)),
                 ]
             else:
-                classificados = []
-                maior_tamanho = max((len(linhas) for linhas in classificacao.values()), default=0)
-                for posicao in range(maior_tamanho):
-                    for nome_grupo in sorted(classificacao.keys()):
-                        linhas = classificacao.get(nome_grupo) or []
-                        if posicao < len(linhas):
-                            classificados.append(linhas[posicao]["equipe"])
+                classificados = _ordenar_classificados_intercalado(_obter_classificacao_para_mata_mata())
                 if len(classificados) < 4:
                     flash("Para gerar semifinais automaticamente, precisa ter quartas criadas ou pelo menos 4 equipes classificadas.", "erro")
-                    return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
+                    return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
                 top4 = classificados[:4]
                 confrontos = [(top4[0], top4[3]), (top4[1], top4[2])]
         elif fase_banco == "final":
             semis = _filtrar_partidas_por_fase(partidas_preparadas, "semifinais")
+            semis = _filtrar_serie_atual(semis)
             semis = sorted(semis, key=lambda p: (p.get("ordem") or 0, p.get("id") or 0))
             if len(semis) < 2:
                 flash("Para gerar a final automaticamente, crie as duas semifinais primeiro.", "erro")
-                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
+                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
             confrontos = [(_vencedor_ou_placeholder(semis[0], "Semifinal", 1), _vencedor_ou_placeholder(semis[1], "Semifinal", 2))]
+        elif fase_banco == "terceiro_lugar":
+            semis = _filtrar_partidas_por_fase(partidas_preparadas, "semifinais")
+            semis = _filtrar_serie_atual(semis)
+            semis = sorted(semis, key=lambda p: (p.get("ordem") or 0, p.get("id") or 0))
+            if len(semis) < 2:
+                flash("Para gerar 3º lugar automaticamente, crie as duas semifinais primeiro.", "erro")
+                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
+            def _perdedor(partida, prefixo, indice):
+                vencedor = _vencedor_partida_rapido(partida, "")
+                if vencedor and vencedor == partida.get("equipe_a"):
+                    return partida.get("equipe_b") or f"Perdedor {prefixo} {indice}"
+                if vencedor and vencedor == partida.get("equipe_b"):
+                    return partida.get("equipe_a") or f"Perdedor {prefixo} {indice}"
+                return f"Perdedor {prefixo} {indice}"
+            confrontos = [(_perdedor(semis[0], "Semifinal", 1), _perdedor(semis[1], "Semifinal", 2))]
 
         if not confrontos:
             flash("Não foi possível montar confrontos automáticos para esta fase.", "erro")
-            return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
+            return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
 
-        limpar_partidas_por_fase(nome_competicao, fase_banco)
-        ordem_inicial = len(listar_partidas(nome_competicao)) + 1
+        removidas = _limpar_partidas_fase_serie_nao_iniciadas(nome_competicao, fase_banco, serie_ativa)
+        ordem_inicial = max([int(p.get("ordem") or 0) for p in partidas if p.get("ordem") is not None] or [0]) + 1
         quadra_id, quadra_nome = _quadra_nome_cache(mapa_quadras, _to_int_or_none(request.form.get("quadra_id")))
 
         partidas_para_salvar = []
-        for indice, (equipe_a, equipe_b) in enumerate(confrontos):
+        for indice, (equipe_a, equipe_b) in enumerate(confrontos, start=1):
+            origem = f"avanco:{serie_ativa}:auto_{fase_banco}_{indice}" if serie_ativa else "automatica"
             partidas_para_salvar.append({
                 "competicao": nome_competicao,
                 "grupo": None,
                 "equipe_a": equipe_a,
                 "equipe_b": equipe_b,
                 "fase": fase_banco,
-                "ordem": ordem_inicial + indice,
+                "ordem": ordem_inicial + indice - 1,
                 "quadra_id": quadra_id,
                 "quadra_nome": quadra_nome,
-                "origem": "automatica",
+                "origem": origem,
                 "rodada": None,
             })
 
-        _inserir_partidas_em_lote(partidas_para_salvar)
+        total_inserido = _inserir_partidas_em_lote(partidas_para_salvar)
+        _limpar_cache_tabela_e_classificacao(nome_competicao)
 
-        flash("Jogos do mata-mata gerados automaticamente. Você ainda pode excluir e recriar enquanto a fase não iniciar.", "sucesso")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
+        flash(f"Jogos do mata-mata gerados: {total_inserido} criado(s), {removidas} pendente(s) removido(s). Partidas com resultado não foram alteradas.", "sucesso")
+        args = {"aba": "partidas", "fase": fase_subaba}
+        if serie_ativa:
+            args["serie"] = serie_ativa
+        return redirect(url_for("tabela.tabela_view", **args))
 
     config_agenda = _config_agenda_da_requisicao(nome_competicao)
     resultado_agenda = _gerar_agenda_classificatoria_inteligente(nome_competicao, grupos_raw, config_agenda)
@@ -3209,6 +3383,7 @@ def gerar_automatico():
         })
 
     total_inserido = _inserir_partidas_em_lote(partidas_para_salvar)
+    _limpar_cache_tabela(nome_competicao)
 
     flash(
         f"{total_inserido} jogos gerados automaticamente com agenda inteligente: "
