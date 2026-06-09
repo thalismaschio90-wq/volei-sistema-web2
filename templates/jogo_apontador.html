@@ -1679,6 +1679,448 @@ body {
     }
 }
 
+
+
+/* =========================================================
+   RESPONSIVO V3 - APONTADOR CABE NA TELA
+   Desktop/notebook/tablet/celular horizontal sem cortar quadra
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    html,
+    body {
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        inset: 0 !important;
+    }
+
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        display: grid !important;
+        grid-template-rows: clamp(58px, 11vh, 86px) minmax(0, 1fr) auto !important;
+        gap: clamp(3px, .8vh, 7px) !important;
+        padding:
+            calc(env(safe-area-inset-top) + clamp(3px, .7vh, 7px))
+            calc(env(safe-area-inset-right) + clamp(5px, .8vw, 10px))
+            calc(env(safe-area-inset-bottom) + clamp(3px, .7vh, 7px))
+            calc(env(safe-area-inset-left) + clamp(5px, .8vw, 10px)) !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-width: 100vw !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    .mobile-jogo-topo {
+        min-height: 0 !important;
+        height: 100% !important;
+        gap: clamp(5px, .7vw, 9px) !important;
+        grid-template-columns: minmax(125px, 1fr) minmax(118px, 158px) minmax(125px, 1fr) !important;
+    }
+
+    .mobile-equipe-head,
+    .mobile-centro-head {
+        border-radius: clamp(11px, 1.4vw, 17px) !important;
+        min-height: 0 !important;
+    }
+
+    .mobile-equipe-head {
+        padding: clamp(5px, .8vh, 9px) clamp(7px, .9vw, 12px) !important;
+        grid-template-columns: minmax(0, 1fr) auto !important;
+    }
+
+    .mobile-centro-head {
+        min-width: 0 !important;
+        padding: clamp(4px, .7vh, 7px) clamp(7px, .8vw, 11px) !important;
+    }
+
+    .mobile-equipe-nome {
+        font-size: clamp(12px, 1.55vw, 18px) !important;
+        line-height: 1 !important;
+    }
+
+    .mobile-equipe-sub {
+        font-size: clamp(9px, .9vw, 11px) !important;
+        margin-top: 2px !important;
+    }
+
+    .mobile-placar-numero {
+        font-size: clamp(34px, 7vh, 68px) !important;
+        line-height: .88 !important;
+    }
+
+    .mobile-set-atual {
+        font-size: clamp(10px, 1.2vw, 13px) !important;
+        line-height: 1 !important;
+    }
+
+    .mobile-sets {
+        font-size: clamp(14px, 2.3vh, 20px) !important;
+        line-height: 1.05 !important;
+        margin-top: 1px !important;
+    }
+
+    .mobile-saque {
+        max-width: 100% !important;
+        font-size: clamp(9px, .9vw, 11px) !important;
+        line-height: 1.05 !important;
+        margin-top: 1px !important;
+    }
+
+    .mobile-main {
+        min-height: 0 !important;
+        height: auto !important;
+        width: 100% !important;
+        overflow: hidden !important;
+        padding-bottom: 0 !important;
+        grid-template-columns: clamp(34px, 4vw, 45px) minmax(0, 1fr) minmax(0, 1fr) clamp(34px, 4vw, 45px) !important;
+        gap: clamp(5px, .9vw, 13px) !important;
+        align-items: stretch !important;
+    }
+
+    .mobile-quadra-card {
+        min-height: 0 !important;
+        height: auto !important;
+        padding: clamp(5px, .8vh, 8px) !important;
+        gap: clamp(3px, .6vh, 6px) !important;
+        border-radius: clamp(12px, 1.6vw, 18px) !important;
+        overflow: hidden !important;
+        grid-template-rows: auto minmax(0, 1fr) auto !important;
+    }
+
+    .mobile-quadra-titulo {
+        font-size: clamp(10px, 1vw, 12px) !important;
+        line-height: 1 !important;
+        min-height: clamp(15px, 2.1vh, 20px) !important;
+    }
+
+    .mobile-badge {
+        font-size: clamp(8px, .8vw, 10px) !important;
+        padding: 2px 6px !important;
+    }
+
+    .mobile-quadra-grid {
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: 100% !important;
+        padding: clamp(5px, .8vh, 8px) !important;
+        gap: clamp(3px, .65vh, 6px) !important;
+        margin-left: clamp(10px, 1.4vw, 18px) !important;
+        border-width: clamp(2px, .45vw, 4px) !important;
+        border-radius: clamp(12px, 1.5vw, 18px) !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
+        overflow: visible !important;
+    }
+
+    .mobile-quadra-grid.quadra-lado-esquerdo::after {
+        right: clamp(-28px, -2.2vw, -18px) !important;
+    }
+
+    .mobile-quadra-grid.quadra-lado-direito::after {
+        left: clamp(-28px, -2.2vw, -18px) !important;
+    }
+
+    .mobile-quadra-grid::after {
+        font-size: clamp(7px, .7vw, 9px) !important;
+        padding: 3px 8px !important;
+    }
+
+    .mobile-pos {
+        min-height: 0 !important;
+        padding: clamp(2px, .5vh, 5px) !important;
+        border-radius: clamp(8px, 1.1vw, 12px) !important;
+        border-width: clamp(1px, .25vw, 2px) !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(26px, 7.2vh, 56px) !important;
+        line-height: .86 !important;
+    }
+
+    .mobile-pos-nome {
+        margin-top: clamp(1px, .45vh, 4px) !important;
+        font-size: clamp(7px, 1.15vh, 10px) !important;
+        line-height: 1 !important;
+        max-width: 96% !important;
+    }
+
+    .mobile-ponto-btn {
+        display: none !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: clamp(32px, 3.7vw, 42px) !important;
+        border-radius: clamp(10px, 1.4vw, 16px) !important;
+        font-size: clamp(14px, 1.8vw, 19px) !important;
+        line-height: 1 !important;
+    }
+
+    .mobile-menu-lateral {
+        width: min(238px, 44vw) !important;
+        max-height: 100% !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-btn {
+        padding: clamp(7px, 1.1vh, 10px) clamp(7px, .8vw, 9px) !important;
+        font-size: clamp(10px, 1vw, 12px) !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-footer {
+        position: relative !important;
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 0 !important;
+        padding: clamp(4px, .7vh, 8px) !important;
+        display: grid !important;
+        grid-template-columns: auto minmax(110px, 1fr) auto !important;
+        gap: clamp(4px, .7vw, 8px) !important;
+        align-items: center !important;
+        border-radius: 12px !important;
+        background: rgba(6, 22, 41, .96) !important;
+        border: 1px solid rgba(255,255,255,.08) !important;
+        box-shadow: none !important;
+        box-sizing: border-box !important;
+        transform: none !important;
+        z-index: 80005 !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: clamp(6px, .9vh, 9px) clamp(8px, .9vw, 12px) !important;
+        font-size: clamp(10px, 1vw, 12px) !important;
+        line-height: 1 !important;
+        border-radius: 12px !important;
+    }
+
+    .mobile-footer-acoes {
+        min-width: 0 !important;
+        gap: clamp(4px, .6vw, 7px) !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+    }
+
+    .mobile-footer-acoes::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: clamp(7px, 1vh, 10px) clamp(8px, .9vw, 11px) !important;
+        font-size: clamp(10px, .95vw, 12px) !important;
+        border-radius: 10px !important;
+        flex: 0 0 auto !important;
+    }
+
+    .mobile-cronometro {
+        padding: clamp(6px, .9vh, 9px) clamp(8px, .9vw, 12px) !important;
+        font-size: clamp(12px, 1.4vw, 16px) !important;
+        border-radius: 12px !important;
+    }
+}
+
+/* Notebook/PC com pouca altura: modo super compacto */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) and (max-height: 760px) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        grid-template-rows: clamp(52px, 10vh, 76px) minmax(0, 1fr) auto !important;
+        gap: 3px !important;
+        padding: 3px 6px !important;
+    }
+
+    .mobile-jogo-topo {
+        gap: 6px !important;
+        grid-template-columns: minmax(115px, 1fr) minmax(108px, 145px) minmax(115px, 1fr) !important;
+    }
+
+    .mobile-placar-numero {
+        font-size: clamp(30px, 7.6vh, 58px) !important;
+    }
+
+    .mobile-equipe-nome {
+        font-size: clamp(11px, 1.45vw, 16px) !important;
+    }
+
+    .mobile-equipe-sub,
+    .mobile-saque {
+        font-size: 9px !important;
+    }
+
+    .mobile-set-atual {
+        font-size: 10px !important;
+    }
+
+    .mobile-sets {
+        font-size: clamp(13px, 2.2vh, 18px) !important;
+    }
+
+    .mobile-main {
+        grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) 34px !important;
+        gap: 6px !important;
+    }
+
+    .mobile-quadra-card {
+        padding: 5px !important;
+        gap: 3px !important;
+    }
+
+    .mobile-quadra-grid {
+        padding: 5px !important;
+        gap: 3px !important;
+        margin-left: 10px !important;
+        border-width: 2px !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(24px, 7.6vh, 50px) !important;
+    }
+
+    .mobile-pos-nome {
+        font-size: clamp(7px, 1.05vh, 9px) !important;
+        margin-top: 1px !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: 32px !important;
+        font-size: 14px !important;
+    }
+
+    .mobile-footer {
+        padding: 4px 6px !important;
+        gap: 4px !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 7px 8px !important;
+        font-size: 10px !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: 7px 8px !important;
+        font-size: 10px !important;
+    }
+}
+
+/* Celular horizontal: cabe com ações rolando na barra inferior */
+@media (max-width: 900px) and (min-aspect-ratio: 1/1) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        grid-template-rows: 50px minmax(0, 1fr) auto !important;
+        padding: 3px 4px !important;
+        gap: 3px !important;
+    }
+
+    .mobile-jogo-topo {
+        grid-template-columns: minmax(90px, 1fr) minmax(86px, 110px) minmax(90px, 1fr) !important;
+        gap: 4px !important;
+    }
+
+    .mobile-equipe-head {
+        padding: 4px 6px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-centro-head {
+        padding: 3px 5px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-equipe-nome { font-size: 10px !important; }
+    .mobile-equipe-sub { display: none !important; }
+    .mobile-placar-numero { font-size: clamp(28px, 9vh, 44px) !important; }
+    .mobile-set-atual { font-size: 9px !important; }
+    .mobile-sets { font-size: 14px !important; }
+    .mobile-saque { font-size: 8px !important; }
+
+    .mobile-main {
+        grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr) 30px !important;
+        gap: 4px !important;
+    }
+
+    .mobile-quadra-titulo {
+        font-size: 9px !important;
+        min-height: 12px !important;
+    }
+
+    .mobile-badge { display: none !important; }
+
+    .mobile-quadra-card {
+        padding: 4px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-quadra-grid {
+        padding: 4px !important;
+        gap: 3px !important;
+        margin-left: 8px !important;
+        border-width: 2px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-quadra-grid::after {
+        font-size: 6px !important;
+        padding: 2px 6px !important;
+    }
+
+    .mobile-quadra-grid.quadra-lado-esquerdo::after { right: -20px !important; }
+    .mobile-quadra-grid.quadra-lado-direito::after { left: -20px !important; }
+
+    .mobile-pos {
+        border-radius: 7px !important;
+        padding: 1px !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(20px, 9vh, 38px) !important;
+    }
+
+    .mobile-pos-nome {
+        font-size: 7px !important;
+        margin-top: 0 !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: 28px !important;
+        border-radius: 9px !important;
+        font-size: 12px !important;
+    }
+
+    .mobile-footer {
+        grid-template-columns: minmax(90px, 1fr) auto !important;
+        padding: 3px 4px !important;
+        border-radius: 8px !important;
+    }
+
+    .mobile-cronometro {
+        display: none !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: 6px 7px !important;
+        font-size: 9px !important;
+        border-radius: 9px !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 6px 7px !important;
+        font-size: 9px !important;
+        border-radius: 8px !important;
+    }
+}
+
 </style>
 
 <div class="card-painel topo-jogo-mini">
