@@ -1,6 +1,10 @@
 from flask import Blueprint, jsonify, request
 from routes.utils import exigir_perfil
 from banco import conectar
+import time
+
+_CONFIG_CACHE = {}
+_CONFIG_CACHE_TTL = 30
 
 offline_config_bp = Blueprint("offline_config", __name__)
 
@@ -19,29 +23,40 @@ def criar_tabela_configuracoes_sistema():
 
 
 def obter_configuracao_sistema(chave, padrao=""):
-    criar_tabela_configuracoes_sistema()
+    # Não cria tabela em leitura normal. Se a tabela não existir, usa padrão.
+    item = _CONFIG_CACHE.get(chave)
+    agora = time.time()
+    if item and (agora - item[0]) < _CONFIG_CACHE_TTL:
+        return item[1]
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT valor
-                  FROM configuracoes_sistema
-                 WHERE chave = %s
-                 LIMIT 1
-            """, (chave,))
-            row = cur.fetchone()
-
-    if not row:
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT valor
+                      FROM configuracoes_sistema
+                     WHERE chave = %s
+                     LIMIT 1
+                """, (chave,))
+                row = cur.fetchone()
+    except Exception as e:
+        print("AVISO obter_configuracao_sistema:", repr(e))
         return padrao
 
-    if isinstance(row, dict):
-        return row.get("valor", padrao)
+    if not row:
+        valor = padrao
+    elif isinstance(row, dict):
+        valor = row.get("valor", padrao)
+    else:
+        valor = row[0] if row else padrao
 
-    return row[0] if row else padrao
+    _CONFIG_CACHE[chave] = (agora, valor)
+    return valor
 
 
 def salvar_configuracao_sistema(chave, valor):
     criar_tabela_configuracoes_sistema()
+    _CONFIG_CACHE.pop(chave, None)
 
     with conectar() as conn:
         with conn.cursor() as cur:

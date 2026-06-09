@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash
+import os
 from banco import (
     conectar,
     buscar_usuario_por_login,
@@ -18,15 +19,32 @@ auth_bp = Blueprint("auth", __name__)
 
 
 def _demo_expirada_para_login(login):
-    if not login or criar_tabela_demos is None:
+    """Verifica demo expirada sem rodar CREATE/ALTER TABLE durante o login.
+
+    Antes esta função chamava criar_tabela_demos() em todo login/redirect. Em
+    produção isso fazia schema check/DDL no caminho crítico e ajudava a lotar o
+    pool do Neon. Agora ela só consulta a tabela se ela já existir; se não
+    existir, ignora silenciosamente.
+    """
+    if not login:
+        return False
+
+    # Permite desligar essa checagem no Render se o torneio não usa demos.
+    if str(os.environ.get("DEMO_CHECK_ON_LOGIN", "1")).strip().lower() in {"0", "false", "no", "off", "nao", "não"}:
         return False
 
     try:
-        criar_tabela_demos()
         with conectar() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT competicao, expira_em
+                    SELECT to_regclass('public.demos_temporarias') AS tabela
+                """)
+                existe = cur.fetchone() or {}
+                if not existe.get("tabela"):
+                    return False
+
+                cur.execute("""
+                    SELECT competicao, expira_em, NOW() AS agora
                     FROM demos_temporarias
                     WHERE login = %s
                       AND encerrada = FALSE
@@ -37,10 +55,7 @@ def _demo_expirada_para_login(login):
                 if not demo:
                     return False
 
-                cur.execute("SELECT NOW() AS agora")
-                agora = cur.fetchone()["agora"]
-
-                if demo["expira_em"] <= agora:
+                if demo["expira_em"] <= demo["agora"]:
                     if limpar_demo_por_competicao is not None:
                         limpar_demo_por_competicao(demo["competicao"])
                     return True

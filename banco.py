@@ -133,7 +133,32 @@ def _env_float(nome, padrao, minimo=None, maximo=None):
 
 
 def _pool_habilitado():
-    valor = str(os.environ.get("DB_POOL_ENABLED", "1")).strip().lower()
+    """Define se o pool local do psycopg deve ser usado.
+
+    IMPORTANTE PARA NEON/RENDER:
+    Quando a DATABASE_URL aponta para o endpoint ``-pooler`` do Neon, o banco
+    JÁ está usando PgBouncer do lado do Neon. Fazer outro pool dentro do
+    Gunicorn em cima desse pooler costuma gerar conexões presas/BAD e erros SSL
+    como:
+        - SSL SYSCALL error: EOF detected
+        - decryption failed or bad record mac
+        - PoolTimeout mesmo com poucos usuários
+
+    Por isso, se DB_POOL_ENABLED não foi configurado manualmente, desativamos
+    o pool local automaticamente para URLs do Neon pooler. O sistema continua
+    usando conexões diretas controladas por semáforo, que são fechadas ao fim
+    de cada request/consulta e não reutilizam conexão SSL quebrada.
+    """
+    valor_env = os.environ.get("DB_POOL_ENABLED")
+
+    if valor_env is None:
+        url = os.environ.get("DATABASE_URL", "") or ""
+        url_lower = url.lower()
+        if "-pooler." in url_lower or ".pooler." in url_lower or "pooler." in url_lower:
+            return False
+        return True
+
+    valor = str(valor_env).strip().lower()
     return valor not in {"0", "false", "no", "off", "nao", "não"}
 
 
@@ -353,9 +378,9 @@ def conectar():
     # =====================================================
     limite_fallback = _env_int(
         "DB_DIRECT_FALLBACK_MAX",
-        1,
+        8,
         minimo=0,
-        maximo=10,
+        maximo=20,
     )
 
     if limite_fallback <= 0:
@@ -371,7 +396,7 @@ def conectar():
     adquiriu = _DIRECT_FALLBACK_SEMAPHORE.acquire(
         timeout=_env_float(
             "DB_DIRECT_FALLBACK_TIMEOUT",
-            2,
+            8,
             minimo=0.2,
             maximo=10,
         )
