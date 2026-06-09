@@ -4031,6 +4031,12 @@ def criar_tabela_atletas(force=False):
                 )
             """)
 
+            # Vínculo estável para não depender do nome da equipe.
+            # Nome e login podem mudar; por isso mantemos compatibilidade com
+            # dados antigos, mas passamos a salvar também o login/id quando possível.
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS equipe_login TEXT")
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS equipe_id INTEGER")
+
             # Compatibilidade com bancos antigos: remove trava global de CPF.
             cur.execute("ALTER TABLE atletas DROP CONSTRAINT IF EXISTS atletas_cpf_key")
 
@@ -4043,8 +4049,21 @@ def criar_tabela_atletas(force=False):
                 )
             """)
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS capitao_padrao BOOLEAN DEFAULT FALSE")
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_atletas_competicao_equipe
+                ON atletas (competicao, equipe)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_atletas_competicao_equipe_login
+                ON atletas (competicao, equipe_login)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_atletas_competicao_equipe_id
+                ON atletas (competicao, equipe_id)
+            """)
         conn.commit()
 
+    _CACHE_COLUNAS.pop("atletas", None)
     _marcar_schema_pronto(chave)
     # criar_indices_desempenho()
 
@@ -4249,12 +4268,37 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
 
             status_inicial = "aprovado" if bool(controle.get("aprovacao_automatica_atletas")) else "pendente"
 
+            equipe_login_vinculo = None
+            equipe_id_vinculo = None
+            try:
+                cur.execute("""
+                    SELECT ec.equipe_login, ec.equipe_id
+                    FROM equipes_competicoes ec
+                    LEFT JOIN equipes e
+                      ON e.login = ec.equipe_login
+                      OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
+                    WHERE ec.competicao = %s
+                      AND (
+                            LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(e.nome, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(ec.equipe_login, ''))) = LOWER(TRIM(%s))
+                         OR LOWER(TRIM(COALESCE(e.login, ''))) = LOWER(TRIM(%s))
+                      )
+                    ORDER BY ec.id DESC
+                    LIMIT 1
+                """, (competicao, equipe, equipe, equipe, equipe))
+                vinculo_equipe = cur.fetchone() or {}
+                equipe_login_vinculo = vinculo_equipe.get("equipe_login")
+                equipe_id_vinculo = vinculo_equipe.get("equipe_id")
+            except Exception as e:
+                print("AVISO cadastrar_atleta/vinculo_equipe:", repr(e), flush=True)
+
             cur.execute("""
                 INSERT INTO atletas (
-                    nome, cpf, data_nascimento, numero, equipe, competicao, status
+                    nome, cpf, data_nascimento, numero, equipe, competicao, status, equipe_login, equipe_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao, status_inicial))
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao, status_inicial, equipe_login_vinculo, equipe_id_vinculo))
         conn.commit()
 
     return True, "Atleta cadastrado com sucesso."

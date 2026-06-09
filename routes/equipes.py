@@ -263,11 +263,35 @@ def _controle_inscricao_cache(nome_competicao, nome_equipe):
     return _cache_set(_CACHE_CONTROLE_INSCRICAO, chave, controle)
 
 
-def _listar_atletas_competicao_agrupados(nome_competicao):
-    """Busca atletas da competição em uma consulta e agrupa por equipe.
+def _chaves_numeracao_equipe(equipe):
+    """Chaves possíveis para encontrar atletas mesmo após renomear equipe/login."""
+    chaves = []
+    for campo in [
+        "nome",
+        "nome_vinculo",
+        "equipe_nome",
+        "login",
+        "login_vinculo",
+        "equipe_login",
+        "equipe_id",
+        "equipe_vinculo_id",
+    ]:
+        valor = equipe.get(campo) if isinstance(equipe, dict) else None
+        if valor is None:
+            continue
+        valor = str(valor).strip()
+        if valor and valor not in chaves:
+            chaves.append(valor)
+    return chaves
 
-    Evita o gargalo N+1 da tela de numeração: listar equipes e depois consultar
-    atletas equipe por equipe.
+
+def _listar_atletas_competicao_agrupados(nome_competicao):
+    """Busca atletas da competição em uma consulta e agrupa por chaves estáveis.
+
+    Antes a numeração dependia só de atletas.equipe == equipe.nome. Quando o
+    organizador renomeava uma equipe ou trocava login, a aba via a equipe, mas
+    os atletas ficavam presos no nome antigo e sumiam. Agora agrupamos também
+    por equipe_login/equipe_id quando existir e mantemos fallback pelo nome.
     """
     nome_competicao = (nome_competicao or "").strip()
     cached = _cache_get(_CACHE_ATLETAS_COMPETICAO_AGRUPADOS, nome_competicao)
@@ -282,14 +306,29 @@ def _listar_atletas_competicao_agrupados(nome_competicao):
                     SELECT *
                     FROM atletas
                     WHERE competicao = %s
-                    ORDER BY equipe,
-                             CASE WHEN numero ~ '^[0-9]+$' THEN numero::INT ELSE 999999 END,
-                             nome
+                    ORDER BY
+                        equipe,
+                        CASE
+                            WHEN COALESCE(numero::TEXT, '') ~ '^[0-9]+$' THEN numero::INT
+                            ELSE 999999
+                        END,
+                        nome
                 """, (nome_competicao,))
                 rows = cur.fetchall() or []
+
         for atleta in rows:
-            equipe_nome = (atleta.get("equipe") or "").strip()
-            agrupado.setdefault(equipe_nome, []).append(atleta)
+            chaves = []
+            for campo in ["equipe", "equipe_login", "equipe_id"]:
+                valor = atleta.get(campo) if isinstance(atleta, dict) else None
+                if valor is None:
+                    continue
+                valor = str(valor).strip()
+                if valor and valor not in chaves:
+                    chaves.append(valor)
+
+            for chave in chaves:
+                agrupado.setdefault(chave, []).append(atleta)
+
     except Exception as e:
         print("AVISO atletas_competicao_agrupados:", repr(e), flush=True)
         agrupado = {}
@@ -1738,26 +1777,50 @@ def encerrar_conferencia(competicao):
 @exigir_perfil("organizador")
 def numeracao_atletas_view():
 
-    competicao = buscar_competicao_por_organizador(
-        session.get("usuario")
-    )
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
 
     if not competicao:
         flash("Competição não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    equipes = listar_equipes_da_competicao(
-        competicao["nome"]
-    )
+    nome_competicao = competicao["nome"]
 
-    atletas_por_equipe = _listar_atletas_competicao_agrupados(competicao["nome"])
+    equipes = listar_equipes_da_competicao(nome_competicao) or []
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, nome, cpf, data_nascimento, numero, equipe, competicao, status
+                FROM atletas
+                WHERE competicao = %s
+                ORDER BY equipe,
+                         CASE WHEN COALESCE(numero::TEXT, '') ~ '^[0-9]+$'
+                              THEN numero::INT ELSE 999999 END,
+                         nome
+            """, (nome_competicao,))
+            atletas = cur.fetchall() or []
+
+    atletas_por_equipe = {}
+
+    for atleta in atletas:
+        chave = (atleta.get("equipe") or "").strip().lower()
+        atletas_por_equipe.setdefault(chave, []).append(atleta)
+
     equipes_com_atletas = []
 
     for equipe in equipes:
-        atletas = atletas_por_equipe.get(equipe["nome"], [])
+        nome_equipe = (
+            equipe.get("nome")
+            or equipe.get("equipe_nome")
+            or equipe.get("equipe")
+            or ""
+        ).strip()
+
+        chave = nome_equipe.lower()
+
         equipes_com_atletas.append({
             "equipe": equipe,
-            "atletas": atletas
+            "atletas": atletas_por_equipe.get(chave, [])
         })
 
     return render_template(
@@ -1767,24 +1830,25 @@ def numeracao_atletas_view():
     )
 
 
-@equipes_bp.route(
-    "/equipes/numeracao/salvar",
-    methods=["POST"]
-)
+@equipes_bp.route("/equipes/numeracao/salvar", methods=["POST"])
 @exigir_perfil("organizador")
 def salvar_numeracao_atletas_view():
 
-    dados = request.get_json(silent=True) or {}
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
 
+    if not competicao:
+        return jsonify({
+            "ok": False,
+            "erro": "Competição não encontrada."
+        })
+
+    dados = request.get_json(silent=True) or {}
     atletas = dados.get("atletas") or []
 
     numeros = []
 
     for atleta in atletas:
-
-        numero = str(
-            atleta.get("numero") or ""
-        ).strip()
+        numero = str(atleta.get("numero") or "").strip()
 
         if not numero:
             continue
@@ -1798,27 +1862,12 @@ def salvar_numeracao_atletas_view():
         numeros.append(numero)
 
     for atleta in atletas:
-
         atleta_id = atleta.get("id")
+        numero = str(atleta.get("numero") or "").strip()
 
-        numero = str(
-            atleta.get("numero") or ""
-        ).strip()
-
-        atualizar_numero_atleta(
-            atleta_id,
-            numero
-        )
+        if atleta_id:
+            atualizar_numero_atleta(atleta_id, numero)
 
     _limpar_cache_equipes(competicao=competicao["nome"])
 
-    return jsonify({
-        "ok": True
-    })
-
-
-# =========================================================
-# CACHE PAINEL EQUIPE
-# =========================================================
-def _equipes_cache_competicao(nome_competicao):
-    return _listar_equipes_competicao_cache(nome_competicao)
+    return jsonify({"ok": True})

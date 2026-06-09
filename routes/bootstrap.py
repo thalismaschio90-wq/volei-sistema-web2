@@ -8,6 +8,7 @@ from banco import (
     listar_partidas,
     listar_grupos,
     conectar,
+    criar_tabela_atletas,
 )
 from routes.utils import exigir_perfil
 
@@ -40,6 +41,7 @@ def _cache_set(chave, valor):
 
 
 def _listar_atletas_competicao_leve(nome_competicao):
+    criar_tabela_atletas()
     """Uma consulta só para os atletas que o painel do organizador usa.
 
     Não traz eventos ponto-a-ponto nem dados pesados; é só o essencial para
@@ -56,7 +58,9 @@ def _listar_atletas_competicao_leve(nome_competicao):
                     numero,
                     equipe,
                     competicao,
-                    status
+                    status,
+                    equipe_login,
+                    equipe_id
                 FROM atletas
                 WHERE competicao = %s
                 ORDER BY equipe,
