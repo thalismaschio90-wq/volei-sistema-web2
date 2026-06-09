@@ -3124,6 +3124,8 @@ def listar_equipes_da_competicao(nome_competicao):
                     e.login,
                     e.senha,
                     ec.competicao,
+                    ec.equipe_nome AS nome_vinculo,
+                    ec.equipe_login AS login_vinculo,
                     e.treinador,
                     e.auxiliar_tecnico,
                     e.preparador_fisico,

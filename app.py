@@ -40,6 +40,7 @@ from routes.relatorios import relatorios_bp
 from routes.demo import demo_bp
 from routes.jogo_avulso import jogo_avulso_bp
 from routes.offline_config import offline_config_bp
+from routes.bootstrap import bootstrap_bp
 
 try:
     from routes.app_tempo_real import app_tempo_real_bp
@@ -270,6 +271,7 @@ app.register_blueprint(relatorios_bp)
 app.register_blueprint(demo_bp)
 app.register_blueprint(jogo_avulso_bp)
 app.register_blueprint(offline_config_bp)
+app.register_blueprint(bootstrap_bp)
 
 if app_tempo_real_bp is not None:
     app.register_blueprint(app_tempo_real_bp)

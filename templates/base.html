@@ -1483,6 +1483,41 @@
             window.location.href = "/offline-apontador";
         }, 80);
     }
+
+
+    {% if session.get('perfil') == 'organizador' %}
+    // Pré-carrega o pacote leve do organizador uma vez por abertura de painel.
+    // Isso aquece o cache do servidor e evita várias consultas repetidas ao trocar de aba.
+    (function preCarregarBootstrapOrganizador(){
+        try {
+            const chave = "vtp_bootstrap_organizador";
+            const agora = Date.now();
+            const salvo = JSON.parse(sessionStorage.getItem(chave) || "null");
+            if (salvo && salvo.criado_em && (agora - salvo.criado_em) < 15000) {
+                window.VTP_BOOTSTRAP_ORGANIZADOR = salvo.dados;
+                return;
+            }
+
+            fetch("/api/bootstrap/organizador", {
+                method: "GET",
+                credentials: "same-origin",
+                headers: {"Accept": "application/json"}
+            })
+            .then(r => r.ok ? r.json() : null)
+            .then(dados => {
+                if (!dados || !dados.ok) return;
+                window.VTP_BOOTSTRAP_ORGANIZADOR = dados;
+                try {
+                    sessionStorage.setItem(chave, JSON.stringify({
+                        criado_em: Date.now(),
+                        dados: dados
+                    }));
+                } catch(e) {}
+            })
+            .catch(() => {});
+        } catch(e) {}
+    })();
+    {% endif %}
 </script>
 {% else %}
     {% block conteudo_sem_sidebar %}{% endblock %}
