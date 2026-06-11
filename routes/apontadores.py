@@ -2932,6 +2932,25 @@ def salvar_papeleta_view(competicao, partida_id):
     salvar_papeleta(partida_id, competicao, equipe_a, set_atual, dados_a)
     salvar_papeleta(partida_id, competicao, equipe_b, set_atual, dados_b)
 
+    # Ao salvar a papeleta de um novo set, libera oficialmente o jogo.
+    # Sem isso, partidas vindas de intervalo_set/entre_sets continuavam presas
+    # nessa fase no banco, mesmo após o apontador preencher a papeleta.
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE partidas
+                    SET fase_partida = 'jogo',
+                        status_jogo = 'em_andamento',
+                        status_operacao = 'em_andamento',
+                        tiebreak_pendente = FALSE
+                    WHERE id = %s
+                      AND competicao = %s
+                """, (partida_id, competicao))
+            conn.commit()
+    except Exception as e:
+        print("AVISO liberar jogo após papeleta:", repr(e), flush=True)
+
     rotacao_a = [
         str(dados_a[4].get("numero") or ""),
         str(dados_a[3].get("numero") or ""),

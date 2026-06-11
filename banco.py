@@ -9420,6 +9420,7 @@ def _emitir_estado_tempo_real(partida_id, competicao):
 
 def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalhes=None):
     import json
+    from urllib.parse import quote
 
     global _ESTRUTURA_PONTO_GARANTIDA
     try:
@@ -9704,6 +9705,24 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                         competicao,
                     ))
                 else:
+                    proximo_set = set_atual + 1
+                    proximo_eh_tiebreak = set_eh_tiebreak(sets_tipo_regra, proximo_set)
+
+                    if proximo_eh_tiebreak:
+                        proxima_fase_partida = 'tiebreak_sorteio'
+                        proximo_status_jogo = 'tiebreak_sorteio'
+                        proximo_status_operacao = 'tiebreak_sorteio'
+                        proximo_tiebreak_pendente = True
+                        proximo_tiebreak_definido = False
+                    else:
+                        # Entre um set normal e outro, o apontador deve voltar para a papeleta.
+                        # Antes ficava direto em jogo/em_andamento e pulava a nova papeleta.
+                        proxima_fase_partida = 'intervalo_set'
+                        proximo_status_jogo = 'entre_sets'
+                        proximo_status_operacao = 'papeleta'
+                        proximo_tiebreak_pendente = False
+                        proximo_tiebreak_definido = False
+
                     cur.execute(f"""
                         UPDATE partidas
                         SET pontos_a = 0,
@@ -9713,33 +9732,49 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                             set_atual = %s,
                             {coluna_a} = %s,
                             {coluna_b} = %s,
-                            saque_atual = %s,
+                            saque_atual = NULL,
                             rotacao_a = %s,
                             rotacao_b = %s,
                             rotacao_a_json = %s,
                             rotacao_b_json = %s,
-                            status_jogo = 'em_andamento',
-                            fase_partida = 'jogo'
+                            status_jogo = %s,
+                            fase_partida = %s,
+                            status_operacao = %s,
+                            tiebreak_pendente = %s,
+                            tiebreak_definido = %s,
+                            sorteio_tiebreak_vencedor = CASE WHEN %s THEN NULL ELSE sorteio_tiebreak_vencedor END,
+                            sorteio_tiebreak_escolha = CASE WHEN %s THEN NULL ELSE sorteio_tiebreak_escolha END,
+                            saque_tiebreak = CASE WHEN %s THEN NULL ELSE saque_tiebreak END,
+                            lado_esquerdo_tiebreak = CASE WHEN %s THEN NULL ELSE lado_esquerdo_tiebreak END
                         WHERE id = %s
                           AND competicao = %s
                     """, (
                         sets_a,
                         sets_b,
-                        set_atual + 1,
+                        proximo_set,
                         pontos_a,
                         pontos_b,
-                        saque_depois,
                         rotacao_a,
                         rotacao_b,
                         json.dumps(rotacao_a, ensure_ascii=False),
                         json.dumps(rotacao_b, ensure_ascii=False),
+                        proximo_status_jogo,
+                        proxima_fase_partida,
+                        proximo_status_operacao,
+                        proximo_tiebreak_pendente,
+                        proximo_tiebreak_definido,
+                        proximo_eh_tiebreak,
+                        proximo_eh_tiebreak,
+                        proximo_eh_tiebreak,
+                        proximo_eh_tiebreak,
                         partida_id,
                         competicao,
                     ))
 
                     pontos_a = 0
                     pontos_b = 0
-                    set_atual += 1
+                    set_atual = proximo_set
+                    saque_depois = ""
             else:
                 cur.execute("""
                     UPDATE partidas
@@ -9851,8 +9886,11 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "set3_a": partida.get("set3_a"),
         "set3_b": partida.get("set3_b"),
         "saque_atual": saque_depois,
-        "status_jogo": "finalizada" if fim_jogo else "em_andamento",
-        "fase_partida": "encerrado" if fim_jogo else "jogo",
+        "status_jogo": "finalizada" if fim_jogo else (("tiebreak_sorteio" if fim_set and set_eh_tiebreak(sets_tipo_regra, set_atual) else "entre_sets") if fim_set else "em_andamento"),
+        "fase_partida": "encerrado" if fim_jogo else (("tiebreak_sorteio" if fim_set and set_eh_tiebreak(sets_tipo_regra, set_atual) else "intervalo_set") if fim_set else "jogo"),
+        "redirecionar_tiebreak": bool(fim_set and not fim_jogo and set_eh_tiebreak(sets_tipo_regra, set_atual)),
+        "redirecionar_papeleta": bool(fim_set and not fim_jogo and not set_eh_tiebreak(sets_tipo_regra, set_atual)),
+        "url_redirecionamento": (f"/apontador/tiebreak/{quote(str(competicao), safe='')}/{partida_id}" if (fim_set and not fim_jogo and set_eh_tiebreak(sets_tipo_regra, set_atual)) else (f"/apontador/papeleta/{quote(str(competicao), safe='')}/{partida_id}" if (fim_set and not fim_jogo) else None)),
         "fim_set": fim_set,
         "fim_jogo": fim_jogo,
         "set_finalizado": fim_set,

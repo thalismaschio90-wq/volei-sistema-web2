@@ -4414,7 +4414,19 @@ function inverterLadosVisual() {
         if (dados.fim_set && !dados.partida_finalizada) {
             atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
             travarBotoes(true);
-            setTimeout(() => window.location.reload(), 900);
+
+            const destinoFluxo = dados.url_redirecionamento
+                || dados.url
+                || (dados.redirecionar_tiebreak ? "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}" : null)
+                || (dados.redirecionar_papeleta ? "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}" : null);
+
+            setTimeout(() => {
+                if (destinoFluxo) {
+                    window.location.href = destinoFluxo;
+                } else {
+                    window.location.reload();
+                }
+            }, 900);
         }
         if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
             saqueInfo.textContent += " • Partida finalizada";
