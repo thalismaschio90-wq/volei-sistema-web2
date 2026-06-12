@@ -39,6 +39,19 @@
 .avanco-field input, .avanco-field select { width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:transparent; color:inherit; }
 .avanco-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:18px; flex-wrap:wrap; }
 .avanco-hidden { display:none!important; }
+.avanco-regra-box { grid-column:1/-1; border:1px solid var(--border); border-radius:16px; padding:14px; margin-top:6px; background:rgba(37,99,235,.06); }
+.avanco-regra-box h4 { margin:0 0 10px; font-size:15px; font-weight:1000; }
+.avanco-regra-toggle { display:flex; align-items:center; gap:8px; font-weight:900; margin-bottom:12px; }
+.avanco-regra-resumo { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.avanco-pill { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; background:rgba(37,99,235,.10); color:#2563eb; font-size:11px; font-weight:900; }
+.avanco-pill.muted { background:rgba(148,163,184,.15); color:var(--muted); }
+.avanco-card.bloqueado { cursor:not-allowed; border-color:rgba(185,28,28,.42); background:linear-gradient(180deg, rgba(254,242,242,.98), var(--card-bg,#fff)); }
+.avanco-card.bloqueado:hover { transform:none; border-color:rgba(185,28,28,.58); }
+.avanco-card-lock { position:absolute; top:8px; left:10px; font-size:12px; font-weight:1000; color:#b91c1c; background:#fee2e2; border:1px solid #fecaca; border-radius:999px; padding:3px 8px; }
+.avanco-alerta-bloqueio { display:none; margin:10px 0 14px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:14px; padding:12px; font-weight:900; line-height:1.35; }
+.avanco-alerta-bloqueio.ativo { display:block; }
+.avanco-modal.bloqueado .avanco-field input, .avanco-modal.bloqueado .avanco-field select { opacity:.72; cursor:not-allowed; }
+.avanco-modal.bloqueado .avanco-regra-box { background:#f8fafc; }
 @media(max-width:900px){ .avanco-layout{grid-template-columns:1fr;} .avanco-grid2{grid-template-columns:1fr;} .avanco-board{gap:24px;} }
 </style>
 
@@ -82,8 +95,9 @@
 </form>
 
 <div class="avanco-modal-bg" id="modalAvanco">
-    <div class="avanco-modal">
+    <div class="avanco-modal" id="modalAvancoCard">
         <h3 id="modalTitulo">Configurar confronto</h3>
+        <div id="avancoAlertaBloqueio" class="avanco-alerta-bloqueio">🔒 Esta partida já foi iniciada ou finalizada. As configurações deste confronto estão bloqueadas para preservar os dados do jogo.</div>
         <input type="hidden" id="mIndex">
         <div class="avanco-grid2">
             <div class="avanco-field"><label>ID do jogo</label><input id="mId"></div>
@@ -95,21 +109,81 @@
             <div class="avanco-field"><label>Próximo jogo do vencedor</label><select id="mProxV"></select></div>
             <div class="avanco-field"><label>Próximo jogo do perdedor</label><select id="mProxP"></select></div>
             <div class="avanco-field"><label>Data/hora</label><input id="mData" type="datetime-local"></div>
+
+            <div class="avanco-regra-box">
+                <h4>Regras desta partida</h4>
+                <label class="avanco-regra-toggle">
+                    <input type="checkbox" id="mUsarRegra">
+                    Usar configuração própria para este jogo
+                </label>
+                <div class="avanco-grid2">
+                    <div class="avanco-field">
+                        <label>Tipo de jogo</label>
+                        <select id="mSetsTipo">
+                            <option value="padrao">Padrão da competição</option>
+                            <option value="set_unico">Set único</option>
+                            <option value="melhor_de_3">Melhor de 3</option>
+                            <option value="melhor_de_5">Melhor de 5</option>
+                        </select>
+                    </div>
+                    <div class="avanco-field">
+                        <label>Pontos do set</label>
+                        <input id="mPontosSet" type="number" min="1" placeholder="Ex.: 25">
+                    </div>
+                    <div class="avanco-field">
+                        <label>Tie-break</label>
+                        <select id="mTemTiebreak">
+                            <option value="padrao">Padrão da competição</option>
+                            <option value="sim">Sim</option>
+                            <option value="nao">Não</option>
+                        </select>
+                    </div>
+                    <div class="avanco-field">
+                        <label>Pontos do tie-break</label>
+                        <input id="mPontosTiebreak" type="number" min="1" placeholder="Ex.: 15">
+                    </div>
+                    <div class="avanco-field">
+                        <label>Scout</label>
+                        <select id="mModoOperacao">
+                            <option value="padrao">Padrão da competição</option>
+                            <option value="simples">Scout simples</option>
+                            <option value="avancado">Scout avançado</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="avanco-modal-actions">
             <button type="button" class="btn-secundario" onclick="fecharModalAvanco()">Cancelar</button>
-            <button type="button" class="tabela-danger-outline" onclick="removerJogoAtual()">Remover jogo</button>
-            <button type="button" class="btn-padrao" onclick="salvarModalAvanco()">Salvar quadro</button>
+            <button type="button" class="tabela-danger-outline" id="btnRemoverJogoAvanco" onclick="removerJogoAtual()">Remover jogo</button>
+            <button type="button" class="btn-padrao" id="btnSalvarModalAvanco" onclick="salvarModalAvanco()">Salvar quadro</button>
         </div>
     </div>
 </div>
 
 <script>
 const ORIGENS_BASE = {{ origens|tojson }};
+const AVANCO_BLOQUEIOS = {{ (avanco_bloqueios if avanco_bloqueios is defined else {})|tojson }};
 let avanco = {{ avanco|tojson }};
 let serieAtual = (avanco.series || []).find(s => s.ativa)?.id || (avanco.series?.[0]?.id || 'ouro');
 const faseNome = {oitavas:'Oitavas', quartas:'Quartas', semifinal:'Semifinal', terceiro_lugar:'3º lugar', final:'Final'};
 
+function normalizarSerieId(txt){
+    return String(txt || 'ouro')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '') || 'ouro';
+}
+function chaveJogo(j){ return `${normalizarSerieId(j?.serie)}:${String(j?.id || '').trim()}`; }
+function bloqueioJogo(j){
+    const chave = chaveJogo(j);
+    return AVANCO_BLOQUEIOS[chave] || AVANCO_BLOQUEIOS[chave.toLowerCase()] || AVANCO_BLOQUEIOS[`avanco:${chave}`] || AVANCO_BLOQUEIOS[`avanco:${chave}`.toLowerCase()] || null;
+}
+function jogoBloqueado(j){ return !!(bloqueioJogo(j) && bloqueioJogo(j).bloqueado); }
 function origemLabel(origem){
     origem = origem || {};
     if(origem.tipo === 'manual') return origem.valor || origem.label || 'Equipe manual';
@@ -142,6 +216,50 @@ function fasesDaSerie(){
     const s=(avanco.series||[]).find(x=>x.id===serieAtual) || {fases:['quartas','semifinal','final']};
     return s.fases && s.fases.length ? s.fases : ['quartas','semifinal','final'];
 }
+function regraPadrao(){
+    return {usar_regra_propria:false, sets_tipo:'padrao', pontos_set:'', tem_tiebreak:'padrao', pontos_tiebreak:'', modo_operacao:'padrao'};
+}
+function normalizarRegra(regra){
+    const r = Object.assign(regraPadrao(), regra || {});
+    if(r.sets_tipo === 'melhor_de_3' || r.sets_tipo === 'melhor_de_5'){
+        r.tem_tiebreak = 'sim';
+        if(!r.pontos_tiebreak) r.pontos_tiebreak = '15';
+    }
+    if(r.sets_tipo === 'set_unico'){
+        r.tem_tiebreak = 'nao';
+        r.pontos_tiebreak = '';
+    }
+    return r;
+}
+function textoSetsTipo(valor){
+    if(valor === 'set_unico') return 'Set único';
+    if(valor === 'melhor_de_3') return 'Melhor de 3';
+    if(valor === 'melhor_de_5') return 'Melhor de 5';
+    return 'Padrão';
+}
+function textoTiebreak(valor){
+    if(valor === 'sim') return 'TB 15';
+    if(valor === 'nao') return 'Sem TB';
+    return 'TB padrão';
+}
+function textoScout(valor){
+    if(valor === 'simples') return 'Scout simples';
+    if(valor === 'avancado') return 'Scout avançado';
+    return 'Scout padrão';
+}
+function resumoRegra(j){
+    const r = normalizarRegra(j.regra);
+    if(!r.usar_regra_propria){
+        return '<div class="avanco-regra-resumo"><span class="avanco-pill muted">Regra padrão da competição</span></div>';
+    }
+    const partes = [textoSetsTipo(r.sets_tipo)];
+    if(r.pontos_set) partes.push(`${r.pontos_set} pts`);
+    if(r.sets_tipo === 'melhor_de_3' || r.sets_tipo === 'melhor_de_5') partes.push(`TB ${r.pontos_tiebreak || 15}`);
+    else if(r.sets_tipo === 'set_unico') partes.push('Sem TB');
+    else partes.push(textoTiebreak(r.tem_tiebreak));
+    partes.push(textoScout(r.modo_operacao));
+    return '<div class="avanco-regra-resumo">' + partes.map(p => `<span class="avanco-pill">${p}</span>`).join('') + '</div>';
+}
 function renderBoard(){
     const board=document.getElementById('avancoBoard'); board.innerHTML='';
     fasesDaSerie().forEach(fase=>{
@@ -149,8 +267,13 @@ function renderBoard(){
         col.innerHTML=`<div class="avanco-col-title">${faseNome[fase]||fase}</div>`;
         (avanco.jogos||[]).filter(j=>j.serie===serieAtual && j.fase===fase).sort((a,b)=>(a.ordem||0)-(b.ordem||0)).forEach(j=>{
             const idx=avanco.jogos.indexOf(j);
-            const card=document.createElement('div'); card.className='avanco-card'; card.onclick=()=>abrirModalAvanco(idx);
-            card.innerHTML=`<div class="avanco-card-id">${j.id}</div><div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${origemLabel(j.origem_a)}</span></div><div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${origemLabel(j.origem_b)}</span></div><div class="avanco-card-meta">${j.data_hora || ''}${j.proximo_vencedor ? ' • vencedor → '+j.proximo_vencedor : ''}</div>`;
+            const bloqueado = jogoBloqueado(j);
+            const infoBloqueio = bloqueioJogo(j) || {};
+            const card=document.createElement('div');
+            card.className='avanco-card' + (bloqueado ? ' bloqueado' : '');
+            card.title = bloqueado ? ('Confronto bloqueado: ' + (infoBloqueio.motivo || 'partida já iniciada ou finalizada')) : '';
+            card.onclick=()=>abrirModalAvanco(idx);
+            card.innerHTML=`${bloqueado ? '<div class="avanco-card-lock">🔒 Bloqueado</div>' : ''}<div class="avanco-card-id">${j.id}</div><div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${origemLabel(j.origem_a)}</span></div><div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${origemLabel(j.origem_b)}</span></div><div class="avanco-card-meta">${j.data_hora || ''}${j.proximo_vencedor ? ' • vencedor → '+j.proximo_vencedor : ''}${bloqueado ? ' • 🔒 não editável' : ''}</div>${resumoRegra(j)}`;
             col.appendChild(card);
         });
         const add=document.createElement('button'); add.type='button'; add.className='avanco-add'; add.textContent='+ Adicionar jogo em '+(faseNome[fase]||fase); add.onclick=()=>adicionarJogo(fase);
@@ -161,13 +284,20 @@ function syncHidden(){
     const h=document.getElementById('jogosHidden'); h.innerHTML='';
     (avanco.jogos||[]).forEach((j,idx)=>{
         function input(n,v){ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v||''; h.appendChild(i); }
-        input('jogo_id[]', j.id); input('jogo_serie[]', j.serie); input('jogo_fase[]', j.fase); input('jogo_ordem[]', j.ordem || idx+1); input('jogo_data_hora[]', j.data_hora || ''); input('jogo_proximo_vencedor[]', j.proximo_vencedor || ''); input('jogo_proximo_perdedor[]', j.proximo_perdedor || '');
+        const r = normalizarRegra(j.regra);
+        input('jogo_id[]', j.id); input('jogo_serie[]', j.serie); input('jogo_fase[]', j.fase); input('jogo_ordem[]', j.ordem || idx+1); input('jogo_data_hora[]', j.data_hora || ''); input('jogo_quadra_id[]', j.quadra_id || ''); input('jogo_quadra_nome[]', j.quadra_nome || ''); input('jogo_ginasio[]', j.ginasio || ''); input('jogo_proximo_vencedor[]', j.proximo_vencedor || ''); input('jogo_proximo_perdedor[]', j.proximo_perdedor || '');
         ['a','b'].forEach(l=>{ const o=j['origem_'+l]||{}; input(`jogo_${idx}_${l}_tipo`, o.tipo||''); input(`jogo_${idx}_${l}_valor`, o.valor||''); input(`jogo_${idx}_${l}_label`, o.label||''); });
+        input(`jogo_${idx}_usar_regra`, r.usar_regra_propria ? 'on' : '');
+        input(`jogo_${idx}_sets_tipo`, r.sets_tipo || 'padrao');
+        input(`jogo_${idx}_pontos_set`, r.pontos_set || '');
+        input(`jogo_${idx}_tem_tiebreak`, r.tem_tiebreak || 'padrao');
+        input(`jogo_${idx}_pontos_tiebreak`, r.pontos_tiebreak || '');
+        input(`jogo_${idx}_modo_operacao`, r.modo_operacao || 'padrao');
     });
 }
 function renderTudo(){ renderTabs(); renderBoard(); syncHidden(); }
 function proximoId(){ let n=(avanco.jogos||[]).length+1; while((avanco.jogos||[]).some(j=>j.id==='J'+n)) n++; return 'J'+n; }
-function adicionarJogo(fase){ avanco.jogos=avanco.jogos||[]; avanco.jogos.push({id:proximoId(), serie:serieAtual, fase:fase, ordem:avanco.jogos.length+1, origem_a:{}, origem_b:{}, proximo_vencedor:'', proximo_perdedor:''}); renderTudo(); }
+function adicionarJogo(fase){ avanco.jogos=avanco.jogos||[]; avanco.jogos.push({id:proximoId(), serie:serieAtual, fase:fase, ordem:avanco.jogos.length+1, origem_a:{}, origem_b:{}, proximo_vencedor:'', proximo_perdedor:'', regra:regraPadrao()}); renderTudo(); }
 function preencherSelectOrigem(sel, atual){
     sel.innerHTML='<option value="||">A definir</option>';
     opcoesOrigem().forEach(o=>{ const opt=document.createElement('option'); opt.value=origemValue(o); opt.textContent=o.label; if(opt.value===origemValue(atual)) opt.selected=true; sel.appendChild(opt); });
@@ -176,25 +306,100 @@ function preencherProximos(sel, atual){
     sel.innerHTML='<option value="">Nenhum</option>';
     (avanco.jogos||[]).forEach(j=>{ const opt=document.createElement('option'); opt.value=j.id; opt.textContent=j.id+' - '+(faseNome[j.fase]||j.fase); if(j.id===atual) opt.selected=true; sel.appendChild(opt); });
 }
+function camposModalAvanco(){
+    return ['mId','mFase','mOrigemA','mOrigemB','mManualA','mManualB','mProxV','mProxP','mData','mUsarRegra','mSetsTipo','mPontosSet','mTemTiebreak','mPontosTiebreak','mModoOperacao']
+        .map(id => document.getElementById(id)).filter(Boolean);
+}
+function aplicarEstadoBloqueioModal(j){
+    const bloqueado = jogoBloqueado(j);
+    const alerta = document.getElementById('avancoAlertaBloqueio');
+    const card = document.getElementById('modalAvancoCard');
+    const btnSalvar = document.getElementById('btnSalvarModalAvanco');
+    const btnRemover = document.getElementById('btnRemoverJogoAvanco');
+    const info = bloqueioJogo(j) || {};
+
+    if(alerta){
+        alerta.classList.toggle('ativo', bloqueado);
+        alerta.textContent = bloqueado
+            ? `🔒 Esta partida já foi iniciada ou finalizada. Configurações bloqueadas para preservar o jogo. Motivo: ${info.motivo || 'dados registrados.'}`
+            : '';
+    }
+    if(card) card.classList.toggle('bloqueado', bloqueado);
+    camposModalAvanco().forEach(el => { el.disabled = bloqueado; });
+    if(btnSalvar) btnSalvar.style.display = bloqueado ? 'none' : '';
+    if(btnRemover) btnRemover.style.display = bloqueado ? 'none' : '';
+}
+function atualizarTieBreakAutomatico(){
+    const sets = document.getElementById('mSetsTipo');
+    const tb = document.getElementById('mTemTiebreak');
+    const ptsTb = document.getElementById('mPontosTiebreak');
+    if(!sets || !tb || !ptsTb) return;
+    if(sets.value === 'melhor_de_3' || sets.value === 'melhor_de_5'){
+        tb.value = 'sim';
+        tb.disabled = true;
+        ptsTb.disabled = false;
+        if(!ptsTb.value) ptsTb.value = '15';
+    } else if(sets.value === 'set_unico'){
+        tb.value = 'nao';
+        tb.disabled = true;
+        ptsTb.value = '';
+        ptsTb.disabled = true;
+    } else {
+        tb.disabled = false;
+        ptsTb.disabled = false;
+    }
+}
 function abrirModalAvanco(idx){
     const j=avanco.jogos[idx]; document.getElementById('mIndex').value=idx; document.getElementById('mId').value=j.id; document.getElementById('mFase').value=j.fase; document.getElementById('mData').value=j.data_hora || '';
     preencherSelectOrigem(document.getElementById('mOrigemA'), j.origem_a); preencherSelectOrigem(document.getElementById('mOrigemB'), j.origem_b);
     document.getElementById('mManualA').value = j.origem_a?.tipo==='manual' ? (j.origem_a.valor||'') : '';
     document.getElementById('mManualB').value = j.origem_b?.tipo==='manual' ? (j.origem_b.valor||'') : '';
     preencherProximos(document.getElementById('mProxV'), j.proximo_vencedor); preencherProximos(document.getElementById('mProxP'), j.proximo_perdedor);
+    const r = normalizarRegra(j.regra);
+    document.getElementById('mUsarRegra').checked = !!r.usar_regra_propria;
+    document.getElementById('mSetsTipo').value = r.sets_tipo || 'padrao';
+    document.getElementById('mPontosSet').value = r.pontos_set || '';
+    document.getElementById('mTemTiebreak').value = r.tem_tiebreak || 'padrao';
+    document.getElementById('mPontosTiebreak').value = r.pontos_tiebreak || '';
+    document.getElementById('mModoOperacao').value = r.modo_operacao || 'padrao';
+    aplicarEstadoBloqueioModal(j);
+    if(!jogoBloqueado(j)) atualizarTieBreakAutomatico();
     document.getElementById('modalAvanco').classList.add('ativo');
 }
 function fecharModalAvanco(){ document.getElementById('modalAvanco').classList.remove('ativo'); }
 function salvarModalAvanco(){
     const idx=parseInt(document.getElementById('mIndex').value,10); const j=avanco.jogos[idx];
+    if(jogoBloqueado(j)){
+        alert('Este confronto está bloqueado porque a partida já foi iniciada ou finalizada.');
+        return;
+    }
+    atualizarTieBreakAutomatico();
     j.id=document.getElementById('mId').value || j.id; j.fase=document.getElementById('mFase').value; j.data_hora=document.getElementById('mData').value || '';
     j.origem_a=origemFromValue(document.getElementById('mOrigemA').value, document.getElementById('mManualA').value);
     j.origem_b=origemFromValue(document.getElementById('mOrigemB').value, document.getElementById('mManualB').value);
     j.proximo_vencedor=document.getElementById('mProxV').value; j.proximo_perdedor=document.getElementById('mProxP').value;
+    j.regra = normalizarRegra({
+        usar_regra_propria: document.getElementById('mUsarRegra').checked,
+        sets_tipo: document.getElementById('mSetsTipo').value || 'padrao',
+        pontos_set: document.getElementById('mPontosSet').value || '',
+        tem_tiebreak: document.getElementById('mTemTiebreak').value || 'padrao',
+        pontos_tiebreak: document.getElementById('mPontosTiebreak').value || '',
+        modo_operacao: document.getElementById('mModoOperacao').value || 'padrao'
+    });
     fecharModalAvanco(); renderTudo();
 }
-function removerJogoAtual(){ const idx=parseInt(document.getElementById('mIndex').value,10); if(confirm('Remover este quadro?')){ avanco.jogos.splice(idx,1); fecharModalAvanco(); renderTudo(); } }
+function removerJogoAtual(){
+    const idx=parseInt(document.getElementById('mIndex').value,10);
+    const j=avanco.jogos[idx];
+    if(jogoBloqueado(j)){
+        alert('Este confronto está bloqueado e não pode ser removido porque a partida já foi iniciada ou finalizada.');
+        return;
+    }
+    if(confirm('Remover este quadro?')){ avanco.jogos.splice(idx,1); fecharModalAvanco(); renderTudo(); }
+}
 function adicionarSerie(){ alert('Para adicionar uma nova série personalizada, salve Ouro/Prata/Bronze primeiro. Posso liberar série livre na próxima etapa.'); }
+
+document.getElementById('mSetsTipo')?.addEventListener('change', atualizarTieBreakAutomatico);
 renderTudo();
-</script>
+</script></script>
 {% endblock %}

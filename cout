@@ -1,0 +1,15 @@
+Binary file [35m__pycache__/banco.cpython-314.pyc[m matches
+[35mbanco.py[m[36m:[mdef atualizar_[1;31mpontuacao[m_desempate(nome_competicao, dados):
+[35mbanco.py[m[36m:[m    campos_[1;31mpontuacao[m = [
+[35mbanco.py[m[36m:[m    for campo in campos_[1;31mpontuacao[m:
+Binary file [35mroutes/__pycache__/apontadores.cpython-314.pyc[m matches
+Binary file [35mroutes/__pycache__/competicoes.cpython-314.pyc[m matches
+[35mroutes/apontadores.py[m[36m:[m        if tipo_evento not in {"ponto", "[1;31mpontuacao[m", "pontuação"}:
+[35mroutes/apontadores.py[m[36m:[m        if tipo_evento not in {"ponto", "[1;31mpontuacao[m", "pontuação"}:
+[35mroutes/competicoes.py[m[36m:[m    atualizar_[1;31mpontuacao[m_desempate,
+[35mroutes/competicoes.py[m[36m:[m@competicoes_bp.route("/competicoes/[1;31mpontuacao[m", methods=["POST"])
+[35mroutes/competicoes.py[m[36m:[mdef salvar_[1;31mpontuacao[m_desempate_view():
+[35mroutes/competicoes.py[m[36m:[m    atualizar_[1;31mpontuacao[m_desempate(comp["nome"], dados)
+[35mtemplates/editar_competicao.html[m[36m:[m        <button type="button" class="competicao-tab-btn" data-tab="tab-[1;31mpontuacao[m">Classificação</button>
+[35mtemplates/editar_competicao.html[m[36m:[m    <div id="tab-[1;31mpontuacao[m" class="competicao-tab-pane">
+[35mtemplates/editar_competicao.html[m[36m:[m        <form method="post" action="{{ url_for('competicoes.salvar_[1;31mpontuacao[m_desempate_view') }}">

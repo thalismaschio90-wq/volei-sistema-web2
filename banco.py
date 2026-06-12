@@ -7921,6 +7921,10 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
             conn.commit()
 
     if fluxo and fluxo["fase_partida"] == "encerrado":
+        try:
+            sincronizar_avanco_automatico_competicao(competicao)
+        except Exception as e:
+            print("AVISO registrar_resultado_set/sincronizar_avanco:", repr(e), flush=True)
         return True, "Partida finalizada com sucesso."
     return True, "Set atualizado com sucesso."
 
@@ -8038,6 +8042,11 @@ def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login
                 partida_id, competicao,
             ))
         conn.commit()
+
+    try:
+        sincronizar_avanco_automatico_competicao(competicao)
+    except Exception as e:
+        print("AVISO salvar_resultado_manual_partida/sincronizar_avanco:", repr(e), flush=True)
 
     return True, "Resultado salvo e partida finalizada com sucesso."
 
@@ -14580,7 +14589,12 @@ def migrar_escudos_arquivos_para_banco(app_static_folder):
         conn.commit()
 
     try:
-        _salvar_flag_avanco_gerado_competicao(nome_competicao, classificatoria_fechada and (criadas > 0 or atualizadas > 0 or aguardando >= 0))
+        # Marca como gerado quando a rotina automática/manual já materializou algo
+        # ou quando a classificatória geral fechou. Não precisa mais depender só do botão.
+        _salvar_flag_avanco_gerado_competicao(
+            nome_competicao,
+            bool(classificatoria_fechada or criadas > 0 or atualizadas > 0)
+        )
     except Exception as e:
         print("AVISO gerar_avanco/salvar_flag:", repr(e))
 
@@ -15021,9 +15035,9 @@ def status_avanco_classificatorias_competicao(nome_competicao):
         "pendentes": int(fechamento.get("pendentes") or 0),
         "total_classificatorias": int(fechamento.get("total_classificatorias") or 0),
         "mensagem": (
-            "Classificatórias finalizadas. Você já pode gerar os jogos da próxima fase."
+            "Classificatórias finalizadas. O avanço automático já pode materializar todos os jogos configurados."
             if fechamento.get("geral")
-            else "Finalize todos os jogos classificatórios antes de gerar os confrontos reais do avanço."
+            else "O avanço automático libera jogos por origem: grupo fechado libera 1º/2º daquele grupo; geral/melhores terceiros aguardam o fechamento geral."
         ),
     }
 
@@ -15098,8 +15112,12 @@ def resolver_origem_avanco_competicao_se_fechada(nome_competicao, origem, serie=
             return False, label, "origem_grupo_invalida"
         pos = int(m.group(1))
         grupo = m.group(2).upper()
-        if not fechamento.get("geral"):
-            return False, label, "classificatoria_nao_finalizada"
+        grupos_fechados = fechamento.get("grupos") or {}
+        # Libera a origem assim que o grupo específico estiver fechado.
+        # Antes o sistema esperava a classificatória inteira, atrasando Quartas/Prata/Ouro
+        # mesmo quando aquele grupo já não podia mais mudar por jogos pendentes de outro grupo.
+        if not grupos_fechados.get(grupo) and not fechamento.get("geral"):
+            return False, label, "grupo_classificatoria_nao_finalizado"
         por_grupo, _geral = _calcular_classificacao_simples_avanco(nome_competicao)
         linhas = por_grupo.get(grupo) or []
         if len(linhas) >= pos:
@@ -15409,14 +15427,11 @@ def gerar_partidas_avanco_competicao(nome_competicao):
                 """, (nome_competicao, origem_tag))
                 existentes = list(cur.fetchall() or [])
 
-                if not classificatoria_fechada:
-                    aguardando += 1
-                    for existente in existentes:
-                        if not partida_ja_iniciou_ou_finalizou(existente):
-                            cur.execute("DELETE FROM partidas WHERE id = %s", (existente["id"],))
-                            removidas_prematuras += 1
-                    continue
-
+                # Não bloqueia mais o avanço inteiro por causa de pendências em outro grupo.
+                # Cada origem decide se já pode ser resolvida:
+                # - Grupo posição: libera quando o grupo dela fechou;
+                # - Geral/melhor 3º/4º: libera quando a classificatória geral fechou;
+                # - Vencedor/Perdedor de jogo: libera quando o jogo anterior finalizou.
                 ok_a, equipe_a, motivo_a = resolver_origem_avanco_competicao_se_fechada(
                     nome_competicao, jogo.get("origem_a") or {}, serie=serie
                 )
@@ -15533,7 +15548,12 @@ def gerar_partidas_avanco_competicao(nome_competicao):
         conn.commit()
 
     try:
-        _salvar_flag_avanco_gerado_competicao(nome_competicao, classificatoria_fechada and (criadas > 0 or atualizadas > 0 or aguardando >= 0))
+        # Marca como gerado quando a rotina automática/manual já materializou algo
+        # ou quando a classificatória geral fechou. Não precisa mais depender só do botão.
+        _salvar_flag_avanco_gerado_competicao(
+            nome_competicao,
+            bool(classificatoria_fechada or criadas > 0 or atualizadas > 0)
+        )
     except Exception as e:
         print("AVISO gerar_avanco/salvar_flag:", repr(e))
 
@@ -15544,11 +15564,33 @@ def gerar_partidas_avanco_competicao(nome_competicao):
         "aguardando": aguardando,
         "removidas_prematuras": removidas_prematuras,
         "duplicadas_removidas": duplicadas_removidas,
-        "bloqueada": not classificatoria_fechada,
+        "bloqueada": bool((not classificatoria_fechada) and criadas == 0 and atualizadas == 0),
+        "parcial": bool((not classificatoria_fechada) and (criadas > 0 or atualizadas > 0)),
         "pendentes_classificatoria": int(fechamento.get("pendentes") or 0),
         "total_classificatorias": int(fechamento.get("total_classificatorias") or 0),
     }
 
+
+
+def sincronizar_avanco_automatico_competicao(nome_competicao):
+    """Sincroniza o avanço sem depender do botão Gerar mata-mata.
+
+    Deve ser chamada depois que qualquer partida é finalizada.
+    A função é propositalmente segura:
+    - só cria partida real quando as duas origens já estão resolvidas;
+    - não apaga nem altera jogo iniciado/finalizado;
+    - reaproveita a mesma rotina do botão manual para evitar lógica duplicada.
+    """
+    try:
+        avanco = buscar_avanco_config_competicao(nome_competicao) or {}
+        if not (avanco.get("jogos") or []):
+            return {"ok": True, "ignorado": True, "motivo": "sem_configuracao_avanco"}
+        resultado = gerar_partidas_avanco_competicao(nome_competicao) or {}
+        resultado["automatico"] = True
+        return resultado
+    except Exception as e:
+        print("AVISO sincronizar_avanco_automatico_competicao:", repr(e), flush=True)
+        return {"ok": False, "erro": str(e), "automatico": True}
 
 
 # =========================================================

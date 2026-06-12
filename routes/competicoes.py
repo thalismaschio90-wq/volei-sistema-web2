@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, session, redirect, url_for, request, flash
 
 from banco import (
+    conectar,
     listar_competicoes,
     buscar_competicao_por_organizador,
     competicao_existe,
@@ -826,13 +827,33 @@ def _origem_avanco_form(prefixo):
 
 def _regra_avanco_form(prefixo):
     usar = request.form.get(f"{prefixo}_usar_regra") == "on"
+    sets_tipo = (request.form.get(f"{prefixo}_sets_tipo") or "padrao").strip() or "padrao"
+    pontos_set = (request.form.get(f"{prefixo}_pontos_set") or "").strip()
+    pontos_tiebreak = (request.form.get(f"{prefixo}_pontos_tiebreak") or "").strip()
+    modo_operacao = (request.form.get(f"{prefixo}_modo_operacao") or "padrao").strip() or "padrao"
+
+    # Regra fixa do vôlei no sistema:
+    # - Melhor de 3 e Melhor de 5 SEMPRE têm set desempate/tie-break.
+    # - O tie-break é automaticamente de 15 pontos, salvo se o organizador
+    #   informar outro valor explicitamente.
+    # - Set único não tem tie-break.
+    if sets_tipo in {"melhor_de_3", "melhor_de_5"}:
+        tem_tiebreak = "sim"
+        if not pontos_tiebreak:
+            pontos_tiebreak = "15"
+    elif sets_tipo == "set_unico":
+        tem_tiebreak = "nao"
+        pontos_tiebreak = ""
+    else:
+        tem_tiebreak = (request.form.get(f"{prefixo}_tem_tiebreak") or "padrao").strip() or "padrao"
+
     return {
         "usar_regra_propria": usar,
-        "sets_tipo": (request.form.get(f"{prefixo}_sets_tipo") or "padrao").strip() or "padrao",
-        "pontos_set": (request.form.get(f"{prefixo}_pontos_set") or "").strip(),
-        "tem_tiebreak": (request.form.get(f"{prefixo}_tem_tiebreak") or "padrao").strip() or "padrao",
-        "pontos_tiebreak": (request.form.get(f"{prefixo}_pontos_tiebreak") or "").strip(),
-        "modo_operacao": (request.form.get(f"{prefixo}_modo_operacao") or "padrao").strip() or "padrao",
+        "sets_tipo": sets_tipo,
+        "pontos_set": pontos_set,
+        "tem_tiebreak": tem_tiebreak,
+        "pontos_tiebreak": pontos_tiebreak,
+        "modo_operacao": modo_operacao,
     }
 
 
@@ -908,6 +929,198 @@ def _coletar_avanco_form():
     return {"series": series, "jogos": jogos, "versao": 1}
 
 
+def _colunas_tabela_avanco(nome_tabela):
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = %s
+                """, (nome_tabela,))
+                return {str(r.get("column_name") or "") for r in (cur.fetchall() or [])}
+    except Exception as e:
+        print(f"AVISO _colunas_tabela_avanco/{nome_tabela}:", repr(e), flush=True)
+        return set()
+
+
+def _int_avanco(valor, padrao=0):
+    try:
+        if valor in (None, ""):
+            return padrao
+        return int(valor)
+    except Exception:
+        return padrao
+
+
+def _origem_avanco_partida_real(serie, jogo_id):
+    return f"avanco:{_normalizar_id_avanco(serie)}:{str(jogo_id or '').strip()}"
+
+
+def _chaves_bloqueio_avanco(origem):
+    origem = str(origem or "").strip()
+    partes = origem.split(":")
+    if len(partes) < 3 or partes[0] != "avanco":
+        return []
+    serie = _normalizar_id_avanco(partes[1])
+    jogo_id = partes[2].strip()
+    return [
+        origem,
+        origem.lower(),
+        f"{serie}:{jogo_id}",
+        f"{serie}:{jogo_id}".lower(),
+    ]
+
+
+def _partida_avanco_bloqueada(row):
+    motivos = []
+
+    status_campos = [
+        row.get("status"),
+        row.get("status_jogo"),
+        row.get("status_operacao"),
+        row.get("fase_partida"),
+    ]
+    status_bloqueados = {
+        "ao vivo", "ao_vivo", "em andamento", "em_andamento",
+        "iniciada", "iniciado", "pausada", "pausado",
+        "finalizada", "finalizado", "encerrada", "encerrado",
+        "wo", "cancelada", "cancelado",
+    }
+    for valor in status_campos:
+        texto = str(valor or "").strip().lower()
+        if texto in status_bloqueados:
+            motivos.append("status da partida")
+            break
+
+    for campo in ("pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b"):
+        if _int_avanco(row.get(campo), 0) > 0:
+            motivos.append("placar/sets registrados")
+            break
+
+    for campo in ("set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b"):
+        if row.get(campo) not in (None, ""):
+            motivos.append("parciais registradas")
+            break
+
+    for campo in ("vencedor", "data_fim", "finalizado_em", "tipo_encerramento", "origem_resultado"):
+        if str(row.get(campo) or "").strip():
+            motivos.append("resultado/finalização registrada")
+            break
+
+    if row.get("pre_jogo_iniciado_em") not in (None, ""):
+        motivos.append("pré-jogo iniciado")
+
+    if row.get("pre_jogo_finalizado") is True:
+        motivos.append("pré-jogo finalizado")
+
+    if _int_avanco(row.get("eventos_total"), 0) > 0:
+        motivos.append("eventos registrados")
+
+    return bool(motivos), ", ".join(dict.fromkeys(motivos))
+
+
+def buscar_bloqueios_avanco_competicao(nome_competicao):
+    """Retorna os confrontos do avanço que não podem mais ser editados.
+
+    A chave principal é serie:jogo, por exemplo ouro:J1. Também enviamos a
+    origem completa avanco:ouro:J1 para o frontend. O bloqueio é calculado por
+    sinais de jogo já iniciado/finalizado: status, placar, sets, parciais,
+    pré-jogo ou eventos salvos.
+    """
+    colunas = _colunas_tabela_avanco("partidas")
+    if not colunas:
+        return {}
+
+    campos_base = ["id", "origem", "equipe_a", "equipe_b"]
+    campos_opcionais = [
+        "status", "status_jogo", "status_operacao", "fase_partida",
+        "pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b",
+        "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b",
+        "vencedor", "data_fim", "finalizado_em", "tipo_encerramento", "origem_resultado",
+        "pre_jogo_iniciado_em", "pre_jogo_finalizado",
+    ]
+    campos = [c for c in campos_base + campos_opcionais if c in colunas]
+
+    eventos_expr = "0 AS eventos_total"
+    eventos_join = ""
+    eventos_colunas = _colunas_tabela_avanco("eventos_partida")
+    if eventos_colunas and "partida_id" in eventos_colunas:
+        eventos_expr = "COALESCE(ev.eventos_total, 0) AS eventos_total"
+        eventos_join = """
+            LEFT JOIN (
+                SELECT partida_id, COUNT(*) AS eventos_total
+                FROM eventos_partida
+                GROUP BY partida_id
+            ) ev ON ev.partida_id = p.id
+        """
+
+    sql = f"""
+        SELECT {', '.join('p.' + c for c in campos)}, {eventos_expr}
+        FROM partidas p
+        {eventos_join}
+        WHERE p.competicao = %s
+          AND COALESCE(p.origem, '') LIKE 'avanco:%%'
+        ORDER BY p.id
+    """
+
+    bloqueios = {}
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (nome_competicao,))
+                for row in cur.fetchall() or []:
+                    bloqueado, motivo = _partida_avanco_bloqueada(row)
+                    if not bloqueado:
+                        continue
+                    origem = str(row.get("origem") or "").strip()
+                    info = {
+                        "bloqueado": True,
+                        "motivo": motivo or "Partida já iniciada ou finalizada.",
+                        "partida_id": row.get("id"),
+                        "origem": origem,
+                        "equipe_a": row.get("equipe_a") or "",
+                        "equipe_b": row.get("equipe_b") or "",
+                    }
+                    for chave in _chaves_bloqueio_avanco(origem):
+                        bloqueios[chave] = info
+    except Exception as e:
+        print("AVISO buscar_bloqueios_avanco_competicao:", repr(e), flush=True)
+
+    return bloqueios
+
+
+def _preservar_jogos_avanco_bloqueados(avanco_atual, avanco_novo, bloqueios):
+    if not bloqueios:
+        return avanco_novo, 0
+
+    avanco_atual = avanco_atual or {}
+    avanco_novo = avanco_novo or {}
+    jogos_atuais = list(avanco_atual.get("jogos") or [])
+    jogos_novos = list(avanco_novo.get("jogos") or [])
+    por_chave = {}
+
+    for jogo in jogos_novos:
+        chave = f"{_normalizar_id_avanco(jogo.get('serie'))}:{str(jogo.get('id') or '').strip()}".lower()
+        por_chave[chave] = jogo
+
+    preservados = 0
+    for jogo_atual in jogos_atuais:
+        chave = f"{_normalizar_id_avanco(jogo_atual.get('serie'))}:{str(jogo_atual.get('id') or '').strip()}".lower()
+        if chave not in bloqueios:
+            continue
+        if chave in por_chave:
+            idx = jogos_novos.index(por_chave[chave])
+            jogos_novos[idx] = jogo_atual
+        else:
+            jogos_novos.append(jogo_atual)
+        preservados += 1
+
+    avanco_novo["jogos"] = jogos_novos
+    return avanco_novo, preservados
+
+
 @competicoes_bp.route("/competicoes/avanco", methods=["GET", "POST"])
 @exigir_perfil("organizador")
 def avanco_competicao_view():
@@ -920,20 +1133,34 @@ def avanco_competicao_view():
         if competicao_esta_travada(comp["nome"]):
             flash("A competição está travada. O avanço não pode ser alterado.", "erro")
             return redirect(url_for("competicoes.avanco_competicao_view"))
-        salvar_avanco_config_competicao(comp["nome"], _coletar_avanco_form())
-        flash("Chaveamento de avanço salvo com sucesso.", "sucesso")
+
+        avanco_atual = buscar_avanco_config_competicao(comp["nome"]) or {}
+        bloqueios = buscar_bloqueios_avanco_competicao(comp["nome"])
+        avanco_novo = _coletar_avanco_form()
+        avanco_novo, preservados = _preservar_jogos_avanco_bloqueados(avanco_atual, avanco_novo, bloqueios)
+
+        salvar_avanco_config_competicao(comp["nome"], avanco_novo)
+        if preservados:
+            flash(
+                f"Chaveamento salvo. {preservados} confronto(s) já iniciado(s) ou finalizado(s) foram preservados e não puderam ser alterados.",
+                "aviso",
+            )
+        else:
+            flash("Chaveamento de avanço salvo com sucesso.", "sucesso")
         return redirect(url_for("competicoes.avanco_competicao_view"))
 
     avanco = buscar_avanco_config_competicao(comp["nome"])
     avanco_status = status_avanco_classificatorias_competicao(comp["nome"])
     avanco_status["gerado"] = avanco_ja_gerado_competicao(comp["nome"])
     origens = listar_origens_avanco_competicao(comp["nome"])
+    avanco_bloqueios = buscar_bloqueios_avanco_competicao(comp["nome"])
     return render_template(
         "avanco_competicao.html",
         competicao=comp,
         avanco=avanco,
         avanco_status=avanco_status,
         origens=origens,
+        avanco_bloqueios=avanco_bloqueios,
         competicao_travada=competicao_esta_travada(comp["nome"]),
     )
 

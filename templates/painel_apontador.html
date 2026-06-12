@@ -300,9 +300,9 @@ document.addEventListener("keydown", function(e) {
             </div>
             <div class="ap-meta">
                 Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {% if p.fase_normalizada and p.fase_normalizada != 'grupos' %}{{ p.fase_normalizada|replace('_',' ')|title }}{% else %}{{ p.grupo or '-' }}{% endif %}
-                {% if (p.origem or '') is string and (p.origem or '').startswith('avanco:') and not jogo_finalizado %}
-                    <span class="ap-badge ap-badge-avanco">Novo jogo do avanço</span>
-                {% endif %}
+                <span class="ap-badge ap-badge-avanco" title="Configuração da partida">
+                    {{ p.resumo_regra or 'M3 • 25PTS • TB15' }}
+                </span>
             </div>
             {% set placar_tipo = p.placar_exibicao_tipo if p.placar_exibicao_tipo is defined and p.placar_exibicao_tipo else ('pontos' if p.set_unico else 'sets') %}
             {% if placar_tipo == 'pontos' %}

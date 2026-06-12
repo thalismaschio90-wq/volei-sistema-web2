@@ -1967,6 +1967,172 @@ def _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, part
     return modo_final
 
 
+def _normalizar_sets_tipo_lista_apontador(valor, padrao="melhor_de_3"):
+    valor = str(valor or padrao or "melhor_de_3").strip().lower()
+    aliases = {
+        "set único": "set_unico",
+        "set unico": "set_unico",
+        "unico": "set_unico",
+        "único": "set_unico",
+        "1_set": "set_unico",
+        "melhor_de_1": "set_unico",
+        "melhor de 3": "melhor_de_3",
+        "md3": "melhor_de_3",
+        "m3": "melhor_de_3",
+        "melhor de 5": "melhor_de_5",
+        "md5": "melhor_de_5",
+        "m5": "melhor_de_5",
+    }
+    valor = aliases.get(valor, valor)
+    if valor not in {"set_unico", "melhor_de_3", "melhor_de_5"}:
+        return padrao if padrao in {"set_unico", "melhor_de_3", "melhor_de_5"} else "melhor_de_3"
+    return valor
+
+
+def _int_regra_lista_apontador(*valores, padrao=0):
+    for valor in valores:
+        if valor not in (None, ""):
+            try:
+                numero = int(valor)
+                if numero > 0:
+                    return numero
+            except Exception:
+                pass
+    return int(padrao or 0)
+
+
+def _aplicar_regra_lista_apontador(resultado, regra):
+    """Aplica campos de regra sem consultar banco dentro do loop do apontador."""
+    if not isinstance(regra, dict) or not regra:
+        return resultado
+
+    sets_tipo = str(regra.get("sets_tipo") or regra.get("tipo_partida") or "").strip().lower()
+    if sets_tipo and sets_tipo != "padrao":
+        resultado["sets_tipo"] = _normalizar_sets_tipo_lista_apontador(sets_tipo, resultado.get("sets_tipo"))
+
+    pontos_set = _int_regra_lista_apontador(
+        regra.get("pontos_set"),
+        regra.get("ponto_alvo_set"),
+        regra.get("pontos_para_vencer_set"),
+        padrao=0,
+    )
+    if pontos_set:
+        resultado["pontos_set"] = pontos_set
+
+    pontos_tiebreak = _int_regra_lista_apontador(
+        regra.get("pontos_tiebreak"),
+        regra.get("pontos_tb"),
+        regra.get("tiebreak"),
+        padrao=0,
+    )
+    if pontos_tiebreak:
+        resultado["pontos_tiebreak"] = pontos_tiebreak
+
+    modo = str(regra.get("modo_operacao") or regra.get("scout") or "").strip().lower()
+    if modo in {"simples", "avancado"}:
+        resultado["modo_operacao"] = modo
+
+    return resultado
+
+
+def _resolver_regra_partida_lista_apontador(competicao_cfg, config_avancada, partida):
+    """Resolve a regra que será mostrada no card do painel do apontador.
+
+    Prioridade:
+    1. campos já salvos na própria partida;
+    2. regra do jogo/série do avanço;
+    3. regra da fase/grupo;
+    4. regra padrão da competição.
+    """
+    partida = partida or {}
+    competicao_cfg = competicao_cfg or {}
+    resultado = {
+        "sets_tipo": _normalizar_sets_tipo_lista_apontador(
+            partida.get("sets_tipo")
+            or partida.get("tipo_partida")
+            or partida.get("formato_jogo")
+            or competicao_cfg.get("sets_tipo")
+            or "melhor_de_3"
+        ),
+        "pontos_set": _int_regra_lista_apontador(
+            partida.get("pontos_set"),
+            competicao_cfg.get("pontos_set"),
+            padrao=25,
+        ),
+        "pontos_tiebreak": _int_regra_lista_apontador(
+            partida.get("pontos_tiebreak"),
+            competicao_cfg.get("pontos_tiebreak"),
+            padrao=15,
+        ),
+        "modo_operacao": str(
+            partida.get("modo_operacao_resolvido")
+            or partida.get("modo_operacao")
+            or competicao_cfg.get("modo_operacao")
+            or "simples"
+        ).strip().lower(),
+    }
+
+    if resultado["modo_operacao"] not in {"simples", "avancado"}:
+        resultado["modo_operacao"] = "simples"
+
+    try:
+        fases_config = (config_avancada or {}).get("fases_config") or {}
+        regras_avancadas = fases_config.get("regras_avancadas") or {}
+        origem_partida = str(partida.get("origem") or "").strip()
+
+        if origem_partida.startswith("avanco:"):
+            partes = origem_partida.split(":")
+            serie_id = partes[1] if len(partes) > 1 else ""
+            jogo_id = partes[2] if len(partes) > 2 else ""
+
+            regra_serie = (regras_avancadas.get("series") or {}).get(serie_id) or {}
+            resultado = _aplicar_regra_lista_apontador(resultado, regra_serie)
+
+            regra_jogo = (regras_avancadas.get("jogos") or {}).get(f"{serie_id}:{jogo_id}") or {}
+            resultado = _aplicar_regra_lista_apontador(resultado, regra_jogo)
+        else:
+            fase_id = _normalizar_fase_operacao(partida.get("fase"))
+            regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
+            resultado = _aplicar_regra_lista_apontador(resultado, regra_fase)
+
+            if fase_id == "grupos":
+                grupo = str(partida.get("grupo") or "").strip().upper()
+                regra_grupo = (regras_avancadas.get("grupos") or {}).get(grupo) or {}
+                resultado = _aplicar_regra_lista_apontador(resultado, regra_grupo)
+    except Exception:
+        pass
+
+    resultado["sets_tipo"] = _normalizar_sets_tipo_lista_apontador(resultado.get("sets_tipo"))
+    resultado["pontos_set"] = _int_regra_lista_apontador(resultado.get("pontos_set"), padrao=25)
+    resultado["pontos_tiebreak"] = _int_regra_lista_apontador(resultado.get("pontos_tiebreak"), padrao=15)
+    resultado["modo_operacao"] = resultado["modo_operacao"] if resultado["modo_operacao"] in {"simples", "avancado"} else "simples"
+
+    return resultado
+
+
+def _montar_resumo_regra_partida_apontador(regra):
+    regra = regra or {}
+    sets_tipo = _normalizar_sets_tipo_lista_apontador(regra.get("sets_tipo"))
+    pontos_set = _int_regra_lista_apontador(regra.get("pontos_set"), padrao=25)
+    pontos_tiebreak = _int_regra_lista_apontador(regra.get("pontos_tiebreak"), padrao=15)
+    modo_operacao = str(regra.get("modo_operacao") or "simples").strip().lower()
+
+    if sets_tipo == "melhor_de_5":
+        sigla = "M5"
+    elif sets_tipo == "set_unico":
+        sigla = "SU"
+    else:
+        sigla = "M3"
+
+    partes = [sigla, f"{pontos_set}PTS"]
+    if sets_tipo != "set_unico":
+        partes.append(f"TB{pontos_tiebreak}")
+    if modo_operacao == "avancado":
+        partes.append("SCOUT")
+
+    return " • ".join(partes)
+
+
 _CAMPOS_LEVES_PARTIDA_APONTADOR = {
     "id", "competicao", "ordem", "rodada", "grupo", "fase", "fase_partida", "origem",
     "equipe_a", "equipe_b", "equipe_a_operacional", "equipe_b_operacional",
@@ -1978,7 +2144,7 @@ _CAMPOS_LEVES_PARTIDA_APONTADOR = {
     "set_atual", "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b",
     "vencedor", "tipo_encerramento", "origem_resultado", "modo_operacao",
     "tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes",
-    "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo",
+    "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo", "resumo_regra",
 }
 
 
@@ -2003,6 +2169,15 @@ def _partida_leve_para_lista_apontador(partida):
     item["modo_operacao_resolvido"] = partida.get("modo_operacao_resolvido") or "simples"
     item["permite_scout"] = bool(partida.get("permite_scout"))
     item["fase_normalizada"] = partida.get("fase_normalizada") or _fase_normalizada_lista(partida)
+    item["sets_tipo"] = partida.get("sets_tipo") or item.get("sets_tipo") or "melhor_de_3"
+    item["pontos_set"] = partida.get("pontos_set") or item.get("pontos_set") or 25
+    item["pontos_tiebreak"] = partida.get("pontos_tiebreak") or item.get("pontos_tiebreak") or 15
+    item["resumo_regra"] = partida.get("resumo_regra") or _montar_resumo_regra_partida_apontador({
+        "sets_tipo": item["sets_tipo"],
+        "pontos_set": item["pontos_set"],
+        "pontos_tiebreak": item["pontos_tiebreak"],
+        "modo_operacao": item["modo_operacao_resolvido"],
+    })
     return item
 
 
@@ -2013,7 +2188,7 @@ def _montar_partidas_painel_apontador_cache(competicao):
     Essa tela só precisa listar jogos e placar resumido.
     """
     competicao = str(competicao or "").strip()
-    chave = ("painel_competicao", competicao, "v3-leve")
+    chave = ("painel_competicao", competicao, "v4-regra-card")
     cached = _cache_get(chave)
     if cached is not None:
         return cached
@@ -2048,6 +2223,13 @@ def _montar_partidas_painel_apontador_cache(competicao):
             p["modo_operacao_resolvido"] = "simples"
         p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
         p["fase_normalizada"] = _fase_normalizada_lista(p)
+
+        regra_card = _resolver_regra_partida_lista_apontador(competicao_cfg, config_avancada, p)
+        regra_card["modo_operacao"] = p.get("modo_operacao_resolvido") or regra_card.get("modo_operacao") or "simples"
+        p["sets_tipo"] = regra_card.get("sets_tipo") or "melhor_de_3"
+        p["pontos_set"] = regra_card.get("pontos_set") or 25
+        p["pontos_tiebreak"] = regra_card.get("pontos_tiebreak") or 15
+        p["resumo_regra"] = _montar_resumo_regra_partida_apontador(regra_card)
 
         # Em vez de remover alguns campos pesados, montamos uma cópia leve.
         # Assim nenhum campo novo enorme passa despercebido para o HTML.
