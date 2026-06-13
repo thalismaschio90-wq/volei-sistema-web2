@@ -2438,10 +2438,9 @@ def _partida_leve_para_lista_apontador(partida):
         if campo in (partida or {}):
             valor = partida.get(campo)
             if campo.startswith("escudo"):
-                # Na lista inicial do apontador os cards precisam mostrar o escudo real.
-                # Não usamos _escudo_payload_leve aqui, porque essa função troca
-                # base64/data-uri por escudo padrão para economizar payload nos
-                # endpoints de polling/estado ao vivo.
+                # Na lista do apontador o escudo precisa ser o real da equipe.
+                # Não usar _escudo_payload_leve aqui, pois escudos salvos em base64
+                # estavam sendo trocados pelo escudo padrão.
                 valor = _normalizar_url_escudo(valor) if valor else ESCUDO_PADRAO_URL
             elif isinstance(valor, str) and len(valor) > 700:
                 # Proteção contra JSON/base64/textos grandes que venham da consulta.
@@ -5009,10 +5008,13 @@ def estado_jogo_view(competicao, partida_id):
             "equipe_b": equipe_b_op,
             "equipe_a_operacional": equipe_a_op,
             "equipe_b_operacional": equipe_b_op,
-            "escudo_a": _escudo_payload_leve(estado.get("escudo_a")),
-            "escudo_b": _escudo_payload_leve(estado.get("escudo_b")),
-            "escudo_a_operacional": _escudo_payload_leve(estado.get("escudo_a_operacional") or estado.get("escudo_a")),
-            "escudo_b_operacional": _escudo_payload_leve(estado.get("escudo_b_operacional") or estado.get("escudo_b")),
+            # O jogo/apontador também precisa receber o escudo real.
+            # Antes usava _escudo_payload_leve(), que substituía data:image/base64
+            # por escudo padrão; por isso no celular os dois lados apareciam iguais.
+            "escudo_a": _normalizar_url_escudo(estado.get("escudo_a")),
+            "escudo_b": _normalizar_url_escudo(estado.get("escudo_b")),
+            "escudo_a_operacional": _normalizar_url_escudo(estado.get("escudo_a_operacional") or estado.get("escudo_a")),
+            "escudo_b_operacional": _normalizar_url_escudo(estado.get("escudo_b_operacional") or estado.get("escudo_b")),
             "cor_a": estado.get("cor_a") or "#2E6BE6",
             "cor_b": estado.get("cor_b") or "#E53935",
             "tempos_a": tempos_a,
