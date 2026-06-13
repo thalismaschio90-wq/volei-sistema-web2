@@ -45,6 +45,9 @@
 .avanco-regra-resumo { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
 .avanco-pill { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; background:rgba(37,99,235,.10); color:#2563eb; font-size:11px; font-weight:900; }
 .avanco-pill.muted { background:rgba(148,163,184,.15); color:var(--muted); }
+.avanco-bloqueio-global { margin:12px 0 16px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:16px; padding:14px 16px; font-weight:900; line-height:1.45; }
+.avanco-readonly .avanco-add, .avanco-readonly button[type="submit"], .avanco-readonly .btn-padrao-bloqueavel { display:none!important; }
+.avanco-readonly input, .avanco-readonly select { pointer-events:none; opacity:.72; }
 .avanco-card.bloqueado { cursor:not-allowed; border-color:rgba(185,28,28,.42); background:linear-gradient(180deg, rgba(254,242,242,.98), var(--card-bg,#fff)); }
 .avanco-card.bloqueado:hover { transform:none; border-color:rgba(185,28,28,.58); }
 .avanco-card-lock { position:absolute; top:8px; left:10px; font-size:12px; font-weight:1000; color:#b91c1c; background:#fee2e2; border:1px solid #fecaca; border-radius:999px; padding:3px 8px; }
@@ -55,14 +58,25 @@
 @media(max-width:900px){ .avanco-layout{grid-template-columns:1fr;} .avanco-grid2{grid-template-columns:1fr;} .avanco-board{gap:24px;} }
 </style>
 
+{% set avanco_bloqueado_tpl = false %}
+
+{% if avanco_bloqueado_tpl %}
+<div class="avanco-bloqueio-global">
+    🔒 Avanço bloqueado para edição. Já existe partida do mata-mata iniciada ou finalizada.
+    Para preservar placar, vencedores e resultados, esta aba fica somente leitura.
+</div>
+{% endif %}
+
 <div class="avanco-toolbar">
     <a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='regras') }}">Voltar para competição</a>
+    {% if not avanco_bloqueado_tpl %}
     <form method="post" action="{{ url_for('competicoes.gerar_avanco_competicao_view') }}" onsubmit="return confirm('Gerar/atualizar partidas do mata-mata a partir deste chaveamento?');">
         <button class="btn-padrao" type="submit">Gerar mata-mata</button>
     </form>
+    {% endif %}
 </div>
 
-<form id="formAvanco" method="post" action="{{ url_for('competicoes.avanco_competicao_view') }}">
+<form id="formAvanco" method="post" action="{{ url_for('competicoes.avanco_competicao_view') }}" class="{% if avanco_bloqueado_tpl %}avanco-readonly{% endif %}">
 <div class="avanco-layout">
     <div class="avanco-panel">
         <h3 style="margin-top:0;">Séries</h3>
@@ -78,10 +92,13 @@
             </div>
         </div>
         {% endfor %}
-        <button type="button" class="btn-secundario" onclick="adicionarSerie()">+ Adicionar série</button>
+        {% if not avanco_bloqueado_tpl %}<button type="button" class="btn-secundario" onclick="adicionarSerie()">+ Adicionar série</button>{% endif %}
         <hr style="border:0;border-top:1px solid var(--border);margin:16px 0;">
-        <button type="submit" class="btn-padrao" {% if competicao_travada %}disabled{% endif %}>Salvar avanço</button>
+        {% if not avanco_bloqueado_tpl %}
+            <button type="submit" class="btn-padrao" {% if competicao_travada %}disabled{% endif %}>Salvar avanço</button>
+        {% endif %}
         {% if competicao_travada %}<div style="color:#b91c1c;font-weight:800;margin-top:8px;">Competição travada.</div>{% endif %}
+        {% if avanco_bloqueado_tpl %}<div style="color:#991b1b;font-weight:900;margin-top:8px;">Somente leitura: há partida do avanço já iniciada/finalizada.</div>{% endif %}
     </div>
 
     <div class="avanco-panel">
@@ -164,6 +181,7 @@
 <script>
 const ORIGENS_BASE = {{ origens|tojson }};
 const AVANCO_BLOQUEIOS = {{ (avanco_bloqueios if avanco_bloqueios is defined else {})|tojson }};
+const AVANCO_BLOQUEADO = {{ (avanco_bloqueado_tpl or false)|tojson }};
 let avanco = {{ avanco|tojson }};
 let serieAtual = (avanco.series || []).find(s => s.ativa)?.id || (avanco.series?.[0]?.id || 'ouro');
 const faseNome = {oitavas:'Oitavas', quartas:'Quartas', semifinal:'Semifinal', terceiro_lugar:'3º lugar', final:'Final'};
@@ -276,8 +294,11 @@ function renderBoard(){
             card.innerHTML=`${bloqueado ? '<div class="avanco-card-lock">🔒 Bloqueado</div>' : ''}<div class="avanco-card-id">${j.id}</div><div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${origemLabel(j.origem_a)}</span></div><div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${origemLabel(j.origem_b)}</span></div><div class="avanco-card-meta">${j.data_hora || ''}${j.proximo_vencedor ? ' • vencedor → '+j.proximo_vencedor : ''}${bloqueado ? ' • 🔒 não editável' : ''}</div>${resumoRegra(j)}`;
             col.appendChild(card);
         });
-        const add=document.createElement('button'); add.type='button'; add.className='avanco-add'; add.textContent='+ Adicionar jogo em '+(faseNome[fase]||fase); add.onclick=()=>adicionarJogo(fase);
-        col.appendChild(add); board.appendChild(col);
+        if(!AVANCO_BLOQUEADO){
+            const add=document.createElement('button'); add.type='button'; add.className='avanco-add'; add.textContent='+ Adicionar jogo em '+(faseNome[fase]||fase); add.onclick=()=>adicionarJogo(fase);
+            col.appendChild(add);
+        }
+        board.appendChild(col);
     });
 }
 function syncHidden(){
@@ -350,7 +371,12 @@ function atualizarTieBreakAutomatico(){
     }
 }
 function abrirModalAvanco(idx){
-    const j=avanco.jogos[idx]; document.getElementById('mIndex').value=idx; document.getElementById('mId').value=j.id; document.getElementById('mFase').value=j.fase; document.getElementById('mData').value=j.data_hora || '';
+    const j=avanco.jogos[idx];
+    if(AVANCO_BLOQUEADO){
+        alert('Avanço bloqueado para edição: já existe partida do mata-mata iniciada ou finalizada.');
+        return;
+    }
+    document.getElementById('mIndex').value=idx; document.getElementById('mId').value=j.id; document.getElementById('mFase').value=j.fase; document.getElementById('mData').value=j.data_hora || '';
     preencherSelectOrigem(document.getElementById('mOrigemA'), j.origem_a); preencherSelectOrigem(document.getElementById('mOrigemB'), j.origem_b);
     document.getElementById('mManualA').value = j.origem_a?.tipo==='manual' ? (j.origem_a.valor||'') : '';
     document.getElementById('mManualB').value = j.origem_b?.tipo==='manual' ? (j.origem_b.valor||'') : '';
@@ -400,6 +426,13 @@ function removerJogoAtual(){
 function adicionarSerie(){ alert('Para adicionar uma nova série personalizada, salve Ouro/Prata/Bronze primeiro. Posso liberar série livre na próxima etapa.'); }
 
 document.getElementById('mSetsTipo')?.addEventListener('change', atualizarTieBreakAutomatico);
+document.getElementById('formAvanco')?.addEventListener('submit', function(e){
+    if(AVANCO_BLOQUEADO){
+        e.preventDefault();
+        alert('Avanço bloqueado para edição: já existe partida do mata-mata iniciada ou finalizada.');
+        return false;
+    }
+});
 renderTudo();
-</script></script>
+</script>
 {% endblock %}

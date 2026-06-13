@@ -6990,7 +6990,15 @@ def salvar_pre_jogo_partida(
                 sorteio_vencedor,
                 sorteio_escolha,
                 saque_inicial,
-                saque_inicial,
+                _lado_operacional_por_nome(
+                    equipe_a_operacional,
+                    equipe_b_operacional,
+                    _resolver_equipe_por_lado_set1({
+                        "equipe_a": equipe_a_cadastro,
+                        "equipe_b": equipe_b_cadastro,
+                        "lado_esquerdo": lado_esquerdo,
+                    }, saque_inicial),
+                ) or saque_inicial,
                 lado_esquerdo,
                 equipe_a_operacional,
                 equipe_b_operacional,
@@ -7041,17 +7049,35 @@ def salvar_sorteio_tiebreak_partida(
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            config_tb = _configuracao_operacional_set(
+                dict(
+                    partida,
+                    tiebreak_definido=True,
+                    saque_tiebreak=saque_tiebreak,
+                    lado_esquerdo_tiebreak=lado_esquerdo_tiebreak,
+                ),
+                formato=(partida.get("sets_tipo") or (buscar_competicao_por_nome(competicao) or {}).get("sets_tipo")),
+                set_numero=partida.get("set_atual") or 1,
+            )
+
             cur.execute("""
                 UPDATE partidas
                 SET sorteio_tiebreak_vencedor = %s,
                     sorteio_tiebreak_escolha = %s,
                     saque_tiebreak = %s,
                     lado_esquerdo_tiebreak = %s,
+                    equipe_a_operacional = %s,
+                    equipe_b_operacional = %s,
+                    saque_atual = %s,
+                    rotacao_a = NULL,
+                    rotacao_b = NULL,
+                    rotacao_a_json = NULL,
+                    rotacao_b_json = NULL,
                     tiebreak_pendente = FALSE,
                     tiebreak_definido = TRUE,
                     fase_partida = 'papeleta',
                     status_jogo = 'entre_sets',
-                    status_operacao = 'pre_jogo'
+                    status_operacao = 'papeleta'
                 WHERE id = %s
                   AND competicao = %s
             """, (
@@ -7059,6 +7085,9 @@ def salvar_sorteio_tiebreak_partida(
                 sorteio_escolha,
                 saque_tiebreak,
                 lado_esquerdo_tiebreak,
+                config_tb.get("equipe_a_operacional"),
+                config_tb.get("equipe_b_operacional"),
+                config_tb.get("saque_atual"),
                 partida_id,
                 competicao,
             ))
@@ -7665,6 +7694,128 @@ def set_deve_inverter_lados(formato, set_numero):
     return set_numero % 2 == 0
 
 
+def _nome_equipe_cadastro_oposta(partida, equipe):
+    equipe = str(equipe or "").strip()
+    equipe_a = str((partida or {}).get("equipe_a") or "").strip()
+    equipe_b = str((partida or {}).get("equipe_b") or "").strip()
+    if equipe and equipe == equipe_a:
+        return equipe_b
+    if equipe and equipe == equipe_b:
+        return equipe_a
+    return equipe_b if equipe_a else ""
+
+
+def _resolver_equipe_por_lado_set1(partida, valor):
+    partida = partida or {}
+    valor_txt = str(valor or "").strip()
+    if not valor_txt:
+        return ""
+
+    equipe_a_cadastro = str(partida.get("equipe_a") or "").strip()
+    equipe_b_cadastro = str(partida.get("equipe_b") or "").strip()
+    lado_esquerdo_set1 = str(partida.get("lado_esquerdo") or partida.get("equipe_a_operacional") or equipe_a_cadastro or "").strip()
+
+    if lado_esquerdo_set1 == equipe_b_cadastro:
+        equipe_a_set1 = equipe_b_cadastro
+        equipe_b_set1 = equipe_a_cadastro
+    else:
+        equipe_a_set1 = equipe_a_cadastro
+        equipe_b_set1 = equipe_b_cadastro
+
+    if valor_txt.upper() == "A":
+        return equipe_a_set1
+    if valor_txt.upper() == "B":
+        return equipe_b_set1
+    if valor_txt in {equipe_a_cadastro, equipe_b_cadastro, equipe_a_set1, equipe_b_set1}:
+        return valor_txt
+    return ""
+
+
+def _lado_operacional_por_nome(equipe_a_operacional, equipe_b_operacional, equipe_nome):
+    equipe_nome = str(equipe_nome or "").strip()
+    if equipe_nome and equipe_nome == str(equipe_a_operacional or "").strip():
+        return "A"
+    if equipe_nome and equipe_nome == str(equipe_b_operacional or "").strip():
+        return "B"
+    return ""
+
+
+def _configuracao_operacional_set(partida, formato=None, set_numero=None):
+    """Calcula lados e saque inicial do set atual sem destruir o sorteio original."""
+    partida = partida or {}
+    formato = _normalizar_formato_sets(formato or partida.get("sets_tipo") or "melhor_de_3")
+    try:
+        set_numero = int(set_numero or partida.get("set_atual") or 1)
+    except Exception:
+        set_numero = 1
+
+    equipe_a_cadastro = str(partida.get("equipe_a") or "").strip()
+    equipe_b_cadastro = str(partida.get("equipe_b") or "").strip()
+
+    if not equipe_a_cadastro or not equipe_b_cadastro:
+        return {
+            "equipe_a_operacional": partida.get("equipe_a_operacional") or equipe_a_cadastro,
+            "equipe_b_operacional": partida.get("equipe_b_operacional") or equipe_b_cadastro,
+            "saque_atual": partida.get("saque_atual") or partida.get("saque_inicial") or "",
+            "saque_nome": "",
+            "lado_esquerdo": partida.get("lado_esquerdo") or "",
+        }
+
+    if set_eh_tiebreak(formato, set_numero) and bool(partida.get("tiebreak_definido")):
+        lado_esquerdo = str(partida.get("lado_esquerdo_tiebreak") or partida.get("lado_esquerdo") or equipe_a_cadastro).strip()
+        if lado_esquerdo == equipe_b_cadastro:
+            equipe_a_operacional = equipe_b_cadastro
+            equipe_b_operacional = equipe_a_cadastro
+        else:
+            equipe_a_operacional = equipe_a_cadastro
+            equipe_b_operacional = equipe_b_cadastro
+
+        saque_raw = str(partida.get("saque_tiebreak") or "").strip()
+        if saque_raw.upper() == "A":
+            saque_nome = equipe_a_operacional
+        elif saque_raw.upper() == "B":
+            saque_nome = equipe_b_operacional
+        else:
+            saque_nome = saque_raw
+
+        saque_lado = _lado_operacional_por_nome(equipe_a_operacional, equipe_b_operacional, saque_nome)
+        return {
+            "equipe_a_operacional": equipe_a_operacional,
+            "equipe_b_operacional": equipe_b_operacional,
+            "saque_atual": saque_lado or saque_nome,
+            "saque_nome": saque_nome,
+            "lado_esquerdo": lado_esquerdo,
+        }
+
+    lado_esquerdo_set1 = str(partida.get("lado_esquerdo") or partida.get("equipe_a_operacional") or equipe_a_cadastro).strip()
+    if lado_esquerdo_set1 not in {equipe_a_cadastro, equipe_b_cadastro}:
+        lado_esquerdo_set1 = equipe_a_cadastro
+
+    lado_esquerdo = _nome_equipe_cadastro_oposta(partida, lado_esquerdo_set1) if set_deve_inverter_lados(formato, set_numero) else lado_esquerdo_set1
+
+    if lado_esquerdo == equipe_b_cadastro:
+        equipe_a_operacional = equipe_b_cadastro
+        equipe_b_operacional = equipe_a_cadastro
+    else:
+        equipe_a_operacional = equipe_a_cadastro
+        equipe_b_operacional = equipe_b_cadastro
+
+    saque_set1_nome = _resolver_equipe_por_lado_set1(partida, partida.get("saque_inicial"))
+    if saque_set1_nome not in {equipe_a_cadastro, equipe_b_cadastro}:
+        saque_set1_nome = equipe_a_cadastro
+
+    saque_nome = _nome_equipe_cadastro_oposta(partida, saque_set1_nome) if set_deve_inverter_lados(formato, set_numero) else saque_set1_nome
+    saque_lado = _lado_operacional_por_nome(equipe_a_operacional, equipe_b_operacional, saque_nome)
+
+    return {
+        "equipe_a_operacional": equipe_a_operacional,
+        "equipe_b_operacional": equipe_b_operacional,
+        "saque_atual": saque_lado or saque_nome,
+        "saque_nome": saque_nome,
+        "lado_esquerdo": lado_esquerdo,
+    }
+
+
 def papeleta_set_esta_completa(partida_id, competicao, equipe, set_numero):
     if not equipe:
         return False
@@ -7801,6 +7952,114 @@ def inicializar_sets_partida(partida_id, competicao):
             conn.commit()
 
 
+
+def _sets_config_partida_seguro(partida=None, competicao=None):
+    """Resolve a regra real de sets da partida sem cair para set único por engano.
+
+    Prioridade:
+    1) campos gravados na própria partida (sets_max/sets_para_vencer), quando válidos;
+    2) configuração da competição;
+    3) padrão seguro melhor_de_3.
+    """
+    partida = partida or {}
+
+    def _int_pos(valor, padrao=0):
+        try:
+            valor = int(valor or 0)
+        except Exception:
+            valor = padrao
+        return valor if valor > 0 else padrao
+
+    sets_max_partida = _int_pos(partida.get("sets_max"), 0)
+    sets_para_partida = _int_pos(partida.get("sets_para_vencer"), 0)
+
+    sets_tipo = str(partida.get("sets_tipo") or "").strip().lower()
+
+    comp = {}
+    if competicao:
+        try:
+            comp = buscar_competicao_por_nome(competicao) or {}
+        except Exception:
+            comp = {}
+
+    if not sets_tipo:
+        sets_tipo = str(comp.get("sets_tipo") or "melhor_de_3").strip().lower()
+
+    sets_tipo = _normalizar_formato_sets(sets_tipo)
+    sets_max_cfg = calcular_sets_max(sets_tipo)
+    sets_para_cfg = calcular_sets_para_vencer(sets_tipo)
+
+    sets_max = sets_max_partida or sets_max_cfg
+    sets_para_vencer = sets_para_partida or sets_para_cfg
+
+    # Corrige combinações inválidas que causavam melhor_de_3 finalizar com 1 set.
+    if sets_max >= 5:
+        sets_tipo = "melhor_de_5"
+        sets_max = 5
+        sets_para_vencer = 3
+    elif sets_max == 3:
+        sets_tipo = "melhor_de_3"
+        sets_para_vencer = 2
+    else:
+        sets_tipo = "set_unico"
+        sets_max = 1
+        sets_para_vencer = 1
+
+    return sets_tipo, sets_max, sets_para_vencer
+
+
+def _partida_tem_sets_para_finalizar(partida=None, estado=None, competicao=None):
+    base = {}
+    if isinstance(partida, dict):
+        base.update(partida)
+    if isinstance(estado, dict):
+        base.update(estado)
+
+    _sets_tipo, _sets_max, sets_para_vencer = _sets_config_partida_seguro(base, competicao)
+    try:
+        sets_a = int(base.get("sets_a") or 0)
+        sets_b = int(base.get("sets_b") or 0)
+    except Exception:
+        sets_a = sets_b = 0
+
+    return max(sets_a, sets_b) >= sets_para_vencer, sets_para_vencer
+
+
+
+def _lado_cadastro_por_lado_operacional_partida(partida, lado_operacional):
+    """Converte lado operacional (A/B da quadra atual) para lado do cadastro da partida.
+
+    Importante: entre sets nós invertemos equipe_a_operacional/equipe_b_operacional.
+    Os campos sets_a/sets_b e set1_a/set1_b pertencem ao confronto original
+    (partidas.equipe_a / partidas.equipe_b), não ao lado visual do set.
+    """
+    lado_operacional = str(lado_operacional or "").strip().upper()
+    equipe_a_cadastro = str((partida or {}).get("equipe_a") or "").strip()
+    equipe_b_cadastro = str((partida or {}).get("equipe_b") or "").strip()
+    equipe_a_operacional = str((partida or {}).get("equipe_a_operacional") or equipe_a_cadastro).strip()
+    equipe_b_operacional = str((partida or {}).get("equipe_b_operacional") or equipe_b_cadastro).strip()
+
+    nome_operacional = equipe_a_operacional if lado_operacional == "A" else equipe_b_operacional if lado_operacional == "B" else ""
+
+    if nome_operacional and nome_operacional == equipe_a_cadastro:
+        return "A"
+    if nome_operacional and nome_operacional == equipe_b_cadastro:
+        return "B"
+
+    # Fallback seguro: se por algum motivo não encontrou nome, mantém o lado recebido.
+    return lado_operacional if lado_operacional in {"A", "B"} else ""
+
+
+def _placar_operacional_para_cadastro_partida(partida, pontos_a_operacional, pontos_b_operacional):
+    """Converte placar A/B operacional para placar A/B original da partida."""
+    lado_cadastro_do_operacional_a = _lado_cadastro_por_lado_operacional_partida(partida, "A")
+    if lado_cadastro_do_operacional_a == "A":
+        return int(pontos_a_operacional or 0), int(pontos_b_operacional or 0)
+    if lado_cadastro_do_operacional_a == "B":
+        return int(pontos_b_operacional or 0), int(pontos_a_operacional or 0)
+    return int(pontos_a_operacional or 0), int(pontos_b_operacional or 0)
+
+
 def registrar_resultado_set(partida_id, competicao, vencedor):
     criar_campos_sets_partida()
     criar_campos_jogo_partida()
@@ -7819,23 +8078,25 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
             if not partida:
                 return False, "Partida não encontrada."
 
-            comp = buscar_competicao_por_nome(competicao) or {}
-            formato = _normalizar_formato_sets(comp.get("sets_tipo"))
-            sets_max = calcular_sets_max(formato)
-            sets_para_vencer = calcular_sets_para_vencer(formato)
+            formato, sets_max, sets_para_vencer = _sets_config_partida_seguro(partida, competicao)
 
             sets_a = int(partida.get("sets_a") or 0)
             sets_b = int(partida.get("sets_b") or 0)
             set_atual = int(partida.get("set_atual") or 1)
 
-            if vencedor == "A":
+            vencedor_operacional = str(vencedor or "").strip().upper()
+            vencedor_cadastro = _lado_cadastro_por_lado_operacional_partida(partida, vencedor_operacional)
+
+            if vencedor_cadastro == "A":
                 sets_a += 1
-            elif vencedor == "B":
+            elif vencedor_cadastro == "B":
                 sets_b += 1
             else:
                 return False, "Vencedor inválido."
 
-            acabou = sets_a >= sets_para_vencer or sets_b >= sets_para_vencer or set_atual >= sets_max
+            # Partida só acaba quando alguém atinge a quantidade de sets necessária.
+            # Não finalize apenas porque terminou um set ou porque set_atual chegou ao limite.
+            acabou = max(sets_a, sets_b) >= sets_para_vencer
 
             if acabou:
                 cur.execute("""
@@ -7856,6 +8117,8 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
                 proximo_set = set_atual + 1
                 precisa_tiebreak = set_eh_tiebreak(formato, proximo_set)
 
+                config_proximo_set = _configuracao_operacional_set(partida, formato=formato, set_numero=proximo_set)
+
                 if precisa_tiebreak:
                     cur.execute("""
                         UPDATE partidas
@@ -7865,6 +8128,10 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
                             pontos_a = 0,
                             pontos_b = 0,
                             saque_atual = NULL,
+                            rotacao_a = NULL,
+                            rotacao_b = NULL,
+                            rotacao_a_json = NULL,
+                            rotacao_b_json = NULL,
                             sets_max = %s,
                             sets_para_vencer = %s,
                             fase_partida = 'tiebreak_sorteio',
@@ -7887,15 +8154,33 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
                             set_atual = %s,
                             pontos_a = 0,
                             pontos_b = 0,
-                            saque_atual = NULL,
+                            saque_atual = %s,
+                            equipe_a_operacional = %s,
+                            equipe_b_operacional = %s,
+                            rotacao_a = NULL,
+                            rotacao_b = NULL,
+                            rotacao_a_json = NULL,
+                            rotacao_b_json = NULL,
                             sets_max = %s,
                             sets_para_vencer = %s,
                             fase_partida = 'intervalo_set',
                             status_jogo = 'entre_sets',
+                            status_operacao = 'papeleta',
                             tiebreak_pendente = FALSE
                         WHERE id = %s
                           AND competicao = %s
-                    """, (sets_a, sets_b, proximo_set, sets_max, sets_para_vencer, partida_id, competicao))
+                    """, (
+                        sets_a,
+                        sets_b,
+                        proximo_set,
+                        config_proximo_set.get("saque_atual"),
+                        config_proximo_set.get("equipe_a_operacional"),
+                        config_proximo_set.get("equipe_b_operacional"),
+                        sets_max,
+                        sets_para_vencer,
+                        partida_id,
+                        competicao,
+                    ))
 
         conn.commit()
 
@@ -9474,8 +9759,8 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         if valor_upper in {"A", "B"}:
             return valor_upper
 
-        equipe_a_nome = str(partida.get("equipe_a") or partida.get("equipe_a_operacional") or "").strip().lower()
-        equipe_b_nome = str(partida.get("equipe_b") or partida.get("equipe_b_operacional") or "").strip().lower()
+        equipe_a_nome = str(partida.get("equipe_a_operacional") or partida.get("equipe_a") or "").strip().lower()
+        equipe_b_nome = str(partida.get("equipe_b_operacional") or partida.get("equipe_b") or "").strip().lower()
 
         if valor.lower() == equipe_a_nome:
             return "A"
@@ -9585,11 +9870,24 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             else:
                 pontos_b += 1
 
-            sets_tipo_regra = str(regras.get("sets_tipo") or "set_unico").strip().lower()
-            pontos_set_normal = int(regras.get("pontos_set") or 21)
-            pontos_tiebreak = int(regras.get("pontos_tiebreak") or 15)
-            diferenca_minima = int(regras.get("diferenca_minima") or 2)
-            sets_para_vencer = int(regras.get("sets_para_vencer") or 1)
+            # REGRA REAL DA PARTIDA (não só da competição).
+            # Partidas do avanço/3º lugar/final podem ter sets_max/sets_para_vencer
+            # salvos direto na própria partida. Antes, esta função lia apenas a
+            # configuração da competição e podia cair em set único, finalizando
+            # a partida logo no 1º set.
+            sets_tipo_partida, sets_max_partida, sets_para_vencer = _sets_config_partida_seguro(partida, competicao)
+            sets_tipo_regra = sets_tipo_partida
+
+            def _int_regra(valor, padrao):
+                try:
+                    valor = int(valor or 0)
+                except Exception:
+                    valor = 0
+                return valor if valor > 0 else padrao
+
+            pontos_set_normal = _int_regra(partida.get("pontos_set"), _int_regra(regras.get("pontos_set"), 25))
+            pontos_tiebreak = _int_regra(partida.get("pontos_tiebreak"), _int_regra(regras.get("pontos_tiebreak"), 15))
+            diferenca_minima = _int_regra(partida.get("diferenca_minima"), _int_regra(regras.get("diferenca_minima"), 2))
             pontos_set = pontos_tiebreak if set_eh_tiebreak(sets_tipo_regra, set_atual) else pontos_set_normal
 
             fundamento = (
@@ -9660,7 +9958,8 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 fim_set = True
                 vencedor_set = "A" if pontos_a > pontos_b else "B"
 
-                if vencedor_set == "A":
+                vencedor_set_cadastro = _lado_cadastro_por_lado_operacional_partida(partida, vencedor_set)
+                if vencedor_set_cadastro == "A":
                     sets_a += 1
                 else:
                     sets_b += 1
@@ -9673,6 +9972,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 set_coluna = max(1, min(int(set_atual or 1), 5))
                 coluna_a = f"set{set_coluna}_a"
                 coluna_b = f"set{set_coluna}_b"
+                pontos_set_a_cadastro, pontos_set_b_cadastro = _placar_operacional_para_cadastro_partida(partida, pontos_a, pontos_b)
 
                 if fim_jogo:
                     cur.execute(f"""
@@ -9681,6 +9981,8 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                             pontos_b = %s,
                             sets_a = %s,
                             sets_b = %s,
+                            sets_max = %s,
+                            sets_para_vencer = %s,
                             {coluna_a} = %s,
                             {coluna_b} = %s,
                             saque_atual = %s,
@@ -9702,8 +10004,10 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                         pontos_b,
                         sets_a,
                         sets_b,
-                        pontos_a,
-                        pontos_b,
+                        sets_max_partida,
+                        sets_para_vencer,
+                        pontos_set_a_cadastro,
+                        pontos_set_b_cadastro,
                         saque_depois,
                         rotacao_a,
                         rotacao_b,
@@ -9717,20 +10021,28 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     proximo_set = set_atual + 1
                     proximo_eh_tiebreak = set_eh_tiebreak(sets_tipo_regra, proximo_set)
 
+                    config_proximo_set = _configuracao_operacional_set(partida, formato=sets_tipo_regra, set_numero=proximo_set)
+
                     if proximo_eh_tiebreak:
                         proxima_fase_partida = 'tiebreak_sorteio'
                         proximo_status_jogo = 'tiebreak_sorteio'
                         proximo_status_operacao = 'tiebreak_sorteio'
                         proximo_tiebreak_pendente = True
                         proximo_tiebreak_definido = False
+                        proximo_saque_atual = None
+                        proximo_equipe_a_operacional = partida.get("equipe_a_operacional") or partida.get("equipe_a")
+                        proximo_equipe_b_operacional = partida.get("equipe_b_operacional") or partida.get("equipe_b")
                     else:
-                        # Entre um set normal e outro, o apontador deve voltar para a papeleta.
-                        # Antes ficava direto em jogo/em_andamento e pulava a nova papeleta.
+                        # Entre um set normal e outro, o apontador deve voltar para a papeleta
+                        # já com lado/sacador calculados automaticamente.
                         proxima_fase_partida = 'intervalo_set'
                         proximo_status_jogo = 'entre_sets'
                         proximo_status_operacao = 'papeleta'
                         proximo_tiebreak_pendente = False
                         proximo_tiebreak_definido = False
+                        proximo_saque_atual = config_proximo_set.get("saque_atual")
+                        proximo_equipe_a_operacional = config_proximo_set.get("equipe_a_operacional")
+                        proximo_equipe_b_operacional = config_proximo_set.get("equipe_b_operacional")
 
                     cur.execute(f"""
                         UPDATE partidas
@@ -9738,14 +10050,18 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                             pontos_b = 0,
                             sets_a = %s,
                             sets_b = %s,
+                            sets_max = %s,
+                            sets_para_vencer = %s,
                             set_atual = %s,
                             {coluna_a} = %s,
                             {coluna_b} = %s,
-                            saque_atual = NULL,
-                            rotacao_a = %s,
-                            rotacao_b = %s,
-                            rotacao_a_json = %s,
-                            rotacao_b_json = %s,
+                            saque_atual = %s,
+                            equipe_a_operacional = %s,
+                            equipe_b_operacional = %s,
+                            rotacao_a = NULL,
+                            rotacao_b = NULL,
+                            rotacao_a_json = NULL,
+                            rotacao_b_json = NULL,
                             status_jogo = %s,
                             fase_partida = %s,
                             status_operacao = %s,
@@ -9760,13 +10076,14 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     """, (
                         sets_a,
                         sets_b,
+                        sets_max_partida,
+                        sets_para_vencer,
                         proximo_set,
-                        pontos_a,
-                        pontos_b,
-                        rotacao_a,
-                        rotacao_b,
-                        json.dumps(rotacao_a, ensure_ascii=False),
-                        json.dumps(rotacao_b, ensure_ascii=False),
+                        pontos_set_a_cadastro,
+                        pontos_set_b_cadastro,
+                        proximo_saque_atual,
+                        proximo_equipe_a_operacional,
+                        proximo_equipe_b_operacional,
                         proximo_status_jogo,
                         proxima_fase_partida,
                         proximo_status_operacao,
@@ -11163,18 +11480,79 @@ def verificar_fim_partida(partida, estado):
 
 
 def encerrar_partida(partida_id, competicao, observacoes):
+    """Finaliza a partida somente se a regra de sets permitir.
+
+    Proteção importante: se a tela/JS chamar encerramento logo ao terminar o
+    1º set de um melhor_de_3, o banco NÃO marca como finalizada. Ele mantém a
+    partida entre sets e devolve False para a rota avisar o apontador.
+    """
     from datetime import datetime
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
+                SELECT *
+                FROM partidas
+                WHERE id = %s AND competicao = %s
+                FOR UPDATE
+            """, (partida_id, competicao))
+            partida = cur.fetchone()
+
+            if not partida:
+                return False, "Partida não encontrada."
+
+            pode_finalizar, sets_para_vencer = _partida_tem_sets_para_finalizar(
+                partida=partida,
+                competicao=competicao,
+            )
+
+            sets_a = int(partida.get("sets_a") or 0)
+            sets_b = int(partida.get("sets_b") or 0)
+            set_atual = int(partida.get("set_atual") or 1)
+            _sets_tipo, sets_max, _sets_para = _sets_config_partida_seguro(partida, competicao)
+
+            if not pode_finalizar:
+                proximo_set = min(set_atual + 1, sets_max) if max(sets_a, sets_b) > 0 else set_atual
+                cur.execute("""
+                    UPDATE partidas
+                    SET status = CASE WHEN status = 'finalizada' THEN 'em_andamento' ELSE COALESCE(status, 'em_andamento') END,
+                        status_jogo = 'entre_sets',
+                        status_operacao = 'papeleta',
+                        fase_partida = 'intervalo_set',
+                        set_atual = %s,
+                        pontos_a = 0,
+                        pontos_b = 0,
+                        vencedor = NULL,
+                        tipo_encerramento = NULL,
+                        data_fim = NULL,
+                        observacoes = COALESCE(observacoes, '')
+                    WHERE id = %s AND competicao = %s
+                """, (proximo_set, partida_id, competicao))
+                conn.commit()
+                return False, f"Partida ainda não pode ser finalizada: precisa vencer {sets_para_vencer} set(s)."
+
+            vencedor = None
+            if sets_a > sets_b:
+                vencedor = partida.get("equipe_a") or partida.get("equipe_a_operacional") or "A"
+            elif sets_b > sets_a:
+                vencedor = partida.get("equipe_b") or partida.get("equipe_b_operacional") or "B"
+
+            cur.execute("""
                 UPDATE partidas
-                SET status_jogo = 'encerrado',
+                SET status = 'finalizada',
+                    status_jogo = 'finalizada',
+                    status_operacao = 'finalizada',
+                    fase_partida = 'encerrado',
                     observacoes = %s,
+                    vencedor = COALESCE(%s, vencedor),
+                    tipo_encerramento = COALESCE(tipo_encerramento, 'normal'),
                     data_fim = %s
                 WHERE id = %s AND competicao = %s
-            """, (observacoes, datetime.now(), partida_id, competicao))
+            """, (observacoes, vencedor, datetime.now(), partida_id, competicao))
         conn.commit()
+
+    return True, "Partida finalizada com sucesso."
+
 
 
 
@@ -11213,30 +11591,32 @@ def _texto_igual_finalizacao(a, b):
 
 
 def _resolver_lados_vencedor_finalizacao(partida):
-    """Resolve vencedor/perdedor a partir do campo vencedor ou do placar salvo."""
+    """Resolve vencedor/perdedor SEM usar lado operacional.
+
+    Na finalização/destaques, A e B sempre significam a ordem original da
+    partida (partidas.equipe_a / partidas.equipe_b). Os campos operacionais
+    mudam entre sets/tie-break para papeleta, rotação e placar em quadra, mas
+    não podem definir quem aparece como equipe vencedora nas observações.
+    """
     partida = partida or {}
-    equipe_a = partida.get('equipe_a_operacional') or partida.get('equipe_a') or 'Equipe A'
-    equipe_b = partida.get('equipe_b_operacional') or partida.get('equipe_b') or 'Equipe B'
+    equipe_a_original = partida.get('equipe_a') or 'Equipe A'
+    equipe_b_original = partida.get('equipe_b') or 'Equipe B'
     vencedor = str(partida.get('vencedor') or '').strip()
 
     vencedor_lado = ''
     if vencedor:
         if vencedor.upper() in {'A', 'B'}:
             vencedor_lado = vencedor.upper()
-        elif _texto_igual_finalizacao(vencedor, equipe_a) or _texto_igual_finalizacao(vencedor, partida.get('equipe_a')):
+        elif _texto_igual_finalizacao(vencedor, equipe_a_original):
             vencedor_lado = 'A'
-        elif _texto_igual_finalizacao(vencedor, equipe_b) or _texto_igual_finalizacao(vencedor, partida.get('equipe_b')):
+        elif _texto_igual_finalizacao(vencedor, equipe_b_original):
             vencedor_lado = 'B'
 
     if vencedor_lado not in {'A', 'B'}:
         sets_a = int(partida.get('sets_a') or 0)
         sets_b = int(partida.get('sets_b') or 0)
-        pontos_a = int(partida.get('pontos_a') or 0)
-        pontos_b = int(partida.get('pontos_b') or 0)
         if sets_a != sets_b:
             vencedor_lado = 'A' if sets_a > sets_b else 'B'
-        elif pontos_a != pontos_b:
-            vencedor_lado = 'A' if pontos_a > pontos_b else 'B'
 
     perdedor_lado = 'B' if vencedor_lado == 'A' else ('A' if vencedor_lado == 'B' else '')
     return vencedor_lado, perdedor_lado
@@ -11372,8 +11752,10 @@ def listar_dados_finalizacao_partida(partida_id, competicao):
         return {}
 
     vencedor_lado, perdedor_lado = _resolver_lados_vencedor_finalizacao(partida)
-    equipe_a = partida.get('equipe_a_operacional') or partida.get('equipe_a') or 'Equipe A'
-    equipe_b = partida.get('equipe_b_operacional') or partida.get('equipe_b') or 'Equipe B'
+    # Finalização/destaques devem exibir as equipes originais da partida.
+    # A ordem operacional pode estar invertida no 2º set ou tie-break.
+    equipe_a = partida.get('equipe_a') or 'Equipe A'
+    equipe_b = partida.get('equipe_b') or 'Equipe B'
 
     eleitos_por_id = set()
     eleitos_por_chave = set()
@@ -11433,7 +11815,10 @@ def salvar_destaque_partida(partida_id, competicao, lado, atleta_id=None, numero
     if lado != vencedor_lado:
         return False, 'Só é possível eleger destaque da equipe vencedora.'
 
-    equipe_nome = (partida.get('equipe_a_operacional') or partida.get('equipe_a')) if lado == 'A' else (partida.get('equipe_b_operacional') or partida.get('equipe_b'))
+    # O destaque é salvo pela equipe original vencedora, não pelo lado operacional
+    # atual da quadra. Isso evita marcar Elite como vencedora quando Conexão é
+    # equipe_a original mas ficou como equipe_b_operacional no tie-break.
+    equipe_nome = (partida.get('equipe_a') or 'Equipe A') if lado == 'A' else (partida.get('equipe_b') or 'Equipe B')
     numero_txt = str(numero or '').strip()
     nome = str(nome or '').strip()
     atleta_id_final = None
@@ -15470,6 +15855,48 @@ def gerar_partidas_avanco_competicao(nome_competicao):
 
                 regra_efetiva = _regra_efetiva_jogo_avanco(avanco, jogo)
                 sets_max_avanco, sets_para_vencer_avanco = _sets_avanco_por_regra(regra_efetiva, comp_regra)
+
+                # Regra operacional que fica gravada na própria partida.
+                # Sem estes campos, jogos do Avanço criados/atualizados caíam no
+                # padrão do banco/apontador e finais configuradas como Melhor de 5
+                # podiam nascer como Melhor de 3 ou Simples.
+                sets_tipo_avanco = str(
+                    regra_efetiva.get("sets_tipo")
+                    if regra_efetiva.get("sets_tipo") != "padrao"
+                    else (comp_regra.get("sets_tipo") or "melhor_de_3")
+                ).strip().lower() or "melhor_de_3"
+                if sets_tipo_avanco not in {"set_unico", "melhor_de_3", "melhor_de_5"}:
+                    sets_tipo_avanco = "melhor_de_3"
+
+                def _int_regra_avanco(valor, padrao):
+                    try:
+                        if valor in (None, "", "padrao"):
+                            return int(padrao)
+                        numero = int(valor)
+                        return numero if numero > 0 else int(padrao)
+                    except Exception:
+                        return int(padrao)
+
+                pontos_set_avanco = _int_regra_avanco(
+                    regra_efetiva.get("pontos_set"),
+                    comp_regra.get("pontos_set") or 25,
+                )
+                pontos_tiebreak_avanco = _int_regra_avanco(
+                    regra_efetiva.get("pontos_tiebreak"),
+                    comp_regra.get("pontos_tiebreak") or 15,
+                )
+                diferenca_minima_avanco = _int_regra_avanco(
+                    regra_efetiva.get("diferenca_minima"),
+                    comp_regra.get("diferenca_minima") or 2,
+                )
+                modo_operacao_avanco = str(
+                    regra_efetiva.get("modo_operacao")
+                    if regra_efetiva.get("modo_operacao") != "padrao"
+                    else (comp_regra.get("modo_operacao") or "simples")
+                ).strip().lower() or "simples"
+                if modo_operacao_avanco not in {"simples", "avancado"}:
+                    modo_operacao_avanco = "simples"
+
                 agenda_avanco = _resolver_agenda_jogo_avanco(nome_competicao, jogo)
 
                 if existente_principal:
@@ -15511,6 +15938,21 @@ def gerar_partidas_avanco_competicao(nome_competicao):
                     if "sets_para_vencer" in colunas:
                         sets_update.append("sets_para_vencer = %s")
                         sets_valores.append(sets_para_vencer_avanco)
+                    if "sets_tipo" in colunas:
+                        sets_update.append("sets_tipo = %s")
+                        sets_valores.append(sets_tipo_avanco)
+                    if "pontos_set" in colunas:
+                        sets_update.append("pontos_set = %s")
+                        sets_valores.append(pontos_set_avanco)
+                    if "pontos_tiebreak" in colunas:
+                        sets_update.append("pontos_tiebreak = %s")
+                        sets_valores.append(pontos_tiebreak_avanco)
+                    if "diferenca_minima" in colunas:
+                        sets_update.append("diferenca_minima = %s")
+                        sets_valores.append(diferenca_minima_avanco)
+                    if "modo_operacao" in colunas:
+                        sets_update.append("modo_operacao = %s")
+                        sets_valores.append(modo_operacao_avanco)
                     if sets_update:
                         sets_valores.append(existente_principal["id"])
                         cur.execute(f"UPDATE partidas SET {', '.join(sets_update)} WHERE id = %s", tuple(sets_valores))
@@ -15542,6 +15984,21 @@ def gerar_partidas_avanco_competicao(nome_competicao):
                     if "sets_para_vencer" in colunas:
                         campos.append("sets_para_vencer")
                         valores.append(sets_para_vencer_avanco)
+                    if "sets_tipo" in colunas:
+                        campos.append("sets_tipo")
+                        valores.append(sets_tipo_avanco)
+                    if "pontos_set" in colunas:
+                        campos.append("pontos_set")
+                        valores.append(pontos_set_avanco)
+                    if "pontos_tiebreak" in colunas:
+                        campos.append("pontos_tiebreak")
+                        valores.append(pontos_tiebreak_avanco)
+                    if "diferenca_minima" in colunas:
+                        campos.append("diferenca_minima")
+                        valores.append(diferenca_minima_avanco)
+                    if "modo_operacao" in colunas:
+                        campos.append("modo_operacao")
+                        valores.append(modo_operacao_avanco)
                     placeholders = ", ".join(["%s"] * len(valores))
                     cur.execute(f"INSERT INTO partidas ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
                     criadas += 1
@@ -15597,22 +16054,54 @@ def sincronizar_avanco_automatico_competicao(nome_competicao):
 # NUMERAÇÃO DE ATLETAS
 # =========================================================
 def atualizar_numero_atleta(atleta_id, numero):
+    """Atualiza a numeração do atleta e sempre retorna (ok, mensagem).
 
+    Havia uma definição duplicada desta função no fim do arquivo retornando
+    apenas True. A rota de conferência espera desempacotar (ok, msg), então
+    o retorno booleano causava:
+        TypeError: cannot unpack non-iterable bool object
+    """
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, equipe, competicao, status
+                FROM atletas
+                WHERE id = %s
+                LIMIT 1
+            """, (atleta_id,))
+            atleta = cur.fetchone()
+
+            if not atleta or atleta.get("status") != "aprovado":
+                return False, "Somente atletas aprovados podem receber numeração."
+
+            if numero not in (None, ""):
+                try:
+                    numero = int(numero)
+                except (TypeError, ValueError):
+                    return False, "Número inválido."
+
+                if numero < 1 or numero > 99:
+                    return False, "O número do atleta precisa ser entre 1 e 99."
+
+                if not numero_atleta_disponivel(
+                    numero,
+                    atleta["equipe"],
+                    atleta["competicao"],
+                    id_atleta=atleta_id,
+                ):
+                    return False, "Já existe outro atleta com essa numeração nesta equipe."
+            else:
+                numero = None
 
             cur.execute("""
                 UPDATE atletas
                 SET numero = %s
                 WHERE id = %s
-            """, (
-                numero,
-                atleta_id
-            ))
+            """, (numero, atleta_id))
 
         conn.commit()
 
-    return True
+    return True, "Numeração atualizada com sucesso."
 
 
 # =========================================================

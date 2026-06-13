@@ -553,6 +553,31 @@
         border-color: #123852;
     }
 
+    .avanco-card-jogo.bloqueado {
+        cursor: not-allowed;
+        border-color: #fecaca;
+        background: linear-gradient(180deg, #fff7f7, #ffffff);
+    }
+
+    .avanco-card-jogo.bloqueado:hover {
+        transform: none;
+        border-color: #ef4444;
+    }
+
+    .avanco-card-lock {
+        position: absolute;
+        top: 8px;
+        left: 10px;
+        z-index: 2;
+        font-size: 11px;
+        font-weight: 1000;
+        color: #991b1b;
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        border-radius: 999px;
+        padding: 2px 7px;
+    }
+
     .avanco-card-id {
         position: absolute;
         top: 8px;
@@ -1417,8 +1442,38 @@
     const origemBase = {{ origens_cfg|tojson }};
     const quadrasBase = {{ (quadras if quadras is defined else [])|tojson }};
     window.avancoEstado = {{ avanco_cfg|tojson }};
+    window.avancoBloqueios = {{ (avanco_bloqueios if avanco_bloqueios is defined else {})|tojson }};
     window.avancoSerieAtual = (window.avancoEstado.series || []).find(s => s.ativa)?.id || (window.avancoEstado.series?.[0]?.id || 'ouro');
     window.avancoFaseNome = {oitavas:'Oitavas', quartas:'Quartas', semifinal:'Semifinal', terceiro_lugar:'3º lugar', final:'Final'};
+
+
+    window.avancoNormalizarSerie = function (valor) {
+        return String(valor || 'ouro')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .replace(/ç/g, 'c')
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_|_$/g, '') || 'ouro';
+    };
+
+    window.avancoChaveJogo = function (j) {
+        if (!j) return '';
+        return `${window.avancoNormalizarSerie(j.serie)}:${String(j.id || '').trim()}`;
+    };
+
+    window.avancoBloqueioJogo = function (j) {
+        const chave = window.avancoChaveJogo(j);
+        if (!chave) return null;
+        const mapa = window.avancoBloqueios || {};
+        return mapa[chave] || mapa[chave.toLowerCase()] || mapa[`avanco:${chave}`] || mapa[`avanco:${chave}`.toLowerCase()] || null;
+    };
+
+    window.avancoJogoBloqueado = function (j) {
+        const info = window.avancoBloqueioJogo(j);
+        return !!(info && info.bloqueado);
+    };
 
     window.avancoRegraResumo = function (j) {
         const r = (j && j.regra) || {};
@@ -1544,13 +1599,19 @@
                 .forEach(j => {
                     const idx = window.avancoEstado.jogos.indexOf(j);
                     const card = document.createElement('div');
-                    card.className = 'avanco-card-jogo';
+                    const bloqueado = window.avancoJogoBloqueado(j);
+                    const infoBloqueio = window.avancoBloqueioJogo(j) || {};
+                    card.className = 'avanco-card-jogo' + (bloqueado ? ' bloqueado' : '');
+                    card.dataset.serie = j.serie || '';
+                    card.dataset.jogoId = j.id || '';
+                    card.title = bloqueado ? ('Confronto bloqueado: ' + (infoBloqueio.motivo || 'partida já iniciada ou finalizada')) : '';
                     card.onclick = function () { window.avancoAbrirModal(idx); };
                     card.innerHTML = `
+                        ${bloqueado ? '<div class="avanco-card-lock">🔒 Bloqueado</div>' : ''}
                         <div class="avanco-card-id">${j.id || ''}</div>
                         <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_a)}</span></div>
                         <div class="avanco-linha-equipe"><span class="avanco-slot-icon">◈</span><span>${window.avancoOrigemLabel(j.origem_b)}</span></div>
-                        <div class="avanco-card-meta">${window.avancoRegraResumo(j)}${window.avancoAgendaResumo(j)}${j.proximo_vencedor ? ' • vencedor → ' + j.proximo_vencedor : ''}</div>
+                        <div class="avanco-card-meta">${window.avancoRegraResumo(j)}${window.avancoAgendaResumo(j)}${j.proximo_vencedor ? ' • vencedor → ' + j.proximo_vencedor : ''}${bloqueado ? ' • não editável' : ''}</div>
                     `;
                     col.appendChild(card);
                 });
@@ -1711,6 +1772,11 @@
     window.avancoAbrirModal = function (idx) {
         const j = window.avancoEstado.jogos[idx];
         if (!j) return;
+        if (window.avancoJogoBloqueado(j)) {
+            const info = window.avancoBloqueioJogo(j) || {};
+            alert('Confronto bloqueado: ' + (info.motivo || 'partida já iniciada ou finalizada') + '. Os confrontos aguardando continuam liberados.');
+            return;
+        }
         document.getElementById('avancoModalIndex').value = idx;
         document.getElementById('avancoModalId').value = j.id || '';
         document.getElementById('avancoModalFase').value = j.fase || 'quartas';
@@ -1740,6 +1806,11 @@
         const idx = parseInt(document.getElementById('avancoModalIndex').value, 10);
         const j = window.avancoEstado.jogos[idx];
         if (!j) return;
+        if (window.avancoJogoBloqueado(j)) {
+            alert('Este confronto está bloqueado e não pode ser alterado.');
+            window.avancoFecharModal();
+            return;
+        }
         j.id = document.getElementById('avancoModalId').value || j.id;
         j.fase = document.getElementById('avancoModalFase').value;
         j.data_hora = document.getElementById('avancoModalData').value || '';
@@ -1766,6 +1837,12 @@
     window.avancoRemoverJogoAtual = function () {
         const idx = parseInt(document.getElementById('avancoModalIndex').value, 10);
         if (!Number.isFinite(idx)) return;
+        const j = window.avancoEstado.jogos[idx];
+        if (window.avancoJogoBloqueado(j)) {
+            alert('Este confronto está bloqueado e não pode ser removido.');
+            window.avancoFecharModal();
+            return;
+        }
         if (!confirm('Remover este quadro do chaveamento?')) return;
         window.avancoEstado.jogos.splice(idx, 1);
         window.avancoFecharModal();

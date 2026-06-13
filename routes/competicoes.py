@@ -63,6 +63,111 @@ def _to_int_ou_none(valor):
         return None
 
 
+def _injetar_trava_avanco_html(html, bloqueios=None):
+    """Aplica trava visual por confronto dentro da tela /competicoes.
+
+    Importante: NÃO bloqueia a aba inteira. Apenas os cards que já têm partida
+    iniciada/finalizada ficam bloqueados. Jogos aguardando continuam editáveis.
+    A proteção real contra alteração de jogos bloqueados também acontece no
+    POST, preservando os confrontos bloqueados antes de salvar.
+    """
+    import json
+
+    bloqueios_json = json.dumps(bloqueios or {}, ensure_ascii=False, default=str)
+    aviso = f"""
+<script>
+(function(){{
+    const BLOQUEIOS_AVANCO = {bloqueios_json};
+    const MSG_PADRAO = 'Este confronto está bloqueado porque a partida já foi iniciada ou finalizada. Os demais confrontos aguardando continuam liberados.';
+
+    function normalizarSerie(txt){{
+        txt = String(txt || '').toLowerCase();
+        if(txt.includes('prata')) return 'prata';
+        if(txt.includes('bronze')) return 'bronze';
+        return 'ouro';
+    }}
+
+    function serieAtiva(){{
+        const ativo = document.querySelector('.avanco-tab.ativa, .tab-serie.ativa, .serie-tab.ativa, button.ativa');
+        return normalizarSerie(ativo ? (ativo.innerText || ativo.textContent) : 'ouro');
+    }}
+
+    function texto(el){{ return (el && (el.innerText || el.textContent) || '').trim(); }}
+
+    function jogoIdDoElemento(el){{
+        const t = texto(el);
+        const achados = t.match(/\bJ\d+\b/gi);
+        if(achados && achados.length) return achados[0].toUpperCase();
+        const dataId = el && (el.dataset.jogoId || el.dataset.id || el.getAttribute('data-jogo-id') || el.getAttribute('data-id'));
+        return dataId ? String(dataId).toUpperCase() : '';
+    }}
+
+    function bloqueioPara(serie, jogoId){{
+        if(!jogoId) return null;
+        const keys = [
+            `${{serie}}:${{jogoId}}`,
+            `${{serie}}:${{jogoId}}`.toLowerCase(),
+            `avanco:${{serie}}:${{jogoId}}`,
+            `avanco:${{serie}}:${{jogoId}}`.toLowerCase(),
+        ];
+        for(const k of keys){{ if(BLOQUEIOS_AVANCO[k]) return BLOQUEIOS_AVANCO[k]; }}
+        return null;
+    }}
+
+    function cardDoEvento(ev){{
+        const alvo = ev.target;
+        if(!alvo || !alvo.closest) return null;
+        return alvo.closest('.avanco-card-jogo, .avanco-card, [data-jogo-id], [data-id]');
+    }}
+
+    function marcarCards(){{
+        document.querySelectorAll('.avanco-card-jogo, .avanco-card, [data-jogo-id], [data-id]').forEach(card => {{
+            const jid = jogoIdDoElemento(card);
+            const info = bloqueioPara(serieAtiva(), jid);
+            if(!info) return;
+            card.classList.add('bloqueado');
+            card.style.cursor = 'not-allowed';
+            card.title = 'Confronto bloqueado: ' + (info.motivo || 'partida já iniciada ou finalizada');
+            if(!card.querySelector('.avanco-card-lock-runtime')){{
+                const lock = document.createElement('div');
+                lock.className = 'avanco-card-lock-runtime';
+                lock.style.cssText = 'position:absolute;top:8px;left:10px;font-size:11px;font-weight:1000;color:#991b1b;background:#fee2e2;border:1px solid #fecaca;border-radius:999px;padding:2px 7px;z-index:2;';
+                lock.textContent = '🔒';
+                card.appendChild(lock);
+            }}
+        }});
+    }}
+
+    document.addEventListener('click', function(ev){{
+        const card = cardDoEvento(ev);
+        if(!card) return;
+        const jid = jogoIdDoElemento(card);
+        const info = bloqueioPara(serieAtiva(), jid);
+        if(!info) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        alert((info.motivo ? 'Confronto bloqueado: ' + info.motivo + '. ' : '') + MSG_PADRAO);
+        return false;
+    }}, true);
+
+    function aplicar(){{ marcarCards(); }}
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', aplicar);
+    else aplicar();
+    setTimeout(aplicar, 100);
+    setTimeout(aplicar, 500);
+    setInterval(aplicar, 1500);
+}})();
+</script>
+"""
+    if not isinstance(html, str):
+        return html
+    if "</body>" in html:
+        return html.replace("</body>", aviso + "\n</body>")
+    if "</html>" in html:
+        return html.replace("</html>", aviso + "\n</html>")
+    return html + aviso
+
+
 CRITERIOS_CLASSIFICACAO_PADRAO = [
     "pontos",
     "vitorias",
@@ -195,7 +300,17 @@ def listar_competicoes_view():
         avanco_status["gerado"] = avanco_ja_gerado_competicao(competicao["nome"])
         origens = listar_origens_avanco_competicao(competicao["nome"])
 
-        return render_template(
+        # A aba Avanço também aparece dentro de /competicoes.
+        # Por isso a trava precisa ser enviada para esta tela principal,
+        # não apenas para /competicoes/avanco.
+        avanco_bloqueios = buscar_bloqueios_avanco_competicao(competicao["nome"])
+        # Não bloqueia o avanço inteiro. O bloqueio é por confronto.
+        avanco_bloqueado = False
+        if isinstance(avanco, dict):
+            avanco["bloqueado"] = False
+            avanco["bloqueios"] = avanco_bloqueios
+
+        html = render_template(
             "editar_competicao.html",
             competicao=competicao,
             quadras=quadras,
@@ -205,8 +320,14 @@ def listar_competicoes_view():
             avanco=avanco,
             avanco_status=avanco_status,
             origens=origens,
+            avanco_bloqueios=avanco_bloqueios,
+            avanco_bloqueado=avanco_bloqueado,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
         )
+        # A trava visual agora é feita diretamente pelo template, por jogo.
+        # Não injetamos JavaScript por fora porque isso confundia J1/J5/J7
+        # pelo texto do card e acabava bloqueando confrontos aguardando.
+        return html
 
     return redirect(url_for("painel.inicio"))
 
@@ -1004,7 +1125,7 @@ def _partida_avanco_bloqueada(row):
             motivos.append("parciais registradas")
             break
 
-    for campo in ("vencedor", "data_fim", "finalizado_em", "tipo_encerramento", "origem_resultado"):
+    for campo in ("vencedor", "data_fim", "finalizado_em", "tipo_encerramento"):
         if str(row.get(campo) or "").strip():
             motivos.append("resultado/finalização registrada")
             break
@@ -1035,10 +1156,10 @@ def buscar_bloqueios_avanco_competicao(nome_competicao):
 
     campos_base = ["id", "origem", "equipe_a", "equipe_b"]
     campos_opcionais = [
-        "status", "status_jogo", "status_operacao", "fase_partida",
+        "status", "status_jogo", "status_operacao", "fase", "fase_partida",
         "pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b",
         "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b",
-        "vencedor", "data_fim", "finalizado_em", "tipo_encerramento", "origem_resultado",
+        "vencedor", "data_fim", "finalizado_em", "tipo_encerramento",
         "pre_jogo_iniciado_em", "pre_jogo_finalizado",
     ]
     campos = [c for c in campos_base + campos_opcionais if c in colunas]
@@ -1056,12 +1177,25 @@ def buscar_bloqueios_avanco_competicao(nome_competicao):
             ) ev ON ev.partida_id = p.id
         """
 
+    fases_mata_mata = "('oitavas','quartas','semifinal','semifinais','semi','terceiro_lugar','terceiro lugar','3º lugar','3 lugar','final','finais')"
+    filtros_avanco = []
+    if "origem" in colunas:
+        filtros_avanco.append("COALESCE(p.origem, '') LIKE 'avanco:%%'")
+    if "fase" in colunas:
+        filtros_avanco.append(f"LOWER(COALESCE(p.fase, '')) IN {fases_mata_mata}")
+    if "fase_partida" in colunas:
+        filtros_avanco.append(f"LOWER(COALESCE(p.fase_partida, '')) IN {fases_mata_mata}")
+    if not filtros_avanco:
+        return {}
+
+    where_avanco = " OR ".join(filtros_avanco)
+
     sql = f"""
         SELECT {', '.join('p.' + c for c in campos)}, {eventos_expr}
         FROM partidas p
         {eventos_join}
         WHERE p.competicao = %s
-          AND COALESCE(p.origem, '') LIKE 'avanco:%%'
+          AND ({where_avanco})
         ORDER BY p.id
     """
 
@@ -1083,7 +1217,26 @@ def buscar_bloqueios_avanco_competicao(nome_competicao):
                         "equipe_a": row.get("equipe_a") or "",
                         "equipe_b": row.get("equipe_b") or "",
                     }
-                    for chave in _chaves_bloqueio_avanco(origem):
+                    chaves = _chaves_bloqueio_avanco(origem)
+
+                    # Fallback importante:
+                    # Algumas partidas antigas do mata-mata foram geradas sem
+                    # origem no formato avanco:serie:Jx. Nesses casos, o ID real
+                    # da partida no banco costuma bater com o ID visual do avanço
+                    # (ex.: partida id 5 = J5). Se não criarmos essa chave, o
+                    # front não consegue bloquear o card certo e parece que a
+                    # trava não funcionou.
+                    if not chaves:
+                        jogo_visual = f"J{row.get('id')}"
+                        for serie_fallback in ("ouro", "prata", "bronze"):
+                            chaves.extend([
+                                f"{serie_fallback}:{jogo_visual}",
+                                f"{serie_fallback}:{jogo_visual}".lower(),
+                                f"avanco:{serie_fallback}:{jogo_visual}",
+                                f"avanco:{serie_fallback}:{jogo_visual}".lower(),
+                            ])
+
+                    for chave in chaves:
                         bloqueios[chave] = info
     except Exception as e:
         print("AVISO buscar_bloqueios_avanco_competicao:", repr(e), flush=True)
@@ -1134,17 +1287,18 @@ def avanco_competicao_view():
             flash("A competição está travada. O avanço não pode ser alterado.", "erro")
             return redirect(url_for("competicoes.avanco_competicao_view"))
 
-        avanco_atual = buscar_avanco_config_competicao(comp["nome"]) or {}
         bloqueios = buscar_bloqueios_avanco_competicao(comp["nome"])
+        avanco_atual = buscar_avanco_config_competicao(comp["nome"])
         avanco_novo = _coletar_avanco_form()
-        avanco_novo, preservados = _preservar_jogos_avanco_bloqueados(avanco_atual, avanco_novo, bloqueios)
+        avanco_novo, preservados = _preservar_jogos_avanco_bloqueados(
+            avanco_atual,
+            avanco_novo,
+            bloqueios,
+        )
 
         salvar_avanco_config_competicao(comp["nome"], avanco_novo)
         if preservados:
-            flash(
-                f"Chaveamento salvo. {preservados} confronto(s) já iniciado(s) ou finalizado(s) foram preservados e não puderam ser alterados.",
-                "aviso",
-            )
+            flash(f"Chaveamento salvo. {preservados} confronto(s) já iniciado(s)/finalizado(s) foram preservados e não sofreram alteração.", "sucesso")
         else:
             flash("Chaveamento de avanço salvo com sucesso.", "sucesso")
         return redirect(url_for("competicoes.avanco_competicao_view"))
@@ -1154,6 +1308,8 @@ def avanco_competicao_view():
     avanco_status["gerado"] = avanco_ja_gerado_competicao(comp["nome"])
     origens = listar_origens_avanco_competicao(comp["nome"])
     avanco_bloqueios = buscar_bloqueios_avanco_competicao(comp["nome"])
+    # Não bloqueia a aba inteira: apenas cada confronto com resultado/andamento.
+    avanco_bloqueado = False
     return render_template(
         "avanco_competicao.html",
         competicao=comp,
@@ -1161,6 +1317,7 @@ def avanco_competicao_view():
         avanco_status=avanco_status,
         origens=origens,
         avanco_bloqueios=avanco_bloqueios,
+        avanco_bloqueado=avanco_bloqueado,
         competicao_travada=competicao_esta_travada(comp["nome"]),
     )
 
@@ -1172,6 +1329,10 @@ def gerar_avanco_competicao_view():
     if not comp:
         flash("Competição não encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
+    # Não bloqueia a geração inteira por causa de J5/J6 finalizados.
+    # A proteção contra apagar jogo já iniciado/finalizado fica no banco e no
+    # salvamento do avanço; os confrontos ainda aguardando (ex.: J7/J8) devem
+    # continuar podendo ser gerados/atualizados.
     resultado = gerar_partidas_avanco_competicao(comp["nome"])
     if resultado.get("bloqueada"):
         flash(f"Avanço bloqueado: ainda existem {resultado.get('pendentes_classificatoria', 0)} jogo(s) classificatório(s) pendente(s). Finalize todos antes de gerar os confrontos reais.", "erro")

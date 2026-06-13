@@ -162,6 +162,115 @@
 .finalizacao-aviso.ativo {
     display: block;
 }
+
+.placar-finalizacao {
+    margin: 0 0 18px;
+    border: 1px solid #d6e2f0;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #f8fbff;
+}
+.placar-finalizacao-topo {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+    gap: 0;
+}
+.placar-equipe-box {
+    padding: 16px 18px;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 84px;
+}
+.placar-equipe-box.vencedora {
+    background: #15803d;
+}
+.placar-equipe-box.perdedora {
+    background: #b91c1c;
+}
+.placar-equipe-box.neutra {
+    background: #183247;
+}
+.placar-equipe-box.direita {
+    text-align: right;
+}
+.placar-equipe-nome {
+    font-size: 20px;
+    font-weight: 1000;
+    line-height: 1.05;
+}
+.placar-equipe-status {
+    margin-top: 5px;
+    font-size: 12px;
+    font-weight: 1000;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    opacity: .95;
+}
+.placar-sets-centro {
+    min-width: 150px;
+    padding: 12px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: #ffffff;
+    border-left: 1px solid #d6e2f0;
+    border-right: 1px solid #d6e2f0;
+}
+.placar-sets-numero {
+    font-size: 34px;
+    font-weight: 1000;
+    line-height: 1;
+    color: #183247;
+}
+.placar-sets-label {
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: 1000;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+}
+.parciais-finalizacao {
+    padding: 12px 14px 14px;
+    background: #fff;
+    border-top: 1px solid #d6e2f0;
+}
+.parciais-titulo {
+    text-align: center;
+    color: #5c6b78;
+    font-size: 13px;
+    font-weight: 1000;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    margin-bottom: 10px;
+}
+.parciais-lista {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.parcial-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #d6e2f0;
+    background: #f8fbff;
+    color: #183247;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 13px;
+    font-weight: 1000;
+}
+.parcial-pill small {
+    color: #64748b;
+    font-weight: 1000;
+}
+
 @media (max-width: 780px) {
     .finalizacao-wrap {
         margin: 18px auto;
@@ -173,6 +282,20 @@
     .finalizacao-grid {
         grid-template-columns: 1fr;
     }
+
+    .placar-finalizacao-topo {
+        grid-template-columns: 1fr;
+    }
+    .placar-equipe-box.direita {
+        text-align: left;
+    }
+    .placar-sets-centro {
+        border-left: 0;
+        border-right: 0;
+        border-top: 1px solid #d6e2f0;
+        border-bottom: 1px solid #d6e2f0;
+    }
+
     .tabela-finalizacao th,
     .tabela-finalizacao td {
         padding: 9px 8px;
@@ -189,8 +312,66 @@
         <div class="finalizacao-titulo">Finalização da partida</div>
         <div class="finalizacao-sub">Confira os atletas relacionados, escolha o destaque da equipe vencedora e registre observações se precisar.</div>
 
-        <div class="finalizacao-jogo">
-            {{ partida.equipe_a_operacional or partida.equipe_a }} x {{ partida.equipe_b_operacional or partida.equipe_b }}
+        {% set equipe_a_final = equipes[0] if equipes and equipes|length > 0 else none %}
+        {% set equipe_b_final = equipes[1] if equipes and equipes|length > 1 else none %}
+        {% set nome_a_final = (equipe_a_final.nome if equipe_a_final else (partida.equipe_a or partida.equipe_a_operacional or 'Equipe A')) %}
+        {% set nome_b_final = (equipe_b_final.nome if equipe_b_final else (partida.equipe_b or partida.equipe_b_operacional or 'Equipe B')) %}
+        {% set resultado_a_final = (equipe_a_final.resultado if equipe_a_final and equipe_a_final.resultado else 'neutra') %}
+        {% set resultado_b_final = (equipe_b_final.resultado if equipe_b_final and equipe_b_final.resultado else 'neutra') %}
+        {% set sets_a_final = partida.sets_a or 0 %}
+        {% set sets_b_final = partida.sets_b or 0 %}
+        {% set parciais_final = [
+            {'n': 1, 'a': partida.set1_a, 'b': partida.set1_b},
+            {'n': 2, 'a': partida.set2_a, 'b': partida.set2_b},
+            {'n': 3, 'a': partida.set3_a, 'b': partida.set3_b},
+            {'n': 4, 'a': partida.set4_a, 'b': partida.set4_b},
+            {'n': 5, 'a': partida.set5_a, 'b': partida.set5_b}
+        ] %}
+
+        <div class="placar-finalizacao">
+            <div class="placar-finalizacao-topo">
+                <div class="placar-equipe-box {{ resultado_a_final }}">
+                    <div class="placar-equipe-nome">{{ nome_a_final }}</div>
+                    <div class="placar-equipe-status">
+                        {% if resultado_a_final == 'vencedora' %}Vencedora{% elif resultado_a_final == 'perdedora' %}Perdedora{% else %}Equipe{% endif %}
+                    </div>
+                </div>
+
+                <div class="placar-sets-centro">
+                    <div class="placar-sets-numero">{{ sets_a_final }} x {{ sets_b_final }}</div>
+                    <div class="placar-sets-label">Sets</div>
+                </div>
+
+                <div class="placar-equipe-box direita {{ resultado_b_final }}">
+                    <div class="placar-equipe-nome">{{ nome_b_final }}</div>
+                    <div class="placar-equipe-status">
+                        {% if resultado_b_final == 'vencedora' %}Vencedora{% elif resultado_b_final == 'perdedora' %}Perdedora{% else %}Equipe{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="parciais-finalizacao">
+                <div class="parciais-titulo">Parciais dos sets</div>
+                <div class="parciais-lista">
+                    {% set tem_parcial = namespace(valor=false) %}
+                    {% for parcial in parciais_final %}
+                        {% if parcial.a is not none and parcial.b is not none and parcial.a|string != '' and parcial.b|string != '' %}
+                            {% set tem_parcial.valor = true %}
+                            <span class="parcial-pill">
+                                <small>{{ parcial.n }}º set</small>
+                                {{ parcial.a }} x {{ parcial.b }}
+                            </span>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if not tem_parcial.valor %}
+                        <span class="parcial-pill">
+                            <small>Parciais</small>
+                            Não registradas
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
         <form method="POST" action="{{ url_for('apontadores.salvar_observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}">

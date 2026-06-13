@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, session, url_fo
 import threading
 import time
 import os
+from datetime import datetime
 from collections import Counter
 
 try:
@@ -358,60 +359,104 @@ def _normalizar_fase_operacao(fase):
 
 
 def _resolver_modo_operacao_partida(competicao, partida=None):
-    """Resolve o modo de operação efetivo da partida.
+    """Resolve se a partida usa scout simples ou avançado.
 
-    Prioridade:
-    1. regra avançada específica da fase;
-    2. regra avançada específica do grupo, quando for fase de grupos;
-    3. padrão geral da competição/partida;
-    4. simples.
+    Correção importante para o Avanço:
+    algumas partidas já existentes/bloqueadas não recebem UPDATE no campo
+    partidas.modo_operacao. Por isso o apontador não pode confiar só no valor
+    salvo na partida. Para jogos com origem avanco:serie:Jx, a regra salva no
+    chaveamento visual deve ter prioridade, mesmo que a partida antiga esteja
+    marcada como simples.
     """
     partida = partida or {}
-    modo_padrao = (partida.get("modo_operacao") or "simples").strip().lower()
+
+    def _modo_valido(valor):
+        valor = str(valor or "").strip().lower()
+        return valor if valor in {"simples", "avancado"} else ""
+
+    def _modo_regra(regra):
+        if not isinstance(regra, dict):
+            return ""
+        modo = _modo_valido(regra.get("modo_operacao") or regra.get("scout"))
+        return modo
+
+    def _buscar_chave(dic, chave):
+        if not isinstance(dic, dict) or not chave:
+            return {}
+        if chave in dic:
+            return dic.get(chave) or {}
+        chave_low = str(chave).lower()
+        for k, v in dic.items():
+            if str(k).lower() == chave_low:
+                return v or {}
+        return {}
 
     try:
         comp = _buscar_competicao_cache(competicao) or {}
-        modo_padrao = (comp.get("modo_operacao") or modo_padrao or "simples").strip().lower()
     except Exception:
-        pass
+        comp = {}
 
-    modo_final = modo_padrao if modo_padrao in {"simples", "avancado"} else "simples"
+    modo_partida = _modo_valido(partida.get("modo_operacao"))
+    modo_competicao = _modo_valido(comp.get("modo_operacao"))
+    modo_fallback = modo_partida or modo_competicao or "simples"
 
     try:
         config = buscar_configuracao_avancada_competicao(competicao) or {}
         fases_config = config.get("fases_config") or {}
         regras_avancadas = fases_config.get("regras_avancadas") or {}
         origem_partida = str(partida.get("origem") or "").strip()
+
         if origem_partida.startswith("avanco:"):
             partes = origem_partida.split(":")
-            serie_id = partes[1] if len(partes) > 1 else ""
-            jogo_id = partes[2] if len(partes) > 2 else ""
-            regra_jogo = (regras_avancadas.get("jogos") or {}).get(f"{serie_id}:{jogo_id}") or {}
-            modo_jogo = (regra_jogo.get("modo_operacao") or "").strip().lower()
-            if modo_jogo in {"simples", "avancado"}:
-                return modo_jogo
-            regra_serie = (regras_avancadas.get("series") or {}).get(serie_id) or {}
-            modo_serie = (regra_serie.get("modo_operacao") or "").strip().lower()
-            if modo_serie in {"simples", "avancado"}:
-                return modo_serie
+            serie_id = (partes[1] if len(partes) > 1 else "").strip().lower()
+            jogo_id = (partes[2] if len(partes) > 2 else "").strip().upper()
+
+            # 1) mapa materializado em fases_config.regras_avancadas
+            regra_jogo = _buscar_chave(regras_avancadas.get("jogos") or {}, f"{serie_id}:{jogo_id}")
+            modo = _modo_regra(regra_jogo)
+            if modo:
+                return modo
+
+            regra_serie = _buscar_chave(regras_avancadas.get("series") or {}, serie_id)
+            modo = _modo_regra(regra_serie)
+            if modo:
+                return modo
+
+            # 2) fallback direto no desenho do avanço, útil para jogos preservados/bloqueados
+            avanco = fases_config.get("avanco") or {}
+            for jogo in avanco.get("jogos") or []:
+                if str(jogo.get("serie") or "").strip().lower() == serie_id and str(jogo.get("id") or "").strip().upper() == jogo_id:
+                    regra = jogo.get("regra") or {}
+                    if regra.get("usar_regra_propria"):
+                        modo = _modo_regra(regra)
+                        if modo:
+                            return modo
+                    break
+
+            for serie in avanco.get("series") or []:
+                if str(serie.get("id") or "").strip().lower() == serie_id:
+                    modo = _modo_regra(serie.get("regra") or {})
+                    if modo:
+                        return modo
+                    break
 
         fase_id = _normalizar_fase_operacao(partida.get("fase"))
-
-        regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
-        modo_fase = (regra_fase.get("modo_operacao") or "").strip().lower()
-        if modo_fase in {"simples", "avancado"}:
-            return modo_fase
+        regra_fase = _buscar_chave(regras_avancadas.get("fases") or {}, fase_id)
+        modo = _modo_regra(regra_fase)
+        if modo:
+            return modo
 
         if fase_id == "grupos":
-            grupo = (partida.get("grupo") or "").strip().upper()
-            regra_grupo = (regras_avancadas.get("grupos") or {}).get(grupo) or {}
-            modo_grupo = (regra_grupo.get("modo_operacao") or "").strip().lower()
-            if modo_grupo in {"simples", "avancado"}:
-                return modo_grupo
+            grupo = str(partida.get("grupo") or "").strip().upper()
+            regra_grupo = _buscar_chave(regras_avancadas.get("grupos") or {}, grupo)
+            modo = _modo_regra(regra_grupo)
+            if modo:
+                return modo
+
     except Exception as e:
         print("AVISO resolver modo operação partida:", repr(e), flush=True)
 
-    return modo_final
+    return modo_fallback
 
 
 
@@ -495,6 +540,185 @@ def _erro_operador_json(msg, status=423):
         "bloqueada": True,
         "mensagem": msg or "Esta partida está em operação por outro apontador.",
     }, status)
+
+
+
+def _partida_em_sorteio_tiebreak(partida=None):
+    """Detecta quando o próximo passo é o sorteio exclusivo do tie-break.
+
+    O fluxo oficial pode marcar isso em campos diferentes dependendo da origem
+    da transição (fim do set, pré-jogo, cache antigo). Por isso centralizamos a
+    checagem para não voltar para o pré-jogo com um botão intermediário.
+    """
+    partida = partida or {}
+    campos = {
+        str(partida.get("fase_partida") or "").strip().lower(),
+        str(partida.get("status_jogo") or "").strip().lower(),
+        str(partida.get("status_operacao") or "").strip().lower(),
+    }
+    if campos.intersection({"tiebreak_sorteio", "tie_break_sorteio", "sorteio_tiebreak", "sorteio_tie_break"}):
+        return True
+    return bool(partida.get("tiebreak_pendente")) and not bool(partida.get("tiebreak_definido"))
+
+
+
+def _numero_set_tiebreak_partida(partida=None, competicao=None):
+    """Retorna o número do set decisivo da partida.
+
+    Melhor de 3 -> set 3.
+    Melhor de 5 -> set 5.
+    """
+    partida = partida or {}
+    try:
+        sets_max = int(partida.get("sets_max") or 0)
+    except Exception:
+        sets_max = 0
+
+    if not sets_max:
+        try:
+            sets_max = int(_sets_max_competicao(competicao))
+        except Exception:
+            sets_max = 3
+
+    return 5 if sets_max >= 5 else 3
+
+
+def _equipe_oposta_tiebreak(partida=None, equipe_referencia=""):
+    partida = partida or {}
+    ref = str(equipe_referencia or "").strip()
+
+    candidatos = [
+        partida.get("equipe_a"),
+        partida.get("equipe_b"),
+        partida.get("equipe_a_operacional"),
+        partida.get("equipe_b_operacional"),
+    ]
+
+    vistos = []
+    for nome in candidatos:
+        nome = str(nome or "").strip()
+        if nome and nome not in vistos:
+            vistos.append(nome)
+
+    for nome in vistos:
+        if nome.lower() != ref.lower():
+            return nome
+
+    return ""
+
+
+def _colunas_partidas_cur(cur):
+    cur.execute("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'partidas'
+    """)
+    return {str(row.get("column_name") or "").strip() for row in (cur.fetchall() or [])}
+
+
+def _atualizar_partida_campos_existentes(cur, partida_id, competicao, valores):
+    """Atualiza somente colunas existentes em partidas para evitar erro em bancos antigos."""
+    colunas = _colunas_partidas_cur(cur)
+    sets = []
+    params = []
+
+    for campo, valor in (valores or {}).items():
+        if campo in colunas:
+            sets.append(f"{campo} = %s")
+            params.append(valor)
+
+    if not sets:
+        return False
+
+    params.extend([partida_id, competicao])
+    cur.execute(f"""
+        UPDATE partidas
+        SET {", ".join(sets)}
+        WHERE id = %s
+          AND competicao = %s
+    """, tuple(params))
+    return True
+
+
+def _salvar_sorteio_tiebreak_direto(partida_id, competicao, operador_login, partida,
+                                    sorteio_vencedor, sorteio_escolha,
+                                    saque_tiebreak, lado_esquerdo_tiebreak):
+    """Salva o sorteio do tie-break e libera diretamente a papeleta do set decisivo.
+
+    Essa rotina é intencionalmente tolerante: se a função do banco recusar dizendo
+    que o tie-break não está liberado, esta rota ainda consegue gravar quando a
+    partida já chegou à tela específica do tie-break.
+    """
+    partida = dict(partida or {})
+
+    sorteio_vencedor = str(sorteio_vencedor or "").strip()
+    sorteio_escolha = str(sorteio_escolha or "").strip()
+    saque_tiebreak = str(saque_tiebreak or "").strip()
+    lado_esquerdo_tiebreak = str(lado_esquerdo_tiebreak or "").strip()
+
+    if not sorteio_vencedor:
+        return False, "Selecione a equipe vencedora do sorteio."
+    if not saque_tiebreak:
+        return False, "Selecione a equipe que inicia sacando no tie-break."
+    if not lado_esquerdo_tiebreak:
+        return False, "Selecione a equipe que ficará no lado esquerdo no tie-break."
+
+    equipe_direita_tiebreak = _equipe_oposta_tiebreak(partida, lado_esquerdo_tiebreak)
+    if not equipe_direita_tiebreak:
+        return False, "Não consegui identificar a equipe do lado direito do tie-break."
+
+    set_tiebreak = _numero_set_tiebreak_partida(partida, competicao)
+    saque_atual = "A" if saque_tiebreak.strip().lower() == lado_esquerdo_tiebreak.strip().lower() else "B"
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                _atualizar_partida_campos_existentes(cur, partida_id, competicao, {
+                    "set_atual": set_tiebreak,
+                    "pontos_a": 0,
+                    "pontos_b": 0,
+
+                    "status": "ao vivo",
+                    "status_jogo": "papeleta",
+                    "fase_partida": "papeleta",
+                    "status_operacao": "papeleta",
+
+                    "tiebreak_pendente": False,
+                    "tiebreak_definido": True,
+                    "sorteio_tiebreak_vencedor": sorteio_vencedor,
+                    "sorteio_tiebreak_escolha": sorteio_escolha,
+                    "saque_tiebreak": saque_tiebreak,
+                    "lado_esquerdo_tiebreak": lado_esquerdo_tiebreak,
+
+                    "sorteio_vencedor": sorteio_vencedor,
+                    "sorteio_escolha": sorteio_escolha,
+                    "saque_inicial": saque_tiebreak,
+                    "saque_atual": saque_atual,
+
+                    "lado_esquerdo": lado_esquerdo_tiebreak,
+                    "lado_direito": equipe_direita_tiebreak,
+                    "equipe_a_operacional": lado_esquerdo_tiebreak,
+                    "equipe_b_operacional": equipe_direita_tiebreak,
+
+                    "rotacao_a_json": None,
+                    "rotacao_b_json": None,
+                    "titulares_iniciais_a_json": None,
+                    "titulares_iniciais_b_json": None,
+
+                    "pre_jogo_finalizado": True,
+                    "pre_jogo_finalizado_em": datetime.now(),
+                    "operador_login": operador_login,
+                    "apontador_login": operador_login,
+                })
+            conn.commit()
+
+        return True, "Sorteio do tie-break salvo. Preencha a papeleta do set decisivo."
+
+    except Exception as e:
+        print("ERRO salvar sorteio tie-break direto:", repr(e), flush=True)
+        return False, "Erro ao salvar o sorteio do tie-break."
+
 
 
 @apontadores_bp.route("/apontador/atalhos", methods=["GET"])
@@ -1920,14 +2144,35 @@ def _fase_normalizada_lista(partida):
 
 
 def _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, partida):
-    """Versão sem consulta dentro do loop da lista do apontador."""
+    """Versão sem consulta dentro do loop da lista do apontador.
+
+    Para partidas do Avanço, lê também fases_config.avanco. Isso corrige o caso
+    em que o card está configurado com scout avançado, mas a partida real antiga
+    ainda possui modo_operacao='simples'.
+    """
     partida = partida or {}
-    modo_padrao = str(
-        partida.get("modo_operacao")
-        or (competicao_cfg or {}).get("modo_operacao")
-        or "simples"
-    ).strip().lower()
-    modo_final = modo_padrao if modo_padrao in {"simples", "avancado"} else "simples"
+
+    def _modo_valido(valor):
+        valor = str(valor or "").strip().lower()
+        return valor if valor in {"simples", "avancado"} else ""
+
+    def _modo_regra(regra):
+        if not isinstance(regra, dict):
+            return ""
+        return _modo_valido(regra.get("modo_operacao") or regra.get("scout"))
+
+    def _buscar_chave(dic, chave):
+        if not isinstance(dic, dict) or not chave:
+            return {}
+        if chave in dic:
+            return dic.get(chave) or {}
+        chave_low = str(chave).lower()
+        for k, v in dic.items():
+            if str(k).lower() == chave_low:
+                return v or {}
+        return {}
+
+    modo_fallback = _modo_valido(partida.get("modo_operacao")) or _modo_valido((competicao_cfg or {}).get("modo_operacao")) or "simples"
 
     try:
         fases_config = (config_avancada or {}).get("fases_config") or {}
@@ -1936,36 +2181,48 @@ def _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, part
 
         if origem_partida.startswith("avanco:"):
             partes = origem_partida.split(":")
-            serie_id = partes[1] if len(partes) > 1 else ""
-            jogo_id = partes[2] if len(partes) > 2 else ""
+            serie_id = (partes[1] if len(partes) > 1 else "").strip().lower()
+            jogo_id = (partes[2] if len(partes) > 2 else "").strip().upper()
 
-            regra_jogo = (regras_avancadas.get("jogos") or {}).get(f"{serie_id}:{jogo_id}") or {}
-            modo_jogo = str(regra_jogo.get("modo_operacao") or "").strip().lower()
-            if modo_jogo in {"simples", "avancado"}:
-                return modo_jogo
+            modo = _modo_regra(_buscar_chave(regras_avancadas.get("jogos") or {}, f"{serie_id}:{jogo_id}"))
+            if modo:
+                return modo
 
-            regra_serie = (regras_avancadas.get("series") or {}).get(serie_id) or {}
-            modo_serie = str(regra_serie.get("modo_operacao") or "").strip().lower()
-            if modo_serie in {"simples", "avancado"}:
-                return modo_serie
+            modo = _modo_regra(_buscar_chave(regras_avancadas.get("series") or {}, serie_id))
+            if modo:
+                return modo
+
+            avanco = fases_config.get("avanco") or {}
+            for jogo in avanco.get("jogos") or []:
+                if str(jogo.get("serie") or "").strip().lower() == serie_id and str(jogo.get("id") or "").strip().upper() == jogo_id:
+                    regra = jogo.get("regra") or {}
+                    if regra.get("usar_regra_propria"):
+                        modo = _modo_regra(regra)
+                        if modo:
+                            return modo
+                    break
+
+            for serie in avanco.get("series") or []:
+                if str(serie.get("id") or "").strip().lower() == serie_id:
+                    modo = _modo_regra(serie.get("regra") or {})
+                    if modo:
+                        return modo
+                    break
 
         fase_id = _normalizar_fase_operacao(partida.get("fase"))
-        regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
-        modo_fase = str(regra_fase.get("modo_operacao") or "").strip().lower()
-        if modo_fase in {"simples", "avancado"}:
-            return modo_fase
+        modo = _modo_regra(_buscar_chave(regras_avancadas.get("fases") or {}, fase_id))
+        if modo:
+            return modo
 
         if fase_id == "grupos":
             grupo = str(partida.get("grupo") or "").strip().upper()
-            regra_grupo = (regras_avancadas.get("grupos") or {}).get(grupo) or {}
-            modo_grupo = str(regra_grupo.get("modo_operacao") or "").strip().lower()
-            if modo_grupo in {"simples", "avancado"}:
-                return modo_grupo
+            modo = _modo_regra(_buscar_chave(regras_avancadas.get("grupos") or {}, grupo))
+            if modo:
+                return modo
     except Exception:
         pass
 
-    return modo_final
-
+    return modo_fallback
 
 def _normalizar_sets_tipo_lista_apontador(valor, padrao="melhor_de_3"):
     valor = str(valor or padrao or "melhor_de_3").strip().lower()
@@ -2569,6 +2826,11 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
+    # Se a partida chegou ao tie-break, não volta para o pré-jogo com botão.
+    # O apontador deve cair direto na tela exclusiva de sorteio do tie-break.
+    if _partida_em_sorteio_tiebreak(partida):
+        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
     if partida.get("equipe_a_operacional") or partida.get("equipe_b_operacional"):
         try:
             partida = aplicar_capitaes_padrao_partida(partida_id, competicao) or partida
@@ -2727,9 +2989,13 @@ def abrir_tiebreak_view(competicao, partida_id):
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida) or {}
-    if fluxo.get("fase_partida") != "tiebreak_sorteio":
-        flash("O sorteio do tie-break não está liberado neste momento.", "erro")
-        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
+
+    # Se chegou nesta rota, a tela correta é o sorteio exclusivo do tie-break.
+    # Não voltamos mais para o pré-jogo e não bloqueamos por inconsistência antiga
+    # de status_operacao/fase_partida.
+    fluxo["fase_partida"] = "tiebreak_sorteio"
+    fluxo["tiebreak_pendente"] = True
+    fluxo["set_atual"] = _numero_set_tiebreak_partida(partida, competicao)
 
     return render_template(
         "tiebreak_sorteio_apontador.html",
@@ -2743,27 +3009,76 @@ def abrir_tiebreak_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def salvar_tiebreak_view(competicao, partida_id):
     cpf = _login_apontador_sessao()
+    partida = buscar_partida_operacional(partida_id, competicao)
 
-    vencedor_sorteio = request.form.get("sorteio_vencedor", "").strip()
-    escolha_sorteio = request.form.get("sorteio_escolha", "").strip()
-    saque_tiebreak = request.form.get("saque_tiebreak", "").strip()
-    lado_esquerdo_tiebreak = request.form.get("lado_esquerdo_tiebreak", "").strip()
+    if not partida:
+        flash("Partida não encontrada.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    ok, msg = salvar_sorteio_tiebreak_partida(
-        partida_id=partida_id,
-        competicao=competicao,
-        operador_login=cpf,
-        sorteio_vencedor=vencedor_sorteio,
-        sorteio_escolha=escolha_sorteio,
-        saque_tiebreak=saque_tiebreak,
-        lado_esquerdo_tiebreak=lado_esquerdo_tiebreak,
+    if partida.get("operador_login") and partida.get("operador_login") != cpf:
+        flash("Somente o operador da partida pode salvar o sorteio do tie-break.", "erro")
+        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
+    vencedor_sorteio = (
+        request.form.get("sorteio_vencedor")
+        or request.form.get("vencedor_sorteio")
+        or request.form.get("equipe_vencedora")
+        or request.form.get("vencedor")
+        or ""
+    ).strip()
+
+    escolha_sorteio = (
+        request.form.get("sorteio_escolha")
+        or request.form.get("escolha_sorteio")
+        or request.form.get("escolha")
+        or ""
+    ).strip()
+
+    saque_tiebreak = (
+        request.form.get("saque_tiebreak")
+        or request.form.get("saque_inicial")
+        or request.form.get("equipe_saque")
+        or request.form.get("sacador")
+        or ""
+    ).strip()
+
+    lado_esquerdo_tiebreak = (
+        request.form.get("lado_esquerdo_tiebreak")
+        or request.form.get("lado_esquerdo")
+        or request.form.get("equipe_lado_esquerdo")
+        or request.form.get("esquerda")
+        or ""
+    ).strip()
+
+    # Tenta a rotina oficial do banco, mas NÃO deixa ela travar o ginásio.
+    # Em algumas partidas antigas o banco pode responder "tie-break não liberado"
+    # mesmo quando a tela correta já é /apontador/tiebreak. A gravação direta abaixo
+    # é a fonte final para liberar a papeleta do set decisivo.
+    try:
+        salvar_sorteio_tiebreak_partida(
+            partida_id=partida_id,
+            competicao=competicao,
+            operador_login=cpf,
+            sorteio_vencedor=vencedor_sorteio,
+            sorteio_escolha=escolha_sorteio,
+            saque_tiebreak=saque_tiebreak,
+            lado_esquerdo_tiebreak=lado_esquerdo_tiebreak,
+        )
+    except Exception as e:
+        print("AVISO salvar_tiebreak_view/rotina oficial:", repr(e), flush=True)
+
+    ok, msg = _salvar_sorteio_tiebreak_direto(
+        partida_id, competicao, cpf, partida,
+        vencedor_sorteio, escolha_sorteio,
+        saque_tiebreak, lado_esquerdo_tiebreak
     )
 
     if ok:
         _limpar_cache_apontador(competicao)
-    flash(msg, "sucesso" if ok else "erro")
-    if ok:
+        flash(msg or "Sorteio do tie-break salvo. Preencha a papeleta do set decisivo.", "sucesso")
         return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+
+    flash(msg or "Erro ao salvar sorteio do tie-break.", "erro")
     return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
 
 
@@ -2885,7 +3200,12 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
         if numero_atual == numero:
             continue
 
-        ok, msg = atualizar_numero_atleta(atleta_id, "" if numero is None else str(numero))
+        resultado_numero = atualizar_numero_atleta(atleta_id, "" if numero is None else str(numero))
+        if isinstance(resultado_numero, tuple):
+            ok, msg = resultado_numero
+        else:
+            ok = bool(resultado_numero)
+            msg = "Não foi possível atualizar a numeração do atleta." if not ok else "Numeração atualizada com sucesso."
         if not ok:
             houve_erro = True
             if msg not in mensagens_exibidas:
@@ -2996,6 +3316,109 @@ def salvar_capitao_view(competicao, partida_id, lado):
     return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
 
+
+
+def _set_atual_operacional_seguro(partida):
+    """Garante o número correto do próximo set para salvar/carregar papeleta.
+
+    Correção: em alguns fluxos o banco podia ficar com set_atual=1 mesmo após
+    o primeiro set ter sido vencido. A tabela papeletas já salva por set_numero,
+    então a rota precisa usar sempre sets_a + sets_b + 1 quando a partida ainda
+    não terminou.
+    """
+    partida = partida or {}
+    try:
+        set_banco = int(partida.get("set_atual") or 1)
+    except Exception:
+        set_banco = 1
+    try:
+        sets_a = int(partida.get("sets_a") or 0)
+        sets_b = int(partida.get("sets_b") or 0)
+    except Exception:
+        sets_a = sets_b = 0
+
+    esperado = max(1, sets_a + sets_b + 1)
+
+    try:
+        sets_max = int(partida.get("sets_max") or 0)
+    except Exception:
+        sets_max = 0
+    if sets_max > 0:
+        esperado = min(esperado, sets_max)
+
+    return max(set_banco, esperado)
+
+
+def _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida):
+    set_seguro = _set_atual_operacional_seguro(partida)
+    try:
+        set_banco = int((partida or {}).get("set_atual") or 1)
+    except Exception:
+        set_banco = 1
+
+    fase = str((partida or {}).get("fase_partida") or "").strip().lower()
+    status = str((partida or {}).get("status_jogo") or "").strip().lower()
+
+    if set_seguro != set_banco or fase in {"intervalo_set", "entre_sets"} or status in {"entre_sets"}:
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE partidas
+                        SET set_atual = %s,
+                            fase_partida = 'papeleta',
+                            status_jogo = 'papeleta',
+                            status_operacao = 'papeleta'
+                        WHERE id = %s
+                          AND competicao = %s
+                          AND LOWER(COALESCE(status_jogo, '')) NOT IN ('finalizada', 'encerrado')
+                    """, (set_seguro, partida_id, competicao))
+                conn.commit()
+            try:
+                partida["set_atual"] = set_seguro
+                partida["fase_partida"] = "papeleta"
+                partida["status_jogo"] = "papeleta"
+                partida["status_operacao"] = "papeleta"
+            except Exception:
+                pass
+        except Exception as e:
+            print("AVISO corrigir set atual papeleta:", repr(e), flush=True)
+
+    return set_seguro
+
+
+def _papeleta_set_atual_esta_completa_partida(partida_id, competicao, partida):
+    """Confere se a papeleta do set atual já foi preenchida para as duas equipes.
+
+    Protege o fluxo entre sets: depois de finalizar um set, se o banco já está
+    em set_atual=2/3/4 mas ainda não há registros na tabela papeletas para esse
+    set, a rota /jogo deve voltar para a papeleta em vez de reutilizar a rotação
+    do set anterior.
+    """
+    partida = partida or {}
+    try:
+        set_atual = int(partida.get("set_atual") or _set_atual_operacional_seguro(partida) or 1)
+    except Exception:
+        set_atual = 1
+
+    equipe_a = (partida.get("equipe_a_operacional") or partida.get("equipe_a") or "").strip()
+    equipe_b = (partida.get("equipe_b_operacional") or partida.get("equipe_b") or "").strip()
+
+    if not equipe_a or not equipe_b:
+        return False
+
+    try:
+        ok_a = bool(papeleta_set_esta_completa(partida_id, competicao, equipe_a, set_atual))
+    except Exception:
+        ok_a = False
+
+    try:
+        ok_b = bool(papeleta_set_esta_completa(partida_id, competicao, equipe_b, set_atual))
+    except Exception:
+        ok_b = False
+
+    return ok_a and ok_b
+
 # =========================================================
 # PAPELETA
 # =========================================================
@@ -3014,16 +3437,27 @@ def papeleta_view(competicao, partida_id):
         flash("A partida já está finalizada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
+    # Tie-break tem prioridade sobre qualquer outro estado operacional.
+    # Isso cobre tanto fase_partida='tiebreak_sorteio' quanto bancos que salvam
+    # status_jogo/status_operacao='sorteio_tiebreak' ou apenas
+    # tiebreak_pendente=True/tiebreak_definido=False.
+    if _partida_em_sorteio_tiebreak(partida):
+        flash("Antes do tie-break, faça o sorteio específico do set decisivo.", "erro")
+        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
     if fase == "pre_jogo":
         flash("Finalize primeiro o pré-jogo para acessar a papeleta.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
-    if fase == "tiebreak_sorteio":
-        flash("Antes do tie-break, faça o sorteio específico do set decisivo.", "erro")
-        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
-
     if fase == "jogo":
-        return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
+        # Só manda para a tela do jogo quando a papeleta do set atual existe.
+        # Entre sets, o banco pode estar como "jogo"/"em_andamento" com set_atual
+        # avançado, mas sem papeleta do novo set. Nesse caso a tela correta é esta.
+        _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida)
+        if _papeleta_set_atual_esta_completa_partida(partida_id, competicao, partida):
+            return redirect(url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id))
+
+    _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida)
 
     equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
         partida_id, competicao, partida
@@ -3065,9 +3499,9 @@ def salvar_papeleta_view(competicao, partida_id):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
+    set_atual = _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida)
     equipe_a = partida.get("equipe_a_operacional") or partida.get("equipe_a")
     equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b")
-    set_atual = int(partida.get("set_atual") or 1)
 
     atletas_cache = {}
 
@@ -3240,10 +3674,48 @@ def jogo_view(competicao, partida_id):
     if partida_lock:
         partida = partida_lock
 
+    # Se o fim do set levou para o tie-break, a rota do jogo não pode renderizar
+    # quadra nem pré-jogo: deve abrir direto o sorteio exclusivo do tie-break.
+    if _partida_em_sorteio_tiebreak(partida):
+        return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
+    modo_operacao_resolvido = _resolver_modo_operacao_partida(competicao, partida)
+    try:
+        partida["modo_operacao_resolvido"] = modo_operacao_resolvido
+        partida["modo_operacao"] = modo_operacao_resolvido
+    except Exception:
+        pass
+
     status_jogo = (partida.get("status_jogo") or "").strip().lower()
     status_operacao = (partida.get("status_operacao") or "").strip().lower()
+    fase_partida_atual = (partida.get("fase_partida") or "").strip().lower()
 
     editar_scout_finalizada = request.args.get("editar_scout") == "1"
+
+    if not editar_scout_finalizada:
+        fase_de_papeleta = {
+            "papeleta",
+            "entre_sets",
+            "intervalo_set",
+            "intervalo",
+        }
+        precisa_voltar_papeleta = (
+            fase_partida_atual in fase_de_papeleta
+            or status_jogo in fase_de_papeleta
+            or status_operacao in fase_de_papeleta
+        )
+
+        if precisa_voltar_papeleta:
+            _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida)
+            return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+
+        # Proteção extra: se o set atual avançou, mas ainda não existe papeleta
+        # salva para esse set, não deixa a tela do jogo reaproveitar a rotação
+        # do set anterior. Isso força o preenchimento correto do 2º/3º/4º set.
+        if (partida.get("equipe_a_operacional") or partida.get("equipe_a")) and (partida.get("equipe_b_operacional") or partida.get("equipe_b")):
+            _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida)
+            if not _papeleta_set_atual_esta_completa_partida(partida_id, competicao, partida):
+                return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
     if status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}:
         modo_finalizada = _resolver_modo_operacao_partida(competicao, partida)
         if not (editar_scout_finalizada and modo_finalizada == "avancado"):
@@ -3369,7 +3841,7 @@ def jogo_view(competicao, partida_id):
         papeleta_b=papeleta_b,
         atletas_a=atletas_a,
         atletas_b=atletas_b,
-        modo_operacao=_resolver_modo_operacao_partida(competicao, partida),
+        modo_operacao=modo_operacao_resolvido,
         offline_habilitado=offline_global_habilitado(),
     ))
 
@@ -4662,9 +5134,28 @@ def encerrar_partida_view(competicao, partida_id):
         if not estado:
             estado = dict(obter_estado_cache(partida_id) or estado_final_cliente or {})
 
-        encerrar_partida(partida_id, competicao, observacoes)
-        resultado_avanco = _atualizar_avanco_apos_finalizacao_async(competicao)
+        ok_encerrar, msg_encerrar = encerrar_partida(partida_id, competicao, observacoes)
         estado = buscar_estado_jogo_partida(partida_id, competicao) or estado or {}
+
+        if not ok_encerrar:
+            estado["encerrado"] = False
+            estado["partida_finalizada"] = False
+            estado["status_jogo"] = estado.get("status_jogo") or "entre_sets"
+            estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_BLOQUEADO_SETS_INSUFICIENTES")
+            _limpar_cache_apontador(competicao)
+            return _json_no_cache({
+                "ok": False,
+                "mensagem": msg_encerrar or "A partida ainda não atingiu os sets necessários para finalizar.",
+                "encerrado": False,
+                "partida_finalizada": False,
+                "redirecionar_papeleta": True,
+                "url_redirecionamento": url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id),
+                "estado": estado,
+                "eventos_processados": processados,
+                **estado
+            }, 409)
+
+        resultado_avanco = _atualizar_avanco_apos_finalizacao_async(competicao)
         if resultado_avanco:
             estado["avanco_atualizado"] = resultado_avanco
         estado["encerrado"] = True
@@ -4732,9 +5223,13 @@ def salvar_observacoes_view(competicao, partida_id):
             return redirect(url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id))
         flash(msg_destaque or "Destaque salvo com sucesso.", "sucesso")
 
-    encerrar_partida(partida_id, competicao, observacoes)
+    ok_encerrar, msg_encerrar = encerrar_partida(partida_id, competicao, observacoes)
 
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+    if not ok_encerrar:
+        flash(msg_encerrar or "A partida ainda não atingiu os sets necessários para finalizar.", "erro")
+        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+
     estado["encerrado"] = True
     estado["partida_finalizada"] = True
     estado["status_jogo"] = "finalizada"

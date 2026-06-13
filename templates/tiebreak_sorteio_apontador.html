@@ -8,77 +8,148 @@
 </div>
 
 <div class="card-painel">
-    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+    <div style="font-size:20px; font-weight:900;">
+        {{ competicao_nome }}
+    </div>
+
     <div style="margin-top:6px;">
         Jogo {{ partida.ordem or '-' }}
         {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
         {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
     </div>
+
     <div style="margin-top:10px; font-size:18px; font-weight:900;">
         {{ partida.equipe_a }} x {{ partida.equipe_b }}
     </div>
-    <div style="margin-top:10px; padding:12px; border:1px solid #93c5fd; border-radius:10px; background:#eff6ff; color:#1d4ed8; font-weight:700;">
-        Tela específica do set decisivo. Aqui você ajusta apenas o novo sorteio do tie-break.
-        A Equipe A operacional permanece a mesma da partida.
+
+    <div style="margin-top:12px; padding:12px; border:1px solid #93c5fd; border-radius:10px; background:#eff6ff; color:#1d4ed8; font-weight:700;">
+        Set decisivo (tie-break). Realize o novo sorteio.
+        Após salvar, o sistema abrirá automaticamente a papeleta do tie-break.
     </div>
 </div>
 
 <div class="card-painel">
-    <div style="font-weight:900; margin-bottom:12px;">Configuração do tie-break</div>
+    <div style="font-weight:900; margin-bottom:15px;">
+        Configuração do tie-break
+    </div>
 
-    <form method="post" action="{{ url_for('apontadores.salvar_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}">
+    <form method="post"
+          action="{{ url_for('apontadores.salvar_tiebreak_view',
+                             competicao=competicao_nome,
+                             partida_id=partida.id) }}">
+
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+
             <div>
                 <label>Equipe vencedora do sorteio</label>
-                <select name="sorteio_vencedor" required>
+                <select id="sorteio_vencedor" name="sorteio_vencedor" required>
                     <option value="">Selecione</option>
-                    <option value="{{ partida.equipe_a }}" {% if partida.sorteio_tiebreak_vencedor == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
-                    <option value="{{ partida.equipe_b }}" {% if partida.sorteio_tiebreak_vencedor == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                    <option value="{{ partida.equipe_a }}"
+                        {% if partida.sorteio_tiebreak_vencedor == partida.equipe_a %}selected{% endif %}>
+                        {{ partida.equipe_a }}
+                    </option>
+                    <option value="{{ partida.equipe_b }}"
+                        {% if partida.sorteio_tiebreak_vencedor == partida.equipe_b %}selected{% endif %}>
+                        {{ partida.equipe_b }}
+                    </option>
                 </select>
             </div>
 
             <div>
                 <label>Escolha da vencedora</label>
-                <select name="sorteio_escolha" required>
+                <select id="sorteio_escolha" name="sorteio_escolha" required>
                     <option value="">Selecione</option>
-                    <option value="saque" {% if partida.sorteio_tiebreak_escolha == 'saque' %}selected{% endif %}>Saque</option>
-                    <option value="lado" {% if partida.sorteio_tiebreak_escolha == 'lado' %}selected{% endif %}>Lado</option>
+                    <option value="saque"
+                        {% if partida.sorteio_tiebreak_escolha == 'saque' %}selected{% endif %}>
+                        Saque
+                    </option>
+                    <option value="lado"
+                        {% if partida.sorteio_tiebreak_escolha == 'lado' %}selected{% endif %}>
+                        Lado
+                    </option>
                 </select>
             </div>
 
             <div>
                 <label>Equipe que inicia sacando</label>
-                <select name="saque_tiebreak" required>
+                <select id="saque_tiebreak" name="saque_tiebreak" required>
                     <option value="">Selecione</option>
-                    <option value="{{ partida.equipe_a }}" {% if partida.saque_tiebreak == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
-                    <option value="{{ partida.equipe_b }}" {% if partida.saque_tiebreak == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                    <option value="{{ partida.equipe_a }}"
+                        {% if partida.saque_tiebreak == partida.equipe_a %}selected{% endif %}>
+                        {{ partida.equipe_a }}
+                    </option>
+                    <option value="{{ partida.equipe_b }}"
+                        {% if partida.saque_tiebreak == partida.equipe_b %}selected{% endif %}>
+                        {{ partida.equipe_b }}
+                    </option>
                 </select>
             </div>
 
             <div>
-                <label>Equipe no lado esquerdo</label>
-                <select name="lado_esquerdo_tiebreak" required>
+                <label>Equipe que ficará à esquerda do apontador</label>
+                <select id="lado_esquerdo_tiebreak" name="lado_esquerdo_tiebreak" required>
                     <option value="">Selecione</option>
-                    <option value="{{ partida.equipe_a }}" {% if partida.lado_esquerdo_tiebreak == partida.equipe_a %}selected{% endif %}>{{ partida.equipe_a }}</option>
-                    <option value="{{ partida.equipe_b }}" {% if partida.lado_esquerdo_tiebreak == partida.equipe_b %}selected{% endif %}>{{ partida.equipe_b }}</option>
+                    <option value="{{ partida.equipe_a }}"
+                        {% if partida.lado_esquerdo_tiebreak == partida.equipe_a %}selected{% endif %}>
+                        {{ partida.equipe_a }}
+                    </option>
+                    <option value="{{ partida.equipe_b }}"
+                        {% if partida.lado_esquerdo_tiebreak == partida.equipe_b %}selected{% endif %}>
+                        {{ partida.equipe_b }}
+                    </option>
                 </select>
             </div>
 
-            <div>
-                <label>Equipe A operacional</label>
-                <input type="text" value="{{ partida.equipe_a_operacional or '-' }}" readonly>
-            </div>
-
-            <div>
-                <label>Equipe B operacional</label>
-                <input type="text" value="{{ partida.equipe_b_operacional or '-' }}" readonly>
-            </div>
         </div>
 
-        <div style="margin-top:16px;">
-            <button class="btn-padrao" type="submit">Salvar sorteio do tie-break</button>
-            <a class="btn-secundario" href="{{ url_for('apontadores.abrir_pre_jogo_apontador', competicao=competicao_nome, partida_id=partida.id) }}">Voltar</a>
+        <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn-padrao" type="submit">
+                Salvar sorteio do tie-break
+            </button>
+
+            <a class="btn-secundario"
+               href="{{ url_for('apontadores.entrar_competicao_apontador',
+                                competicao=competicao_nome) }}">
+                Cancelar
+            </a>
         </div>
     </form>
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const equipeA = "{{ partida.equipe_a }}";
+    const equipeB = "{{ partida.equipe_b }}";
+
+    const vencedor = document.getElementById("sorteio_vencedor");
+    const escolha = document.getElementById("sorteio_escolha");
+    const saque = document.getElementById("saque_tiebreak");
+    const lado = document.getElementById("lado_esquerdo_tiebreak");
+
+    function atualizarAutomaticamente() {
+        const equipeVencedora = vencedor.value;
+        const tipoEscolha = escolha.value;
+
+        if (!equipeVencedora || !tipoEscolha) {
+            return;
+        }
+
+        const outraEquipe = equipeVencedora === equipeA ? equipeB : equipeA;
+
+        if (tipoEscolha === "saque") {
+            saque.value = equipeVencedora;
+            lado.value = outraEquipe;
+        }
+
+        if (tipoEscolha === "lado") {
+            lado.value = equipeVencedora;
+            saque.value = outraEquipe;
+        }
+    }
+
+    vencedor.addEventListener("change", atualizarAutomaticamente);
+    escolha.addEventListener("change", atualizarAutomaticamente);
+});
+</script>
+
 {% endblock %}

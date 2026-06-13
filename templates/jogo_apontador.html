@@ -4399,12 +4399,10 @@ function inverterLadosVisual() {
         if (Array.isArray(dados.historico)) renderHistoricoBackend(dados.historico);
         partidaFinalizada = !!dados.partida_finalizada;
 
-        const vencedorSetEstado = ladoVencedorSetLocal(estadoAtual);
-        if (vencedorSetEstado && !partidaFinalizada) {
-            aplicarFimSetPartidaLocal(vencedorSetEstado, "estado_local");
-            return;
-        }
-
+        // Não finaliza set/partida apenas pelo cálculo local do navegador.
+        // A fonte da verdade é a resposta oficial do backend em /ponto, porque
+        // ela conhece sets_max/sets_para_vencer da partida e evita encerrar
+        // melhor_de_3/melhor_de_5 no 1º set por estado/cache antigo.
         atualizarAvisoPoint(estadoAtual);
         atualizarContadoresDisciplinares();
         renderPainelVisual(estadoAtual);
