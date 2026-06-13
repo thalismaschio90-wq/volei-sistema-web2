@@ -3,24 +3,175 @@
 {% block titulo %}Pré-jogo{% endblock %}
 
 {% block conteudo %}
+<style>
+.pre-card-title { font-size:20px; font-weight:900; }
+.pre-card-sub { margin-top:6px; }
+.pre-card-match { margin-top:10px; font-size:18px; font-weight:900; }
+.pre-section-title { font-weight:900; margin-bottom:10px; }
+.pre-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.pre-actions { margin-top:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.pre-operacao-mobile { display:none; }
+.pre-team-wrap { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.pre-team-card { padding:10px 12px; border:1px solid var(--border); border-radius:10px; }
+.pre-team-actions { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+
+@media (max-width:850px) {
+    .topo-secao { margin-bottom:10px !important; }
+    .titulo-secao { font-size:34px !important; line-height:1.05 !important; }
+
+    .card-painel {
+        border-radius:18px !important;
+        padding:14px !important;
+        margin-bottom:12px !important;
+    }
+
+    .pre-card-partida { padding:14px 16px !important; }
+    .pre-card-title {
+        font-size:18px !important;
+        line-height:1.15 !important;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+    }
+    .pre-card-sub {
+        margin-top:4px !important;
+        font-size:14px !important;
+        color:var(--muted);
+        font-weight:800;
+    }
+    .pre-card-match {
+        margin-top:6px !important;
+        font-size:20px !important;
+        line-height:1.2 !important;
+    }
+
+    .pre-operacao-card { display:none !important; }
+    .pre-operacao-mobile { display:block !important; }
+    .pre-operacao-mobile summary {
+        list-style:none;
+        cursor:pointer;
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:10px;
+        font-weight:1000;
+        color:#123852;
+    }
+    .pre-operacao-mobile summary::-webkit-details-marker { display:none; }
+    .pre-operacao-mobile summary::after {
+        content:"Abrir";
+        font-size:12px;
+        color:#3730a3;
+        background:#eef2ff;
+        border:1px solid #c7d2fe;
+        border-radius:999px;
+        padding:5px 10px;
+        white-space:nowrap;
+    }
+    .pre-operacao-mobile[open] summary::after { content:"Fechar"; }
+    .pre-operacao-body {
+        margin-top:12px;
+        color:#183247;
+        font-size:14px;
+        font-weight:750;
+    }
+
+    .pre-section-title {
+        font-size:20px !important;
+        margin-bottom:12px !important;
+    }
+
+    .pre-form-grid {
+        grid-template-columns:1fr !important;
+        gap:10px !important;
+    }
+
+    .pre-form-grid label {
+        display:block;
+        font-size:14px !important;
+        line-height:1.15 !important;
+        margin-bottom:5px !important;
+        font-weight:1000 !important;
+    }
+
+    .pre-form-grid select,
+    .pre-form-grid input {
+        min-height:46px !important;
+        height:46px !important;
+        padding:8px 12px !important;
+        font-size:16px !important;
+        border-radius:14px !important;
+        width:100% !important;
+    }
+
+    .pre-actions {
+        display:grid !important;
+        grid-template-columns:1fr !important;
+        gap:8px !important;
+        margin-top:14px !important;
+    }
+
+    .pre-actions .btn-padrao,
+    .pre-actions .btn-secundario,
+    .pre-actions button,
+    .pre-actions a {
+        width:100% !important;
+        min-height:48px !important;
+        padding:11px 12px !important;
+        border-radius:14px !important;
+        text-align:center !important;
+        justify-content:center !important;
+        font-size:15px !important;
+    }
+
+    .pre-team-wrap {
+        display:grid !important;
+        grid-template-columns:1fr !important;
+        gap:10px !important;
+    }
+    .pre-team-card {
+        border-radius:16px !important;
+        padding:12px !important;
+    }
+    .pre-team-actions {
+        display:grid !important;
+        grid-template-columns:1fr !important;
+        gap:8px !important;
+    }
+    .pre-team-actions .btn-padrao,
+    .pre-team-actions .btn-secundario {
+        width:100% !important;
+        text-align:center !important;
+        justify-content:center !important;
+        padding:10px 12px !important;
+        border-radius:14px !important;
+    }
+}
+
+@media (max-width:520px) {
+    .titulo-secao { font-size:30px !important; }
+    .pre-card-match { font-size:18px !important; }
+}
+</style>
+
 <div class="topo-secao">
     <div class="titulo-secao">Pré-jogo</div>
 </div>
 
-<div class="card-painel">
-    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
-    <div style="margin-top:6px;">
+<div class="card-painel pre-card-partida">
+    <div class="pre-card-title">{{ competicao_nome }}</div>
+    <div class="pre-card-sub">
         Jogo {{ partida.ordem or '-' }}
         {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
         {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
     </div>
-    <div style="margin-top:10px; font-size:18px; font-weight:900;">
+    <div class="pre-card-match">
         {{ partida.equipe_a }} x {{ partida.equipe_b }}
     </div>
 </div>
 
-<div class="card-painel">
-    <div style="font-weight:900; margin-bottom:10px;">Operação da partida</div>
+<div class="card-painel pre-operacao-card">
+    <div class="pre-section-title">Operação da partida</div>
 
     {% if bloqueada_por_outro %}
         <div style="color:#ef4444; font-weight:800; margin-bottom:12px;">
@@ -60,9 +211,50 @@
     {% endif %}
 </div>
 
+<details class="card-painel pre-operacao-mobile">
+    <summary>Operação da partida</summary>
+    <div class="pre-operacao-body">
+        {% if bloqueada_por_outro %}
+            <div style="color:#ef4444; font-weight:900; margin-bottom:10px;">
+                {% if bloqueada_mesmo_login %}
+                    Este mesmo login já está operando esta partida em outro dispositivo ou navegador.
+                {% else %}
+                    Esta partida está em operação por {{ partida.operador_nome or partida.operador_login }}.
+                {% endif %}
+            </div>
+            <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar</a>
+
+        {% elif partida.operador_login != operador_login_atual %}
+            <div style="color:var(--muted); margin-bottom:10px;">
+                A operação só começa quando você confirmar.
+            </div>
+            <form method="post" action="{{ url_for('apontadores.assumir_partida_view', competicao=competicao_nome, partida_id=partida.id) }}"
+                  onsubmit="return confirm('Confirmar que esta é a partida correta para assumir operação?');">
+                <div class="pre-actions" style="margin-top:0;">
+                    <button class="btn-padrao" type="submit">Assumir partida</button>
+                    <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Cancelar</a>
+                </div>
+            </form>
+
+        {% else %}
+            <div style="margin-bottom:10px;">
+                <strong>Operador:</strong> {{ partida.operador_nome or partida.operador_login }}<br>
+                <strong>Status:</strong> {{ partida.status_operacao or 'livre' }}
+            </div>
+
+            {% if (partida.status_operacao or 'livre')|lower == 'reservado' %}
+            <form method="post" action="{{ url_for('apontadores.abandonar_partida_view', competicao=competicao_nome, partida_id=partida.id) }}"
+                  onsubmit="return confirm('Abandonar esta partida e liberar para outro apontador?');">
+                <button class="btn-secundario" type="submit">Abandonar partida</button>
+            </form>
+            {% endif %}
+        {% endif %}
+    </div>
+</details>
+
 {% if partida.operador_login == operador_login_atual %}
 <div class="card-painel">
-    <div style="font-weight:900; margin-bottom:12px;">Configuração do pré-jogo</div>
+    <div class="pre-section-title">Configuração do pré-jogo</div>
 
     {% if pre_jogo_bloqueado %}
         <div style="padding:12px; border:1px solid #f59e0b; border-radius:10px; background:#fffbeb; color:#92400e; font-weight:700; margin-bottom:14px;">
@@ -84,7 +276,7 @@
     <form method="post"
           action="{{ url_for('apontadores.salvar_pre_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}">
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="pre-form-grid">
 
             <div>
                 <label>1º árbitro</label>
@@ -120,7 +312,7 @@
             </div>
 
             <div>
-                <label>Equipe vencedora do sorteio</label>
+                <label>Vencedor do sorteio</label>
                 <select name="sorteio_vencedor" required>
                     <option value="">Selecione</option>
 
@@ -137,7 +329,7 @@
             </div>
 
             <div>
-                <label>Equipe que inicia sacando</label>
+                <label>Inicia sacando</label>
                 <select name="saque_inicial" required>
                     <option value="">Selecione</option>
 
@@ -154,7 +346,7 @@
             </div>
 
             <div>
-                <label>Equipe no lado esquerdo (define Equipe A)</label>
+                <label>Lado esquerdo / Equipe A</label>
                 <select name="lado_esquerdo" required>
                     <option value="">Selecione</option>
 
@@ -172,7 +364,7 @@
 
         </div>
 
-        <div style="margin-top:16px;">
+        <div class="pre-actions">
             <button class="btn-padrao" type="submit">
                 Confirmar sorteio / iniciar pré-jogo
             </button>
@@ -190,13 +382,13 @@
 {% if partida.equipe_a_operacional and partida.equipe_b_operacional %}
 <div class="card-painel">
 
-    <div style="font-weight:900; margin-bottom:12px;">
+    <div class="pre-section-title">
         Conferência das equipes
     </div>
 
-    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+    <div class="pre-team-wrap">
 
-        <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px;">
+        <div class="pre-team-card">
 
             <div style="font-weight:800;">Equipe A</div>
 
@@ -222,7 +414,7 @@
                 {% endif %}
             </div>
 
-            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <div class="pre-team-actions">
                 <a class="btn-padrao"
                    href="{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}">
                    Conferir Equipe A
@@ -240,7 +432,7 @@
 
         </div>
 
-        <div style="padding:10px 12px; border:1px solid var(--border); border-radius:10px;">
+        <div class="pre-team-card">
 
             <div style="font-weight:800;">Equipe B</div>
 
@@ -266,7 +458,7 @@
                 {% endif %}
             </div>
 
-            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <div class="pre-team-actions">
                 <a class="btn-padrao"
                    href="{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}">
                    Conferir Equipe B
