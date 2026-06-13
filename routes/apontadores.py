@@ -2438,7 +2438,11 @@ def _partida_leve_para_lista_apontador(partida):
         if campo in (partida or {}):
             valor = partida.get(campo)
             if campo.startswith("escudo"):
-                valor = _escudo_payload_leve(valor)
+                # Na lista inicial do apontador os cards precisam mostrar o escudo real.
+                # Não usamos _escudo_payload_leve aqui, porque essa função troca
+                # base64/data-uri por escudo padrão para economizar payload nos
+                # endpoints de polling/estado ao vivo.
+                valor = _normalizar_url_escudo(valor) if valor else ESCUDO_PADRAO_URL
             elif isinstance(valor, str) and len(valor) > 700:
                 # Proteção contra JSON/base64/textos grandes que venham da consulta.
                 valor = valor[:700]
