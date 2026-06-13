@@ -3,7 +3,7 @@
 {% block titulo %}Papeleta{% endblock %}
 
 {% block conteudo %}
-<div class="topo-secao">
+<div class="topo-secao papeleta-topo">
     <div class="titulo-secao">Papeleta - Ordem Inicial</div>
 </div>
 
@@ -128,26 +128,288 @@
     font-weight:800;
     cursor:pointer;
 }
+
+/* Classes auxiliares para melhorar apenas celular/tablet sem alterar a estrutura desktop */
+.papeleta-card-jogo {}
+.papeleta-equipe {}
+.papeleta-equipe-titulo {}
+.papeleta-dica-mobile { display:none; }
+
+/* CELULAR / TABLET */
+@media (max-width:850px) {
+    .papeleta-topo {
+        margin-bottom:10px !important;
+    }
+
+    .papeleta-topo .titulo-secao {
+        font-size:32px !important;
+        line-height:1.05 !important;
+        letter-spacing:-.5px;
+    }
+
+    .papeleta-card-jogo {
+        padding:14px 16px !important;
+        border-radius:18px !important;
+        margin-bottom:14px !important;
+    }
+
+    .papeleta-card-jogo .papeleta-competicao {
+        font-size:18px !important;
+        line-height:1.15 !important;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+    }
+
+    .papeleta-card-jogo .papeleta-jogo {
+        margin-top:5px !important;
+        font-size:14px !important;
+        color:var(--muted);
+        font-weight:800;
+    }
+
+    .papeleta-card-jogo .papeleta-times {
+        margin-top:7px !important;
+        font-size:20px !important;
+        line-height:1.15 !important;
+    }
+
+    .papeleta-card-jogo .papeleta-set {
+        margin-top:7px !important;
+        font-size:16px !important;
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+    }
+
+    .papeleta-card-jogo .papeleta-sets {
+        margin-top:4px !important;
+        font-size:14px !important;
+    }
+
+    .quadra-container {
+        display:grid !important;
+        grid-template-columns:1fr !important;
+        gap:14px !important;
+        margin-top:12px !important;
+        justify-content:stretch !important;
+    }
+
+    .papeleta-equipe {
+        background:#fff;
+        border:1px solid var(--border);
+        border-radius:18px;
+        padding:12px;
+        box-shadow:var(--shadow);
+        overflow:hidden;
+    }
+
+    .papeleta-equipe-titulo {
+        margin:0 0 10px !important;
+        padding:10px 12px;
+        border-radius:14px;
+        background:#123852;
+        color:#fff;
+        font-size:18px !important;
+        line-height:1.15;
+        font-weight:1000;
+        white-space:nowrap;
+        overflow:hidden;
+        text-overflow:ellipsis;
+    }
+
+    .quadra {
+        width:100% !important;
+        max-width:100% !important;
+        display:grid !important;
+        grid-template-columns:repeat(3, minmax(0, 1fr)) !important;
+        grid-template-rows:repeat(2, 82px) !important;
+        gap:8px !important;
+    }
+
+    .posicao {
+        min-height:82px !important;
+        height:82px !important;
+        border-radius:14px !important;
+        border-width:1.5px !important;
+        font-size:24px !important;
+        background:#f8fbff !important;
+        color:#123852;
+        box-shadow:none !important;
+        padding:6px !important;
+    }
+
+    .posicao:hover {
+        transform:none !important;
+        background:#eef6ff !important;
+    }
+
+    .posicao small {
+        margin-top:4px !important;
+        font-size:12px !important;
+        line-height:1;
+        font-weight:1000;
+        color:#64748b;
+    }
+
+    .papeleta-dica-mobile {
+        display:block;
+        margin-top:10px;
+        padding:9px 10px;
+        border-radius:12px;
+        border:1px solid #dbeafe;
+        background:#f8fbff;
+        color:#64748b;
+        font-size:12px;
+        font-weight:800;
+        line-height:1.35;
+    }
+
+    .barra-acoes-papeleta {
+        position:sticky;
+        bottom:0;
+        z-index:40;
+        display:grid !important;
+        grid-template-columns:1fr 110px;
+        gap:8px !important;
+        margin:14px -8px 0 !important;
+        padding:10px 8px calc(10px + env(safe-area-inset-bottom)) !important;
+        background:linear-gradient(180deg, rgba(248,251,255,0), #f8fbff 30%, #f8fbff);
+        justify-content:stretch !important;
+    }
+
+    .btn-iniciar-jogo,
+    .barra-acoes-papeleta .btn-secundario {
+        width:100% !important;
+        min-height:50px !important;
+        border-radius:14px !important;
+        padding:12px !important;
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+        text-align:center !important;
+        font-size:16px !important;
+        font-weight:1000 !important;
+    }
+
+    .modal {
+        padding:14px;
+        align-items:flex-end !important;
+    }
+
+    .modal-content {
+        background:#fff !important;
+        color:#123852 !important;
+        width:100% !important;
+        max-width:100% !important;
+        border-radius:20px 20px 0 0 !important;
+        padding:16px !important;
+        box-shadow:0 -16px 50px rgba(15,23,42,.22);
+    }
+
+    .modal-content h4 {
+        color:#123852 !important;
+        font-size:18px !important;
+        font-weight:1000 !important;
+    }
+
+    .lista-atletas {
+        display:grid !important;
+        grid-template-columns:repeat(4, minmax(0, 1fr)) !important;
+        gap:8px !important;
+        max-height:42vh;
+        overflow:auto;
+        padding-right:2px;
+    }
+
+    .btn-atleta {
+        min-height:48px;
+        padding:10px 8px !important;
+        border-radius:12px !important;
+        font-size:18px !important;
+        color:#123852 !important;
+        background:#f8fbff !important;
+        border-color:#dbe3ef !important;
+        text-align:center;
+    }
+
+    .btn-fechar {
+        width:100%;
+        min-height:46px;
+        border-radius:14px !important;
+        color:#123852 !important;
+        font-weight:1000 !important;
+    }
+}
+
+@media (max-width:430px) {
+    .papeleta-topo .titulo-secao {
+        font-size:28px !important;
+    }
+
+    .papeleta-card-jogo .papeleta-times {
+        font-size:18px !important;
+    }
+
+    .quadra {
+        grid-template-rows:repeat(2, 76px) !important;
+        gap:7px !important;
+    }
+
+    .posicao {
+        min-height:76px !important;
+        height:76px !important;
+        font-size:22px !important;
+    }
+
+    .papeleta-equipe {
+        padding:10px;
+    }
+
+    .papeleta-equipe-titulo {
+        font-size:16px !important;
+    }
+
+    .barra-acoes-papeleta {
+        grid-template-columns:1fr 96px;
+    }
+}
+
+@media (min-width:701px) and (max-width:850px) {
+    .quadra-container {
+        grid-template-columns:1fr 1fr !important;
+        gap:12px !important;
+    }
+
+    .quadra {
+        grid-template-rows:repeat(2, 90px) !important;
+    }
+
+    .posicao {
+        min-height:90px !important;
+        height:90px !important;
+    }
+}
 </style>
 
-<div class="card-painel">
-    <div style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
+<div class="card-painel papeleta-card-jogo">
+    <div class="papeleta-competicao" style="font-size:20px; font-weight:900;">{{ competicao_nome }}</div>
 
-    <div style="margin-top:6px;">
+    <div class="papeleta-jogo" style="margin-top:6px;">
         Jogo {{ partida.ordem or '-' }}
         {% if partida.quadra %} — Quadra {{ partida.quadra }}{% endif %}
         {% if partida.grupo %} — Grupo {{ partida.grupo }}{% endif %}
     </div>
 
-    <div style="margin-top:10px; font-size:18px; font-weight:900;">
+    <div class="papeleta-times" style="margin-top:10px; font-size:18px; font-weight:900;">
         {{ equipe_a }} x {{ equipe_b }}
     </div>
 
-    <div style="margin-top:8px; font-size:18px; font-weight:900;">
+    <div class="papeleta-set" style="margin-top:8px; font-size:18px; font-weight:900;">
         {{ partida.set_atual or 1 }}º SET
     </div>
 
-    <div style="margin-top:4px; color:var(--muted);">
+    <div class="papeleta-sets" style="margin-top:4px; color:var(--muted);">
         Sets: {{ partida.sets_a or 0 }} x {{ partida.sets_b or 0 }}
     </div>
 </div>
@@ -156,8 +418,8 @@
 
     <div class="quadra-container">
 
-        <div>
-            <h3>Equipe A — {{ equipe_a }}</h3>
+        <div class="papeleta-equipe">
+            <h3 class="papeleta-equipe-titulo">Equipe A — {{ equipe_a }}</h3>
 
             <div class="quadra">
                 {% for i in [4,3,2,5,6,1] %}
@@ -177,10 +439,14 @@
                 </div>
                 {% endfor %}
             </div>
+
+            <div class="papeleta-dica-mobile">
+                Toque em uma posição para escolher o número do atleta.
+            </div>
         </div>
 
-        <div>
-            <h3>Equipe B — {{ equipe_b }}</h3>
+        <div class="papeleta-equipe">
+            <h3 class="papeleta-equipe-titulo">Equipe B — {{ equipe_b }}</h3>
 
             <div class="quadra">
                 {% for i in [4,3,2,5,6,1] %}
@@ -199,6 +465,10 @@
                     >
                 </div>
                 {% endfor %}
+            </div>
+
+            <div class="papeleta-dica-mobile">
+                Toque em uma posição para escolher o número do atleta.
             </div>
         </div>
 
