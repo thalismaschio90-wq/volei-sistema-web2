@@ -95,7 +95,7 @@
 .ap-details summary::-webkit-details-marker { display:none; }
 .ap-details-body { padding:0 16px 16px; }
 .ap-score-box { min-width:92px; text-align:center; border:1px solid #dbe3ef; background:#f8fafc; border-radius:16px; padding:10px 12px; }
-.ap-score-num { font-size:28px; line-height:1; font-weight:1000; color:#123852; letter-spacing:-1px; }
+.ap-score-num { font-size:28px; line-height:1; font-weight:1000; color:#123852; letter-spacing:-1px; white-space:nowrap; }
 .ap-score-label { font-size:10px; line-height:1; margin-top:5px; color:#64748b; font-weight:1000; letter-spacing:.6px; }
 .ap-team-name { max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle; }
 
@@ -104,6 +104,18 @@
 .ap-section.ap-section-oculta { display:none; }
 .ap-empty.ap-empty-filtro { display:none; }
 .ap-empty.ap-empty-filtro.aparece { display:block; }
+
+/* Finalizadas ficam recolhidas por fase para deixar o painel limpo no torneio. */
+.ap-fases-finalizadas { display:grid; gap:10px; }
+.ap-fase-finalizada { border:1px solid #dbe3ef; border-radius:18px; background:#fff; overflow:hidden; }
+.ap-fase-finalizada summary { list-style:none; cursor:pointer; padding:13px 15px; display:flex; align-items:center; justify-content:space-between; gap:12px; color:#123852; font-weight:1000; }
+.ap-fase-finalizada summary::-webkit-details-marker { display:none; }
+.ap-fase-finalizada summary:after { content:"Abrir"; font-size:11px; text-transform:uppercase; letter-spacing:.4px; background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; border-radius:999px; padding:5px 8px; white-space:nowrap; }
+.ap-fase-finalizada[open] summary:after { content:"Recolher"; }
+.ap-fase-finalizada-contador { color:#64748b; font-size:12px; font-weight:1000; background:#f1f5f9; border-radius:999px; padding:4px 8px; margin-left:8px; }
+.ap-fase-finalizada-body { padding:0 12px 12px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.ap-fase-finalizada-body .ap-card { box-shadow:none; }
+
 .ap-pins-arbitragem { margin:0 0 18px; border:1px solid #c7d2fe; background:linear-gradient(180deg,#eef2ff,#ffffff); border-radius:20px; padding:16px; }
 .ap-pins-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
 .ap-pins-titulo { font-size:18px; font-weight:1000; color:#172554; }
@@ -125,6 +137,18 @@
 .ap-modal-resultado-fechar { width:38px; height:38px; border:0; border-radius:12px; background:#e5e7eb; color:#111827; font-size:24px; font-weight:900; cursor:pointer; }
 .ap-resultado-times { font-weight:1000; color:#123852; margin-bottom:10px; }
 .ap-resultado-hint { color:#64748b; font-weight:750; font-size:13px; line-height:1.45; margin-bottom:14px; }
+
+.ap-resultado-regra { display:inline-flex; align-items:center; gap:6px; margin:0 0 12px; padding:7px 10px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; font-weight:1000; font-size:12px; text-transform:uppercase; }
+.ap-resultado-bloco-sets { display:none; border:1px solid #dbe3ef; background:#f8fafc; border-radius:16px; padding:12px; margin-bottom:14px; }
+.ap-resultado-bloco-sets.ativo { display:block; }
+.ap-resultado-bloco-titulo { font-weight:1000; color:#183247; margin-bottom:9px; }
+.ap-resultado-sets-row { display:grid; grid-template-columns:1fr 30px 1fr; gap:10px; align-items:center; }
+.ap-resultado-sets-row input { width:100%; border:1px solid #cbd5e1; border-radius:12px; padding:11px 12px; font-weight:1000; text-align:center; }
+.ap-resultado-aviso { display:none; margin:8px 0 12px; padding:10px 12px; border-radius:12px; background:#fff7ed; border:1px solid #fdba74; color:#9a3412; font-weight:850; font-size:13px; }
+.ap-resultado-aviso.ativo { display:block; }
+.ap-parciais-titulo { display:none; font-weight:1000; color:#183247; margin:8px 0 10px; }
+.ap-parciais-titulo.ativo { display:block; }
+.ap-set-row.oculto { display:none; }
 .ap-set-row { display:grid; grid-template-columns:92px 1fr 28px 1fr; gap:10px; align-items:center; margin-bottom:10px; }
 .ap-set-row label { font-weight:900; color:#183247; }
 .ap-set-row input { width:100%; border:1px solid #cbd5e1; border-radius:12px; padding:11px 12px; font-weight:900; text-align:center; }
@@ -151,9 +175,15 @@
     .ap-badge-avanco { background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; margin-left:8px; }
 .ap-badge { font-size:10px; padding:4px 8px; }
     .ap-score-inline { display:none; }
-    .ap-score-box { min-width:74px; padding:8px; }
-    .ap-score-num { font-size:23px; }
+    .ap-score-box { min-width:96px; padding:8px 10px; }
+    .ap-score-num { font-size:21px; white-space:nowrap; letter-spacing:-.5px; }
     .ap-score-label { font-size:9px; }
+    .ap-meta { line-height:1.35; }
+    .ap-card[data-finalizada="1"] { grid-template-columns:minmax(0,1fr) auto; padding:10px; }
+    .ap-card[data-finalizada="1"] .ap-match-line { font-size:15px; }
+    .ap-card[data-finalizada="1"] .ap-card-actions { margin-top:6px; }
+    .ap-fase-finalizada-body { grid-template-columns:1fr; padding:0 8px 8px; gap:8px; }
+    .ap-fase-finalizada summary { padding:12px; }
     .ap-card-actions { grid-column:1 / -1; width:100%; justify-content:stretch; margin-top:8px; }
     .ap-card-actions .btn-padrao, .ap-card-actions .btn-secundario { width:100%; text-align:center; justify-content:center; }
     .ap-section-title { font-size:17px; }
@@ -182,11 +212,27 @@
             Ao salvar, a partida fica finalizada e a tabela passa a usar esse resultado.
         </div>
 
-        <form id="form-resultado-manual" method="post">
+        <form id="form-resultado-manual" method="post" onsubmit="return validarResultadoManualAntesSalvar(event)">
             <input type="hidden" name="origem_resultado" id="resultado-origem" value="manual">
-            {% set total_sets_modal = sets_max_manual if sets_max_manual is defined else 3 %}
-            {% for i in range(1, (total_sets_modal|int) + 1) %}
-                <div class="ap-set-row">
+            <input type="hidden" name="sets_manual_a" id="resultado-sets-manual-a" value="">
+            <input type="hidden" name="sets_manual_b" id="resultado-sets-manual-b" value="">
+
+            <div id="resultado-regra" class="ap-resultado-regra">Regra</div>
+
+            <div id="resultado-bloco-sets" class="ap-resultado-bloco-sets">
+                <div class="ap-resultado-bloco-titulo">Informe primeiro o placar em sets</div>
+                <div class="ap-resultado-sets-row">
+                    <input type="number" min="0" inputmode="numeric" id="resultado-sets-a" placeholder="Sets Equipe A" oninput="atualizarParciaisResultadoManual()">
+                    <span style="text-align:center;font-weight:1000;color:#64748b;">x</span>
+                    <input type="number" min="0" inputmode="numeric" id="resultado-sets-b" placeholder="Sets Equipe B" oninput="atualizarParciaisResultadoManual()">
+                </div>
+            </div>
+
+            <div id="resultado-aviso" class="ap-resultado-aviso"></div>
+            <div id="resultado-parciais-titulo" class="ap-parciais-titulo">Agora preencha a pontuação dos sets jogados</div>
+
+            {% for i in range(1, 6) %}
+                <div class="ap-set-row oculto" id="resultado-set{{ i }}-row">
                     <label>{{ i }}º set</label>
                     <input type="number" min="0" inputmode="numeric" name="set{{ i }}_a" id="resultado-set{{ i }}-a" placeholder="Equipe A">
                     <span style="text-align:center;font-weight:1000;color:#64748b;">x</span>
@@ -196,7 +242,7 @@
 
             <div class="ap-modal-resultado-actions">
                 <button type="button" class="btn-secundario" onclick="fecharResultadoManual()">Cancelar</button>
-                <button type="submit" class="btn-padrao ap-btn-result" onclick="return confirm('Salvar este resultado e recalcular a tabela?');">Salvar resultado</button>
+                <button type="submit" class="btn-padrao ap-btn-result">Salvar resultado</button>
             </div>
         </form>
     </div>
@@ -222,15 +268,156 @@ function fecharResultadoManual() {
     }
 }
 
+function normalizarTipoResultadoManual(valor, resumo) {
+    const txt = String(valor || "").trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+    const regra = String(resumo || "").trim().toUpperCase();
+
+    if (["set_unico", "unico", "único", "1_set", "melhor_de_1", "md1"].includes(txt) || regra.startsWith("SU")) {
+        return "set_unico";
+    }
+    if (["melhor_de_5", "md5", "5"].includes(txt) || regra.startsWith("M5")) {
+        return "melhor_de_5";
+    }
+    return "melhor_de_3";
+}
+
+function regraResultadoManual() {
+    return window.__resultadoManualRegra || { setsTipo: "melhor_de_3", setsMax: 3, setsParaVencer: 2 };
+}
+
+function configurarAvisoResultadoManual(texto) {
+    const aviso = document.getElementById("resultado-aviso");
+    if (!aviso) return;
+    aviso.textContent = texto || "";
+    aviso.classList.toggle("ativo", !!texto);
+}
+
+function mostrarLinhasParciaisResultadoManual(total) {
+    total = Math.max(0, Math.min(5, parseInt(total || 0, 10)));
+    for (let i = 1; i <= 5; i++) {
+        const row = document.getElementById(`resultado-set${i}-row`);
+        const a = document.getElementById(`resultado-set${i}-a`);
+        const b = document.getElementById(`resultado-set${i}-b`);
+        const visivel = i <= total;
+        if (row) row.classList.toggle("oculto", !visivel);
+        if (!visivel) {
+            if (a) a.value = "";
+            if (b) b.value = "";
+        }
+    }
+    const titulo = document.getElementById("resultado-parciais-titulo");
+    if (titulo) titulo.classList.toggle("ativo", total > 0);
+}
+
+function validarPlacarSetsResultadoManual(a, b, regra) {
+    a = parseInt(a || 0, 10);
+    b = parseInt(b || 0, 10);
+
+    if (regra.setsTipo === "set_unico") {
+        return { ok: true, total: 1, msg: "" };
+    }
+
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) {
+        return { ok: false, total: 0, msg: "Informe um placar em sets válido." };
+    }
+
+    if (regra.setsTipo === "melhor_de_5") {
+        const ok = (a === 3 && b >= 0 && b <= 2) || (b === 3 && a >= 0 && a <= 2);
+        return {
+            ok,
+            total: ok ? a + b : 0,
+            msg: ok ? "" : "Melhor de 5 só aceita 3x0, 3x1, 3x2, 0x3, 1x3 ou 2x3."
+        };
+    }
+
+    const ok = (a === 2 && (b === 0 || b === 1)) || (b === 2 && (a === 0 || a === 1));
+    return {
+        ok,
+        total: ok ? a + b : 0,
+        msg: ok ? "" : "Melhor de 3 só aceita 2x0, 2x1, 0x2 ou 1x2."
+    };
+}
+
+function atualizarParciaisResultadoManual() {
+    const regra = regraResultadoManual();
+    const setsAEl = document.getElementById("resultado-sets-a");
+    const setsBEl = document.getElementById("resultado-sets-b");
+    const hiddenA = document.getElementById("resultado-sets-manual-a");
+    const hiddenB = document.getElementById("resultado-sets-manual-b");
+
+    if (regra.setsTipo === "set_unico") {
+        if (hiddenA) hiddenA.value = "1";
+        if (hiddenB) hiddenB.value = "0";
+        configurarAvisoResultadoManual("");
+        mostrarLinhasParciaisResultadoManual(1);
+        return;
+    }
+
+    const a = setsAEl ? setsAEl.value : "";
+    const b = setsBEl ? setsBEl.value : "";
+
+    if (hiddenA) hiddenA.value = a;
+    if (hiddenB) hiddenB.value = b;
+
+    if (a === "" || b === "") {
+        configurarAvisoResultadoManual("Informe o placar em sets para liberar as parciais.");
+        mostrarLinhasParciaisResultadoManual(0);
+        return;
+    }
+
+    const validacao = validarPlacarSetsResultadoManual(a, b, regra);
+    configurarAvisoResultadoManual(validacao.msg);
+    mostrarLinhasParciaisResultadoManual(validacao.ok ? validacao.total : 0);
+}
+
+function inferirSetsPorParciaisBotao(botao) {
+    let setsA = 0;
+    let setsB = 0;
+    for (let i = 1; i <= 5; i++) {
+        const a = botao.dataset[`set${i}A`];
+        const b = botao.dataset[`set${i}B`];
+        if (a === undefined || b === undefined || a === "" || b === "") continue;
+        const ai = parseInt(a, 10);
+        const bi = parseInt(b, 10);
+        if (!Number.isFinite(ai) || !Number.isFinite(bi) || ai === bi) continue;
+        if (ai > bi) setsA += 1;
+        else setsB += 1;
+    }
+    return { setsA, setsB };
+}
+
 function abrirResultadoManual(botao) {
     const modal = document.getElementById("modal-resultado-manual");
     const form = document.getElementById("form-resultado-manual");
     if (!modal || !form || !botao) return;
 
+    const setsTipo = normalizarTipoResultadoManual(botao.dataset.setsTipo, botao.dataset.resumoRegra);
+    const setsMax = setsTipo === "set_unico" ? 1 : (setsTipo === "melhor_de_5" ? 5 : 3);
+    const setsParaVencer = setsTipo === "set_unico" ? 1 : (setsTipo === "melhor_de_5" ? 3 : 2);
+    const regraTexto = setsTipo === "set_unico" ? "SET ÚNICO" : (setsTipo === "melhor_de_5" ? "MELHOR DE 5" : "MELHOR DE 3");
+
+    window.__resultadoManualRegra = { setsTipo, setsMax, setsParaVencer };
+
     form.action = botao.dataset.url || "";
     document.getElementById("resultado-origem").value = botao.dataset.origem || "manual";
     document.getElementById("resultado-manual-titulo").textContent = botao.dataset.origem === "edicao_manual" ? "Editar resultado" : "Lançar resultado";
     document.getElementById("resultado-manual-times").textContent = `${botao.dataset.equipeA || "Equipe A"} x ${botao.dataset.equipeB || "Equipe B"}`;
+
+    const regraEl = document.getElementById("resultado-regra");
+    if (regraEl) regraEl.textContent = `${regraTexto} • ${botao.dataset.pontosSet || "25"}PTS${setsTipo !== "set_unico" ? " • TB" + (botao.dataset.pontosTiebreak || "15") : ""}`;
+
+    const blocoSets = document.getElementById("resultado-bloco-sets");
+    if (blocoSets) blocoSets.classList.toggle("ativo", setsTipo !== "set_unico");
+
+    const setsAEl = document.getElementById("resultado-sets-a");
+    const setsBEl = document.getElementById("resultado-sets-b");
+
+    const inferidos = inferirSetsPorParciaisBotao(botao);
+    const setsA = botao.dataset.setsA || (inferidos.setsA ? String(inferidos.setsA) : "");
+    const setsB = botao.dataset.setsB || (inferidos.setsB ? String(inferidos.setsB) : "");
+
+    if (setsAEl) setsAEl.value = setsTipo === "set_unico" ? "" : setsA;
+    if (setsBEl) setsBEl.value = setsTipo === "set_unico" ? "" : setsB;
 
     for (let i = 1; i <= 5; i++) {
         const a = document.getElementById(`resultado-set${i}-a`);
@@ -239,8 +426,49 @@ function abrirResultadoManual(botao) {
         if (b) b.value = botao.dataset[`set${i}B`] || "";
     }
 
+    atualizarParciaisResultadoManual();
+
     modal.classList.add("aberto");
     modal.setAttribute("aria-hidden", "false");
+}
+
+function validarResultadoManualAntesSalvar(event) {
+    const regra = regraResultadoManual();
+    const setsAEl = document.getElementById("resultado-sets-a");
+    const setsBEl = document.getElementById("resultado-sets-b");
+
+    let totalSets = 1;
+    if (regra.setsTipo !== "set_unico") {
+        const validacao = validarPlacarSetsResultadoManual(setsAEl ? setsAEl.value : "", setsBEl ? setsBEl.value : "", regra);
+        if (!validacao.ok) {
+            configurarAvisoResultadoManual(validacao.msg);
+            alert(validacao.msg);
+            if (event) event.preventDefault();
+            return false;
+        }
+        totalSets = validacao.total;
+    }
+
+    for (let i = 1; i <= totalSets; i++) {
+        const a = document.getElementById(`resultado-set${i}-a`);
+        const b = document.getElementById(`resultado-set${i}-b`);
+        if (!a || !b || a.value === "" || b.value === "") {
+            const msg = `Preencha a pontuação do ${i}º set.`;
+            configurarAvisoResultadoManual(msg);
+            alert(msg);
+            if (event) event.preventDefault();
+            return false;
+        }
+        if (parseInt(a.value, 10) === parseInt(b.value, 10)) {
+            const msg = `${i}º set não pode terminar empatado.`;
+            configurarAvisoResultadoManual(msg);
+            alert(msg);
+            if (event) event.preventDefault();
+            return false;
+        }
+    }
+
+    return confirm('Salvar este resultado e recalcular a tabela?');
 }
 
 document.addEventListener("keydown", function(e) {
@@ -304,13 +532,60 @@ document.addEventListener("keydown", function(e) {
                     {{ p.resumo_regra or 'M3 • 25PTS • TB15' }}
                 </span>
             </div>
-            {% set placar_tipo = p.placar_exibicao_tipo if p.placar_exibicao_tipo is defined and p.placar_exibicao_tipo else ('pontos' if p.set_unico else 'sets') %}
+            {#
+                Placar principal do card:
+                - Set único (SU): mostra os PONTOS do set, ex.: 25 x 21, sem rótulo SETS.
+                - Melhor de 3/5: mostra os SETS vencidos, ex.: 2 x 1, com rótulo SETS.
+
+                O backend já manda placar_exibicao_*, mas deixamos fallback robusto
+                porque jogos do Avanço podem vir com resumo_regra "SU • 25PTS" mesmo
+                quando set_unico/placar_exibicao_tipo não vier preenchido no payload.
+            #}
+            {% set sets_tipo_txt = (p.sets_tipo or p.tipo_sets or p.formato_sets or '')|string|lower|replace('-', '_')|replace(' ', '_') %}
+            {% set resumo_regra_txt = (p.resumo_regra or '')|string|trim|upper %}
+            {% set eh_set_unico = p.set_unico or sets_tipo_txt in ['set_unico', 'unico', 'único', '1_set', 'melhor_de_1', 'md1'] or resumo_regra_txt.startswith('SU') %}
+            {% set placar_tipo = p.placar_exibicao_tipo if p.placar_exibicao_tipo is defined and p.placar_exibicao_tipo else ('pontos' if eh_set_unico else 'sets') %}
+
             {% if placar_tipo == 'pontos' %}
-                {% set placar_a = p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.set1_a if p.set1_a is not none else (p.pontos_a or 0)) %}
-                {% set placar_b = p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.set1_b if p.set1_b is not none else (p.pontos_b or 0)) %}
+                {% if p.placar_exibicao_a is defined and p.placar_exibicao_a is not none %}
+                    {% set placar_a = p.placar_exibicao_a %}
+                {% elif p.set1_a is defined and p.set1_a is not none %}
+                    {% set placar_a = p.set1_a %}
+                {% elif p.pontos_a is defined and p.pontos_a is not none %}
+                    {% set placar_a = p.pontos_a %}
+                {% elif p.placar_a is defined and p.placar_a is not none %}
+                    {% set placar_a = p.placar_a %}
+                {% else %}
+                    {% set placar_a = 0 %}
+                {% endif %}
+
+                {% if p.placar_exibicao_b is defined and p.placar_exibicao_b is not none %}
+                    {% set placar_b = p.placar_exibicao_b %}
+                {% elif p.set1_b is defined and p.set1_b is not none %}
+                    {% set placar_b = p.set1_b %}
+                {% elif p.pontos_b is defined and p.pontos_b is not none %}
+                    {% set placar_b = p.pontos_b %}
+                {% elif p.placar_b is defined and p.placar_b is not none %}
+                    {% set placar_b = p.placar_b %}
+                {% else %}
+                    {% set placar_b = 0 %}
+                {% endif %}
             {% else %}
-                {% set placar_a = p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.sets_a or 0) %}
-                {% set placar_b = p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.sets_b or 0) %}
+                {% if p.placar_exibicao_a is defined and p.placar_exibicao_a is not none %}
+                    {% set placar_a = p.placar_exibicao_a %}
+                {% elif p.sets_a is defined and p.sets_a is not none %}
+                    {% set placar_a = p.sets_a %}
+                {% else %}
+                    {% set placar_a = 0 %}
+                {% endif %}
+
+                {% if p.placar_exibicao_b is defined and p.placar_exibicao_b is not none %}
+                    {% set placar_b = p.placar_exibicao_b %}
+                {% elif p.sets_b is defined and p.sets_b is not none %}
+                    {% set placar_b = p.sets_b %}
+                {% else %}
+                    {% set placar_b = 0 %}
+                {% endif %}
             {% endif %}
             {% if jogo_finalizado or jogo_iniciado or jogo_pausado %}
                 <div class="ap-score-inline">
@@ -339,6 +614,13 @@ document.addEventListener("keydown", function(e) {
                         data-origem="edicao_manual"
                         data-equipe-a="{{ p.equipe_a }}"
                         data-equipe-b="{{ p.equipe_b }}"
+                        data-sets-tipo="{{ p.sets_tipo or p.tipo_sets or p.formato_sets or ('set_unico' if eh_set_unico else 'melhor_de_3') }}"
+                        data-sets-max="{{ p.sets_max or (1 if eh_set_unico else (5 if 'M5' in resumo_regra_txt else 3)) }}"
+                        data-sets-a="{{ p.sets_a if p.sets_a is not none else '' }}"
+                        data-sets-b="{{ p.sets_b if p.sets_b is not none else '' }}"
+                        data-pontos-set="{{ p.pontos_set or 25 }}"
+                        data-pontos-tiebreak="{{ p.pontos_tiebreak or 15 }}"
+                        data-resumo-regra="{{ p.resumo_regra or '' }}"
                         data-set1-a="{{ p.set1_a if p.set1_a is not none else '' }}" data-set1-b="{{ p.set1_b if p.set1_b is not none else '' }}"
                         data-set2-a="{{ p.set2_a if p.set2_a is not none else '' }}" data-set2-b="{{ p.set2_b if p.set2_b is not none else '' }}"
                         data-set3-a="{{ p.set3_a if p.set3_a is not none else '' }}" data-set3-b="{{ p.set3_b if p.set3_b is not none else '' }}"
@@ -361,7 +643,14 @@ document.addEventListener("keydown", function(e) {
                         data-url="{{ url_for('apontadores.salvar_resultado_manual_view', competicao=competicao_nome, partida_id=p.id) }}"
                         data-origem="manual"
                         data-equipe-a="{{ p.equipe_a }}"
-                        data-equipe-b="{{ p.equipe_b }}">
+                        data-equipe-b="{{ p.equipe_b }}"
+                        data-sets-tipo="{{ p.sets_tipo or p.tipo_sets or p.formato_sets or ('set_unico' if eh_set_unico else 'melhor_de_3') }}"
+                        data-sets-max="{{ p.sets_max or (1 if eh_set_unico else (5 if 'M5' in resumo_regra_txt else 3)) }}"
+                        data-sets-a="{{ p.sets_a if p.sets_a is not none else '' }}"
+                        data-sets-b="{{ p.sets_b if p.sets_b is not none else '' }}"
+                        data-pontos-set="{{ p.pontos_set or 25 }}"
+                        data-pontos-tiebreak="{{ p.pontos_tiebreak or 15 }}"
+                        data-resumo-regra="{{ p.resumo_regra or '' }}">
                     Lançar resultado
                 </button>
             {% endif %}
@@ -375,31 +664,98 @@ document.addEventListener("keydown", function(e) {
 {% macro secao_partidas(titulo, dica, categoria, vazio, partidas, competicao_nome) %}
     <div class="ap-section" data-ap-section="{{ categoria }}">
         <div class="ap-section-head"><div class="ap-section-title">{{ titulo }}</div><div class="ap-section-hint">{{ dica }}</div></div>
-        <div class="ap-grid">
-            {% set sec = namespace(total=0) %}
+
+        {% if categoria == 'done' %}
+            {#
+                Finalizadas agrupadas e recolhidas por fase.
+                Isso evita uma lista gigante quando classificatória/oitavas/quartas já acabaram.
+            #}
+            {% set sec = namespace(total=0, fases=[]) %}
             {% for p in partidas %}
-                {% set status_op = (p.status_operacao or 'livre')|lower %}
                 {% set status_partida = (p.status or 'agendada')|lower %}
                 {% set status_jogo = (p.status_jogo or '')|lower %}
-                {% set tem_estado = (p.pontos_a or 0) or (p.pontos_b or 0) or (p.sets_a or 0) or (p.sets_b or 0) or ((p.set_atual or 1) > 1) or (p.eventos_total or 0) %}
-                {% set jogo_pausado = status_op in ['pausada','pausado'] or status_jogo in ['pausada','pausado'] %}
-                {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
                 {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
-                {% if categoria == 'live' and jogo_iniciado and not jogo_finalizado %}
-                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
-                {% elif categoria == 'paused' and jogo_pausado and not jogo_finalizado %}
-                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
-                {% elif categoria == 'pre' and not jogo_iniciado and not jogo_pausado and not jogo_finalizado and status_op in ['pre_jogo','reservado'] %}
-                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
-                {% elif categoria == 'wait' and not jogo_iniciado and not jogo_pausado and not jogo_finalizado and status_op not in ['pre_jogo','reservado'] %}
-                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
-                {% elif categoria == 'done' and jogo_finalizado %}
-                    {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                {% if jogo_finalizado %}
+                    {% set fase_raw = (p.fase_normalizada or p.fase or p.fase_partida or 'grupos')|string|lower %}
+                    {% if fase_raw in ['grupo','grupos','classificatoria','classificatória','classificatorias','classificatórias'] %}
+                        {% set fase_label = 'Classificatória' %}
+                    {% else %}
+                        {% set fase_label = fase_raw|replace('_',' ')|title %}
+                    {% endif %}
+                    {% if fase_label not in sec.fases %}{% set _ = sec.fases.append(fase_label) %}{% endif %}
+                    {% set sec.total = sec.total + 1 %}
                 {% endif %}
             {% endfor %}
-        </div>
-        <div class="ap-empty ap-empty-original" {% if sec.total > 0 %}style="display:none;"{% endif %}>{{ vazio }}</div>
-        <div class="ap-empty ap-empty-filtro">Nenhuma partida nesta quadra para esta situação.</div>
+
+            {% if sec.total > 0 %}
+                <div class="ap-fases-finalizadas">
+                    {% for fase_label in sec.fases %}
+                        {% set fase_ns = namespace(total=0) %}
+                        {% for p in partidas %}
+                            {% set status_partida = (p.status or 'agendada')|lower %}
+                            {% set status_jogo = (p.status_jogo or '')|lower %}
+                            {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
+                            {% set fase_raw = (p.fase_normalizada or p.fase or p.fase_partida or 'grupos')|string|lower %}
+                            {% if fase_raw in ['grupo','grupos','classificatoria','classificatória','classificatorias','classificatórias'] %}
+                                {% set fase_atual = 'Classificatória' %}
+                            {% else %}
+                                {% set fase_atual = fase_raw|replace('_',' ')|title %}
+                            {% endif %}
+                            {% if jogo_finalizado and fase_atual == fase_label %}
+                                {% set fase_ns.total = fase_ns.total + 1 %}
+                            {% endif %}
+                        {% endfor %}
+
+                        <details class="ap-fase-finalizada" data-fase-finalizada="{{ fase_label }}">
+                            <summary>{{ fase_label }} <span class="ap-fase-finalizada-contador">{{ fase_ns.total }} jogo(s)</span></summary>
+                            <div class="ap-fase-finalizada-body">
+                                {% for p in partidas %}
+                                    {% set status_partida = (p.status or 'agendada')|lower %}
+                                    {% set status_jogo = (p.status_jogo or '')|lower %}
+                                    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
+                                    {% set fase_raw = (p.fase_normalizada or p.fase or p.fase_partida or 'grupos')|string|lower %}
+                                    {% if fase_raw in ['grupo','grupos','classificatoria','classificatória','classificatorias','classificatórias'] %}
+                                        {% set fase_atual = 'Classificatória' %}
+                                    {% else %}
+                                        {% set fase_atual = fase_raw|replace('_',' ')|title %}
+                                    {% endif %}
+                                    {% if jogo_finalizado and fase_atual == fase_label %}
+                                        {{ card_partida(p, competicao_nome) }}
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        </details>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div class="ap-empty ap-empty-original" {% if sec.total > 0 %}style="display:none;"{% endif %}>{{ vazio }}</div>
+            <div class="ap-empty ap-empty-filtro">Nenhuma partida nesta quadra para esta situação.</div>
+        {% else %}
+            <div class="ap-grid">
+                {% set sec = namespace(total=0) %}
+                {% for p in partidas %}
+                    {% set status_op = (p.status_operacao or 'livre')|lower %}
+                    {% set status_partida = (p.status or 'agendada')|lower %}
+                    {% set status_jogo = (p.status_jogo or '')|lower %}
+                    {% set tem_estado = (p.pontos_a or 0) or (p.pontos_b or 0) or (p.sets_a or 0) or (p.sets_b or 0) or ((p.set_atual or 1) > 1) or (p.eventos_total or 0) %}
+                    {% set jogo_pausado = status_op in ['pausada','pausado'] or status_jogo in ['pausada','pausado'] %}
+                    {% set jogo_iniciado = (status_partida in ['em andamento','em_andamento','ao vivo','ao_vivo','iniciada','iniciado'] or status_jogo in ['em_andamento','em andamento','entre_sets','tiebreak_sorteio'] or status_op in ['em_andamento','ao_vivo','jogo','iniciada','iniciado'] or tem_estado) and not jogo_pausado %}
+                    {% set jogo_finalizado = status_partida in ['finalizada','finalizado','encerrada','encerrado'] or status_jogo in ['finalizada','finalizado','encerrada','encerrado'] %}
+                    {% if categoria == 'live' and jogo_iniciado and not jogo_finalizado %}
+                        {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                    {% elif categoria == 'paused' and jogo_pausado and not jogo_finalizado %}
+                        {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                    {% elif categoria == 'pre' and not jogo_iniciado and not jogo_pausado and not jogo_finalizado and status_op in ['pre_jogo','reservado'] %}
+                        {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                    {% elif categoria == 'wait' and not jogo_iniciado and not jogo_pausado and not jogo_finalizado and status_op not in ['pre_jogo','reservado'] %}
+                        {% set sec.total = sec.total + 1 %}{{ card_partida(p, competicao_nome) }}
+                    {% endif %}
+                {% endfor %}
+            </div>
+            <div class="ap-empty ap-empty-original" {% if sec.total > 0 %}style="display:none;"{% endif %}>{{ vazio }}</div>
+            <div class="ap-empty ap-empty-filtro">Nenhuma partida nesta quadra para esta situação.</div>
+        {% endif %}
     </div>
 {% endmacro %}
 

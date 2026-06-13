@@ -978,6 +978,28 @@ def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, par
     else:
         estado["sets_para_vencer"] = _int_seguro(partida.get("sets_para_vencer") or estado.get("sets_para_vencer") or 2, 2)
 
+    # IMPORTANTE: o modo do scout também precisa ir dentro do estado/cache.
+    # Algumas telas e respostas via socket leem estado.modo_operacao, não apenas
+    # a variável modo_operacao enviada no render_template. Se o cache nasceu como
+    # simples, ele sobrescrevia a partida avançada e o jogo abria sem scout.
+    try:
+        modo_resolvido = str(
+            partida.get("modo_operacao_resolvido")
+            or _resolver_modo_operacao_partida(competicao, partida)
+            or partida.get("modo_operacao")
+            or estado.get("modo_operacao")
+            or "simples"
+        ).strip().lower()
+    except Exception:
+        modo_resolvido = str(partida.get("modo_operacao") or estado.get("modo_operacao") or "simples").strip().lower()
+
+    if modo_resolvido not in {"simples", "avancado"}:
+        modo_resolvido = "simples"
+
+    estado["modo_operacao"] = modo_resolvido
+    estado["modo_operacao_resolvido"] = modo_resolvido
+    estado["permite_scout"] = modo_resolvido == "avancado"
+
     return estado
 
 
@@ -3672,12 +3694,42 @@ def jogo_view(competicao, partida_id):
         flash(msg_lock, "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
     if partida_lock:
-        partida = partida_lock
+        # ATENÇÃO:
+        # validar_operador_partida() pode devolver só campos de trava
+        # (id, operador, status...), não a linha completa da partida.
+        # Antes a gente substituía "partida" por esse retorno parcial e perdia
+        # origem/modo_operacao/sets_tipo. A consequência era o jogo do Avanço
+        # abrir como scout simples mesmo quando partidas.modo_operacao estava
+        # "avancado".
+        try:
+            partida = dict(partida or {})
+            partida.update(dict(partida_lock or {}))
+        except Exception:
+            partida = buscar_partida_operacional(partida_id, competicao) or partida
 
     # Se o fim do set levou para o tie-break, a rota do jogo não pode renderizar
     # quadra nem pré-jogo: deve abrir direto o sorteio exclusivo do tie-break.
     if _partida_em_sorteio_tiebreak(partida):
         return redirect(url_for("apontadores.abrir_tiebreak_view", competicao=competicao, partida_id=partida_id))
+
+    # Garante linha completa antes de resolver scout/regras.
+    # Isso cobre partidas já iniciadas, em que o cache/status de operação pode
+    # ter vindo de uma consulta parcial.
+    if not partida.get("modo_operacao") or not partida.get("origem") or not partida.get("equipe_a"):
+        try:
+            partida_completa = buscar_partida_operacional(partida_id, competicao) or {}
+            if partida_completa:
+                tmp = dict(partida_completa)
+                tmp.update(dict(partida or {}))
+                # campos completos têm prioridade para regra/scout
+                for campo in ("modo_operacao", "origem", "sets_tipo", "pontos_set", "pontos_tiebreak",
+                              "sets_max", "sets_para_vencer", "fase", "grupo", "equipe_a", "equipe_b",
+                              "equipe_a_operacional", "equipe_b_operacional"):
+                    if partida_completa.get(campo) not in (None, ""):
+                        tmp[campo] = partida_completa.get(campo)
+                partida = tmp
+        except Exception as e:
+            print("AVISO recarregar partida completa jogo_view:", repr(e), flush=True)
 
     modo_operacao_resolvido = _resolver_modo_operacao_partida(competicao, partida)
     try:
@@ -3728,6 +3780,16 @@ def jogo_view(competicao, partida_id):
             partida = inicializar_jogo_partida(partida_id, competicao) or partida
         except Exception as e:
             print("ERRO inicializar_jogo_partida/jogo_view rapido:", repr(e), flush=True)
+
+    # A inicialização pode devolver a partida com modo_operacao antigo/simples.
+    # Recalcula depois dela para garantir que a regra do Avanço ganhe.
+    modo_operacao_resolvido = _resolver_modo_operacao_partida(competicao, partida)
+    try:
+        partida["modo_operacao_resolvido"] = modo_operacao_resolvido
+        partida["modo_operacao"] = modo_operacao_resolvido
+        partida["permite_scout"] = modo_operacao_resolvido == "avancado"
+    except Exception:
+        pass
 
     # Prioridade para cache vivo; se não existir, usa snapshot salvo no banco.
     try:
@@ -3826,6 +3888,11 @@ def jogo_view(competicao, partida_id):
         estado = aplicar_placar_exibicao_partida(dict(estado or {}), competicao_cfg_estado)
     except Exception as e:
         print("AVISO aplicar placar exibicao jogo_view:", repr(e), flush=True)
+
+    # Força novamente no estado final que vai para cache/template.
+    estado["modo_operacao"] = modo_operacao_resolvido
+    estado["modo_operacao_resolvido"] = modo_operacao_resolvido
+    estado["permite_scout"] = modo_operacao_resolvido == "avancado"
 
     try:
         atualizar_estado_cache(partida_id, estado)

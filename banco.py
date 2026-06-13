@@ -6689,8 +6689,7 @@ def validar_operador_partida(partida_id, competicao, operador_login, renovar=Tru
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, operador_login, operador_nome, status_operacao,
-                       reservado_em, operador_heartbeat, status_jogo
+                SELECT *
                 FROM partidas
                 WHERE id = %s
                   AND competicao = %s
