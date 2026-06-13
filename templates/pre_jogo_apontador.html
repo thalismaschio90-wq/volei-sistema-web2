@@ -15,6 +15,10 @@
 .pre-team-card { padding:10px 12px; border:1px solid var(--border); border-radius:10px; }
 .pre-team-actions { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
 
+.pre-aviso-bloqueado { padding:12px; border:1px solid #f59e0b; border-radius:10px; background:#fffbeb; color:#92400e; font-weight:700; margin-bottom:14px; }
+.pre-conferencia-ajuda { margin-top:14px; color:var(--muted); }
+.pre-alerta-conferencia { margin-top:20px; color:#b45309; font-weight:700; }
+
 @media (max-width:850px) {
     .topo-secao { margin-bottom:10px !important; }
     .titulo-secao { font-size:34px !important; line-height:1.05 !important; }
@@ -146,6 +150,66 @@
         padding:10px 12px !important;
         border-radius:14px !important;
     }
+
+    .pre-aviso-bloqueado {
+        padding:10px 12px !important;
+        border-radius:14px !important;
+        font-size:13px !important;
+        line-height:1.35 !important;
+        margin-bottom:0 !important;
+    }
+    .pre-aviso-bloqueado br { display:none !important; }
+
+    .pre-team-card {
+        display:grid !important;
+        grid-template-columns:minmax(0,1fr) auto !important;
+        align-items:center !important;
+        gap:6px 10px !important;
+    }
+    .pre-team-card > div:nth-child(1) {
+        grid-column:1 / -1;
+        font-size:14px !important;
+        color:#64748b !important;
+        text-transform:uppercase;
+        letter-spacing:.25px;
+    }
+    .pre-team-card > div:nth-child(2) {
+        font-size:18px !important;
+        font-weight:1000 !important;
+        margin-top:0 !important;
+    }
+    .pre-team-card > div:nth-child(3) {
+        grid-column:1 / -1;
+        font-size:12px !important;
+        margin-top:0 !important;
+        font-weight:900 !important;
+    }
+    .pre-team-card > div:nth-child(4) {
+        display:none !important;
+    }
+    .pre-team-actions {
+        grid-column:1 / -1;
+        grid-template-columns:1fr 1fr !important;
+        margin-top:6px !important;
+    }
+    .pre-team-actions .btn-padrao,
+    .pre-team-actions .btn-secundario {
+        min-height:42px !important;
+        padding:9px 10px !important;
+        font-size:13px !important;
+    }
+    .pre-conferencia-ajuda {
+        display:none !important;
+    }
+    .pre-alerta-conferencia {
+        margin-top:10px !important;
+        padding:9px 10px !important;
+        border-radius:12px !important;
+        background:#fff7ed !important;
+        color:#9a3412 !important;
+        font-size:13px !important;
+        line-height:1.3 !important;
+    }
 }
 
 @media (max-width:520px) {
@@ -257,7 +321,7 @@
     <div class="pre-section-title">Configuração do pré-jogo</div>
 
     {% if pre_jogo_bloqueado %}
-        <div style="padding:12px; border:1px solid #f59e0b; border-radius:10px; background:#fffbeb; color:#92400e; font-weight:700; margin-bottom:14px;">
+        <div class="pre-aviso-bloqueado">
             Pré-jogo inicial bloqueado. O sorteio inicial, árbitros e definição operacional da Equipe A não podem mais ser alterados.
             {% if tie_break_pendente %}
                 <br>Como o próximo set é tie-break, use a tela própria de sorteio do tie-break.
@@ -478,9 +542,8 @@
 
     </div>
 
-    <div style="margin-top:14px; color:var(--muted);">
-        A conferência permite checar nome, CPF e preencher a numeração.
-        Atletas sem número não entram na papeleta.
+    <div class="pre-conferencia-ajuda">
+        A conferência permite checar nome, CPF e preencher a numeração. Atletas sem número não entram na papeleta.
     </div>
 
     {% if not precisa_conferencia %}
@@ -491,7 +554,7 @@
         </a>
     </div>
     {% else %}
-    <div style="margin-top:20px; color:#b45309; font-weight:700;">
+    <div class="pre-alerta-conferencia">
         Faça a primeira conferência das duas equipes para liberar a papeleta.
     </div>
     {% endif %}
