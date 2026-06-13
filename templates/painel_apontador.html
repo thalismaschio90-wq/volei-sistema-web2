@@ -270,6 +270,231 @@
     .card-painel { overflow:hidden; }
 }
 
+
+
+/* =========================================================
+   MOBILE ENXUTO DO PAINEL DO APONTADOR
+   Objetivo: no celular mostrar só o que o apontador precisa
+   para operar rápido, sem PIN gigante, sem hero grande e sem
+   seções vazias ocupando espaço.
+   ========================================================= */
+@media (max-width: 850px) {
+    html.ap-modo-partidas .ap-hero {
+        display: none !important;
+    }
+
+    html.ap-modo-partidas .card-painel {
+        padding: 14px !important;
+        border-radius: 20px !important;
+    }
+
+    html.ap-modo-partidas .card-painel > .ap-section-head {
+        margin-bottom: 10px !important;
+    }
+
+    html.ap-modo-partidas .card-painel > .ap-section-head .ap-section-title {
+        font-size: 20px !important;
+        line-height: 1.15 !important;
+    }
+
+    /* O PIN grande polui a tela do celular. Fica recolhido no details do fim. */
+    html.ap-modo-partidas .card-painel > .ap-pins-arbitragem {
+        display: none !important;
+    }
+
+    html.ap-modo-partidas .ap-quadra-tabs,
+    html.ap-modo-partidas .ap-status-tabs {
+        padding: 6px !important;
+        gap: 6px !important;
+        border-radius: 16px !important;
+        margin-bottom: 10px !important;
+        scroll-snap-type: x proximity;
+    }
+
+    html.ap-modo-partidas .ap-quadra-tab,
+    html.ap-modo-partidas .ap-status-tab {
+        min-height: 44px !important;
+        padding: 8px 12px !important;
+        border-radius: 999px !important;
+        font-size: 13px !important;
+        line-height: 1.05 !important;
+        flex: 0 0 auto !important;
+        scroll-snap-align: start;
+    }
+
+    html.ap-modo-partidas .ap-quadra-tab small,
+    html.ap-modo-partidas .ap-status-tab small {
+        font-size: 10px !important;
+        padding: 3px 6px !important;
+    }
+
+    html.ap-modo-partidas .ap-operacao-fixa a {
+        padding: 11px 12px !important;
+        border-radius: 15px !important;
+        font-size: 15px !important;
+    }
+
+    html.ap-modo-partidas .ap-section {
+        margin-bottom: 14px !important;
+    }
+
+    html.ap-modo-partidas .ap-section-head {
+        margin: 8px 0 8px !important;
+    }
+
+    html.ap-modo-partidas .ap-section-title {
+        font-size: 21px !important;
+        line-height: 1.15 !important;
+    }
+
+    html.ap-modo-partidas .ap-empty {
+        padding: 14px !important;
+        border-radius: 16px !important;
+        font-size: 15px !important;
+    }
+
+    html.ap-modo-partidas .ap-card {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+        padding: 13px !important;
+        border-radius: 18px !important;
+        box-shadow: none !important;
+    }
+
+    html.ap-modo-partidas .ap-info {
+        width: 100% !important;
+    }
+
+    html.ap-modo-partidas .ap-match-line {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 6px !important;
+        font-size: 17px !important;
+        line-height: 1.15 !important;
+        margin-bottom: 6px !important;
+    }
+
+    html.ap-modo-partidas .ap-team-mini {
+        min-width: 0 !important;
+        flex: 1 1 0 !important;
+        gap: 5px !important;
+    }
+
+    html.ap-modo-partidas .ap-team-name {
+        max-width: none !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    html.ap-modo-partidas .ap-escudo-mini {
+        width: 25px !important;
+        height: 25px !important;
+        border-radius: 8px !important;
+        padding: 2px !important;
+        flex: 0 0 auto !important;
+    }
+
+    html.ap-modo-partidas .ap-meta {
+        font-size: 12px !important;
+        line-height: 1.25 !important;
+        margin-bottom: 6px !important;
+    }
+
+    html.ap-modo-partidas .ap-badge-avanco {
+        margin-left: 0 !important;
+        margin-top: 5px !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    html.ap-modo-partidas .ap-badge {
+        font-size: 10px !important;
+        padding: 4px 8px !important;
+    }
+
+    /* Placar 0x0 de jogo aguardando não ajuda e deixa o card enorme. */
+    html.ap-modo-partidas .ap-card[data-status-categoria="wait"] .ap-score-box,
+    html.ap-modo-partidas .ap-card[data-status-categoria="pre"] .ap-score-box {
+        display: none !important;
+    }
+
+    html.ap-modo-partidas .ap-card[data-status-categoria="live"] .ap-score-box,
+    html.ap-modo-partidas .ap-card[data-status-categoria="paused"] .ap-score-box,
+    html.ap-modo-partidas .ap-card[data-status-categoria="done"] .ap-score-box {
+        justify-self: stretch !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 8px 10px !important;
+        border-radius: 14px !important;
+    }
+
+    html.ap-modo-partidas .ap-score-num {
+        font-size: 22px !important;
+    }
+
+    html.ap-modo-partidas .ap-score-label {
+        font-size: 9px !important;
+    }
+
+    html.ap-modo-partidas .ap-card-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+        margin-top: 6px !important;
+        width: 100% !important;
+    }
+
+    html.ap-modo-partidas .ap-card-actions .btn-padrao,
+    html.ap-modo-partidas .ap-card-actions .btn-secundario {
+        width: 100% !important;
+        min-height: 44px !important;
+        padding: 10px 8px !important;
+        border-radius: 14px !important;
+        font-size: 14px !important;
+        line-height: 1.1 !important;
+    }
+
+    html.ap-modo-partidas .ap-card-actions .btn-padrao:only-child,
+    html.ap-modo-partidas .ap-card-actions .btn-secundario:only-child {
+        grid-column: 1 / -1 !important;
+    }
+
+    html.ap-modo-partidas .ap-fase-finalizada summary {
+        padding: 12px !important;
+        border-radius: 16px !important;
+        font-size: 16px !important;
+    }
+
+    html.ap-modo-partidas .ap-fase-finalizada-contador {
+        font-size: 11px !important;
+        padding: 4px 7px !important;
+    }
+
+    html.ap-modo-partidas .ap-opcoes-secundarias {
+        margin-top: 8px !important;
+    }
+
+    html.ap-modo-partidas .ap-details summary {
+        padding: 13px !important;
+        font-size: 16px !important;
+    }
+}
+
+@media (max-width: 420px) {
+    html.ap-modo-partidas .ap-card-actions {
+        grid-template-columns: 1fr !important;
+    }
+
+    html.ap-modo-partidas .ap-match-line {
+        font-size: 16px !important;
+    }
+}
+
 </style>
 
 {% set nome_usuario_offline = session.get('nome') or session.get('usuario_nome') or session.get('usuario') or 'Apontador' %}
@@ -840,6 +1065,7 @@ document.addEventListener("keydown", function(e) {
 {% endmacro %}
 
 {% if modo_partidas %}
+    <script>document.documentElement.classList.add("ap-modo-partidas");</script>
     <div class="card-painel">
         <div class="ap-section-head">
             <div>
@@ -997,7 +1223,7 @@ document.addEventListener("keydown", function(e) {
                         const filtroEmpty = section.querySelector(".ap-empty-filtro");
                         const temCardsOriginais = section.querySelectorAll("[data-partida-card='1']").length > 0;
 
-                        section.classList.toggle("ap-section-oculta", !mostrarSecao);
+                        section.classList.toggle("ap-section-oculta", !mostrarSecao || (filtroStatus === "all" && totalCategoria === 0));
 
                         if (originalEmpty) {
                             originalEmpty.style.display = filtroQuadra === "TODAS" && filtroStatus === "all" && !temCardsOriginais ? "block" : "none";
