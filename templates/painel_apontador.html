@@ -153,6 +153,20 @@
 .ap-set-row label { font-weight:900; color:#183247; }
 .ap-set-row input { width:100%; border:1px solid #cbd5e1; border-radius:12px; padding:11px 12px; font-weight:900; text-align:center; }
 .ap-modal-resultado-actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:14px; }
+
+/* Lista inicial de competições: no celular vira card para o botão não sair do quadro. */
+.ap-competicoes-wrap { width:100%; overflow:hidden; }
+.ap-competicoes-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+.ap-competicoes-table th,
+.ap-competicoes-table td { vertical-align:middle; }
+.ap-competicoes-table th:nth-child(1), .ap-competicoes-table td:nth-child(1) { width:38%; }
+.ap-competicoes-table th:nth-child(2), .ap-competicoes-table td:nth-child(2) { width:18%; }
+.ap-competicoes-table th:nth-child(3), .ap-competicoes-table td:nth-child(3) { width:24%; }
+.ap-competicoes-table th:nth-child(4), .ap-competicoes-table td:nth-child(4) { width:20%; }
+.ap-competicao-acoes { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; align-items:center; }
+.ap-competicao-acoes .btn-padrao { white-space:nowrap; }
+.ap-competicao-mobile-label { display:none; }
+
 @media (max-width:620px) { .ap-set-row { grid-template-columns:1fr 1fr; } .ap-set-row label { grid-column:1 / -1; } .ap-set-row span { display:none; } }
 
 @media (max-width:850px) { .ap-pins-grid { grid-template-columns:1fr; } .ap-pin-card { flex-direction:column; align-items:flex-start; } .ap-pin-actions { width:100%; justify-content:flex-start; } }
@@ -188,6 +202,72 @@
     .ap-card-actions .btn-padrao, .ap-card-actions .btn-secundario { width:100%; text-align:center; justify-content:center; }
     .ap-section-title { font-size:17px; }
     .ap-section-hint, .ap-pins-hint { display:none; }
+}
+
+
+@media (max-width:700px) {
+    .ap-competicoes-wrap { overflow:visible; }
+    .ap-competicoes-table,
+    .ap-competicoes-table thead,
+    .ap-competicoes-table tbody,
+    .ap-competicoes-table tr,
+    .ap-competicoes-table td { display:block; width:100% !important; }
+    .ap-competicoes-table thead { display:none; }
+    .ap-competicoes-table tr {
+        border:1px solid #dbe3ef;
+        border-radius:18px;
+        padding:14px;
+        margin:0 0 12px;
+        background:#fff;
+        box-shadow:0 8px 24px rgba(15,23,42,.06);
+    }
+    .ap-competicoes-table td {
+        border:0 !important;
+        padding:4px 0 !important;
+        color:#123852;
+        font-weight:800;
+    }
+    .ap-competicoes-table td:first-child strong {
+        display:block;
+        font-size:20px;
+        line-height:1.12;
+        margin-bottom:6px;
+        word-break:normal;
+        overflow-wrap:anywhere;
+    }
+    .ap-competicoes-table td[data-label] {
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:12px;
+        font-size:15px;
+    }
+    .ap-competicao-mobile-label {
+        display:inline-block;
+        color:#64748b;
+        font-size:12px;
+        font-weight:1000;
+        text-transform:uppercase;
+        letter-spacing:.3px;
+        min-width:58px;
+    }
+    .ap-competicao-acoes {
+        width:100%;
+        justify-content:stretch;
+        gap:8px;
+        margin-top:10px;
+    }
+    .ap-competicao-acoes .btn-padrao {
+        flex:1 1 120px;
+        min-height:52px;
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        border-radius:16px;
+        font-size:16px;
+        text-align:center;
+    }
+    .card-painel { overflow:hidden; }
 }
 
 </style>
@@ -978,19 +1058,28 @@ document.addEventListener("keydown", function(e) {
 {% elif competicoes %}
     <div class="card-painel">
         <div class="ap-section-head"><div class="ap-section-title">Competições disponíveis</div></div>
-        <table><thead><tr><th>Competição</th><th>Data</th><th>Status</th><th></th></tr></thead><tbody>
-        {% for c in competicoes %}
-            <tr>
-                <td><strong>{{ c.competicao }}</strong></td>
-                <td>{{ c.data or '-' }}</td>
-                <td>{{ c.status or '-' }}</td>
-                <td style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a>
-                    {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>{% endif %}
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody></table>
+        <div class="ap-competicoes-wrap">
+            <table class="ap-competicoes-table">
+                <thead>
+                    <tr><th>Competição</th><th>Data</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                {% for c in competicoes %}
+                    <tr>
+                        <td><strong>{{ c.competicao }}</strong></td>
+                        <td data-label="Data"><span class="ap-competicao-mobile-label">Data</span><span>{{ c.data or '-' }}</span></td>
+                        <td data-label="Status"><span class="ap-competicao-mobile-label">Status</span><span>{{ c.status or '-' }}</span></td>
+                        <td>
+                            <div class="ap-competicao-acoes">
+                                <a class="btn-padrao" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}">Entrar</a>
+                                {% if offline_habilitado_tpl %}<button type="button" class="btn-padrao ap-btn-gold" onclick="prepararCompeticaoListaOffline('{{ c.competicao }}', '{{ url_for('apontadores.entrar_competicao_apontador', competicao=c.competicao) }}')">📦 Offline</button>{% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 {% else %}
     <div class="card-painel">Nenhuma competição disponível no momento.</div>
