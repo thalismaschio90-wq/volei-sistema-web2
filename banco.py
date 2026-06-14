@@ -8217,9 +8217,11 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
 def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login=None, origem="manual"):
     """Salva/edita o resultado de uma partida sem exigir scout.
 
-    sets deve ser uma lista de dicts: [{"a": 25, "b": 20}, ...].
-    Sets vazios devem ser removidos antes ou enviados como None.
-    A classificação usa somente placar/sets/status; scout fica opcional.
+    Correção importante:
+    a validação do lançamento manual precisa obedecer à REGRA DA PARTIDA
+    (sets_tipo/sets_max/sets_para_vencer salvos em partidas), não apenas à
+    regra global da competição. Isso permite finais M5 dentro de competição
+    originalmente configurada como set único.
     """
     criar_campos_sets_partida()
     criar_campos_jogo_partida()
@@ -8243,32 +8245,26 @@ def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login
             return False, "Um set não pode terminar empatado."
         sets_validos.append({"a": a, "b": b})
 
-    comp = buscar_competicao_por_nome(competicao) or {}
-    formato = _normalizar_formato_sets(comp.get("sets_tipo"))
-    sets_max = calcular_sets_max(formato)
-    sets_para_vencer = calcular_sets_para_vencer(formato)
-
     if not sets_validos:
         return False, "Preencha pelo menos um set."
-    if len(sets_validos) > sets_max:
-        return False, f"Esta competição permite no máximo {sets_max} set(s)."
 
-    sets_a = sum(1 for st in sets_validos if st["a"] > st["b"])
-    sets_b = sum(1 for st in sets_validos if st["b"] > st["a"])
-
-    if sets_a == sets_b:
-        return False, "O resultado precisa ter um vencedor."
-    if max(sets_a, sets_b) < sets_para_vencer:
-        return False, f"O vencedor precisa vencer {sets_para_vencer} set(s)."
-    if max(sets_a, sets_b) > sets_para_vencer:
-        return False, "Quantidade de sets vencidos inválida para a regra da competição."
-
-    vencedor_lado = "A" if sets_a > sets_b else "B"
+    comp = buscar_competicao_por_nome(competicao) or {}
+    formato_competicao = _normalizar_formato_sets(comp.get("sets_tipo"))
+    sets_max = calcular_sets_max(formato_competicao)
+    sets_para_vencer = calcular_sets_para_vencer(formato_competicao)
+    formato_partida = formato_competicao
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT equipe_a, equipe_b
+            colunas_partidas = _buscar_colunas_tabela("partidas")
+
+            campos_select = ["equipe_a", "equipe_b"]
+            for campo in ("sets_tipo", "sets_max", "sets_para_vencer", "pontos_set", "pontos_tiebreak"):
+                if campo in colunas_partidas:
+                    campos_select.append(campo)
+
+            cur.execute(f"""
+                SELECT {", ".join(campos_select)}
                 FROM partidas
                 WHERE id = %s AND competicao = %s
                 LIMIT 1
@@ -8277,6 +8273,61 @@ def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login
             if not partida:
                 return False, "Partida não encontrada."
 
+            # 1) Prioridade absoluta: regra salva na própria partida.
+            sets_max_partida = None
+            try:
+                sets_max_partida = int(partida.get("sets_max") or 0)
+            except Exception:
+                sets_max_partida = None
+
+            if sets_max_partida in (1, 3, 5):
+                sets_max = sets_max_partida
+                if sets_max == 1:
+                    formato_partida = "set_unico"
+                elif sets_max == 5:
+                    formato_partida = "melhor_de_5"
+                else:
+                    formato_partida = "melhor_de_3"
+            elif partida.get("sets_tipo"):
+                formato_partida = _normalizar_formato_sets(partida.get("sets_tipo"))
+                sets_max = calcular_sets_max(formato_partida)
+
+            try:
+                spv_partida = int(partida.get("sets_para_vencer") or 0)
+            except Exception:
+                spv_partida = 0
+
+            if spv_partida in (1, 2, 3):
+                sets_para_vencer = spv_partida
+            else:
+                sets_para_vencer = calcular_sets_para_vencer(formato_partida)
+
+            if len(sets_validos) > sets_max:
+                return False, f"Esta partida permite no máximo {sets_max} set(s)."
+
+            sets_a = sum(1 for st in sets_validos if st["a"] > st["b"])
+            sets_b = sum(1 for st in sets_validos if st["b"] > st["a"])
+
+            if sets_a == sets_b:
+                return False, "O resultado precisa ter um vencedor."
+            if max(sets_a, sets_b) < sets_para_vencer:
+                return False, f"O vencedor precisa vencer {sets_para_vencer} set(s)."
+            if max(sets_a, sets_b) > sets_para_vencer:
+                return False, "Quantidade de sets vencidos inválida para a regra da partida."
+
+            # Evita lançar sets extras depois que o vencedor já foi definido.
+            vencedor_parcial_a = 0
+            vencedor_parcial_b = 0
+            for idx, st in enumerate(sets_validos, start=1):
+                if st["a"] > st["b"]:
+                    vencedor_parcial_a += 1
+                else:
+                    vencedor_parcial_b += 1
+
+                if idx < len(sets_validos) and max(vencedor_parcial_a, vencedor_parcial_b) >= sets_para_vencer:
+                    return False, "Há set(s) extra(s) depois que a partida já estava decidida."
+
+            vencedor_lado = "A" if sets_a > sets_b else "B"
             vencedor_nome = partida.get("equipe_a") if vencedor_lado == "A" else partida.get("equipe_b")
 
             valores_sets = {}
@@ -8333,6 +8384,7 @@ def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login
         print("AVISO salvar_resultado_manual_partida/sincronizar_avanco:", repr(e), flush=True)
 
     return True, "Resultado salvo e partida finalizada com sucesso."
+
 
 # =========================================================
 # EVENTOS DA PARTIDA (AO VIVO)

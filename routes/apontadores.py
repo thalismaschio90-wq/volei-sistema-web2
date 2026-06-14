@@ -2423,7 +2423,7 @@ _CAMPOS_LEVES_PARTIDA_APONTADOR = {
     "set_atual", "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b",
     "vencedor", "tipo_encerramento", "origem_resultado", "modo_operacao",
     "tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes",
-    "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo", "resumo_regra",
+    "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo", "sets_max", "sets_para_vencer", "resumo_regra",
 }
 
 
@@ -2497,6 +2497,8 @@ def _montar_partidas_painel_apontador_cache(competicao):
 
     partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
 
+    sets_max_manual_global = _sets_max_competicao(competicao)
+
     partidas_leves = []
     for p in partidas:
         try:
@@ -2513,6 +2515,18 @@ def _montar_partidas_painel_apontador_cache(competicao):
         p["pontos_tiebreak"] = regra_card.get("pontos_tiebreak") or 15
         p["resumo_regra"] = _montar_resumo_regra_partida_apontador(regra_card)
 
+        # Para o modal de lançamento manual, a tela precisa liberar até o maior
+        # formato existente nas partidas. Ex.: competição set único com final M5.
+        try:
+            if str(p.get("sets_tipo") or "").strip().lower() == "melhor_de_5":
+                sets_max_manual_global = max(sets_max_manual_global, 5)
+            elif str(p.get("sets_tipo") or "").strip().lower() == "melhor_de_3":
+                sets_max_manual_global = max(sets_max_manual_global, 3)
+            else:
+                sets_max_manual_global = max(sets_max_manual_global, int(p.get("sets_max") or 0))
+        except Exception:
+            pass
+
         # Em vez de remover alguns campos pesados, montamos uma cópia leve.
         # Assim nenhum campo novo enorme passa despercebido para o HTML.
         partidas_leves.append(_partida_leve_para_lista_apontador(p))
@@ -2520,8 +2534,8 @@ def _montar_partidas_painel_apontador_cache(competicao):
     payload = {
         "competicao_cfg": competicao_cfg,
         "partidas": partidas_leves,
-        "sets_max_manual": _sets_max_competicao(competicao),
-        "sets_para_vencer_manual": _sets_para_vencer_competicao(competicao),
+        "sets_max_manual": sets_max_manual_global,
+        "sets_para_vencer_manual": 3 if sets_max_manual_global >= 5 else (2 if sets_max_manual_global >= 3 else 1),
     }
     return _cache_set(chave, payload)
 
