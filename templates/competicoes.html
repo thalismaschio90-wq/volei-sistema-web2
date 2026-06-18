@@ -1,48 +1,651 @@
 {% extends "base.html" %}
 {% block conteudo %}
 
-{% if credenciais %}
-<div class="card-painel" style="background:#f4fff5;">
-    <div style="font-weight: 900; margin-bottom: 10px;">Competição criada com sucesso</div>
-    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ credenciais.competicao }}</div>
-    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ credenciais.login }}</div>
-    <div><strong>Senha:</strong> {{ credenciais.senha }}</div>
-</div>
-{% endif %}
+<style>
+    .comp-page {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
 
-{% if senha_redefinida %}
-<div class="card-painel" style="background:#eef7ff;">
-    <div style="font-weight: 900; margin-bottom: 10px;">Senha redefinida</div>
-    <div style="margin-bottom: 6px;"><strong>Competição:</strong> {{ senha_redefinida.competicao }}</div>
-    <div style="margin-bottom: 6px;"><strong>Login:</strong> {{ senha_redefinida.login }}</div>
-    <div><strong>Nova senha:</strong> {{ senha_redefinida.senha }}</div>
-</div>
-{% endif %}
+    .comp-hero {
+        background: linear-gradient(135deg, #111827, #123852 62%, #071827);
+        color: #fff;
+        border-radius: 26px;
+        padding: 26px;
+        box-shadow: 0 18px 45px rgba(18, 56, 82, .18);
+        position: relative;
+        overflow: hidden;
+    }
 
-<div class="cards-competicoes">
-    {% for c in competicoes %}
-    <div class="competicao-card">
-        <div class="competicao-nome">{{ c.nome }}</div>
-        <div class="competicao-info"><strong>Data:</strong> {{ c.data or "-" }}</div>
-        <div class="competicao-info"><strong>Status:</strong> {{ c.status or "-" }}</div>
-        <div class="competicao-info"><strong>Login do organizador:</strong> {{ c.organizador_login or "-" }}</div>
-        <div class="competicao-info"><strong>Senha atual:</strong> {{ c.organizador_senha or "-" }}</div>
+    .comp-hero:after {
+        content: "";
+        position: absolute;
+        right: -90px;
+        top: -100px;
+        width: 260px;
+        height: 260px;
+        border-radius: 999px;
+        background: rgba(212, 166, 42, .18);
+    }
 
-        <hr style="margin: 14px 0; border: 0; border-top: 1px solid #e3eaf1;">
+    .comp-hero > * {
+        position: relative;
+        z-index: 1;
+    }
 
-            <form method="post" action="{{ url_for('competicoes.resetar_senha_organizador_view', nome=c.nome) }}">
-                <button type="submit" class="btn-secundario">Redefinir senha</button>
-            </form>
+    .comp-kicker {
+        font-size: 13px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        color: rgba(255,255,255,.72);
+        margin-bottom: 6px;
+    }
 
-            <form method="post" action="{{ url_for('competicoes.excluir_competicao_view', nome=c.nome) }}" onsubmit="return confirm('Deseja excluir esta competição?');">
-                <button type="submit" class="btn-secundario">Excluir</button>
-            </form>
+    .comp-title {
+        font-size: clamp(28px, 4vw, 44px);
+        font-weight: 1000;
+        line-height: 1;
+    }
+
+    .comp-sub {
+        color: rgba(255,255,255,.78);
+        font-weight: 700;
+        margin-top: 8px;
+        max-width: 760px;
+        line-height: 1.45;
+    }
+
+    .comp-actions-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+    }
+
+    .comp-search {
+        flex: 1;
+        min-width: 220px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255,255,255,.12);
+        border: 1px solid rgba(255,255,255,.22);
+        border-radius: 16px;
+        padding: 11px 14px;
+    }
+
+    .comp-search span {
+        opacity: .85;
+    }
+
+    .comp-search input {
+        width: 100%;
+        background: transparent;
+        border: 0;
+        outline: none;
+        color: #fff;
+        font-weight: 800;
+    }
+
+    .comp-search input::placeholder {
+        color: rgba(255,255,255,.72);
+    }
+
+    .comp-new-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        text-decoration: none;
+        background: #d4a62a;
+        color: #0f172a;
+        font-weight: 1000;
+        border-radius: 16px;
+        padding: 12px 16px;
+        box-shadow: 0 12px 30px rgba(212,166,42,.22);
+        white-space: nowrap;
+    }
+
+    .comp-alert {
+        border-radius: 22px;
+        padding: 16px;
+        border: 1px solid #dbeafe;
+        box-shadow: var(--shadow);
+        background: #eff6ff;
+        color: #0f2f4a;
+        font-weight: 800;
+    }
+
+    .comp-alert.ok {
+        background: #f0fdf4;
+        border-color: #bbf7d0;
+        color: #166534;
+    }
+
+    .comp-alert-title {
+        font-size: 18px;
+        font-weight: 1000;
+        margin-bottom: 8px;
+    }
+
+    .comp-alert-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+    }
+
+    .comp-mini-box {
+        background: rgba(255,255,255,.72);
+        border: 1px solid rgba(15,23,42,.08);
+        border-radius: 16px;
+        padding: 10px;
+        min-width: 0;
+    }
+
+    .comp-mini-label {
+        color: #64748b;
+        font-size: 12px;
+        font-weight: 1000;
+        text-transform: uppercase;
+        margin-bottom: 3px;
+    }
+
+    .comp-mini-value {
+        font-weight: 1000;
+        overflow-wrap: anywhere;
+    }
+
+    .comp-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .comp-stat-card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+    }
+
+    .comp-stat-label {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 900;
+        text-transform: uppercase;
+    }
+
+    .comp-stat-value {
+        color: var(--text);
+        font-size: 32px;
+        font-weight: 1000;
+        margin-top: 4px;
+    }
+
+    .comp-list-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .comp-section-title {
+        font-size: 22px;
+        font-weight: 1000;
+        color: var(--text);
+    }
+
+    .comp-section-sub {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 750;
+        margin-top: 3px;
+    }
+
+    .comp-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .comp-card {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+        min-width: 0;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .comp-card:before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 5px;
+        background: linear-gradient(90deg, #123852, #d4a62a);
+    }
+
+    .comp-card-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .comp-name-wrap {
+        min-width: 0;
+    }
+
+    .comp-icon-title {
+        display: flex;
+        align-items: flex-start;
+        gap: 11px;
+        min-width: 0;
+    }
+
+    .comp-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 15px;
+        background: #eef4fb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        flex: 0 0 auto;
+    }
+
+    .comp-name {
+        font-size: 19px;
+        line-height: 1.14;
+        font-weight: 1000;
+        color: var(--text);
+        overflow-wrap: anywhere;
+    }
+
+    .comp-date {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 800;
+        margin-top: 5px;
+    }
+
+    .comp-status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 11px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 1000;
+        text-transform: uppercase;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        color: #475569;
+        white-space: nowrap;
+    }
+
+    .comp-status.preparacao,
+    .comp-status.preparação,
+    .comp-status.em-preparacao,
+    .comp-status.em-preparação {
+        border-color: #bfdbfe;
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .comp-status.andamento,
+    .comp-status.em-andamento,
+    .comp-status.ao-vivo {
+        border-color: #fde68a;
+        background: #fffbeb;
+        color: #92400e;
+    }
+
+    .comp-status.finalizada,
+    .comp-status.encerrada {
+        border-color: #bbf7d0;
+        background: #f0fdf4;
+        color: #166534;
+    }
+
+    .comp-info-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+    }
+
+    .comp-info-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 11px;
+        min-width: 0;
+    }
+
+    .comp-info-label {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 1000;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+
+    .comp-info-value {
+        color: #0f172a;
+        font-size: 14px;
+        font-weight: 950;
+        overflow-wrap: anywhere;
+    }
+
+    .comp-credentials {
+        margin-top: 12px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 18px;
+        padding: 12px;
+        background: #f8fafc;
+    }
+
+    .comp-credentials summary {
+        cursor: pointer;
+        font-weight: 1000;
+        color: #123852;
+        list-style: none;
+    }
+
+    .comp-credentials summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .comp-credentials summary:after {
+        content: " Ver";
+        font-weight: 900;
+        color: #64748b;
+    }
+
+    .comp-credentials[open] summary:after {
+        content: " Ocultar";
+    }
+
+    .comp-credential-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    .comp-card-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+        padding-top: 14px;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .comp-card-actions form {
+        margin: 0;
+    }
+
+    .comp-btn {
+        border: 0;
+        border-radius: 14px;
+        padding: 11px 13px;
+        font-weight: 1000;
+        cursor: pointer;
+        min-height: 42px;
+    }
+
+    .comp-btn.reset {
+        background: #eef4fb;
+        color: #123852;
+        border: 1px solid #dbeafe;
+    }
+
+    .comp-btn.delete {
+        background: #fff1f2;
+        color: #be123c;
+        border: 1px solid #fecdd3;
+    }
+
+    .comp-empty {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 26px;
+        box-shadow: var(--shadow);
+        text-align: center;
+        color: var(--muted);
+        font-weight: 850;
+    }
+
+    @media (max-width: 1000px) {
+        .comp-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .comp-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 700px) {
+        .comp-hero {
+            border-radius: 20px;
+            padding: 20px;
+        }
+
+        .comp-actions-top {
+            align-items: stretch;
+        }
+
+        .comp-search,
+        .comp-new-btn {
+            width: 100%;
+        }
+
+        .comp-stats,
+        .comp-alert-grid,
+        .comp-info-grid,
+        .comp-credential-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .comp-card-top {
+            flex-direction: column;
+        }
+
+        .comp-status {
+            align-self: flex-start;
+        }
+
+        .comp-card-actions {
+            flex-direction: column;
+        }
+
+        .comp-card-actions form,
+        .comp-btn {
+            width: 100%;
+        }
+    }
+</style>
+
+{% set ns = namespace(total=0, prep=0, andamento=0, finalizada=0) %}
+{% for c in competicoes %}
+    {% set ns.total = ns.total + 1 %}
+    {% set st = (c.status or 'Em preparação')|lower|replace(' ', '-')|replace('_', '-') %}
+    {% if 'finaliz' in st or 'encerr' in st %}
+        {% set ns.finalizada = ns.finalizada + 1 %}
+    {% elif 'andamento' in st or 'vivo' in st or 'ao-vivo' in st %}
+        {% set ns.andamento = ns.andamento + 1 %}
+    {% else %}
+        {% set ns.prep = ns.prep + 1 %}
+    {% endif %}
+{% endfor %}
+
+<div class="comp-page">
+    <div class="comp-hero">
+        <div class="comp-kicker">Superadmin</div>
+        <div class="comp-title">Competições</div>
+        <div class="comp-sub">
+            Gerencie competições, acompanhe o status real do evento e controle as credenciais dos organizadores.
+        </div>
+
+        <div class="comp-actions-top">
+            <div class="comp-search">
+                <span>🔎</span>
+                <input id="comp-search-input" type="search" placeholder="Buscar competição, login ou status..." oninput="filtrarCompeticoesSuperadmin()">
+            </div>
+            <a class="comp-new-btn" href="{{ url_for('competicoes.nova_competicao') }}">➕ Nova competição</a>
         </div>
     </div>
-    {% else %}
-    <div class="card-painel">
-        Nenhuma competição cadastrada.
+
+    {% if credenciais %}
+    <div class="comp-alert ok">
+        <div class="comp-alert-title">✅ Competição criada com sucesso</div>
+        <div class="comp-alert-grid">
+            <div class="comp-mini-box">
+                <div class="comp-mini-label">Competição</div>
+                <div class="comp-mini-value">{{ credenciais.competicao }}</div>
+            </div>
+            <div class="comp-mini-box">
+                <div class="comp-mini-label">Login</div>
+                <div class="comp-mini-value">{{ credenciais.login }}</div>
+            </div>
+            <div class="comp-mini-box">
+                <div class="comp-mini-label">Senha</div>
+                <div class="comp-mini-value">{{ credenciais.senha }}</div>
+            </div>
+        </div>
     </div>
-    {% endfor %}
+    {% endif %}
+
+    {% if senha_redefinida %}
+    <div class="comp-alert">
+        <div class="comp-alert-title">🔐 Senha redefinida</div>
+        <div class="comp-alert-grid">
+            <div class="comp-mini-box">
+                <div class="comp-mini-label">Competição</div>
+                <div class="comp-mini-value">{{ senha_redefinida.competicao }}</div>
+            </div>
+            <div class="comp-mini-box">
+                <div class="comp-mini-label">Login</div>
+                <div class="comp-mini-value">{{ senha_redefinida.login }}</div>
+            </div>
+            <div class="comp-mini-box">
+                <div class="comp-mini-label">Nova senha</div>
+                <div class="comp-mini-value">{{ senha_redefinida.senha }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="comp-stats">
+        <div class="comp-stat-card">
+            <div class="comp-stat-label">Total</div>
+            <div class="comp-stat-value">{{ ns.total }}</div>
+        </div>
+        <div class="comp-stat-card">
+            <div class="comp-stat-label">Em preparação</div>
+            <div class="comp-stat-value">{{ ns.prep }}</div>
+        </div>
+        <div class="comp-stat-card">
+            <div class="comp-stat-label">Em andamento</div>
+            <div class="comp-stat-value">{{ ns.andamento }}</div>
+        </div>
+        <div class="comp-stat-card">
+            <div class="comp-stat-label">Finalizadas</div>
+            <div class="comp-stat-value">{{ ns.finalizada }}</div>
+        </div>
+    </div>
+
+    <div class="comp-list-head">
+        <div>
+            <div class="comp-section-title">Lista de competições</div>
+            <div class="comp-section-sub">O status deve vir atualizado pelo backend conforme as partidas forem iniciadas ou encerradas.</div>
+        </div>
+    </div>
+
+    <div class="comp-grid" id="comp-grid">
+        {% for c in competicoes %}
+            {% set status_texto = c.status or 'Em preparação' %}
+            {% set status_slug = status_texto|lower|replace(' ', '-')|replace('_', '-') %}
+            <div class="comp-card" data-search="{{ (c.nome ~ ' ' ~ (c.data or '') ~ ' ' ~ status_texto ~ ' ' ~ (c.organizador_login or ''))|lower }}">
+                <div class="comp-card-top">
+                    <div class="comp-icon-title">
+                        <div class="comp-icon">🏆</div>
+                        <div class="comp-name-wrap">
+                            <div class="comp-name">{{ c.nome }}</div>
+                            <div class="comp-date">📅 {{ c.data or 'Data não informada' }}</div>
+                        </div>
+                    </div>
+                    <span class="comp-status {{ status_slug }}">{{ status_texto }}</span>
+                </div>
+
+                <div class="comp-info-grid">
+                    <div class="comp-info-box">
+                        <div class="comp-info-label">Organizador</div>
+                        <div class="comp-info-value">{{ c.organizador_login or '-' }}</div>
+                    </div>
+                    <div class="comp-info-box">
+                        <div class="comp-info-label">Status atual</div>
+                        <div class="comp-info-value">{{ status_texto }}</div>
+                    </div>
+                </div>
+
+                <details class="comp-credentials">
+                    <summary>🔑 Credenciais do organizador</summary>
+                    <div class="comp-credential-grid">
+                        <div class="comp-info-box">
+                            <div class="comp-info-label">Login</div>
+                            <div class="comp-info-value">{{ c.organizador_login or '-' }}</div>
+                        </div>
+                        <div class="comp-info-box">
+                            <div class="comp-info-label">Senha atual</div>
+                            <div class="comp-info-value">{{ c.organizador_senha or '-' }}</div>
+                        </div>
+                    </div>
+                </details>
+
+                <div class="comp-card-actions">
+                    <form method="post" action="{{ url_for('competicoes.resetar_senha_organizador_view', nome=c.nome) }}">
+                        <button type="submit" class="comp-btn reset">🔐 Redefinir senha</button>
+                    </form>
+
+                    <form method="post" action="{{ url_for('competicoes.excluir_competicao_view', nome=c.nome) }}" onsubmit="return confirm('Deseja excluir esta competição? Essa ação não pode ser desfeita.');">
+                        <button type="submit" class="comp-btn delete">🗑️ Excluir</button>
+                    </form>
+                </div>
+            </div>
+        {% else %}
+            <div class="comp-empty">
+                Nenhuma competição cadastrada ainda.
+            </div>
+        {% endfor %}
+    </div>
 </div>
+
+<script>
+function filtrarCompeticoesSuperadmin() {
+    const input = document.getElementById("comp-search-input");
+    const termo = (input?.value || "").trim().toLowerCase();
+    document.querySelectorAll(".comp-card[data-search]").forEach(card => {
+        const texto = card.getAttribute("data-search") || "";
+        card.style.display = texto.includes(termo) ? "" : "none";
+    });
+}
+</script>
+
 {% endblock %}

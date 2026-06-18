@@ -1215,7 +1215,84 @@ def criar_campos_conferencia_atletas():
         pass
 
 
+def sincronizar_status_competicoes(nome_competicao=None):
+    """
+    Atualiza automaticamente o status da competição olhando o estado das partidas.
+
+    Regra:
+    - Sem partida iniciada/finalizada: Em preparação
+    - Alguma partida iniciada e ainda não finalizada: Em andamento
+    - Todas as partidas existentes finalizadas: Finalizada
+    """
+    filtro = ""
+    params = []
+
+    if nome_competicao:
+        filtro = "WHERE c.nome = %s"
+        params.append(nome_competicao)
+
+    sql = f"""
+        WITH resumo AS (
+            SELECT
+                c.nome,
+                COUNT(p.id) AS total_partidas,
+                SUM(
+                    CASE
+                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, ''))
+                             IN ('finalizada', 'finalizado', 'encerrada', 'encerrado')
+                        THEN 1 ELSE 0
+                    END
+                ) AS finalizadas,
+                SUM(
+                    CASE
+                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, p.fase_partida, ''))
+                             IN (
+                                'pre_jogo', 'sorteio', 'papeleta', 'papeleta_pronta',
+                                'ao_vivo', 'em_andamento', 'andamento', 'jogo',
+                                'entre_sets', 'intervalo_set', 'tiebreak_sorteio',
+                                'pausada', 'pausado'
+                             )
+                        THEN 1 ELSE 0
+                    END
+                ) AS iniciadas
+            FROM competicoes c
+            LEFT JOIN partidas p
+                ON p.competicao = c.nome
+            {filtro}
+            GROUP BY c.nome
+        ), calculado AS (
+            SELECT
+                nome,
+                CASE
+                    WHEN total_partidas > 0 AND finalizadas = total_partidas THEN 'Finalizada'
+                    WHEN iniciadas > 0 THEN 'Em andamento'
+                    ELSE 'Em preparação'
+                END AS novo_status
+            FROM resumo
+        )
+        UPDATE competicoes c
+        SET status = calculado.novo_status
+        FROM calculado
+        WHERE c.nome = calculado.nome
+          AND COALESCE(c.status, '') <> calculado.novo_status
+    """
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, tuple(params))
+            conn.commit()
+    except Exception as e:
+        print("AVISO sincronizar_status_competicoes:", repr(e), flush=True)
+
+
+def sincronizar_status_competicao(nome_competicao):
+    return sincronizar_status_competicoes(nome_competicao)
+
+
 def listar_competicoes():
+    sincronizar_status_competicoes()
+
     campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
 
     sql = f"""
@@ -1223,7 +1300,14 @@ def listar_competicoes():
         FROM competicoes c
         LEFT JOIN usuarios u
             ON u.login = c.organizador_login
-        ORDER BY c.nome
+        ORDER BY
+            CASE
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
+                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
+                ELSE 4
+            END,
+            c.nome
     """
 
     with conectar() as conn:
@@ -1731,6 +1815,10 @@ def excluir_competicao(nome):
     if not nome:
         return False
 
+    # IMPORTANTE:
+    # A tabela "atletas" NÃO fica mais nesta lista.
+    # Ao excluir uma competição, os atletas cadastrados devem permanecer no banco
+    # e apenas perder o vínculo com a competição/equipe excluída.
     tabelas_por_competicao = [
         "competicao_quadras",
         "competicao_oficiais",
@@ -1743,7 +1831,6 @@ def excluir_competicao(nome):
         "papeletas",
         "sancoes_partida",
         "solicitacoes_treinador",
-        "atletas",
         "equipes_competicoes",
         "grupos",
         "partidas",
@@ -1759,7 +1846,10 @@ def excluir_competicao(nome):
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
                 """)
-                tabelas_existentes = {linha[0] for linha in cur.fetchall()}
+                tabelas_existentes = {
+                    linha.get("table_name") if isinstance(linha, dict) else linha[0]
+                    for linha in cur.fetchall()
+                }
 
                 cur.execute("""
                     UPDATE usuarios
@@ -1780,6 +1870,38 @@ def excluir_competicao(nome):
                     WHERE competicao_vinculada = %s
                       AND perfil NOT IN ('superadmin', 'apontador', 'equipe')
                 """, (nome,))
+
+                # Mantém os atletas cadastrados no banco.
+                # Apenas remove o vínculo deles com a competição/equipe excluída.
+                if "atletas" in tabelas_existentes:
+                    cur.execute("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'atletas'
+                    """)
+                    colunas_atletas = {
+                        linha.get("column_name") if isinstance(linha, dict) else linha[0]
+                        for linha in cur.fetchall()
+                    }
+
+                    sets_atletas = []
+                    if "competicao" in colunas_atletas:
+                        sets_atletas.append("competicao = NULL")
+                    if "equipe" in colunas_atletas:
+                        sets_atletas.append("equipe = NULL")
+                    if "equipe_login" in colunas_atletas:
+                        sets_atletas.append("equipe_login = NULL")
+
+                    if sets_atletas and "competicao" in colunas_atletas:
+                        cur.execute(
+                            f"""
+                            UPDATE atletas
+                            SET {", ".join(sets_atletas)}
+                            WHERE competicao = %s
+                            """,
+                            (nome,)
+                        )
 
                 for tabela in tabelas_por_competicao:
                     if tabela in tabelas_existentes:
@@ -7007,6 +7129,7 @@ def salvar_pre_jogo_partida(
 
         conn.commit()
 
+    sincronizar_status_competicao(competicao)
     aplicar_capitaes_padrao_partida(partida_id, competicao)
 
     return True, "Pré-jogo salvo com sucesso."
@@ -7929,6 +8052,7 @@ def inicializar_sets_partida(partida_id, competicao):
             """, (sets_max, sets_para_vencer, partida_id, competicao))
         conn.commit()
 
+    sincronizar_status_competicao(competicao)
     partida = buscar_partida_operacional(partida_id, competicao)
     fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida)
     if fluxo:
@@ -8183,6 +8307,7 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
 
         conn.commit()
 
+    sincronizar_status_competicao(competicao)
     partida_atualizada = buscar_partida_operacional(partida_id, competicao)
     fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida_atualizada)
     if fluxo:
@@ -8203,6 +8328,8 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
                     competicao,
                 ))
             conn.commit()
+
+    sincronizar_status_competicao(competicao)
 
     if fluxo and fluxo["fase_partida"] == "encerrado":
         try:
@@ -8377,6 +8504,8 @@ def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login
                 partida_id, competicao,
             ))
         conn.commit()
+
+    sincronizar_status_competicao(competicao)
 
     try:
         sincronizar_avanco_automatico_competicao(competicao)
@@ -10238,6 +10367,8 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
 
         conn.commit()
 
+    sincronizar_status_competicao(competicao)
+
     try:
         historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
     except Exception:
@@ -10388,6 +10519,8 @@ def registrar_wo_partida(partida_id, competicao, vencedor_lado):
             ))
 
         conn.commit()
+
+    sincronizar_status_competicao(competicao)
 
     return True, {
         "mensagem": "Partida encerrada por WO.",

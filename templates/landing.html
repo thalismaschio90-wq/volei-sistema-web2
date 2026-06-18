@@ -1,537 +1,406 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-
 <head>
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>VolleyTable Pro</title>
-
     <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
-
-    <link
-        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap"
-        rel="stylesheet"
-    >
-
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 </head>
-
 <body>
 
-    <!-- HEADER -->
-    <header class="header">
-
-        <div class="header-container">
-
-            <div class="logo-container">
-
-                <img
-                    src="{{ url_for('static', filename='img/logo.png') }}"
-                    class="logo"
-                >
-
-                <div class="logo-text">
-
-                    <span class="logo-white">
-                        VOLLEYTABLE
-                    </span>
-
-                    <span class="logo-orange">
-                        PRO
-                    </span>
-
-                </div>
-
+<header class="header" id="topo">
+    <div class="header-container">
+        <a href="#topo" class="logo-container" aria-label="VolleyTable Pro">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" class="logo" alt="VolleyTable Pro">
+            <div class="logo-text">
+                <span class="logo-white">VOLLEYTABLE</span>
+                <span class="logo-orange">PRO</span>
             </div>
-
-            <nav class="menu">
-
-                <a href="#">Início</a>
-                <a href="#">Recursos</a>
-                <a href="#">Como Funciona</a>
-                <a href="#">Contato</a>
-
-            </nav>
-
-            <a href="/login" class="login-button">
-                Entrar
-            </a>
-
-        </div>
-
-    </header>
-
-
-    <!-- HERO -->
-    <section class="hero">
-
-        <div class="hero-overlay"></div>
-
-        <div class="hero-content">
-
-            <div class="hero-left">
-
-                <h1>
-
-                    VOLLEYTABLE
-                    <span>PRO</span>
-
-                </h1>
-
-                <h2>
-                    Sistema profissional para gestão
-                    de voleibol em tempo real
-                </h2>
-
-                <p>
-                    Organização, arbitragem, apontamento,
-                    scout e placar ao vivo em uma única plataforma.
-                </p>
-
-                <div class="hero-buttons">
-
-                    <a href="/login" class="btn-primary">
-                        Entrar no Sistema
-                    </a>
-
-                    <a
-                        href="/demo"
-                        class="btn-secondary"
-                    >
-                        Solicitar demonstração
-                    </a>
-
-                </div>
-
-                <div class="hero-tags">
-
-                    <div class="tag">
-                        ⚡ Rápido
-                    </div>
-
-                    <div class="tag">
-                        ✔ Intuitivo
-                    </div>
-
-                    <div class="tag">
-                        ⭐ Completo
-                    </div>
-
-                </div>
-
-            </div>
-
-        </div>
-
-        <div class="hero-wave"></div>
-
-    </section>
-
-
-    <!-- FEATURES -->
-    <section class="features">
-
-        <span class="section-mini-title">
-            O QUE O VOLLEYTABLE PRO FAZ
-        </span>
-
-        <h2>
-            Tudo que você precisa em um só lugar
-        </h2>
-
-        <div class="features-grid">
-
-            <div class="feature-card">
-
-                <img
-                    src="{{ url_for('static', filename='icons/icon_gestao_competicoes.png') }}"
-                    class="feature-icon"
-                >
-
-                <h3>
-                    Gestão de Competições
-                </h3>
-
-                <p>
-                    Crie campeonatos,
-                    grupos, fases eliminatórias,
-                    equipes e atletas.
-                </p>
-
-            </div>
-
-            <div class="feature-card">
-
-                <img
-                    src="{{ url_for('static', filename='icons/icon_apontador.png') }}"
-                    class="feature-icon"
-                >
-
-                <h3>
-                    Apontador Profissional
-                </h3>
-
-                <p>
-                    Controle pontos,
-                    sets, rotação,
-                    substituições e súmula.
-                </p>
-
-            </div>
-
-            <div class="feature-card">
-
-                <img
-                    src="{{ url_for('static', filename='icons/icon_treinador.png') }}"
-                    class="feature-icon"
-                >
-
-                <h3>
-                    Painel do Treinador
-                </h3>
-
-                <p>
-                    Acompanhe scout,
-                    estatísticas e
-                    solicitações em tempo real.
-                </p>
-
-            </div>
-
-            <div class="feature-card">
-
-                <img
-                    src="{{ url_for('static', filename='icons/icon_telao.png') }}"
-                    class="feature-icon"
-                >
-
-                <h3>
-                    Telão Ao Vivo
-                </h3>
-
-                <p>
-                    Placar profissional
-                    em tempo real para
-                    transmissões e ginásios.
-                </p>
-
-            </div>
-
-            <div class="feature-card">
-
-                <img
-                    src="{{ url_for('static', filename='icons/icon_arbitros.png') }}"
-                    class="feature-icon"
-                >
-
-                <h3>
-                    Painel dos Árbitros
-                </h3>
-
-                <p>
-                    Controle visual de saque,
-                    rotação, tempos e notificações.
-                </p>
-
-            </div>
-
-            <div class="feature-card">
-
-                <img
-                    src="{{ url_for('static', filename='icons/icon_relatorios.png') }}"
-                    class="feature-icon"
-                >
-
-                <h3>
-                    Relatórios e Estatísticas
-                </h3>
-
-                <p>
-                    Acompanhe desempenho
-                    de equipes e atletas
-                    durante toda a competição.
-                </p>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- HOW -->
-    <section class="how-section">
-
-        <span class="section-mini-title">
-            COMO FUNCIONA
-        </span>
-
-        <h2>
-            Simples, rápido e completo
-        </h2>
-
-        <div class="how-grid">
-
-            <div class="how-item">
-
-                <div class="number-box">
-                    1
-                </div>
-
-                <div class="how-text">
-
-                    <h3>
-                        Cadastre a competição
-                    </h3>
-
-                    <p>
-                        Monte equipes,
-                        categorias e
-                        formato do torneio.
-                    </p>
-
-                </div>
-
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="how-item">
-
-                <div class="number-box">
-                    2
-                </div>
-
-                <div class="how-text">
-
-                    <h3>
-                        Configure as partidas
-                    </h3>
-
-                    <p>
-                        Defina confrontos,
-                        grupos e fases.
-                    </p>
-
-                </div>
-
-            </div>
-
-            <div class="arrow">
-                →
-            </div>
-
-            <div class="how-item">
-
-                <div class="number-box">
-                    3
-                </div>
-
-                <div class="how-text">
-
-                    <h3>
-                        Controle tudo ao vivo
-                    </h3>
-
-                    <p>
-                        Apontamento,
-                        scout,
-                        arbitragem e telão
-                        sincronizados.
-                    </p>
-
-                </div>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- DIFFERENTIALS -->
-    <section class="differentials">
-
-        <span class="section-mini-title orange">
-            DIFERENCIAIS DO SISTEMA
-        </span>
-
-        <h2>
-            Por que escolher o VolleyTable Pro?
-        </h2>
-
-        <div class="diff-grid">
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/tempo_real.png') }}"
-                >
-
-                <p>
-                    Atualização
-                    em tempo real
-                </p>
-
-            </div>
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/celular.png') }}"
-                >
-
-                <p>
-                    Sistema
-                    otimizado para celular
-                </p>
-
-            </div>
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/telao_16_9.png') }}"
-                >
-
-                <p>
-                    Telão profissional
-                    16:9
-                </p>
-
-            </div>
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/integracao.png') }}"
-                >
-
-                <p>
-                    Integração entre
-                    apontador,
-                    treinador e árbitros
-                </p>
-
-            </div>
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/scout.png') }}"
-                >
-
-                <p>
-                    Scout
-                    completo
-                </p>
-
-            </div>
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/estrutura.png') }}"
-                >
-
-                <p>
-                    Estrutura profissional
-                    de competição
-                </p>
-
-            </div>
-
-            <div class="diff-item">
-
-                <img
-                    src="{{ url_for('static', filename='img/differentials/rapidez.png') }}"
-                >
-
-                <p>
-                    Sistema rápido
-                    e responsivo
-                </p>
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- CONTACT -->
-    <section class="contact-section">
-
-        <div class="contact-left">
-
-            <span>
-                QUER USAR O VOLLEYTABLE PRO?
-            </span>
-
-            <h2>
-                Entre em contato!
-            </h2>
-
+        </a>
+
+        <button class="menu-mobile-btn" type="button" onclick="alternarMenuLanding()" aria-label="Abrir menu">☰</button>
+
+        <nav class="menu" id="menuLanding">
+            <a href="#topo" onclick="fecharMenuLanding()">Início</a>
+            <a href="#recursos" onclick="fecharMenuLanding()">Recursos</a>
+            <a href="#como-funciona" onclick="fecharMenuLanding()">Como Funciona</a>
+            <a href="#contratar" onclick="fecharMenuLanding()">Contato</a>
+        </nav>
+
+        <a href="/login" class="login-button">Entrar</a>
+    </div>
+</header>
+
+<a href="https://wa.me/5554999698513?text=Olá,%20gostaria%20de%20conhecer%20o%20VolleyTable%20Pro." target="_blank" class="floating-demo">
+💬 Fale conosco
+<small>(54) 99969-8513</small>
+</a>
+
+<section class="hero section-animate">
+    <div class="hero-bg-motion"></div>
+    <div class="hero-content">
+        <div class="hero-left">
+            <div class="hero-pill">🏐 Sistema completo para competições de voleibol</div>
+            <h1>Organize sua competição como um evento profissional</h1>
             <p>
-                Tire suas dúvidas,
-                solicite uma demonstração
-                e leve sua competição
-                para outro nível.
+                Tabela, geração de jogos, apontador digital, scout, telão, equipes e público online.
+                Tudo sincronizado em tempo real em uma única plataforma.
             </p>
-
-            <a
-                href="/demo"
-                class="whatsapp-button"
-            >
-                Solicitar demonstração
-            </a>
-
+            <div class="hero-buttons">
+                <a href="#contratar" class="btn-primary">🚀 Solicitar demonstração</a>
+                <a href="#recursos" class="btn-secondary">Ver recursos</a>
+            </div>
+            <div class="hero-tags">
+                <div class="tag">⚡ Tempo real</div>
+                <div class="tag">📱 Celular e tablet</div>
+                <div class="tag">📺 Telão ao vivo</div>
+            </div>
         </div>
 
-        <div class="contact-right">
-
-        </div>
-
-    </section>
-
-
-    <!-- FOOTER -->
-    <footer class="footer">
-
-        <div class="footer-left">
-
-            <img
-                src="{{ url_for('static', filename='img/logo.png') }}"
-                class="footer-logo"
-            >
-
-            <div>
-
-                <h3>
-                    VOLLEYTABLE PRO
-                </h3>
-
-                <p>
-                    Desenvolvido para competições
-                    de voleibol com foco em agilidade,
-                    organização e experiência profissional.
-                </p>
-
+        <div class="hero-right">
+            <div class="live-card">
+                <div class="live-top">
+                    <span>PARTIDA AO VIVO</span>
+                    <strong class="pulse-dot"></strong>
+                </div>
+                <div class="score-board">
+                    <div class="team-line active">
+                        <span>Equipe Azul</span>
+                        <strong id="scoreA">23</strong>
+                    </div>
+                    <div class="team-line">
+                        <span>Equipe Vermelha</span>
+                        <strong id="scoreB">21</strong>
+                    </div>
+                </div>
+                <div class="mini-events" id="miniEvents">
+                    <div>🏐 Ataque convertido — Equipe Azul</div>
+                    <div>🛡️ Bloqueio — Equipe Vermelha</div>
+                    <div>⚡ Equipe Vermelha — Equipe Azul</div>
+                </div>
             </div>
 
+            <div class="ecosystem-card">
+                <div class="eco-node main">Organizador</div>
+                <div class="eco-line"></div>
+                <div class="eco-row">
+                    <div class="eco-node">Apontador</div>
+                    <div class="eco-node">Telão</div>
+                    <div class="eco-node">Público</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="stats-section section-animate">
+    <div class="stat-card"><strong data-counter="1000">0</strong><span>partidas controladas</span></div>
+    <div class="stat-card"><strong data-counter="500">0</strong><span>equipes organizadas</span></div>
+    <div class="stat-card"><strong data-counter="100">0</strong><span>% em tempo real</span></div>
+    <div class="stat-card"><strong data-counter="24">0</strong><span>horas de operação</span></div>
+</section>
+
+<section class="features section-animate" id="recursos">
+    <span class="section-mini-title">RECURSOS INTERATIVOS</span>
+    <h2>O sistema trabalha junto com sua competição</h2>
+    <p class="section-subtitle">Clique em cada recurso para ver o que ele entrega na prática.</p>
+
+    <div class="interactive-layout">
+        <div class="features-grid interactive-cards">
+            <button class="feature-card active" type="button" data-feature="gestao">
+                <span class="feature-emoji">🏆</span>
+                <h3>Gestão de Competições</h3>
+                <p>Grupos, fases, jogos, classificação e chaveamento.</p>
+            </button>
+            <button class="feature-card" type="button" data-feature="apontador">
+                <span class="feature-emoji">📋</span>
+                <h3>Apontador Digital</h3>
+                <p>Pontos, sets, saque, rotação, cartões e tempos.</p>
+            </button>
+            <button class="feature-card" type="button" data-feature="scout">
+                <span class="feature-emoji">📊</span>
+                <h3>Scout Profissional</h3>
+                <p>Ataque, bloqueio, ace, erro e estatísticas por atleta.</p>
+            </button>
+            <button class="feature-card" type="button" data-feature="telao">
+                <span class="feature-emoji">📺</span>
+                <h3>Telão Ao Vivo</h3>
+                <p>Placar grande, escudos, saque e atualização instantânea.</p>
+            </button>
+            <button class="feature-card" type="button" data-feature="equipes">
+                <span class="feature-emoji">👥</span>
+                <h3>Portal das Equipes</h3>
+                <p>Atletas, jogos, resultados, escudo e conferência.</p>
+            </button>
+            <button class="feature-card" type="button" data-feature="publico">
+                <span class="feature-emoji">🌎</span>
+                <h3>Público Online</h3>
+                <p>Tabela, partidas ao vivo e resultados pelo link público.</p>
+            </button>
         </div>
 
-        <div class="footer-right">
-
-            © 2024 VolleyTable Pro
-
+        <div class="feature-preview" id="featurePreview">
+            <div class="preview-badge">Recurso selecionado</div>
+            <h3 id="previewTitle">Gestão de Competições</h3>
+            <p id="previewText">Monte sua competição com grupos, classificatórias, eliminatórias, séries Ouro e Prata, geração de confrontos e classificação em tempo real.</p>
+            <ul id="previewList">
+                <li>Criação de grupos e fases</li>
+                <li>Geração automática de jogos</li>
+                <li>Classificação e chaveamento</li>
+            </ul>
+            <div class="preview-screen" id="previewScreen">
+                <div class="screen-line wide"></div>
+                <div class="screen-line"></div>
+                <div class="screen-table">
+                    <span>1º Equipe Azul</span><b>9 pts</b>
+                    <span>2º Equipe Vermelha</span><b>6 pts</b>
+                    <span>3º Equipe Verde</span><b>3 pts</b>
+                </div>
+            </div>
         </div>
+    </div>
+</section>
 
-    </footer>
+<section class="how-section section-animate" id="como-funciona">
+    <span class="section-mini-title">COMO FUNCIONA</span>
+    <h2>Do cadastro ao placar ao vivo em poucos passos</h2>
+
+    <div class="timeline-tabs">
+        <button class="step-btn active" type="button" data-step="0">1. Criar competição</button>
+        <button class="step-btn" type="button" data-step="1">2. Cadastrar equipes</button>
+        <button class="step-btn" type="button" data-step="2">3. Gerar jogos</button>
+        <button class="step-btn" type="button" data-step="3">4. Apontar ao vivo</button>
+        <button class="step-btn" type="button" data-step="4">5. Compartilhar</button>
+    </div>
+
+    <div class="step-showcase">
+        <div class="step-copy">
+            <span id="stepNumber">PASSO 1</span>
+            <h3 id="stepTitle">Crie a competição</h3>
+            <p id="stepText">Defina nome, categoria, formato, pontuação, scout, fases e regras do torneio.</p>
+        </div>
+        <div class="step-device" id="stepDevice">
+            <div class="device-top"></div>
+            <div class="device-content device-form">
+                <div class="mock-title">Nova competição</div>
+                <div class="mock-field"><span>Nome</span><strong>Copa Exemplo</strong></div>
+                <div class="mock-field"><span>Formato</span><strong>Grupos + mata-mata</strong></div>
+                <div class="mock-field"><span>Scout</span><strong>Simples ou avançado</strong></div>
+                <div class="mock-button">Salvar competição</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="ecosystem-section section-animate">
+    <span class="section-mini-title orange">ECOSSISTEMA CONECTADO</span>
+    <h2>Todo mundo acompanha a mesma competição ao mesmo tempo</h2>
+    <div class="system-map">
+        <div class="map-node organizer">Organizador</div>
+        <div class="map-node apontador">Apontador</div>
+        <div class="map-node arbitro">Árbitros</div>
+        <div class="map-node telao">Telão</div>
+        <div class="map-node equipe">Equipes</div>
+        <div class="map-node publico">Público</div>
+        <div class="map-center">VolleyTable<br><span>Tempo Real</span></div>
+    </div>
+</section>
+
+<section class="comparison-section section-animate">
+    <span class="section-mini-title">POR QUE CONTRATAR?</span>
+    <h2>Chega de planilha, papel e resultado perdido</h2>
+    <div class="comparison-card">
+        <div class="comparison-row head"><span>Recurso</span><span>Papel/Planilha</span><span>VolleyTable Pro</span></div>
+        <div class="comparison-row"><span>Tabela automática</span><span class="bad">✕</span><span class="good">✓</span></div>
+        <div class="comparison-row"><span>Apontador digital</span><span class="bad">✕</span><span class="good">✓</span></div>
+        <div class="comparison-row"><span>Scout por atleta</span><span class="bad">✕</span><span class="good">✓</span></div>
+        <div class="comparison-row"><span>Telão ao vivo</span><span class="bad">✕</span><span class="good">✓</span></div>
+        <div class="comparison-row"><span>Link para torcida</span><span class="bad">✕</span><span class="good">✓</span></div>
+    </div>
+</section>
+
+<section class="contact-section section-animate" id="contratar">
+    <div class="contact-left">
+        <span>QUER USAR O VOLLEYTABLE PRO?</span>
+        <h2>Sua competição merece uma operação profissional.</h2>
+        <p>Solicite uma demonstração e veja como o sistema pode organizar tabela, apontamento, scout, telão e resultados ao vivo no seu torneio.</p>
+        <div class="contact-actions">
+            <a href="/demo" class="whatsapp-button">🚀 Solicitar demonstração</a>
+            <a href="/login" class="contact-login">Já tenho acesso</a>
+        </div>
+    </div>
+    <div class="contact-right">
+        <div class="contact-card">
+            <strong>Pronto para vender melhor seu evento?</strong>
+            <p>Mostre profissionalismo para equipes, atletas, patrocinadores e torcida.</p>
+        </div>
+    </div>
+</section>
+
+<footer class="footer">
+    <div class="footer-left">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" class="footer-logo" alt="VolleyTable Pro">
+        <div>
+            <h3>VolleyTable Pro</h3>
+            <p>Sistema profissional para gestão de competições de voleibol.</p>
+        </div>
+    </div>
+    <div class="footer-right">© VolleyTable Pro</div>
+</footer>
+
+<script>
+const featureData = {
+    gestao: {
+        title: 'Gestão de Competições',
+        text: 'Monte sua competição com grupos, classificatórias, eliminatórias, séries Ouro e Prata, geração de confrontos e classificação em tempo real.',
+        list: ['Criação de grupos e fases', 'Geração automática de jogos', 'Classificação e chaveamento'],
+        screen: '<div class="mock-dashboard"><div class="mock-title">Classificação</div><div class="screen-table"><span>1º Equipe Azul</span><b>9 pts</b><span>2º Equipe Vermelha</span><b>6 pts</b><span>3º Equipe Verde</span><b>3 pts</b></div><div class="mock-button">Gerar próxima fase</div></div>'
+    },
+    apontador: {
+        title: 'Apontador Digital',
+        text: 'Controle a partida direto pelo celular ou tablet, com pontuação, saque, rotação, tempos, cartões e histórico das ações.',
+        list: ['Ponto a ponto em tempo real', 'Saque e rotação visual', 'Atalhos para operação rápida'],
+        screen: '<div class="mini-score"><div><span>Equipe Azul</span><b>24</b></div><div><span>Equipe Vermelha</span><b>22</b></div></div><div class="serve-indicator">● Saque Equipe Azul</div><div class="mock-events"><span>+1 Ataque</span><span>Tempo solicitado</span><span>Cartão amarelo</span></div>'
+    },
+    scout: {
+        title: 'Scout Profissional',
+        text: 'Registre fundamentos e gere estatísticas por equipe e por atleta durante a partida.',
+        list: ['Ataques, bloqueios e aces', 'Erros e fundamentos', 'Relatórios pós-jogo'],
+        screen: '<div class="mock-title">Scout do set</div><div class="bar-chart"><span style="height:82%"></span><span style="height:55%"></span><span style="height:38%"></span><span style="height:70%"></span></div><div class="chart-labels">Ataque • Bloqueio • Ace • Erro</div><div class="mock-events"><span>Atleta 08</span><span>Atleta 12</span></div>'
+    },
+    telao: {
+        title: 'Telão Ao Vivo',
+        text: 'Exiba um placar bonito para ginásio, transmissão ou TV, sempre sincronizado com o apontador.',
+        list: ['Placar profissional', 'Escudos e nomes das equipes', 'Set, saque e status da partida'],
+        screen: '<div class="big-screen"><span>Equipe Azul x Equipe Vermelha</span><strong>23 x 21</strong><span>SET 1 • AO VIVO</span><em>● Saque Equipe Azul</em></div>'
+    },
+    equipes: {
+        title: 'Portal das Equipes',
+        text: 'Cada equipe acompanha seus jogos, atletas, escudo, conferência e informações da competição.',
+        list: ['Cadastro de atletas', 'Lista de partidas', 'Resultados e classificação'],
+        screen: '<div class="team-list"><span>✅ Atletas aprovados</span><span>🏐 Próximo jogo: 14h30</span><span>🛡️ Escudo e dados da equipe</span><span>📋 Conferência liberada</span></div>'
+    },
+    publico: {
+        title: 'Público Online',
+        text: 'Compartilhe um link público para torcida, atletas e patrocinadores acompanharem tudo ao vivo.',
+        list: ['Tabela online', 'Jogos ao vivo', 'Resultados instantâneos'],
+        screen: '<div class="mock-title">Página pública</div><div class="public-link">link-publico-do-torneio</div><div class="team-list"><span>🔴 Jogo ao vivo</span><span>🏆 Classificação atualizada</span><span>📲 Compartilhar com torcida</span></div>'
+    }
+};
+
+const stepData = [
+    {
+        number: 'PASSO 1',
+        title: 'Crie a competição',
+        text: 'Defina nome, categoria, formato, pontuação, scout, fases e regras do torneio.',
+        device: '<div class="device-top"></div><div class="device-content device-form"><div class="mock-title">Nova competição</div><div class="mock-field"><span>Nome</span><strong>Copa Exemplo</strong></div><div class="mock-field"><span>Formato</span><strong>Grupos + mata-mata</strong></div><div class="mock-field"><span>Scout</span><strong>Ativado</strong></div><div class="mock-button">Salvar competição</div></div>'
+    },
+    {
+        number: 'PASSO 2',
+        title: 'Cadastre equipes e atletas',
+        text: 'Organize as equipes, escudos, atletas, numeração e conferências antes do torneio.',
+        device: '<div class="device-top"></div><div class="device-content"><div class="mock-title">Equipes cadastradas</div><div class="mock-team"><b>Equipe Azul</b><span>12 atletas</span></div><div class="mock-team"><b>Equipe Vermelha</b><span>11 atletas</span></div><div class="mock-team"><b>Equipe Verde</b><span>10 atletas</span></div><div class="mock-button">Conferir atletas</div></div>'
+    },
+    {
+        number: 'PASSO 3',
+        title: 'Gere a tabela',
+        text: 'Monte grupos, ordem dos jogos, fases eliminatórias, Ouro e Prata com menos trabalho manual.',
+        device: '<div class="device-top"></div><div class="device-content"><div class="mock-title">Tabela automática</div><div class="mock-game"><span>Jogo 01</span><b>Equipe Azul x Equipe Vermelha</b></div><div class="mock-game"><span>Jogo 02</span><b>Equipe Verde x Equipe Laranja</b></div><div class="mock-game"><span>Próxima fase</span><b>Aguardando classificados</b></div></div>'
+    },
+    {
+        number: 'PASSO 4',
+        title: 'Controle tudo ao vivo',
+        text: 'O apontador registra pontos, scout, saque e eventos. O telão e a tabela atualizam junto.',
+        device: '<div class="device-top"></div><div class="device-content"><div class="mock-live"><span>AO VIVO</span><strong>24 x 22</strong><small>Set point • Equipe Azul</small></div><div class="mock-events"><span>+1 Ataque</span><span>Bloqueio</span><span>Ace</span></div></div>'
+    },
+    {
+        number: 'PASSO 5',
+        title: 'Compartilhe com o público',
+        text: 'Equipes, torcida e patrocinadores acompanham resultados, jogos e classificação pelo link público.',
+        device: '<div class="device-top"></div><div class="device-content"><div class="mock-title">Link público</div><div class="public-link">link-publico-do-torneio</div><div class="mock-button">Copiar link</div><div class="team-list"><span>📺 Telão</span><span>📱 Celular</span><span>💻 Computador</span></div></div>'
+    }
+];
+
+function alternarMenuLanding(){
+    document.getElementById('menuLanding').classList.toggle('aberto');
+}
+function fecharMenuLanding(){
+    document.getElementById('menuLanding').classList.remove('aberto');
+}
+
+document.querySelectorAll('[data-feature]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-feature]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const data = featureData[btn.dataset.feature];
+        document.getElementById('previewTitle').textContent = data.title;
+        document.getElementById('previewText').textContent = data.text;
+        document.getElementById('previewList').innerHTML = data.list.map(item => `<li>${item}</li>`).join('');
+        document.getElementById('previewScreen').innerHTML = data.screen;
+        document.getElementById('featurePreview').classList.remove('preview-pop');
+        void document.getElementById('featurePreview').offsetWidth;
+        document.getElementById('featurePreview').classList.add('preview-pop');
+    });
+});
+
+document.querySelectorAll('[data-step]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-step]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const step = stepData[Number(btn.dataset.step)];
+        document.getElementById('stepNumber').textContent = step.number;
+        document.getElementById('stepTitle').textContent = step.title;
+        document.getElementById('stepText').textContent = step.text;
+        const device = document.getElementById('stepDevice');
+        device.innerHTML = step.device;
+        device.classList.remove('device-pop');
+        void device.offsetWidth;
+        device.classList.add('device-pop');
+    });
+});
+
+const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+        if(entry.isIntersecting){
+            entry.target.classList.add('visible');
+        }
+    });
+}, { threshold: 0.16 });
+
+document.querySelectorAll('.section-animate').forEach(el => observer.observe(el));
+
+let countersStarted = false;
+function animateCounters(){
+    if(countersStarted) return;
+    const stats = document.querySelector('.stats-section');
+    if(!stats) return;
+    const rect = stats.getBoundingClientRect();
+    if(rect.top < window.innerHeight - 80){
+        countersStarted = true;
+        document.querySelectorAll('[data-counter]').forEach(counter => {
+            const target = Number(counter.dataset.counter);
+            let current = 0;
+            const inc = Math.max(1, Math.ceil(target / 50));
+            const timer = setInterval(() => {
+                current += inc;
+                if(current >= target){ current = target; clearInterval(timer); }
+                counter.textContent = '+' + current;
+            }, 24);
+        });
+    }
+}
+window.addEventListener('scroll', animateCounters);
+window.addEventListener('load', animateCounters);
+
+setInterval(() => {
+    const a = document.getElementById('scoreA');
+    const b = document.getElementById('scoreB');
+    if(!a || !b) return;
+    a.classList.toggle('score-pulse');
+    b.classList.toggle('score-pulse');
+}, 1600);
+</script>
 
 </body>
-
 </html>
