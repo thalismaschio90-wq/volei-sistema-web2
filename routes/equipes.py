@@ -490,6 +490,7 @@ def nova_equipe():
                 "nome": resultado.get("nome"),
                 "login": resultado.get("login"),
                 "senha": resultado.get("senha"),
+                "escudo": resultado.get("escudo") or resultado.get("escudo_exibicao"),
                 "ja_existia": True,
                 "ja_vinculada": resultado.get("ja_vinculada", False),
             }

@@ -88,6 +88,51 @@
         background: #fff;
     }
 
+    .resultado-equipe-main {
+        display: grid;
+        grid-template-columns: 78px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+        min-width: 0;
+    }
+
+    .resultado-escudo-box {
+        width: 78px;
+        height: 78px;
+        border-radius: 18px;
+        border: 1px solid var(--border, #d9e2ec);
+        background: #f8fbff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+
+    .resultado-escudo-img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+        padding: 7px;
+    }
+
+    .resultado-escudo-vazio {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: 1000;
+        color: var(--muted, #607286);
+        background: linear-gradient(180deg, #f8fbff 0%, #edf4fb 100%);
+    }
+
+    .resultado-conteudo {
+        min-width: 0;
+    }
+
     .resultado-nome {
         font-size: 20px;
         font-weight: 1000;
@@ -151,6 +196,17 @@
         .resultado-dados {
             grid-template-columns: 1fr;
         }
+
+        .resultado-equipe-main {
+            grid-template-columns: 64px minmax(0, 1fr);
+            gap: 12px;
+        }
+
+        .resultado-escudo-box {
+            width: 64px;
+            height: 64px;
+            border-radius: 15px;
+        }
     }
 </style>
 
@@ -213,24 +269,46 @@
             <div class="equipes-encontradas">
                 {% for equipe in equipes_encontradas %}
                     <div class="resultado-equipe">
-                        <div>
-                            <div class="resultado-nome">{{ equipe.nome }}</div>
-                            <div class="resultado-login">Login: {{ equipe.login }}</div>
-
-                            <div class="resultado-dados">
-                                <div><span>Cidade:</span> {{ equipe.cidade or 'Não informada' }}</div>
-                                <div><span>Responsável:</span> {{ equipe.responsavel or 'Não informado' }}</div>
-                                <div><span>Telefone:</span> {{ equipe.telefone or 'Não informado' }}</div>
-                                <div><span>E-mail:</span> {{ equipe.email or 'Não informado' }}</div>
-                                <div><span>Instagram:</span> {{ equipe.instagram or '-' }}</div>
-                                <div><span>Cadastro:</span> {{ 'Completo' if equipe.perfil_completo else 'Incompleto' }}</div>
+                        <div class="resultado-equipe-main">
+                            <div class="resultado-escudo-box">
+                                {% set escudo_equipe = equipe.escudo_url or equipe.escudo or equipe.logo or equipe.logo_url %}
+                                {% if escudo_equipe %}
+                                    <img
+                                        src="{{ escudo_equipe }}"
+                                        alt="Escudo {{ equipe.nome }}"
+                                        class="resultado-escudo-img"
+                                        loading="lazy"
+                                        onerror="this.style.display='none'; this.parentElement.querySelector('.resultado-escudo-vazio-fallback').style.display='flex';"
+                                    >
+                                    <div class="resultado-escudo-vazio resultado-escudo-vazio-fallback" style="display:none;">
+                                        {{ (equipe.nome or '?')[:1]|upper }}
+                                    </div>
+                                {% else %}
+                                    <div class="resultado-escudo-vazio">
+                                        {{ (equipe.nome or '?')[:1]|upper }}
+                                    </div>
+                                {% endif %}
                             </div>
 
-                            {% if equipe.perfil_completo %}
-                                <div class="perfil-tag perfil-ok">Perfil completo</div>
-                            {% else %}
-                                <div class="perfil-tag perfil-pendente">Perfil incompleto</div>
-                            {% endif %}
+                            <div class="resultado-conteudo">
+                                <div class="resultado-nome">{{ equipe.nome }}</div>
+                                <div class="resultado-login">Login: {{ equipe.login }}</div>
+
+                                <div class="resultado-dados">
+                                    <div><span>Cidade:</span> {{ equipe.cidade or 'Não informada' }}</div>
+                                    <div><span>Responsável:</span> {{ equipe.responsavel or 'Não informado' }}</div>
+                                    <div><span>Telefone:</span> {{ equipe.telefone or 'Não informado' }}</div>
+                                    <div><span>E-mail:</span> {{ equipe.email or 'Não informado' }}</div>
+                                    <div><span>Instagram:</span> {{ equipe.instagram or '-' }}</div>
+                                    <div><span>Cadastro:</span> {{ 'Completo' if equipe.perfil_completo else 'Incompleto' }}</div>
+                                </div>
+
+                                {% if equipe.perfil_completo %}
+                                    <div class="perfil-tag perfil-ok">Perfil completo</div>
+                                {% else %}
+                                    <div class="perfil-tag perfil-pendente">Perfil incompleto</div>
+                                {% endif %}
+                            </div>
                         </div>
 
                         <form method="post">

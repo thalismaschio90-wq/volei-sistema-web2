@@ -1812,115 +1812,295 @@ def atualizar_pontuacao_desempate(nome_competicao, dados):
 
 
 def excluir_competicao(nome):
+    """Exclui uma competição sem apagar cadastros permanentes.
+
+    Mantém:
+    - atletas cadastrados;
+    - equipes cadastradas;
+    - usuários superadmin, equipe e apontador;
+    - oficiais/apontadores globais.
+
+    Remove:
+    - competição principal;
+    - partidas;
+    - grupos;
+    - vínculos da competição;
+    - papeletas;
+    - eventos;
+    - scouts/destaques/sanções/históricos/pins/quadras/configurações da competição.
+
+    Importante:
+    O usuário organizador NÃO pode ser apagado antes da linha de competicoes,
+    porque competicoes.organizador_login pode referenciar usuarios.login.
+    Por isso primeiro limpamos os dados operacionais, depois apagamos
+    competicoes e só no final removemos o organizador daquela competição.
+    """
     if not nome:
         return False
 
-    # IMPORTANTE:
-    # A tabela "atletas" NÃO fica mais nesta lista.
-    # Ao excluir uma competição, os atletas cadastrados devem permanecer no banco
-    # e apenas perder o vínculo com a competição/equipe excluída.
-    tabelas_por_competicao = [
-        "competicao_quadras",
-        "competicao_oficiais",
-        "equipe_conferencia",
-        "eventos",
-        "eventos_partida",
-        "grupo_equipes",
-        "grupos_equipes",
-        "historico_rotacao",
-        "papeletas",
-        "sancoes_partida",
-        "solicitacoes_treinador",
-        "equipes_competicoes",
-        "grupos",
-        "partidas",
-    ]
+    def _valor_linha(linha, chave, indice=0):
+        return linha.get(chave) if isinstance(linha, dict) else linha[indice]
+
+    def _identificador(nome_identificador):
+        """Aspas seguras para nomes vindos do information_schema."""
+        nome_identificador = str(nome_identificador or "")
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", nome_identificador):
+            raise ValueError(f"Identificador SQL inválido: {nome_identificador}")
+        return '"' + nome_identificador.replace('"', '""') + '"'
+
+    def _tabela_existe(tabelas, tabela):
+        return tabela in tabelas
+
+    def _tem_coluna(colunas_por_tabela, tabela, coluna):
+        return coluna in colunas_por_tabela.get(tabela, set())
+
+    def _delete_por_coluna(cur, tabelas_existentes, colunas_por_tabela, tabela, coluna, valor):
+        if _tabela_existe(tabelas_existentes, tabela) and _tem_coluna(colunas_por_tabela, tabela, coluna):
+            cur.execute(
+                f"DELETE FROM {_identificador(tabela)} WHERE {_identificador(coluna)} = %s",
+                (valor,),
+            )
+
+    def _update_vinculo_null(cur, tabelas_existentes, colunas_por_tabela, tabela, coluna_filtro, valor_filtro, campos_null):
+        if not _tabela_existe(tabelas_existentes, tabela):
+            return
+        if not _tem_coluna(colunas_por_tabela, tabela, coluna_filtro):
+            return
+
+        campos_validos = [c for c in campos_null if _tem_coluna(colunas_por_tabela, tabela, c)]
+        if not campos_validos:
+            return
+
+        # IMPORTANTE:
+        # No banco atual, atletas.equipe e atletas.competicao são NOT NULL.
+        # Por isso não podemos remover o vínculo usando NULL nesses campos.
+        # Usamos string vazia para soltar o atleta/equipe da competição sem
+        # apagar o cadastro permanente.
+        sets_partes = []
+        valores_update = []
+
+        for c in campos_validos:
+            if tabela == "atletas" and c in {"competicao", "equipe"}:
+                sets_partes.append(f"{_identificador(c)} = %s")
+                valores_update.append("")
+            elif tabela == "equipes" and c == "competicao":
+                sets_partes.append(f"{_identificador(c)} = %s")
+                valores_update.append("")
+            else:
+                sets_partes.append(f"{_identificador(c)} = NULL")
+
+        valores_update.append(valor_filtro)
+        sets = ", ".join(sets_partes)
+        cur.execute(
+            f"UPDATE {_identificador(tabela)} SET {sets} WHERE {_identificador(coluna_filtro)} = %s",
+            tuple(valores_update),
+        )
+
+    # Tabelas que NUNCA devem ser apagadas inteiras nesta rotina.
+    # Elas só podem receber UPDATE/limpeza de vínculo quando necessário.
+    tabelas_preservadas = {
+        "atletas",
+        "equipes",
+        "usuarios",
+        "oficiais",
+        "apontadores_acesso",
+        "demos_temporarias",
+        "configuracoes_sistema",
+    }
+
+    # Alguns bancos antigos/novos usam nomes diferentes para a coluna da competição.
+    colunas_competicao_possiveis = (
+        "competicao",
+        "nome_competicao",
+        "competicao_nome",
+    )
 
     try:
         with conectar() as conn:
             with conn.cursor() as cur:
-                print(">>> EXCLUINDO COMPETIÇÃO COMPLETA:", nome)
+                print(">>> EXCLUINDO COMPETIÇÃO COMPLETA:", nome, flush=True)
 
                 cur.execute("""
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
+                      AND table_type = 'BASE TABLE'
                 """)
                 tabelas_existentes = {
-                    linha.get("table_name") if isinstance(linha, dict) else linha[0]
+                    _valor_linha(linha, "table_name")
                     for linha in cur.fetchall()
                 }
 
                 cur.execute("""
-                    UPDATE usuarios
-                    SET competicao_vinculada = NULL
-                    WHERE competicao_vinculada = %s
-                      AND perfil = 'apontador'
-                """, (nome,))
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                """)
+                colunas_por_tabela = {}
+                for linha in cur.fetchall():
+                    tabela = _valor_linha(linha, "table_name", 0)
+                    coluna = _valor_linha(linha, "column_name", 1)
+                    colunas_por_tabela.setdefault(tabela, set()).add(coluna)
 
-                cur.execute("""
-                    UPDATE usuarios
-                    SET competicao_vinculada = NULL
-                    WHERE competicao_vinculada = %s
-                      AND perfil = 'equipe'
-                """, (nome,))
+                # Guarda o login do organizador antes de apagar a competição.
+                organizador_login = None
+                if _tabela_existe(tabelas_existentes, "competicoes"):
+                    col_competicoes = colunas_por_tabela.get("competicoes", set())
+                    if "organizador_login" in col_competicoes:
+                        cur.execute("""
+                            SELECT organizador_login
+                            FROM competicoes
+                            WHERE nome = %s
+                            LIMIT 1
+                        """, (nome,))
+                        row_org = cur.fetchone()
+                        if row_org:
+                            organizador_login = _valor_linha(row_org, "organizador_login")
 
-                cur.execute("""
-                    DELETE FROM usuarios
-                    WHERE competicao_vinculada = %s
-                      AND perfil NOT IN ('superadmin', 'apontador', 'equipe')
-                """, (nome,))
+                # IDs das partidas da competição. Isso permite apagar primeiro tudo
+                # que depende de partida_id, antes de remover partidas.
+                partida_ids = []
+                if _tabela_existe(tabelas_existentes, "partidas") and _tem_coluna(colunas_por_tabela, "partidas", "competicao"):
+                    cur.execute("SELECT id FROM partidas WHERE competicao = %s", (nome,))
+                    partida_ids = [_valor_linha(linha, "id") for linha in cur.fetchall()]
 
-                # Mantém os atletas cadastrados no banco.
-                # Apenas remove o vínculo deles com a competição/equipe excluída.
-                if "atletas" in tabelas_existentes:
-                    cur.execute("""
-                        SELECT column_name
-                        FROM information_schema.columns
-                        WHERE table_schema = 'public'
-                          AND table_name = 'atletas'
-                    """)
-                    colunas_atletas = {
-                        linha.get("column_name") if isinstance(linha, dict) else linha[0]
-                        for linha in cur.fetchall()
-                    }
+                # Usuários permanentes ficam. Só perdem o vínculo com a competição.
+                # NÃO apagar o organizador aqui, porque competicoes.organizador_login
+                # ainda pode estar apontando para usuarios.login.
+                if _tabela_existe(tabelas_existentes, "usuarios"):
+                    col_usuarios = colunas_por_tabela.get("usuarios", set())
+                    if "competicao_vinculada" in col_usuarios:
+                        cur.execute("""
+                            UPDATE usuarios
+                            SET competicao_vinculada = NULL
+                            WHERE competicao_vinculada = %s
+                              AND COALESCE(perfil, '') IN ('apontador', 'equipe')
+                        """, (nome,))
 
-                    sets_atletas = []
-                    if "competicao" in colunas_atletas:
-                        sets_atletas.append("competicao = NULL")
-                    if "equipe" in colunas_atletas:
-                        sets_atletas.append("equipe = NULL")
-                    if "equipe_login" in colunas_atletas:
-                        sets_atletas.append("equipe_login = NULL")
+                # Atletas ficam cadastrados. Apenas remove vínculo com competição/equipe.
+                _update_vinculo_null(
+                    cur,
+                    tabelas_existentes,
+                    colunas_por_tabela,
+                    "atletas",
+                    "competicao",
+                    nome,
+                    ["competicao", "equipe", "equipe_login", "equipe_id", "numero"],
+                )
 
-                    if sets_atletas and "competicao" in colunas_atletas:
+                # Equipes ficam cadastradas. Se ainda houver coluna antiga competicao,
+                # remove só o vínculo antigo sem apagar a equipe global.
+                _update_vinculo_null(
+                    cur,
+                    tabelas_existentes,
+                    colunas_por_tabela,
+                    "equipes",
+                    "competicao",
+                    nome,
+                    ["competicao"],
+                )
+
+                # 1) Apaga primeiro qualquer tabela filha que tenha partida_id.
+                # Isso cobre eventos, scouts, papeletas, sanções, destaques,
+                # histórico de rotação e tabelas novas que forem criadas depois.
+                if partida_ids:
+                    for tabela in sorted(tabelas_existentes):
+                        if tabela in tabelas_preservadas or tabela in {"partidas", "competicoes"}:
+                            continue
+                        colunas = colunas_por_tabela.get(tabela, set())
+                        if "partida_id" not in colunas:
+                            continue
                         cur.execute(
-                            f"""
-                            UPDATE atletas
-                            SET {", ".join(sets_atletas)}
-                            WHERE competicao = %s
-                            """,
-                            (nome,)
+                            f"DELETE FROM {_identificador(tabela)} WHERE partida_id = ANY(%s)",
+                            (partida_ids,),
                         )
 
-                for tabela in tabelas_por_competicao:
-                    if tabela in tabelas_existentes:
-                        cur.execute(
-                            f"DELETE FROM {tabela} WHERE competicao = %s",
-                            (nome,)
-                        )
+                # 2) Ordem explícita para tabelas que podem ter dependência entre si.
+                # Ex.: grupos_equipes pode depender de grupos; por isso sai antes.
+                ordem_explicita = [
+                    "eventos_partida",
+                    "eventos",
+                    "historico_rotacao",
+                    "sancoes_partida",
+                    "destaques_partida",
+                    "papeletas_sets",
+                    "papeletas",
+                    "classificacao_cache",
+                    "equipe_conferencia",
+                    "grupo_equipes",
+                    "grupos_equipes",
+                    "grupos",
+                    "competicao_quadras",
+                    "competicao_agenda_config",
+                    "competicao_oficiais",
+                    "competicao_pins_operacionais",
+                    "solicitacoes_treinador",
+                    "equipes_competicoes",
+                    "partidas",
+                ]
 
-                cur.execute("DELETE FROM competicoes WHERE nome = %s", (nome,))
+                tabelas_ja_limpas = set()
+                for tabela in ordem_explicita:
+                    if tabela in tabelas_preservadas or tabela == "competicoes":
+                        continue
+                    if not _tabela_existe(tabelas_existentes, tabela):
+                        continue
+                    colunas = colunas_por_tabela.get(tabela, set())
+                    for coluna_comp in colunas_competicao_possiveis:
+                        if coluna_comp in colunas:
+                            cur.execute(
+                                f"DELETE FROM {_identificador(tabela)} WHERE {_identificador(coluna_comp)} = %s",
+                                (nome,),
+                            )
+                            tabelas_ja_limpas.add(tabela)
+                            break
+
+                # 3) Apaga tudo que possui coluna de competição, exceto cadastros preservados,
+                # competicoes e tabelas já limpas acima. Isso deixa a rotina preparada para
+                # tabelas novas criadas no futuro.
+                for tabela in sorted(tabelas_existentes):
+                    if tabela in tabelas_preservadas or tabela == "competicoes" or tabela in tabelas_ja_limpas:
+                        continue
+                    colunas = colunas_por_tabela.get(tabela, set())
+                    for coluna_comp in colunas_competicao_possiveis:
+                        if coluna_comp in colunas:
+                            cur.execute(
+                                f"DELETE FROM {_identificador(tabela)} WHERE {_identificador(coluna_comp)} = %s",
+                                (nome,),
+                            )
+                            break
+
+                # 4) Remove a competição principal.
+                if _tabela_existe(tabelas_existentes, "competicoes"):
+                    cur.execute("DELETE FROM competicoes WHERE nome = %s", (nome,))
+
+                # 5) Agora sim remove o usuário organizador gerado para a competição.
+                # SUPERADMIN, equipe e apontador continuam preservados.
+                if _tabela_existe(tabelas_existentes, "usuarios"):
+                    col_usuarios = colunas_por_tabela.get("usuarios", set())
+
+                    if "competicao_vinculada" in col_usuarios:
+                        cur.execute("""
+                            DELETE FROM usuarios
+                            WHERE competicao_vinculada = %s
+                              AND COALESCE(perfil, '') NOT IN ('superadmin', 'apontador', 'equipe')
+                        """, (nome,))
+
+                    if organizador_login and "login" in col_usuarios:
+                        cur.execute("""
+                            DELETE FROM usuarios
+                            WHERE login = %s
+                              AND COALESCE(perfil, '') NOT IN ('superadmin', 'apontador', 'equipe')
+                        """, (organizador_login,))
 
             conn.commit()
 
-        print(">>> COMPETIÇÃO EXCLUÍDA COMPLETAMENTE")
+        print(">>> COMPETIÇÃO EXCLUÍDA COMPLETAMENTE", flush=True)
         return True
 
     except Exception as e:
-        print("ERRO REAL AO EXCLUIR COMPETIÇÃO:", e)
-        return False        
-
+        print("ERRO REAL AO EXCLUIR COMPETIÇÃO:", repr(e), flush=True)
+        return False
 
 
 # =========================================================
@@ -2957,6 +3137,7 @@ def buscar_equipe_global_por_nome(nome_equipe, conn=None):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
+    criar_campo_escudo_equipes()
 
     sql = """
         SELECT
@@ -2976,7 +3157,9 @@ def buscar_equipe_global_por_nome(nome_equipe, conn=None):
             telefone,
             email,
             instagram,
-            escudo,
+            COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+            escudo_blob,
+            COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
             COALESCE(perfil_completo, FALSE) AS perfil_completo
         FROM equipes
         WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
@@ -3007,6 +3190,7 @@ def buscar_equipes_globais_por_nome(termo, limite=20):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
+    criar_campo_escudo_equipes()
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -3028,7 +3212,9 @@ def buscar_equipes_globais_por_nome(termo, limite=20):
                     telefone,
                     email,
                     instagram,
-                    escudo,
+                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                    escudo_blob,
+                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(perfil_completo, FALSE) AS perfil_completo
                 FROM equipes
                 WHERE LOWER(TRIM(nome)) LIKE LOWER(TRIM(%s))
@@ -3113,6 +3299,7 @@ def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=Non
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
+    criar_campo_escudo_equipes()
     criar_tabela_equipes_competicoes()
 
     def _executar(cnx):
@@ -3128,6 +3315,9 @@ def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=Non
                     telefone,
                     email,
                     instagram,
+                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                    escudo_blob,
+                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(perfil_completo, FALSE) AS perfil_completo
                 FROM equipes
                 WHERE login = %s
@@ -3176,6 +3366,8 @@ def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=Non
                 "login": equipe["login"],
                 "senha": equipe["senha"],
                 "nome": equipe["nome"],
+                "escudo": equipe.get("escudo") if isinstance(equipe, dict) else None,
+                "escudo_exibicao": equipe.get("escudo_exibicao") if isinstance(equipe, dict) else None,
                 "ja_existia": True,
                 "ja_vinculada": ja_vinculada,
                 "vinculada": True,
@@ -3226,6 +3418,7 @@ def listar_equipes_da_competicao(nome_competicao):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
+    criar_campo_escudo_equipes()
     criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
@@ -3250,7 +3443,9 @@ def listar_equipes_da_competicao(nome_competicao):
                     e.telefone,
                     e.email,
                     e.instagram,
-                    e.escudo,
+                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                    e.escudo_blob,
+                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
                     ec.status AS status_vinculo
                 FROM equipes_competicoes ec
@@ -3267,6 +3462,7 @@ def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
+    criar_campo_escudo_equipes()
     criar_tabela_equipes_competicoes()
 
     with conectar() as conn:
@@ -3289,7 +3485,9 @@ def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
                     e.telefone,
                     e.email,
                     e.instagram,
-                    e.escudo,
+                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                    e.escudo_blob,
+                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
                     ec.status AS status_vinculo
                 FROM equipes_competicoes ec
@@ -3323,7 +3521,9 @@ def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
                     telefone,
                     email,
                     instagram,
-                    escudo,
+                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                    escudo_blob,
+                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(perfil_completo, FALSE) AS perfil_completo,
                     'ativa' AS status_vinculo
                 FROM equipes
@@ -3338,6 +3538,7 @@ def buscar_equipe_por_login(login, competicao_atual=None):
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
+    criar_campo_escudo_equipes()
     criar_tabela_equipes_competicoes()
 
     login = (login or "").strip()
@@ -3360,7 +3561,9 @@ def buscar_equipe_por_login(login, competicao_atual=None):
                         e.telefone,
                         e.email,
                         e.instagram,
-                        e.escudo,
+                        COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                        e.escudo_blob,
+                        COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                         COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
 
                         ec.competicao,
@@ -3411,7 +3614,9 @@ def buscar_equipe_por_login(login, competicao_atual=None):
                     e.telefone,
                     e.email,
                     e.instagram,
-                    e.escudo,
+                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                    e.escudo_blob,
+                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
 
                     NULL::text AS competicao,
