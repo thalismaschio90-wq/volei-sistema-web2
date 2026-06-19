@@ -595,6 +595,28 @@ function nomeEquipeB(dados) {
     return dados.equipe_b_operacional || dados.equipe_b_nome || dados.nome_b || dados.time_b || dados.equipe_b || "Equipe B";
 }
 
+
+function normalizarNomeEquipePlacar(valor) {
+    return String(valor || "").trim().toLowerCase();
+}
+
+function setsDaEquipeVisual(dados, nomeVisual) {
+    const nome = normalizarNomeEquipePlacar(nomeVisual);
+    const equipeACadastro = normalizarNomeEquipePlacar(dados.equipe_a_cadastro || dados.equipe_a_original || dados.equipe_a);
+    const equipeBCadastro = normalizarNomeEquipePlacar(dados.equipe_b_cadastro || dados.equipe_b_original || dados.equipe_b);
+
+    if (nome && equipeACadastro && nome === equipeACadastro) return Number(dados.sets_a ?? 0) || 0;
+    if (nome && equipeBCadastro && nome === equipeBCadastro) return Number(dados.sets_b ?? 0) || 0;
+
+    // Fallback: se não vier cadastro no socket, mantém a ordem operacional.
+    const equipeAOp = normalizarNomeEquipePlacar(dados.equipe_a_operacional || dados.equipe_a);
+    const equipeBOp = normalizarNomeEquipePlacar(dados.equipe_b_operacional || dados.equipe_b);
+    if (nome && equipeAOp && nome === equipeAOp) return Number(dados.sets_a ?? 0) || 0;
+    if (nome && equipeBOp && nome === equipeBOp) return Number(dados.sets_b ?? 0) || 0;
+
+    return 0;
+}
+
 function statusPartida(dados) {
     return String(
         dados.status ||
@@ -952,8 +974,11 @@ function aplicarEstado(dados) {
     let pA = pAOriginal;
     let pB = pBOriginal;
 
-    let sA = Number(dados.sets_a ?? 0) || 0;
-    let sB = Number(dados.sets_b ?? 0) || 0;
+    // Sets são oficiais da partida (equipe_a/equipe_b de cadastro).
+    // Como o telão usa equipe_a_operacional/equipe_b_operacional para esquerda/direita,
+    // precisamos mapear pelo nome. Nunca trocar sets só porque o lado visual inverteu.
+    let sA = setsDaEquipeVisual(dados, equipeA);
+    let sB = setsDaEquipeVisual(dados, equipeB);
 
     let saque = normalizarLado(dados.saque_atual || dados.saque);
     const setAtual = Number(dados.set_atual || 1) || 1;
@@ -968,7 +993,8 @@ function aplicarEstado(dados) {
     if (invertido) {
         [equipeA, equipeB] = [equipeB, equipeA];
         [pA, pB] = [pB, pA];
-        [sA, sB] = [sB, sA];
+        sA = setsDaEquipeVisual(dados, equipeA);
+        sB = setsDaEquipeVisual(dados, equipeB);
 
         if (saque === "A") saque = "B";
         else if (saque === "B") saque = "A";

@@ -11,6 +11,8 @@
 %}
 {% set nome_equipe_a_jogo = (partida.get('equipe_a_operacional') if partida is mapping else partida.equipe_a_operacional|default('', true)) or (partida.get('equipe_a') if partida is mapping else partida.equipe_a|default('', true)) or (estado.get('equipe_a_operacional') if estado is mapping else estado.equipe_a_operacional|default('', true)) or (estado.get('equipe_a') if estado is mapping else estado.equipe_a|default('', true)) or 'Equipe A' %}
 {% set nome_equipe_b_jogo = (partida.get('equipe_b_operacional') if partida is mapping else partida.equipe_b_operacional|default('', true)) or (partida.get('equipe_b') if partida is mapping else partida.equipe_b|default('', true)) or (estado.get('equipe_b_operacional') if estado is mapping else estado.equipe_b_operacional|default('', true)) or (estado.get('equipe_b') if estado is mapping else estado.equipe_b|default('', true)) or 'Equipe B' %}
+{% set nome_equipe_a_cadastro_jogo = (partida.get('equipe_a') if partida is mapping else partida.equipe_a|default('', true)) or (estado.get('equipe_a_cadastro') if estado is mapping else estado.equipe_a_cadastro|default('', true)) or nome_equipe_a_jogo %}
+{% set nome_equipe_b_cadastro_jogo = (partida.get('equipe_b') if partida is mapping else partida.equipe_b|default('', true)) or (estado.get('equipe_b_cadastro') if estado is mapping else estado.equipe_b_cadastro|default('', true)) or nome_equipe_b_jogo %}
 {% set escudo_equipe_a_jogo = (estado.get('escudo_a') if estado is mapping else estado.escudo_a|default('', true)) or (estado.get('escudo_a_operacional') if estado is mapping else estado.escudo_a_operacional|default('', true)) or '/static/img/escudo_padrao.svg' %}
 {% set escudo_equipe_b_jogo = (estado.get('escudo_b') if estado is mapping else estado.escudo_b|default('', true)) or (estado.get('escudo_b_operacional') if estado is mapping else estado.escudo_b_operacional|default('', true)) or '/static/img/escudo_padrao.svg' %}
 
@@ -2883,8 +2885,13 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
             return 'disp_temp_' + Date.now().toString(36);
         }
     })();
+    // A/B operacional = lado atual da quadra (pode inverter entre sets).
+    // A/B cadastro = confronto original salvo no banco (NUNCA inverte).
+    // IMPORTANTE: sets_a/sets_b pertencem ao cadastro; pontos_a/pontos_b pertencem ao operacional atual.
     const NOME_EQUIPE_A = {{ nome_equipe_a_jogo | tojson }};
     const NOME_EQUIPE_B = {{ nome_equipe_b_jogo | tojson }};
+    const NOME_EQUIPE_A_CADASTRO = {{ nome_equipe_a_cadastro_jogo | tojson }};
+    const NOME_EQUIPE_B_CADASTRO = {{ nome_equipe_b_cadastro_jogo | tojson }};
     const ESCUDO_PADRAO = "/static/img/escudo_padrao.svg";
     let ESCUDO_EQUIPE_A = {{ escudo_equipe_a_jogo | tojson }};
     let ESCUDO_EQUIPE_B = {{ escudo_equipe_b_jogo | tojson }};
@@ -3485,6 +3492,25 @@ function montarPayloadTempoReal(extra = {}) {
         return String(lado || "").toUpperCase() === "A" ? NOME_EQUIPE_A : NOME_EQUIPE_B;
     }
 
+    function ladoCadastroPorLadoOperacional(ladoOperacional) {
+        const lado = String(ladoOperacional || "").toUpperCase();
+        const nomeOperacional = limparNomeComparacao(nomeEquipePorLado(lado));
+        const nomeCadastroA = limparNomeComparacao(NOME_EQUIPE_A_CADASTRO);
+        const nomeCadastroB = limparNomeComparacao(NOME_EQUIPE_B_CADASTRO);
+
+        if (nomeOperacional && nomeCadastroA && nomeOperacional === nomeCadastroA) return "A";
+        if (nomeOperacional && nomeCadastroB && nomeOperacional === nomeCadastroB) return "B";
+
+        // Fallback seguro para partidas antigas sem equipe_a/equipe_b oficial.
+        return lado === "B" ? "B" : "A";
+    }
+
+    function valorSetEquipeVisual(dados, ladoOperacional, padrao = 0) {
+        const ladoCadastro = ladoCadastroPorLadoOperacional(ladoOperacional);
+        const raw = ladoCadastro === "A" ? dados?.sets_a : dados?.sets_b;
+        return raw ?? padrao;
+    }
+
     function escudoEquipePorLado(lado) {
         return String(lado || "").toUpperCase() === "A" ? (ESCUDO_EQUIPE_A || ESCUDO_PADRAO) : (ESCUDO_EQUIPE_B || ESCUDO_PADRAO);
     }
@@ -3702,8 +3728,8 @@ function montarPayloadTempoReal(extra = {}) {
         if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
         if (pontosA) pontosA.textContent = valorEquipe(dados, equipeEsq, "pontos_a", "pontos_b", 0);
         if (pontosB) pontosB.textContent = valorEquipe(dados, equipeDir, "pontos_a", "pontos_b", 0);
-        if (setsA) setsA.textContent = valorEquipe(dados, equipeEsq, "sets_a", "sets_b", 0);
-        if (setsB) setsB.textContent = valorEquipe(dados, equipeDir, "sets_a", "sets_b", 0);
+        if (setsA) setsA.textContent = valorSetEquipeVisual(dados, equipeEsq, 0);
+        if (setsB) setsB.textContent = valorSetEquipeVisual(dados, equipeDir, 0);
         if (tempoRestanteA) tempoRestanteA.textContent = tempoRestanteDoLado(equipeEsq, dados);
         if (tempoRestanteB) tempoRestanteB.textContent = tempoRestanteDoLado(equipeDir, dados);
         if (subsAEl) subsAEl.textContent = valorEquipe(dados, equipeEsq, "subs_a", "subs_b", 0);
@@ -3763,8 +3789,8 @@ function montarPayloadTempoReal(extra = {}) {
         mobileEls.menuDirTitulo.textContent = nomeDir;
         mobileEls.pontosEsq.textContent = valorEquipe(dados, equipeEsq, "pontos_a", "pontos_b", 0);
         mobileEls.pontosDir.textContent = valorEquipe(dados, equipeDir, "pontos_a", "pontos_b", 0);
-        mobileEls.setsEsq.textContent = valorEquipe(dados, equipeEsq, "sets_a", "sets_b", 0);
-        mobileEls.setsDir.textContent = valorEquipe(dados, equipeDir, "sets_a", "sets_b", 0);
+        mobileEls.setsEsq.textContent = valorSetEquipeVisual(dados, equipeEsq, 0);
+        mobileEls.setsDir.textContent = valorSetEquipeVisual(dados, equipeDir, 0);
         mobileEls.setAtual.textContent = `${dados.set_atual ?? 1}º SET`;
         mobileEls.saque.textContent = textoSaqueAtual();
         mobileEls.subEsq.textContent = `Tempos ${tempoRestanteDoLado(equipeEsq, dados)} • Subs ${valorEquipe(dados, equipeEsq, "subs_a", "subs_b", 0)}`;
@@ -4235,73 +4261,12 @@ function inverterLadosVisual() {
     }
 
     function aplicarFimSetPartidaLocal(ladoVencedor, origem = "local") {
-        ladoVencedor = String(ladoVencedor || "").toUpperCase();
-        if (!estadoAtual || partidaFinalizada || !["A", "B"].includes(ladoVencedor)) return false;
-
-        const setsParaVencer = setsParaVencerPelasRegras(estadoAtual);
-        const setsAtuaisA = numeroInteiro(estadoAtual.sets_a ?? 0, 0);
-        const setsAtuaisB = numeroInteiro(estadoAtual.sets_b ?? 0, 0);
-        const novosSetsA = setsAtuaisA + (ladoVencedor === "A" ? 1 : 0);
-        const novosSetsB = setsAtuaisB + (ladoVencedor === "B" ? 1 : 0);
-        const nome = nomeEquipePorLado(ladoVencedor);
-        const acabouPartida = (ladoVencedor === "A" ? novosSetsA : novosSetsB) >= setsParaVencer;
-
-        estadoAtual = {
-            ...(estadoAtual || {}),
-            sets_a: novosSetsA,
-            sets_b: novosSetsB,
-            fim_set: true,
-            set_finalizado: true,
-            vencedor_set: ladoVencedor,
-            partida_finalizada: acabouPartida,
-            status_jogo: acabouPartida ? "finalizada" : "entre_sets",
-            ultima_acao: acabouPartida ? `PARTIDA FINALIZADA - ${nome}` : `SET FINALIZADO - ${nome}`
-        };
-
-        partidaFinalizada = acabouPartida;
-        atualizarUltimaAcao(estadoAtual.ultima_acao);
-        renderPainelVisual(estadoAtual);
-        renderQuadra();
-
-        if (alertaPointEl) {
-            alertaPointEl.textContent = acabouPartida ? `PARTIDA FINALIZADA - ${nome}` : `SET FINALIZADO - ${nome}`;
-            alertaPointEl.style.display = "block";
-        }
-
-        emitirEstadoTempoReal({
-            ...estadoAtual,
-            origem: origem,
-            fim_set: true,
-            set_finalizado: true,
-            partida_finalizada: acabouPartida,
-            ultima_acao: estadoAtual.ultima_acao
-        });
-
-        salvarSnapshotLocalAutomatico(acabouPartida ? "partida_finalizada_local" : "set_finalizado_local");
-        enviarSnapshotBancoAutomatico({
-            pausar: !acabouPartida,
-            finalizar: acabouPartida,
-            motivo: acabouPartida ? "partida_finalizada_local" : "set_finalizado_local",
-            forcar: true
-        }).catch(() => {});
-
-        if (acabouPartida) {
-            travarBotoes(true);
-            if (saqueInfo && !saqueInfo.textContent.includes("Partida finalizada")) {
-                saqueInfo.textContent += " • Partida finalizada";
-            }
-            removerJogoOfflineSeFinalizado();
-
-            // Fluxo oficial: terminou a partida -> abre observações dos árbitros.
-            // A observação é o fechamento real da partida; depois de salvar lá,
-            // o sistema volta para a lista de partidas do apontador.
-            abrirObservacoesAutomaticamente();
-        } else {
-            travarBotoes(true);
-            setTimeout(() => window.location.reload(), 900);
-        }
-
-        return true;
+        // TRAVA DE SEGURANÇA (18/06): o navegador NÃO pode mais finalizar set/partida sozinho.
+        // Antes esta função somava sets localmente e chamava salvar snapshot com finalizar/pausar,
+        // o que quebrava melhor de 3/5 e impedia o redirecionamento automático para papeleta/tie-break.
+        // Agora a única fonte da verdade é a resposta oficial do backend em POST /ponto.
+        atualizarAvisoPoint(estadoAtual);
+        return false;
     }
 
     function atualizarAvisoPoint(dados) {
@@ -6667,12 +6632,9 @@ document.querySelectorAll("[data-mobile-action]").forEach((btn) => {
 renderPainelVisual(estadoAtual);
 renderQuadra();
 renderMobileQuadra();
-const vencedorSetInicial = ladoVencedorSetLocal(estadoAtual);
-if (vencedorSetInicial && !partidaFinalizada) {
-    setTimeout(() => aplicarFimSetPartidaLocal(vencedorSetInicial, "abertura_local"), 150);
-} else {
-    atualizarAvisoPoint(estadoAtual);
-}
+// Não finalizar set na abertura da tela. Se o banco estiver em fim de set,
+// o redirecionamento deve vir do backend/socket, nunca de cálculo local.
+atualizarAvisoPoint(estadoAtual);
 if (OFFLINE_HABILITADO_PELO_SUPERADM && btnPrepararJogoOffline) {
     btnPrepararJogoOffline.addEventListener("click", function () {
         salvarJogoOfflineLocal(false);

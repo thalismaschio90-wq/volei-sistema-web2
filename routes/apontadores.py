@@ -1875,10 +1875,14 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
     equipe_a_op = partida.get("equipe_a_operacional") or estado.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
     equipe_b_op = partida.get("equipe_b_operacional") or estado.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
 
+    # equipe_a/equipe_b oficiais da partida nunca devem ser invertidas.
+    # equipe_a_operacional/equipe_b_operacional representam o lado atual da quadra.
+    estado["equipe_a_cadastro"] = partida.get("equipe_a") or estado.get("equipe_a_cadastro") or equipe_a_op
+    estado["equipe_b_cadastro"] = partida.get("equipe_b") or estado.get("equipe_b_cadastro") or equipe_b_op
     estado["equipe_a_operacional"] = equipe_a_op
     estado["equipe_b_operacional"] = equipe_b_op
-    estado["equipe_a"] = equipe_a_op
-    estado["equipe_b"] = equipe_b_op
+    estado["equipe_a"] = estado["equipe_a_cadastro"]
+    estado["equipe_b"] = estado["equipe_b_cadastro"]
     estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
 
     if _deve_rebuild_pesado_estado(origem=origem, estado=estado):
@@ -4966,6 +4970,12 @@ def estado_jogo_view(competicao, partida_id):
                 "placar_exibicao_b": pontos_b,
                 "sets_a": sets_a,
                 "sets_b": sets_b,
+                "equipe_a": partida.get("equipe_a") or "",
+                "equipe_b": partida.get("equipe_b") or "",
+                "equipe_a_cadastro": partida.get("equipe_a") or "",
+                "equipe_b_cadastro": partida.get("equipe_b") or "",
+                "equipe_a_operacional": partida.get("equipe_a_operacional") or partida.get("equipe_a") or "",
+                "equipe_b_operacional": partida.get("equipe_b_operacional") or partida.get("equipe_b") or "",
                 "set_atual": int(estado.get("set_atual") or partida.get("set_atual") or 1),
                 "partida_finalizada": finalizada
             })
@@ -5018,8 +5028,10 @@ def estado_jogo_view(competicao, partida_id):
             "sets_b": int(estado.get("sets_b") or 0),
             "set_atual": int(estado.get("set_atual") or 1),
             "saque_atual": estado.get("saque_atual") or "",
-            "equipe_a": equipe_a_op,
-            "equipe_b": equipe_b_op,
+            "equipe_a": partida.get("equipe_a") or equipe_a_op,
+            "equipe_b": partida.get("equipe_b") or equipe_b_op,
+            "equipe_a_cadastro": partida.get("equipe_a") or equipe_a_op,
+            "equipe_b_cadastro": partida.get("equipe_b") or equipe_b_op,
             "equipe_a_operacional": equipe_a_op,
             "equipe_b_operacional": equipe_b_op,
             # O jogo/apontador também precisa receber o escudo real.

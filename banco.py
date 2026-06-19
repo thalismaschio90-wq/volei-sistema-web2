@@ -8217,6 +8217,38 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
             else:
                 return False, "Vencedor inválido."
 
+            try:
+                vencedor_nome = (partida.get("equipe_a") if vencedor_cadastro == "A" else partida.get("equipe_b")) or ""
+                detalhes_fim_set = {
+                    "tipo": "fim_set",
+                    "set_numero": set_atual,
+                    "vencedor_operacional": vencedor_operacional,
+                    "vencedor_cadastro": vencedor_cadastro,
+                    "vencedor_nome": vencedor_nome,
+                    "sets_a": int(sets_a or 0),
+                    "sets_b": int(sets_b or 0),
+                    "equipe_a_cadastro": partida.get("equipe_a") or "",
+                    "equipe_b_cadastro": partida.get("equipe_b") or "",
+                    "equipe_a_operacional": partida.get("equipe_a_operacional") or partida.get("equipe_a") or "",
+                    "equipe_b_operacional": partida.get("equipe_b_operacional") or partida.get("equipe_b") or "",
+                }
+                cur.execute("""
+                    INSERT INTO eventos (
+                        partida_id, competicao, set_numero, equipe,
+                        tipo, tipo_evento, fundamento, resultado, detalhe,
+                        atleta_id, atleta_nome, numero, detalhes
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    partida_id, competicao, set_atual, vencedor_cadastro,
+                    "fim_set", "fim_set", "fim_set", "fim_set",
+                    f"Fim do set {set_atual}: {vencedor_nome}",
+                    None, str(vencedor_nome or ""), None,
+                    json.dumps(detalhes_fim_set, ensure_ascii=False),
+                ))
+            except Exception as e:
+                print("AVISO nao gravou evento fim_set manual:", repr(e), flush=True)
+
             # Partida só acaba quando alguém atinge a quantidade de sets necessária.
             # Não finalize apenas porque terminou um set ou porque set_atual chegou ao limite.
             acabou = max(sets_a, sets_b) >= sets_para_vencer
@@ -9297,6 +9329,8 @@ def _snapshot_estado_partida(partida, competicao):
         "competicao": partida.get("competicao"),
         "equipe_a": partida.get("equipe_a"),
         "equipe_b": partida.get("equipe_b"),
+        "equipe_a_cadastro": partida.get("equipe_a"),
+        "equipe_b_cadastro": partida.get("equipe_b"),
         "equipe_a_operacional": partida.get("equipe_a_operacional"),
         "equipe_b_operacional": partida.get("equipe_b_operacional"),
         "pontos_a": int(partida.get("pontos_a") or 0),
@@ -9990,6 +10024,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     fim_jogo = False
     vencedor_set = None
     vencedor_partida = None
+    proximo_eh_tiebreak_resultado = False
 
     girou = False
     equipe_girou = ""
@@ -10131,6 +10166,10 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 detalhes_json,
             ))
 
+            set_coluna = max(1, min(int(set_atual or 1), 5))
+            pontos_set_a_cadastro = partida.get(f"set{set_coluna}_a")
+            pontos_set_b_cadastro = partida.get(f"set{set_coluna}_b")
+
             if (
                 (pontos_a >= pontos_set or pontos_b >= pontos_set)
                 and abs(pontos_a - pontos_b) >= diferenca_minima
@@ -10147,12 +10186,60 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                 fim_jogo = sets_a >= sets_para_vencer or sets_b >= sets_para_vencer
 
                 if fim_jogo:
-                    vencedor_partida = "A" if sets_a > sets_b else "B"
+                    vencedor_partida_lado = "A" if sets_a > sets_b else "B"
+                    vencedor_partida = (partida.get("equipe_a") if vencedor_partida_lado == "A" else partida.get("equipe_b")) or vencedor_partida_lado
 
-                set_coluna = max(1, min(int(set_atual or 1), 5))
                 coluna_a = f"set{set_coluna}_a"
                 coluna_b = f"set{set_coluna}_b"
                 pontos_set_a_cadastro, pontos_set_b_cadastro = _placar_operacional_para_cadastro_partida(partida, pontos_a, pontos_b)
+
+                # Auditoria oficial do fechamento do set.
+                # O evento normal acima usa A/B operacional (lado atual da quadra).
+                # Aqui gravamos também o lado de cadastro, porque sets_a/sets_b pertencem
+                # sempre a partidas.equipe_a/equipe_b, mesmo quando os lados invertem no 2º set.
+                try:
+                    vencedor_nome = (partida.get("equipe_a") if vencedor_set_cadastro == "A" else partida.get("equipe_b")) or ""
+                    detalhes_fim_set = {
+                        "tipo": "fim_set",
+                        "set_numero": set_atual,
+                        "vencedor_operacional": vencedor_set,
+                        "vencedor_cadastro": vencedor_set_cadastro,
+                        "vencedor_nome": vencedor_nome,
+                        "placar_operacional_a": int(pontos_a or 0),
+                        "placar_operacional_b": int(pontos_b or 0),
+                        "placar_cadastro_a": int(pontos_set_a_cadastro or 0),
+                        "placar_cadastro_b": int(pontos_set_b_cadastro or 0),
+                        "sets_a": int(sets_a or 0),
+                        "sets_b": int(sets_b or 0),
+                        "equipe_a_cadastro": partida.get("equipe_a") or "",
+                        "equipe_b_cadastro": partida.get("equipe_b") or "",
+                        "equipe_a_operacional": partida.get("equipe_a_operacional") or partida.get("equipe_a") or "",
+                        "equipe_b_operacional": partida.get("equipe_b_operacional") or partida.get("equipe_b") or "",
+                    }
+                    cur.execute("""
+                        INSERT INTO eventos (
+                            partida_id, competicao, set_numero, equipe,
+                            tipo, tipo_evento, fundamento, resultado, detalhe,
+                            atleta_id, atleta_nome, numero, detalhes
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        partida_id,
+                        competicao,
+                        set_atual,
+                        vencedor_set_cadastro,
+                        "fim_set",
+                        "fim_set",
+                        "fim_set",
+                        "fim_set",
+                        f"Fim do set {set_atual}: {vencedor_nome}",
+                        None,
+                        str(vencedor_nome or ""),
+                        None,
+                        json.dumps(detalhes_fim_set, ensure_ascii=False),
+                    ))
+                except Exception as e:
+                    print("AVISO nao gravou evento fim_set:", repr(e), flush=True)
 
                 if fim_jogo:
                     cur.execute(f"""
@@ -10199,7 +10286,18 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     ))
                 else:
                     proximo_set = set_atual + 1
-                    proximo_eh_tiebreak = set_eh_tiebreak(sets_tipo_regra, proximo_set)
+
+                    # Tie-break deve ser decidido pelo PLACAR DE SETS oficial
+                    # (partidas.equipe_a/equipe_b), não apenas por lado visual.
+                    # Isso evita perder o sorteio quando os lados são invertidos no 2º/4º set.
+                    sets_tipo_norm = _normalizar_formato_sets(sets_tipo_regra)
+                    proximo_eh_tiebreak = (
+                        (sets_tipo_norm == "melhor_de_3" and int(sets_a or 0) == 1 and int(sets_b or 0) == 1 and int(proximo_set or 0) == 3)
+                        or (sets_tipo_norm == "melhor_de_5" and int(sets_a or 0) == 2 and int(sets_b or 0) == 2 and int(proximo_set or 0) == 5)
+                    )
+                    # Fallback de segurança para configurações válidas antigas.
+                    proximo_eh_tiebreak = bool(proximo_eh_tiebreak or set_eh_tiebreak(sets_tipo_regra, proximo_set))
+                    proximo_eh_tiebreak_resultado = proximo_eh_tiebreak
 
                     config_proximo_set = _configuracao_operacional_set(partida, formato=sets_tipo_regra, set_numero=proximo_set)
 
@@ -10380,6 +10478,10 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "partida_id": partida_id,
         "equipe_a": partida.get("equipe_a") or partida.get("equipe_a_operacional") or "",
         "equipe_b": partida.get("equipe_b") or partida.get("equipe_b_operacional") or "",
+        "equipe_a_cadastro": partida.get("equipe_a") or partida.get("equipe_a_operacional") or "",
+        "equipe_b_cadastro": partida.get("equipe_b") or partida.get("equipe_b_operacional") or "",
+        "equipe_a_operacional": partida.get("equipe_a_operacional") or partida.get("equipe_a") or "",
+        "equipe_b_operacional": partida.get("equipe_b_operacional") or partida.get("equipe_b") or "",
         "pontos_a": pontos_a,
         "pontos_b": pontos_b,
         "placar_a": pontos_a,
@@ -10387,18 +10489,18 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "sets_a": sets_a,
         "sets_b": sets_b,
         "set_atual": set_atual,
-        "set1_a": partida.get("set1_a"),
-        "set1_b": partida.get("set1_b"),
-        "set2_a": partida.get("set2_a"),
-        "set2_b": partida.get("set2_b"),
-        "set3_a": partida.get("set3_a"),
-        "set3_b": partida.get("set3_b"),
+        "set1_a": pontos_set_a_cadastro if fim_set and set_coluna == 1 else partida.get("set1_a"),
+        "set1_b": pontos_set_b_cadastro if fim_set and set_coluna == 1 else partida.get("set1_b"),
+        "set2_a": pontos_set_a_cadastro if fim_set and set_coluna == 2 else partida.get("set2_a"),
+        "set2_b": pontos_set_b_cadastro if fim_set and set_coluna == 2 else partida.get("set2_b"),
+        "set3_a": pontos_set_a_cadastro if fim_set and set_coluna == 3 else partida.get("set3_a"),
+        "set3_b": pontos_set_b_cadastro if fim_set and set_coluna == 3 else partida.get("set3_b"),
         "saque_atual": saque_depois,
-        "status_jogo": "finalizada" if fim_jogo else (("tiebreak_sorteio" if fim_set and set_eh_tiebreak(sets_tipo_regra, set_atual) else "entre_sets") if fim_set else "em_andamento"),
-        "fase_partida": "encerrado" if fim_jogo else (("tiebreak_sorteio" if fim_set and set_eh_tiebreak(sets_tipo_regra, set_atual) else "intervalo_set") if fim_set else "jogo"),
-        "redirecionar_tiebreak": bool(fim_set and not fim_jogo and set_eh_tiebreak(sets_tipo_regra, set_atual)),
-        "redirecionar_papeleta": bool(fim_set and not fim_jogo and not set_eh_tiebreak(sets_tipo_regra, set_atual)),
-        "url_redirecionamento": (f"/apontador/tiebreak/{quote(str(competicao), safe='')}/{partida_id}" if (fim_set and not fim_jogo and set_eh_tiebreak(sets_tipo_regra, set_atual)) else (f"/apontador/papeleta/{quote(str(competicao), safe='')}/{partida_id}" if (fim_set and not fim_jogo) else None)),
+        "status_jogo": "finalizada" if fim_jogo else (("tiebreak_sorteio" if fim_set and proximo_eh_tiebreak_resultado else "entre_sets") if fim_set else "em_andamento"),
+        "fase_partida": "encerrado" if fim_jogo else (("tiebreak_sorteio" if fim_set and proximo_eh_tiebreak_resultado else "intervalo_set") if fim_set else "jogo"),
+        "redirecionar_tiebreak": bool(fim_set and not fim_jogo and proximo_eh_tiebreak_resultado),
+        "redirecionar_papeleta": bool(fim_set and not fim_jogo and not proximo_eh_tiebreak_resultado),
+        "url_redirecionamento": (f"/apontador/tiebreak/{quote(str(competicao), safe='')}/{partida_id}" if (fim_set and not fim_jogo and proximo_eh_tiebreak_resultado) else (f"/apontador/papeleta/{quote(str(competicao), safe='')}/{partida_id}" if (fim_set and not fim_jogo) else None)),
         "fim_set": fim_set,
         "fim_jogo": fim_jogo,
         "set_finalizado": fim_set,
