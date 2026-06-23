@@ -206,6 +206,27 @@
         .bracket-team { display:flex; align-items:center; gap:8px; padding:6px 0; font-weight:900; }
         .bracket-team span:first-child { width:22px; height:22px; border-radius:50%; background:rgba(148,163,184,.16); display:inline-flex; align-items:center; justify-content:center; color:#cbd5e1; font-size:12px; }
         .bracket-meta { margin-top:8px; color:var(--muted); font-size:12px; font-weight:800; }
+
+        .bracket-card.ao-vivo-card { border-color:rgba(34,197,94,.55); box-shadow:0 0 0 1px rgba(34,197,94,.18), 0 12px 24px rgba(0,0,0,.20); }
+        .bracket-card.finalizado-card { border-color:rgba(147,197,253,.34); }
+        .bracket-team img {
+            width:26px; height:26px; border-radius:50%; object-fit:contain;
+            background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.14); padding:2px; flex:0 0 auto;
+        }
+        .bracket-team .team-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .bracket-score {
+            display:flex; align-items:center; justify-content:center; gap:8px;
+            margin:10px 0 6px; font-size:24px; font-weight:1000;
+            font-variant-numeric:tabular-nums;
+        }
+        .bracket-score-num {
+            min-width:42px; text-align:center; padding:5px 8px; border-radius:12px;
+            background:rgba(2,6,23,.72); border:1px solid rgba(148,163,184,.22);
+        }
+        .bracket-sets, .bracket-parciais {
+            text-align:center; color:#cbd5e1; font-size:12px; font-weight:900; margin-top:5px;
+        }
+        .bracket-parciais { font-weight:800; line-height:1.35; }
         @media (max-width: 700px) {
             body { padding: 12px; }
             .hero { flex-direction:column; }
@@ -300,11 +321,55 @@
                             <div class="bracket-col">
                                 <div class="bracket-fase">{{ fase.nome }}</div>
                                 {% for jogo in fase.jogos %}
-                                <div class="bracket-card">
-                                    <div class="bracket-card-top"><span>{{ jogo.id }}</span><span>{{ jogo.status_exibicao }}</span></div>
-                                    <div class="bracket-team"><span>A</span>{{ jogo.equipe_a or jogo.origem_a_label }}</div>
-                                    <div class="bracket-team"><span>B</span>{{ jogo.equipe_b or jogo.origem_b_label }}</div>
-                                    {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
+                                <div
+                                    class="bracket-card {% if jogo.ao_vivo %}ao-vivo-card{% endif %} {% if jogo.finalizada %}finalizado-card{% endif %}"
+                                    {% if jogo.partida_id %}data-partida-id="{{ jogo.partida_id }}"{% endif %}
+                                    data-competicao="{{ competicao_nome }}"
+                                    data-ao-vivo="{{ '1' if jogo.ao_vivo else '0' }}"
+                                    data-bracket-card="1"
+                                    data-quadra-label="{{ jogo.quadra_label or 'Sem quadra' }}"
+                                >
+                                    <div class="bracket-card-top">
+                                        <span>{{ jogo.id }}</span>
+                                        <span data-status-badge class="badge {% if jogo.finalizada %}finalizado{% elif jogo.ao_vivo %}ao-vivo{% else %}status-neutro{% endif %}">
+                                            {% if jogo.finalizada %}FINALIZADO{% elif jogo.ao_vivo %}AO VIVO{% else %}{{ jogo.status_exibicao }}{% endif %}
+                                        </span>
+                                    </div>
+                                    <div class="bracket-team">
+                                        <span>A</span>
+                                        <img data-escudo-a src="{{ jogo.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
+                                        <span class="team-name" data-equipe-a>{{ jogo.equipe_a or jogo.origem_a_label }}</span>
+                                    </div>
+                                    <div class="bracket-team">
+                                        <span>B</span>
+                                        <img data-escudo-b src="{{ jogo.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
+                                        <span class="team-name" data-equipe-b>{{ jogo.equipe_b or jogo.origem_b_label }}</span>
+                                    </div>
+
+                                    <div class="bracket-score" data-placar-wrap {% if not jogo.finalizada and not jogo.ao_vivo %}style="display:none;"{% endif %}>
+                                        <span class="bracket-score-num" data-pontos-a>{{ jogo.placar_exibicao_a if jogo.placar_exibicao_a is defined else 0 }}</span>
+                                        <span>×</span>
+                                        <span class="bracket-score-num" data-pontos-b>{{ jogo.placar_exibicao_b if jogo.placar_exibicao_b is defined else 0 }}</span>
+                                    </div>
+
+                                    <div class="bracket-sets" data-sets-wrap {% if jogo.set_unico or (not jogo.finalizada and not jogo.ao_vivo) %}style="display:none;"{% endif %}>
+                                        Sets: <span data-sets-a>{{ jogo.sets_a or 0 }}</span> × <span data-sets-b>{{ jogo.sets_b or 0 }}</span>
+                                        <span {% if jogo.finalizada %}style="display:none;"{% endif %}>• Set atual: <span data-set-atual>{{ jogo.set_atual or 1 }}</span></span>
+                                    </div>
+
+                                    <div class="bracket-parciais" data-parciais>
+                                        {% if jogo.finalizada %}
+                                            Parciais: {{ jogo.parciais_formatadas }}
+                                        {% elif jogo.ao_vivo %}
+                                            Placar {{ 'da partida' if jogo.set_unico else 'do set atual' }} em tempo real
+                                        {% elif jogo.proximo_vencedor or jogo.proximo_perdedor %}
+                                            {% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}
+                                        {% else %}
+                                            Aguardando origem.
+                                        {% endif %}
+                                    </div>
+
+                                    {% if (jogo.proximo_vencedor or jogo.proximo_perdedor) and (jogo.finalizada or jogo.ao_vivo) %}
                                         <div class="bracket-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
                                     {% endif %}
                                 </div>
@@ -345,6 +410,7 @@
                 data-competicao="{{ competicao_nome }}"
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
                 data-quadra-label="{{ q_label }}"
+                data-jogo-publico="1"
             >
                 <div class="jogo-topo">
                     <div>
@@ -411,7 +477,8 @@
     });
 
     const competicao = {{ competicao_nome|tojson }};
-    const cards = Array.from(document.querySelectorAll('[data-partida-id]'));
+    const cardsTempoReal = Array.from(document.querySelectorAll('[data-partida-id]'));
+    const cards = Array.from(document.querySelectorAll('[data-jogo-publico]'));
     const tabsQuadra = Array.from(document.querySelectorAll('[data-quadra-filter]'));
     const avisoVazioFiltro = document.querySelector('[data-jogos-vazio-filtro]');
     let filtroQuadraAtual = '__todos__';
@@ -502,8 +569,8 @@
         const partidaId = String(payload.partida_id || payload.id || '').trim();
         if (!partidaId) return;
 
-        const card = document.querySelector(`[data-partida-id="${CSS.escape(partidaId)}"]`);
-        if (!card) return;
+        const cardsDaPartida = Array.from(document.querySelectorAll(`[data-partida-id="${CSS.escape(partidaId)}"]`));
+        if (!cardsDaPartida.length) return;
 
         const statusTxt = textoStatus(payload);
         const finalizada = statusTxt === 'FINALIZADO';
@@ -519,47 +586,50 @@
         const setAtual = payload.set_atual ?? 1;
         const setUnico = payloadSetUnico(payload);
 
-        const elEquipeA = card.querySelector('[data-equipe-a]');
-        const elEquipeB = card.querySelector('[data-equipe-b]');
-        const elEscudoA = card.querySelector('[data-escudo-a]');
-        const elEscudoB = card.querySelector('[data-escudo-b]');
-        const elPontosA = card.querySelector('[data-pontos-a]');
-        const elPontosB = card.querySelector('[data-pontos-b]');
-        const elSetsA = card.querySelector('[data-sets-a]');
-        const elSetsB = card.querySelector('[data-sets-b]');
-        const elSetAtual = card.querySelector('[data-set-atual]');
-        const elBadge = card.querySelector('[data-status-badge]');
-        const elPlacarWrap = card.querySelector('[data-placar-wrap]');
-        const elSetsWrap = card.querySelector('[data-sets-wrap]');
-        const elParciais = card.querySelector('[data-parciais]');
+        cardsDaPartida.forEach((card) => {
+            const elEquipeA = card.querySelector('[data-equipe-a]');
+            const elEquipeB = card.querySelector('[data-equipe-b]');
+            const elEscudoA = card.querySelector('[data-escudo-a]');
+            const elEscudoB = card.querySelector('[data-escudo-b]');
+            const elPontosA = card.querySelector('[data-pontos-a]');
+            const elPontosB = card.querySelector('[data-pontos-b]');
+            const elSetsA = card.querySelector('[data-sets-a]');
+            const elSetsB = card.querySelector('[data-sets-b]');
+            const elSetAtual = card.querySelector('[data-set-atual]');
+            const elBadge = card.querySelector('[data-status-badge]');
+            const elPlacarWrap = card.querySelector('[data-placar-wrap]');
+            const elSetsWrap = card.querySelector('[data-sets-wrap]');
+            const elParciais = card.querySelector('[data-parciais]');
 
-        if (equipeA && elEquipeA) elEquipeA.textContent = equipeA;
-        if (equipeB && elEquipeB) elEquipeB.textContent = equipeB;
-        if (elEscudoA) elEscudoA.src = escudoValido(payload.escudo_a || payload.equipe_a_escudo || payload.escudo_a_operacional);
-        if (elEscudoB) elEscudoB.src = escudoValido(payload.escudo_b || payload.equipe_b_escudo || payload.escudo_b_operacional);
-        if (elPontosA) elPontosA.textContent = pontosA;
-        if (elPontosB) elPontosB.textContent = pontosB;
-        if (elSetsA) elSetsA.textContent = setsA;
-        if (elSetsB) elSetsB.textContent = setsB;
-        if (elSetAtual) elSetAtual.textContent = setAtual;
+            if (equipeA && elEquipeA) elEquipeA.textContent = equipeA;
+            if (equipeB && elEquipeB) elEquipeB.textContent = equipeB;
+            if (elEscudoA) elEscudoA.src = escudoValido(payload.escudo_a || payload.equipe_a_escudo || payload.escudo_a_operacional);
+            if (elEscudoB) elEscudoB.src = escudoValido(payload.escudo_b || payload.equipe_b_escudo || payload.escudo_b_operacional);
+            if (elPontosA) elPontosA.textContent = pontosA;
+            if (elPontosB) elPontosB.textContent = pontosB;
+            if (elSetsA) elSetsA.textContent = setsA;
+            if (elSetsB) elSetsB.textContent = setsB;
+            if (elSetAtual) elSetAtual.textContent = setAtual;
 
-        if (elBadge) {
-            elBadge.textContent = statusTxt;
-            elBadge.className = 'badge ' + (finalizada ? 'finalizado' : (aoVivo ? 'ao-vivo' : 'status-neutro'));
-        }
+            if (elBadge) {
+                elBadge.textContent = statusTxt;
+                elBadge.className = 'badge ' + (finalizada ? 'finalizado' : (aoVivo ? 'ao-vivo' : 'status-neutro'));
+            }
 
-        if (elPlacarWrap) elPlacarWrap.style.display = '';
-        if (elSetsWrap) elSetsWrap.style.display = finalizada || setUnico ? 'none' : '';
-        if (elParciais) elParciais.textContent = finalizada ? 'Partida finalizada. Resultado oficial salvo no banco.' : (setUnico ? 'Placar da partida em tempo real' : 'Placar do set atual em tempo real');
+            if (elPlacarWrap) elPlacarWrap.style.display = '';
+            if (elSetsWrap) elSetsWrap.style.display = finalizada || setUnico ? 'none' : '';
+            if (elParciais) elParciais.textContent = finalizada ? 'Partida finalizada. Resultado oficial salvo no banco.' : (setUnico ? 'Placar da partida em tempo real' : 'Placar do set atual em tempo real');
 
-        card.classList.toggle('ao-vivo-card', aoVivo && !finalizada);
-        card.dataset.aoVivo = finalizada ? '0' : (aoVivo ? '1' : '0');
+            card.classList.toggle('ao-vivo-card', aoVivo && !finalizada);
+            card.classList.toggle('finalizado-card', finalizada);
+            card.dataset.aoVivo = finalizada ? '0' : (aoVivo ? '1' : '0');
+        });
 
         if (finalizada) recarregarParaResultadoOficial();
     }
 
     function entrarNasPartidas() {
-        cards.forEach((card) => {
+        cardsTempoReal.forEach((card) => {
             if (card.dataset.aoVivo !== '1') return;
             const partidaId = card.dataset.partidaId;
             if (!partidaId) return;

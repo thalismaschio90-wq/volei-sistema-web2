@@ -155,38 +155,106 @@
         }
 
         .placar-equipe {
-            font-size: 23px;
-            line-height: 1;
+            font-size: clamp(34px, 5.8vw, 58px);
+            line-height: .9;
             font-weight: 1000;
             color: #fff;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -1px;
+            min-width: 58px;
+            text-align: right;
         }
 
         .quadra {
+            position: relative;
             height: calc(100% - 45px);
+            margin: 8px;
             padding: 8px;
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            grid-template-rows: repeat(2, 1fr);
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-rows: repeat(3, minmax(0, 1fr));
             gap: 7px;
+            background: rgba(255, 255, 255, .96);
+            border: 4px solid #0f2f4a;
+            border-radius: 18px;
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,.65), 0 12px 28px rgba(0,0,0,.18);
+            overflow: visible;
         }
 
+        .quadra::after {
+            content: "REDE";
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+            transform-origin: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #0f2f4a;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 1000;
+            letter-spacing: .08em;
+            pointer-events: none;
+            box-shadow: 0 6px 14px rgba(15, 47, 74, .24);
+        }
+
+        .quadra-lado-esquerdo {
+            grid-template-areas:
+                "p5 p4"
+                "p6 p3"
+                "p1 p2";
+        }
+
+        .quadra-lado-direito {
+            grid-template-areas:
+                "p2 p1"
+                "p3 p6"
+                "p4 p5";
+        }
+
+        .quadra-lado-esquerdo::after { right: -31px; left: auto; }
+        .quadra-lado-direito::after { left: -31px; right: auto; }
+
+        .quadra .jogador:nth-child(1) { grid-area: p4; }
+        .quadra .jogador:nth-child(2) { grid-area: p3; }
+        .quadra .jogador:nth-child(3) { grid-area: p2; }
+        .quadra .jogador:nth-child(4) { grid-area: p5; }
+        .quadra .jogador:nth-child(5) { grid-area: p6; }
+        .quadra .jogador:nth-child(6) { grid-area: p1; }
+
         .jogador {
+            position: relative;
             min-width: 0;
             min-height: 0;
             border-radius: 16px;
-            background: linear-gradient(180deg, rgba(30,41,59,.98), rgba(15,23,42,.98));
-            border: 1px solid rgba(148, 163, 184, .22);
+            background: linear-gradient(180deg, #f59e0b 0%, #ea8a04 100%);
+            border: 2px solid rgba(255,255,255,.92);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             padding: 5px;
             text-align: center;
+            color: #0f2f4a;
+            box-shadow: inset 0 0 0 1px rgba(15,47,74,.08);
         }
 
         .jogador.sacador {
             outline: 3px solid var(--accent);
-            box-shadow: 0 0 0 5px rgba(34,197,94,.14), 0 0 30px rgba(34,197,94,.22);
+            box-shadow: 0 0 0 5px rgba(34,197,94,.16), 0 0 30px rgba(34,197,94,.28), inset 0 0 0 1px rgba(15,47,74,.08);
+        }
+
+        .jogador.sacador::before {
+            content: "";
+            position: absolute;
+            top: 7px;
+            right: 7px;
+            width: 13px;
+            height: 13px;
+            border-radius: 999px;
+            background: var(--accent);
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 0 4px rgba(34,197,94,.20);
         }
 
         .num {
@@ -243,6 +311,46 @@
 
         .valor.grande { font-size: 31px; }
         .valor.medio { font-size: 20px; }
+
+        .placar-centro-grande {
+            font-size: clamp(40px, 7vw, 68px) !important;
+            line-height: .9 !important;
+            letter-spacing: -1px;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .set-info-centro {
+            margin-top: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .set-atual-linha {
+            font-size: clamp(16px, 2.6vw, 24px) !important;
+            color: #f8fafc;
+        }
+
+        .sets-partida-linha {
+            display: none;
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: rgba(251, 191, 36, .14);
+            border: 1px solid rgba(251, 191, 36, .34);
+            color: #fde68a;
+            font-size: clamp(15px, 2.3vw, 22px) !important;
+            font-weight: 1000;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .sets-partida-linha.mostrar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            align-self: flex-start;
+        }
 
         .popup {
             position: fixed;
@@ -344,6 +452,40 @@
             color: #0f172a;
         }
 
+
+        .alerta-point-arbitro {
+            position: fixed;
+            left: 50%;
+            top: 72px;
+            transform: translateX(-50%);
+            z-index: 60;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            min-width: min(520px, calc(100vw - 24px));
+            max-width: calc(100vw - 24px);
+            padding: 12px 18px;
+            border-radius: 18px;
+            background: #b91c1c;
+            color: #ffffff;
+            font-size: clamp(18px, 4vw, 34px);
+            font-weight: 1000;
+            letter-spacing: .04em;
+            text-align: center;
+            box-shadow: 0 18px 45px rgba(185, 28, 28, .42);
+            border: 2px solid rgba(255,255,255,.26);
+            pointer-events: none;
+        }
+
+        @media (max-height: 430px) {
+            .alerta-point-arbitro {
+                top: 56px;
+                padding: 8px 14px;
+                font-size: clamp(15px, 3.6vw, 24px);
+                border-radius: 14px;
+            }
+        }
+
         @keyframes entrar {
             from { transform: scale(.98); opacity: .45; }
             to { transform: scale(1); opacity: 1; }
@@ -359,12 +501,15 @@
             .main { grid-template-columns: 1fr 205px 1fr; gap: 6px; }
             .topbar { border-radius: 14px; padding: 5px 8px; }
             .cabecalho-equipe { height: 38px; padding: 5px 8px; }
-            .quadra { height: calc(100% - 38px); gap: 5px; padding: 6px; }
+            .quadra { height: calc(100% - 38px); gap: 5px; padding: 6px; margin: 6px; border-width: 3px; }
             .jogador { border-radius: 13px; }
             .centro-card { gap: 5px; padding: 6px; }
             .mini-card { border-radius: 13px; padding: 6px; }
             button { padding: 8px 10px; }
             .valor.grande { font-size: 27px; }
+            .placar-equipe { font-size: clamp(27px, 5vw, 42px); min-width: 46px; }
+            .placar-centro-grande { font-size: clamp(32px, 6.5vw, 52px) !important; }
+            .sets-partida-linha { padding: 5px 8px; font-size: clamp(13px, 2.2vw, 18px) !important; }
         }
     </style>
 </head>
@@ -398,8 +543,11 @@
                 </div>
                 <div class="mini-card">
                     <div class="label">Placar</div>
-                    <div class="valor grande"><span id="centroPlacarA">0</span> x <span id="centroPlacarB">0</span></div>
-                    <div class="valor medio">Set <span id="setAtual">1</span></div>
+                    <div class="valor grande placar-centro-grande"><span id="centroPlacarA">0</span> x <span id="centroPlacarB">0</span></div>
+                    <div class="set-info-centro">
+                        <div class="valor medio set-atual-linha">Set <span id="setAtual">1</span></div>
+                        <div class="valor medio sets-partida-linha" id="setsPartidaLinha">SETS: <span id="setsPartidaA">0</span> x <span id="setsPartidaB">0</span></div>
+                    </div>
                 </div>
                 <div class="mini-card">
                     <div class="label">Última ação</div>
@@ -434,6 +582,9 @@
         </div>
     </div>
 
+
+    <div id="alertaPoint" class="alerta-point-arbitro" aria-live="assertive"></div>
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const PARTIDA_ID = {{ partida_id }};
@@ -445,6 +596,9 @@
         const CHAVE_INVERSAO_VISUAL = `arbitro_segundo_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
         let invertido = localStorage.getItem(CHAVE_INVERSAO_VISUAL) === "1";
         let ultimoSaqueChave = "";
+        let ultimoPopupSaqueChave = "";
+        let ultimoPopupSaqueEm = 0;
+        let popupSaqueBloqueadoAte = 0;
         let ultimaAcaoTexto = "";
         let popupTimer = null;
         let socket = null;
@@ -558,8 +712,39 @@
                 };
             }
 
-            const numeroBackend = String(estadoAtual.numero_sacador || "").trim();
-            const nomeBackend = String(estadoAtual.nome_sacador || "").trim();
+            /*
+              IMPORTANTE:
+              A fonte mais confiável para quem está sacando é:
+              saque_atual + posição 1 da rotação atual.
+
+              Antes a tela do árbitro dava prioridade para numero_sacador/nome_sacador
+              vindos do backend/cache. Quando esse campo chegava velho, o árbitro
+              ficava mostrando sempre o mesmo sacador, diferente do apontador.
+            */
+            const r = rotacao(lado);
+            let jogador = r[5]; // índice 5 = P1, sacador oficial na ordem [P4,P3,P2,P5,P6,P1]
+
+            if (jogador && jogador.numero) {
+                return {
+                    lado,
+                    equipe: nomeEquipe(lado),
+                    numero: jogador.numero,
+                    nome: jogador.nome || ""
+                };
+            }
+
+            const numeroBackend = String(
+                estadoAtual.sacador_numero ||
+                estadoAtual.numero_sacador ||
+                ""
+            ).trim();
+
+            const nomeBackend = String(
+                estadoAtual.sacador_nome ||
+                estadoAtual.nome_sacador ||
+                ""
+            ).trim();
+
             const equipeBackend = String(estadoAtual.equipe_sacadora || "").trim();
 
             if (numeroBackend && numeroBackend !== "-") {
@@ -571,12 +756,7 @@
                 };
             }
 
-            const r = rotacao(lado);
-            let jogador = r[5];
-
-            if (!jogador || !jogador.numero) {
-                jogador = r.find(j => j && j.numero);
-            }
+            jogador = r.find(j => j && j.numero);
 
             return {
                 lado,
@@ -591,10 +771,40 @@
             return Number.isFinite(n) ? n : padrao;
         }
 
+        function setsTipoNormalizado(dados) {
+            return String(dados?.sets_tipo || dados?.tipo_sets || dados?.formato_sets || "melhor_de_3")
+                .trim()
+                .toLowerCase()
+                .replaceAll("-", "_")
+                .replaceAll(" ", "_");
+        }
+
+        function ehSetUnico(dados) {
+            const tipo = setsTipoNormalizado(dados);
+            const setsMax = numeroInteiro(dados?.sets_max || 0, 0);
+            return ["set_unico", "único", "unico", "1_set", "melhor_de_1", "md1"].includes(tipo) || setsMax === 1;
+        }
+
+        function atualizarPlacarSets() {
+            const linha = document.getElementById("setsPartidaLinha");
+            const a = document.getElementById("setsPartidaA");
+            const b = document.getElementById("setsPartidaB");
+            if (!linha || !a || !b) return;
+
+            if (ehSetUnico(estadoAtual)) {
+                linha.classList.remove("mostrar");
+                return;
+            }
+
+            a.textContent = numeroInteiro(estadoAtual.sets_a, 0);
+            b.textContent = numeroInteiro(estadoAtual.sets_b, 0);
+            linha.classList.add("mostrar");
+        }
+
         function setsParaVencerPelasRegras(dados) {
-            const setsTipo = String(dados?.sets_tipo || "").trim().toLowerCase();
-            if (["set_unico", "único", "unico", "1_set", "melhor_de_1"].includes(setsTipo)) return 1;
-            if (setsTipo === "melhor_de_5") return 3;
+            const setsTipo = setsTipoNormalizado(dados);
+            if (["set_unico", "único", "unico", "1_set", "melhor_de_1", "md1"].includes(setsTipo)) return 1;
+            if (["melhor_de_5", "md5", "5"].includes(setsTipo)) return 3;
             return numeroInteiro(dados?.sets_para_vencer || 2, 2);
         }
 
@@ -634,28 +844,61 @@
         }
 
         let ultimoAvisoPointChave = "";
-        function mostrarAvisoPointSeNecessario(dados) {
+
+        function atualizarAlertaPoint(dados) {
+            const el = document.getElementById("alertaPoint");
             const aviso = avisoPointAtual(dados || estadoAtual);
+
+            if (!el) return aviso;
+
             if (!aviso) {
+                el.style.display = "none";
+                el.textContent = "";
                 ultimoAvisoPointChave = "";
-                return;
+                return null;
             }
-            const chave = `${aviso.titulo}|${aviso.lado}|${dados?.pontos_a}|${dados?.pontos_b}|${dados?.sets_a}|${dados?.sets_b}|${dados?.set_atual}`;
-            if (chave === ultimoAvisoPointChave) return;
-            ultimoAvisoPointChave = chave;
-            mostrarPopup(aviso.titulo, aviso.equipe, "Próximo ponto pode encerrar", 3000);
+
+            el.textContent = `${aviso.titulo} - ${aviso.equipe}`;
+            el.style.display = "flex";
+            return aviso;
         }
 
-        function renderQuadra(containerId, lado) {
+        function mostrarAvisoPointSeNecessario(dados) {
+            dados = dados || estadoAtual;
+            const aviso = atualizarAlertaPoint(dados);
+
+            if (!aviso) return;
+
+            const chave = `${aviso.titulo}|${aviso.lado}|${dados?.pontos_a}|${dados?.pontos_b}|${dados?.sets_a}|${dados?.sets_b}|${dados?.set_atual}`;
+            if (chave === ultimoAvisoPointChave) return;
+
+            ultimoAvisoPointChave = chave;
+            mostrarPopup(aviso.titulo, aviso.equipe, "Próximo ponto pode encerrar", 3200);
+        }
+
+        function renderQuadra(containerId, lado, posicaoVisual) {
             const el = document.getElementById(containerId);
             if (!el) return;
             const saque = sacadorAtual();
+            const visual = posicaoVisual === "direita" ? "direita" : "esquerda";
+            el.classList.toggle("quadra-lado-esquerdo", visual === "esquerda");
+            el.classList.toggle("quadra-lado-direito", visual === "direita");
+
+            // A rotação lógica segue o mesmo padrão do jogo_apontador:
+            // [P4, P3, P2, P5, P6, P1].
+            // O CSS espelha o desenho visual:
+            // esquerda = [5][4] / [6][3] / [1][2]
+            // direita  = [2][1] / [3][6] / [4][5]
+            const posicoesOficiais = [4, 3, 2, 5, 6, 1];
             el.innerHTML = rotacao(lado).map((j, idx) => {
                 const ehSacador = saque.lado === lado && idx === 5;
+                const posicao = posicoesOficiais[idx] || (idx + 1);
+                const numero = j.numero || '-';
+                const nome = j.nome || `P${posicao}`;
                 return `
-                    <div class="jogador ${ehSacador ? 'sacador' : ''}">
-                        <div class="num">${j.numero || '-'}</div>
-                        <div class="nome">${j.nome || '&nbsp;'}</div>
+                    <div class="jogador ${ehSacador ? 'sacador' : ''}" title="P${posicao} • #${numero}">
+                        <div class="num">${numero}</div>
+                        <div class="nome">${nome}</div>
                     </div>
                 `;
             }).join("");
@@ -672,14 +915,15 @@
             document.getElementById("centroPlacarA").textContent = estadoAtual.pontos_a || 0;
             document.getElementById("centroPlacarB").textContent = estadoAtual.pontos_b || 0;
             document.getElementById("setAtual").textContent = estadoAtual.set_atual || 1;
+            atualizarPlacarSets();
             document.getElementById("ultimaAcao").textContent = estadoAtual.ultima_acao || "-";
 
             const s = sacadorAtual();
             document.getElementById("sacadorNumero").textContent = s.numero || "-";
             document.getElementById("sacadorNome").textContent = s.nome ? `${s.nome} • ${s.equipe}` : (s.equipe || "Aguardando");
 
-            renderQuadra("quadraA", ladoEsq);
-            renderQuadra("quadraB", ladoDir);
+            renderQuadra("quadraA", ladoEsq, "esquerda");
+            renderQuadra("quadraB", ladoDir, "direita");
         }
 
         function mostrarPopup(titulo, texto, sub, ms = 3000) {
@@ -722,13 +966,39 @@
             estadoAtual.sets_para_vencer = numeroInteiro(estadoAtual.sets_para_vencer || setsParaVencerPelasRegras(estadoAtual), 2);
             render();
 
+            // Mantém o aviso fixo igual ao apontador e abre popup quando o estado entra em SET/MATCH POINT.
+            atualizarAlertaPoint(estadoAtual);
             if (!silencioso) mostrarAvisoPointSeNecessario(estadoAtual);
 
             const s = sacadorAtual();
-            const chaveSaque = `${s.lado}|${s.numero}|${s.nome}|${s.equipe}`;
-            if (false && !silencioso && s.lado && s.numero && s.numero !== "-" && chaveSaque !== ultimoSaqueChave) {
-                ultimoSaqueChave = chaveSaque;
-                mostrarPopup("Saque", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 2600);
+            const chaveSaque = `${s.lado}|${s.numero}|${estadoAtual.set_atual || 1}`;
+            const placarSaque = `${estadoAtual.pontos_a || 0}|${estadoAtual.pontos_b || 0}|${estadoAtual.sets_a || 0}|${estadoAtual.sets_b || 0}`;
+            const chavePopupSaque = `${chaveSaque}|${placarSaque}`;
+            const agoraSaque = agoraMs();
+
+            /*
+              Alinhado com o apontador:
+              - o sacador vem de saque_atual + P1 da rotação;
+              - a primeira carga só sincroniza;
+              - o popup aparece uma única vez por troca real;
+              - polling/socket repetido não reabre o mesmo aviso várias vezes.
+            */
+            if (s.lado && s.numero && s.numero !== "-") {
+                if (!ultimoSaqueChave || silencioso) {
+                    ultimoSaqueChave = chaveSaque;
+                } else if (chaveSaque !== ultimoSaqueChave) {
+                    ultimoSaqueChave = chaveSaque;
+
+                    const repetidoRecente = chavePopupSaque === ultimoPopupSaqueChave && (agoraSaque - ultimoPopupSaqueEm) < 5500;
+                    const bloqueado = agoraSaque < popupSaqueBloqueadoAte;
+
+                    if (!repetidoRecente && !bloqueado) {
+                        ultimoPopupSaqueChave = chavePopupSaque;
+                        ultimoPopupSaqueEm = agoraSaque;
+                        popupSaqueBloqueadoAte = agoraSaque + 1200;
+                        mostrarPopup("SAQUE", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 2600);
+                    }
+                }
             }
 
             const acao = String(estadoAtual.ultima_acao || "").trim();
@@ -988,8 +1258,8 @@
 
             socket.on("saque_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;
-                // Atualiza apenas o card do sacador. Não abre popup de saque aleatório.
-                aplicarEstado(dados, true);
+                // Evento específico de saque: atualiza e mostra o aviso grande quando trocar.
+                aplicarEstado(dados, false);
             });
 
             socket.on("ultima_acao_arbitros", dados => {

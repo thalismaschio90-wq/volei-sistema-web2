@@ -256,15 +256,15 @@ def _buscar_partida_ativa_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) <> ALL(%s)
-                      AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
-                      AND LOWER(COALESCE(status_jogo, '')) <> ALL(%s)
+                      AND LOWER(COALESCE(status, '')) NOT IN %s
+                      AND LOWER(COALESCE(status_operacao, '')) NOT IN %s
+                      AND LOWER(COALESCE(status_jogo, '')) NOT IN %s
                       AND (
                             COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                         OR LOWER(COALESCE(status, '')) = ANY(%s)
-                         OR LOWER(COALESCE(status_operacao, '')) = ANY(%s)
-                         OR LOWER(COALESCE(status_jogo, '')) = ANY(%s)
-                         OR LOWER(COALESCE(fase_partida, '')) = ANY(%s)
+                         OR LOWER(COALESCE(status, '')) IN %s
+                         OR LOWER(COALESCE(status_operacao, '')) IN %s
+                         OR LOWER(COALESCE(status_jogo, '')) IN %s
+                         OR LOWER(COALESCE(fase_partida, '')) IN %s
                          OR COALESCE(pontos_a, 0) > 0
                          OR COALESCE(pontos_b, 0) > 0
                          OR COALESCE(set_atual, 1) > 1
@@ -389,9 +389,9 @@ def _buscar_partida_aberta_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) <> ALL(%s)
-                      AND LOWER(COALESCE(status_operacao, '')) <> ALL(%s)
-                      AND LOWER(COALESCE(status_jogo, '')) <> ALL(%s)
+                      AND LOWER(COALESCE(status, '')) NOT IN %s
+                      AND LOWER(COALESCE(status_operacao, '')) NOT IN %s
+                      AND LOWER(COALESCE(status_jogo, '')) NOT IN %s
                     ORDER BY
                         CASE
                             WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo') THEN 1

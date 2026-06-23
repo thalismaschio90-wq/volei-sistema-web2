@@ -616,6 +616,38 @@ def _label_origem_avanco(origem):
 
 
 def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
+    """Monta o espelho público do avanço com placar e tempo real.
+
+    Antes o visualizador recebia apenas equipes/status/proximos jogos. Por isso
+    os cards do chaveamento (quartas, semifinal, 3º lugar e final) não tinham
+    placar, sets, parciais nem dados suficientes para entrar no Socket.IO.
+    Esta versão leva para o template os mesmos campos preparados para os cards
+    normais de jogos.
+    """
+    def _int_seguro(valor, padrao=0):
+        try:
+            if valor in (None, ""):
+                return padrao
+            return int(valor)
+        except (TypeError, ValueError):
+            return padrao
+
+    def _set_unico_partida(partida):
+        if not partida:
+            return False
+        valor = partida.get("set_unico")
+        if isinstance(valor, bool):
+            return valor
+        if str(valor or "").strip().lower() in {"1", "true", "sim", "yes", "on"}:
+            return True
+        tipo = str(
+            partida.get("sets_tipo")
+            or partida.get("tipo_sets")
+            or partida.get("formato_sets")
+            or ""
+        ).strip().lower().replace("-", "_").replace(" ", "_")
+        return tipo in {"set_unico", "unico", "único"}
+
     mapa_partidas = {}
     for p in partidas or []:
         serie, jogo_id = _origem_partida_avanco(p)
@@ -629,11 +661,13 @@ def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
         sid = str(serie.get("id") or "").strip().lower()
         if not sid:
             continue
+
         item_serie = {
             "id": sid,
             "nome": serie.get("nome") or sid.title(),
             "fases": [],
         }
+
         for fase in _fases_do_avanco_para_tabela({"series": [serie], "jogos": (avanco or {}).get("jogos") or []}):
             jogos = []
             for jogo in (avanco or {}).get("jogos") or []:
@@ -641,14 +675,32 @@ def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
                     continue
                 if _fase_subaba_canonica(jogo.get("fase")) != fase:
                     continue
+
                 jid = str(jogo.get("id") or "").strip()
                 partida = mapa_partidas.get((sid, jid))
+
                 equipe_a = (partida or {}).get("equipe_a") or ""
                 equipe_b = (partida or {}).get("equipe_b") or ""
                 if not classificatorias_fechadas:
                     equipe_a = ""
                     equipe_b = ""
                     partida = None
+
+                finalizada = bool((partida or {}).get("finalizada")) or (bool(partida) and _partida_esta_finalizada(partida))
+                ao_vivo = bool((partida or {}).get("ao_vivo")) or (bool(partida) and _partida_esta_ao_vivo(partida))
+                set_unico = _set_unico_partida(partida)
+
+                placar_a = (
+                    (partida or {}).get("placar_exibicao_a")
+                    if (partida or {}).get("placar_exibicao_a") is not None
+                    else (partida or {}).get("pontos_a")
+                )
+                placar_b = (
+                    (partida or {}).get("placar_exibicao_b")
+                    if (partida or {}).get("placar_exibicao_b") is not None
+                    else (partida or {}).get("pontos_b")
+                )
+
                 jogos.append({
                     "id": jid,
                     "ordem": jogo.get("ordem") or 999,
@@ -659,15 +711,33 @@ def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
                     "equipe_b": "" if equipe_b in {"A definir", ""} else equipe_b,
                     "partida_id": (partida or {}).get("id"),
                     "status_exibicao": (partida or {}).get("status_exibicao") or "Aguardando origem",
+                    "ao_vivo": ao_vivo,
+                    "finalizada": finalizada,
+                    "set_unico": set_unico,
+                    "set_atual": _int_seguro((partida or {}).get("set_atual"), 1),
+                    "sets_a": _int_seguro((partida or {}).get("sets_a"), 0),
+                    "sets_b": _int_seguro((partida or {}).get("sets_b"), 0),
+                    "placar_exibicao_a": _int_seguro(placar_a, 0),
+                    "placar_exibicao_b": _int_seguro(placar_b, 0),
+                    "parciais_formatadas": (partida or {}).get("parciais_formatadas") or "-",
+                    "escudo_a": (partida or {}).get("escudo_a") or (partida or {}).get("equipe_a_escudo") or "/static/img/escudo_padrao.svg",
+                    "escudo_b": (partida or {}).get("escudo_b") or (partida or {}).get("equipe_b_escudo") or "/static/img/escudo_padrao.svg",
+                    "quadra_label": (partida or {}).get("quadra_label") or (partida or {}).get("quadra_nome") or "Sem quadra",
                     "proximo_vencedor": jogo.get("proximo_vencedor") or "",
                     "proximo_perdedor": jogo.get("proximo_perdedor") or "",
                 })
+
             if jogos:
-                item_serie["fases"].append({"id": fase, "nome": FASES_AVANCO_LABELS.get(fase, fase), "jogos": sorted(jogos, key=lambda j: j.get("ordem") or 999)})
+                item_serie["fases"].append({
+                    "id": fase,
+                    "nome": FASES_AVANCO_LABELS.get(fase, fase),
+                    "jogos": sorted(jogos, key=lambda j: j.get("ordem") or 999),
+                })
+
         if item_serie["fases"]:
             saida.append(item_serie)
-    return saida
 
+    return saida
 
 def _to_int_or_none(valor):
     try:
