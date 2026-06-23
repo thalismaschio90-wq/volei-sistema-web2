@@ -1117,7 +1117,9 @@ def _preparar_partidas_para_equipe(equipe, competicao=None, mapa_escudos=None):
         partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
         partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
 
-        if partida.get("ao_vivo") and partida.get("set_unico"):
+        if partida.get("ao_vivo") and not partida.get("finalizada"):
+            partida["placar_ao_vivo"] = f'{partida["placar_ao_vivo_a"]} x {partida["placar_ao_vivo_b"]}'
+            # Na home/listas da equipe, o jogo AO VIVO deve mostrar pontos do set atual.
             partida["placar_exibicao_a"] = partida["placar_ao_vivo_a"]
             partida["placar_exibicao_b"] = partida["placar_ao_vivo_b"]
             partida["placar_exibicao"] = f'{partida["placar_exibicao_a"]} x {partida["placar_exibicao_b"]}'
@@ -1149,7 +1151,9 @@ def _preparar_partidas_home_equipe(equipe, limite=50):
         return []
 
     competicao = _buscar_competicao_cache(nome_competicao) or {"nome": nome_competicao}
-    partidas = _listar_partidas_equipe_cache(nome_competicao, nome_equipe, limite=limite) or []
+    # Home da equipe precisa abrir com o placar ao vivo atual; cache aqui deixava
+    # a próxima partida presa em 0x0 quando o jogo já estava em andamento.
+    partidas = listar_partidas_da_equipe(nome_competicao, nome_equipe, limite=limite) or []
     resultado = []
 
     for p in partidas:
@@ -1170,7 +1174,9 @@ def _preparar_partidas_home_equipe(equipe, limite=50):
         partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
         partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
 
-        if partida.get("ao_vivo") and partida.get("set_unico"):
+        if partida.get("ao_vivo") and not partida.get("finalizada"):
+            partida["placar_ao_vivo"] = f'{partida["placar_ao_vivo_a"]} x {partida["placar_ao_vivo_b"]}'
+            # Na home/listas da equipe, o jogo AO VIVO deve mostrar pontos do set atual.
             partida["placar_exibicao_a"] = partida["placar_ao_vivo_a"]
             partida["placar_exibicao_b"] = partida["placar_ao_vivo_b"]
             partida["placar_exibicao"] = f'{partida["placar_exibicao_a"]} x {partida["placar_exibicao_b"]}'

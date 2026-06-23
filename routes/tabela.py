@@ -690,16 +690,24 @@ def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
                 ao_vivo = bool((partida or {}).get("ao_vivo")) or (bool(partida) and _partida_esta_ao_vivo(partida))
                 set_unico = _set_unico_partida(partida)
 
-                placar_a = (
-                    (partida or {}).get("placar_exibicao_a")
-                    if (partida or {}).get("placar_exibicao_a") is not None
-                    else (partida or {}).get("pontos_a")
-                )
-                placar_b = (
-                    (partida or {}).get("placar_exibicao_b")
-                    if (partida or {}).get("placar_exibicao_b") is not None
-                    else (partida or {}).get("pontos_b")
-                )
+                # No jogo AO VIVO o placar principal do card precisa ser o placar
+                # do SET ATUAL (pontos_a/pontos_b). O placar_exibicao_a/b em
+                # partidas melhor de 3/5 é o placar de SETS, por isso causava 0x0
+                # no chaveamento mesmo com o apontador em 7x7.
+                if ao_vivo and not finalizada:
+                    placar_a = (partida or {}).get("pontos_a")
+                    placar_b = (partida or {}).get("pontos_b")
+                else:
+                    placar_a = (
+                        (partida or {}).get("placar_exibicao_a")
+                        if (partida or {}).get("placar_exibicao_a") is not None
+                        else (partida or {}).get("pontos_a")
+                    )
+                    placar_b = (
+                        (partida or {}).get("placar_exibicao_b")
+                        if (partida or {}).get("placar_exibicao_b") is not None
+                        else (partida or {}).get("pontos_b")
+                    )
 
                 jogos.append({
                     "id": jid,
@@ -1297,6 +1305,14 @@ def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
         )
 
         aplicar_placar_exibicao_partida(partida, competicao or {})
+
+        # Para jogo ao vivo, o campo de consulta/visualização deve mostrar
+        # os pontos do set atual. O placar_exibicao em M3/M5 representa sets
+        # e por isso fica 0x0 no início da partida.
+        if partida.get("ao_vivo") and not partida.get("finalizada"):
+            partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
+            partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
+            partida["placar_ao_vivo"] = f'{partida["placar_ao_vivo_a"]} x {partida["placar_ao_vivo_b"]}'
 
         partida["quadra_label"] = _quadra_label(partida)
         partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
@@ -2139,7 +2155,8 @@ def visualizador_publico(competicao_nome):
         print("AVISO visualizador/normalizar_quadras:", repr(e))
 
     grupos_raw = _listar_grupos_cache(competicao_nome)
-    partidas = _listar_partidas_cache(competicao_nome)
+    # Visualizador público também precisa de partidas frescas para abrir já com o placar atual.
+    partidas = listar_partidas(competicao_nome) or []
     equipes_competicao = _listar_equipes_competicao_cache(competicao_nome)
     mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
 
@@ -2246,7 +2263,10 @@ def tabela_view():
     }
 
     serie_param_cache = (request.args.get("serie") or "").strip().lower()
-    pacote_cacheado = _pacote_cache_get(nome_competicao, aba, fase_subaba, serie_param_cache)
+    # A aba de partidas precisa refletir placar ao vivo. Não usamos pacote cache
+    # nela porque uma abertura antes do jogo começar deixava 0x0 congelado por
+    # vários segundos para organizador/equipes/visualizador.
+    pacote_cacheado = None if aba == "partidas" else _pacote_cache_get(nome_competicao, aba, fase_subaba, serie_param_cache)
     if pacote_cacheado is not None:
         contexto.update(pacote_cacheado)
         return render_template("tabela.html", **contexto)
@@ -2286,7 +2306,8 @@ def tabela_view():
         grupos_raw = _listar_grupos_cache(nome_competicao)
         equipes = _listar_equipes_competicao_cache(nome_competicao)
         mapa_escudos = _mapa_escudos_equipes(equipes)
-        partidas = _listar_partidas_cache(nome_competicao)
+        # Partidas sempre frescas nesta aba para não travar placar ao vivo em cache.
+        partidas = listar_partidas(nome_competicao) or []
         if not avanco_gerado:
             partidas = [p for p in partidas if not _partida_eh_avanco(p)]
 
@@ -2338,7 +2359,8 @@ def tabela_view():
     # O iframe/link público carrega a rota pública quando necessário.
 
     if pacote_contexto:
-        _pacote_cache_set(nome_competicao, aba, fase_subaba, serie_param_cache, pacote_contexto)
+        if aba != "partidas":
+            _pacote_cache_set(nome_competicao, aba, fase_subaba, serie_param_cache, pacote_contexto)
         contexto.update(pacote_contexto)
 
     return render_template("tabela.html", **contexto)
