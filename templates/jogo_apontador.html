@@ -4084,10 +4084,11 @@ function inverterLadosVisual() {
 
             if (tempoAtual <= 0) {
                 clearInterval(intervaloTempo);
-                cronometroEl.textContent = "⏱️ FIM DO TEMPO";
-                atualizarMobileCronometro("⏱️ FIM", true);
+                cronometroEl.textContent = "";
+                cronometroEl.style.display = "none";
+                atualizarMobileCronometro("", false);
                 atualizarPopupTempo(0);
-                setTimeout(fecharPopupJogoGrande, 1200);
+                fecharPopupJogoGrande();
                 try {
                     if (socket && socket.connected) {
                         socket.emit("cronometro_tempo", {
@@ -4816,7 +4817,15 @@ function inverterLadosVisual() {
         }
 
         return elenco
-            .filter((a) => !emQuadra.has(numeroAtletaOperacional(a.numero)))
+            .filter((a) => {
+                const numero = numeroAtletaOperacional(a.numero);
+                const st = mapaStatus[String(numero || "")] || {};
+                if (!numero || emQuadra.has(numero)) return false;
+                if (a.libero === true || a.libero === "true" || a.libero === 1 || a.libero === "1") return false;
+                if (st.encerrado || st.tipo === "substituicao_encerrada" || st.tipo === "bloqueado") return false;
+                if (st.vinculo && String(st.vinculo).trim() !== String(numeroSai || "").trim()) return false;
+                return true;
+            })
             .map((a) => ({
                 valor: numeroAtletaOperacional(a.numero),
                 label: numeroAtletaOperacional(a.numero),
@@ -6270,7 +6279,7 @@ async function registrarPonto(equipe, scout) {
 }
 
     async function registrarSubstituicao() {
-        if (partidaFinalizada || !equipeSubAtual) return;
+        if (enviando || partidaFinalizada || !equipeSubAtual) return;
 
         const numeroSai = String(numeroSaiSelecionado || "").trim();
         const numeroEntra = String(numeroEntraSelecionado || "").trim();
@@ -6279,13 +6288,36 @@ async function registrarPonto(equipe, scout) {
             mostrarErro("Selecione corretamente quem sai e quem entra.");
             return;
         }
+        if (!podePedirSubstituicao(equipeSubAtual)) {
+            mostrarErro("Limite de substituições atingido para esta equipe neste set.");
+            atualizarTravasOperacionais();
+            return;
+        }
 
-        await enviarAcaoRapida(
-            "substituicao",
-            { equipe: equipeSubAtual, numero_sai: numeroSai, numero_entra: numeroEntra },
-            fecharModalSubstituicao
-        );
+        enviando = true;
+        travarBotoes(true);
+        limparErro();
+
+        try {
+            const resp = await fetch(URLS_ACAO.substituicao, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                body: JSON.stringify({ equipe: equipeSubAtual, numero_sai: numeroSai, numero_entra: numeroEntra })
+            });
+            const dados = await resp.json().catch(() => ({}));
+            if (!resp.ok || dados.ok === false) {
+                throw new Error(dados.mensagem || "Não foi possível registrar a substituição.");
+            }
+            aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: "substituicao_fetch" }), { fonte: "substituicao_fetch" });
+            fecharModalSubstituicao();
+        } catch (e) {
+            mostrarErro((e && e.message) ? e.message : "Erro ao registrar substituição.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
     }
+
 
     function confirmarPontoAvancado() {
         if (!podeConfirmarPontoAvancado()) {
@@ -6348,17 +6380,38 @@ async function registrarPonto(equipe, scout) {
     }
 
     async function registrarTempo(equipe) {
-    if (partidaFinalizada) return;
-    limparErro();
+        if (enviando || partidaFinalizada) return;
+        limparErro();
 
-    if (!podePedirTempo(equipe)) {
-        mostrarErro("Limite de tempos atingido para esta equipe neste set.");
-        atualizarTravasOperacionais();
-        return;
+        if (!podePedirTempo(equipe)) {
+            mostrarErro("Limite de tempos atingido para esta equipe neste set.");
+            atualizarTravasOperacionais();
+            return;
+        }
+
+        enviando = true;
+        travarBotoes(true);
+
+        try {
+            const resp = await fetch(URLS_ACAO.tempo, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                body: JSON.stringify({ equipe: equipe })
+            });
+            const dados = await resp.json().catch(() => ({}));
+            if (!resp.ok || dados.ok === false) {
+                throw new Error(dados.mensagem || "Não foi possível registrar o tempo.");
+            }
+            aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: "tempo_fetch" }), { fonte: "tempo_fetch" });
+            iniciarCronometro(30, equipe);
+        } catch (e) {
+            mostrarErro((e && e.message) ? e.message : "Erro ao registrar tempo.");
+        } finally {
+            enviando = false;
+            travarBotoes(false);
+        }
     }
 
-    await enviarAcaoRapida("tempo", { equipe: equipe });
-}
 
 async function registrarSubstituicaoExcepcional() {
     if (partidaFinalizada || !equipeSubExAtual) return;

@@ -9859,6 +9859,7 @@ def _snapshot_estado_partida(partida, competicao):
         "retardamentos_a": _json_load_text(partida.get("retardamentos_a_json"), []),
         "retardamentos_b": _json_load_text(partida.get("retardamentos_b_json"), []),
         "subs_excepcionais": _json_load_text(partida.get("subs_excepcionais_json"), []),
+        "limite_tempos": int(comp.get("tempos_por_set") or 2),
         "limite_substituicoes": int(comp.get("substituicoes_por_set") or 6),
     }
 
@@ -10380,12 +10381,19 @@ def buscar_estado_jogo_partida(partida_id, competicao):
 
 
 def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
-    eventos = listar_eventos_partida(partida_id, competicao, limite=limite) or []
+    # Últimas ações do apontador são apenas lances/pontos de jogo.
+    # Tempo, substituição, sanção administrativa e aviso não aparecem aqui.
+    eventos = listar_eventos_partida(partida_id, competicao, limite=50) or []
     historico = []
 
     for ev in eventos:
-        descricao = str(ev.get("descricao") or "").strip() or "Ação registrada"
+        tipo = str(ev.get("tipo") or "").strip().lower()
+        if tipo not in {"ponto", "retardamento_penalidade"}:
+            continue
+        descricao = str(ev.get("descricao") or "").strip() or "Ponto registrado"
         historico.append({"descricao": descricao})
+        if len(historico) >= int(limite or 5):
+            break
 
     return historico
 
@@ -10393,6 +10401,14 @@ def _montar_historico_resumido_partida(partida_id, competicao, limite=5):
 
 def _emitir_estado_tempo_real(partida_id, competicao):
     estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+    comp = buscar_competicao_por_nome(competicao) or {}
+    limite_tempos = int(comp.get("tempos_por_set") or estado.get("limite_tempos") or 2)
+    limite_substituicoes = int(comp.get("substituicoes_por_set") or estado.get("limite_substituicoes") or 6)
+    tempos_restantes = buscar_tempos_restantes_partida(partida_id, competicao) or {}
+    tempos_restantes_a = int(tempos_restantes.get("tempos_a") if tempos_restantes.get("tempos_a") is not None else limite_tempos)
+    tempos_restantes_b = int(tempos_restantes.get("tempos_b") if tempos_restantes.get("tempos_b") is not None else limite_tempos)
+    tempos_usados_a = max(0, limite_tempos - tempos_restantes_a)
+    tempos_usados_b = max(0, limite_tempos - tempos_restantes_b)
 
     payload = {
         "placar_a": int(estado.get("pontos_a") or estado.get("placar_a") or 0),
@@ -10400,8 +10416,12 @@ def _emitir_estado_tempo_real(partida_id, competicao):
         "sets_a": int(estado.get("sets_a") or 0),
         "sets_b": int(estado.get("sets_b") or 0),
         "saque_atual": estado.get("saque_atual") or "",
-        "tempos_a": estado.get("tempos_a"),
-        "tempos_b": estado.get("tempos_b"),
+        "limite_tempos": limite_tempos,
+        "limite_substituicoes": limite_substituicoes,
+        "tempos_a": tempos_usados_a,
+        "tempos_b": tempos_usados_b,
+        "tempos_restantes_a": tempos_restantes_a,
+        "tempos_restantes_b": tempos_restantes_b,
         "subs_a": int(estado.get("subs_a") or 0),
         "subs_b": int(estado.get("subs_b") or 0),
         "rotacao": {
@@ -11177,7 +11197,6 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
 
     if not numero_sai or not numero_entra:
         return False, 'Informe corretamente quem sai e quem entra.'
-
     if numero_sai == numero_entra:
         return False, 'O atleta que entra deve ser diferente do atleta que sai.'
 
@@ -11189,17 +11208,32 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
     if not estado:
         return False, 'Estado da partida não encontrado.'
 
-    limite = int(estado.get('limite_substituicoes') or 6)
-    subs_usadas = int(estado.get('subs_a') or 0) if equipe == 'A' else int(estado.get('subs_b') or 0)
+    comp = buscar_competicao_por_nome(competicao) or {}
+    limite = int(comp.get('substituicoes_por_set') or estado.get('limite_substituicoes') or 6)
+    set_atual = int(partida.get('set_atual') or estado.get('set_atual') or 1)
+
+    # A contagem oficial é no banco/eventos do set atual, não no cache.
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) AS total
+                FROM eventos
+                WHERE partida_id = %s
+                  AND competicao = %s
+                  AND set_numero = %s
+                  AND equipe = %s
+                  AND tipo = 'substituicao'
+            """, (partida_id, competicao, set_atual, equipe))
+            subs_usadas = int((cur.fetchone() or {}).get('total') or 0)
 
     if subs_usadas >= limite:
         return False, 'Limite de substituições atingido neste set.'
 
     equipe_nome = partida.get('equipe_a_operacional') if equipe == 'A' else partida.get('equipe_b_operacional')
+    equipe_nome = equipe_nome or (partida.get('equipe_a') if equipe == 'A' else partida.get('equipe_b'))
 
     elenco = listar_atletas_aprovados_da_equipe(equipe_nome, competicao) if equipe_nome else []
     atletas_validos = {}
-
     for atleta in elenco:
         numero = atleta.get('numero')
         if numero in (None, ''):
@@ -11208,11 +11242,14 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
 
     if numero_sai not in atletas_validos:
         return False, 'O atleta que sai não pertence à equipe ou não possui número válido.'
-
     if numero_entra not in atletas_validos:
         return False, 'O atleta que entra não pertence à equipe ou não possui número válido.'
 
-    set_atual = int(partida.get('set_atual') or 1)
+    # Líbero não participa de substituição normal.
+    if bool(atletas_validos.get(numero_sai, {}).get('libero')):
+        return False, 'Líbero não pode sair por substituição normal.'
+    if bool(atletas_validos.get(numero_entra, {}).get('libero')):
+        return False, 'Líbero não pode entrar por substituição normal.'
 
     if atleta_bloqueado(numero_entra, estado, set_atual):
         return False, 'Esse atleta está bloqueado por sanção e não pode entrar.'
@@ -11236,23 +11273,13 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
                 for row in papeleta
                 if row.get('numero') not in (None, '')
             }
-
-            rotacao_atual = [
-                mapa.get(4, ''),
-                mapa.get(3, ''),
-                mapa.get(2, ''),
-                mapa.get(5, ''),
-                mapa.get(6, ''),
-                mapa.get(1, ''),
-            ]
-
+            rotacao_atual = [mapa.get(4, ''), mapa.get(3, ''), mapa.get(2, ''), mapa.get(5, ''), mapa.get(6, ''), mapa.get(1, '')]
             rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
         except Exception:
             pass
 
     if numero_sai not in rotacao_str:
         return False, 'O atleta que sai não está em quadra.'
-
     if numero_entra in rotacao_str:
         return False, 'O atleta que entra já está em quadra.'
 
@@ -11264,15 +11291,11 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         if str(valor).strip() == numero_sai:
             pos_real = i
             break
-
     if pos_real is None:
         return False, 'Não foi possível identificar a posição do atleta em quadra.'
 
-    rotacao_atual[pos_real] = numero_entra
-
     status_jogadores_a = dict(estado.get('status_jogadores_a') or {})
     status_jogadores_b = dict(estado.get('status_jogadores_b') or {})
-
     status_alvo = status_jogadores_a if equipe == 'A' else status_jogadores_b
 
     status_sai = dict(status_alvo.get(numero_sai) or {})
@@ -11287,31 +11310,81 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         if str(x).strip()
     )
 
-    # Quem entra fica marcado como substituto: vermelho na quadra
-    status_entra['em_quadra'] = True
-    status_entra['tipo'] = 'substituto'
-    status_entra['vinculo'] = numero_sai
+    bloqueios = dict(estado.get('bloqueios') or {})
+    bloqueio_entra = dict(bloqueios.get(numero_entra) or {})
+    if bloqueio_entra.get('tipo') in {'substituicao_encerrada', 'substituicao_normal_encerrada'}:
+        return False, 'Esse atleta já teve o vínculo de substituição encerrado neste set.'
 
-    # Quem sai fica marcado como retorno se era titular inicial: verde quando voltar
-    status_sai['em_quadra'] = False
-    status_sai['tipo'] = 'retorno' if numero_sai in titulares_iniciais else ''
-    status_sai['vinculo'] = numero_entra
+    # Retorno do titular: o reserva em quadra só pode sair para o titular vinculado.
+    retorno_de_titular = status_sai.get('tipo') == 'substituto' and str(status_sai.get('vinculo') or '').strip()
+    if retorno_de_titular:
+        titular_vinculado = str(status_sai.get('vinculo') or '').strip()
+        if numero_entra != titular_vinculado:
+            return False, f'O atleta #{numero_sai} só pode ser substituído pelo titular #{titular_vinculado}.'
 
+        status_sai.update({
+            'em_quadra': False,
+            'tipo': 'substituicao_encerrada',
+            'vinculo': titular_vinculado,
+            'encerrado': True,
+            'set_numero': set_atual,
+        })
+        status_entra.update({
+            'em_quadra': True,
+            'tipo': 'titular',
+            'vinculo_encerrado': numero_sai,
+            'retornou': True,
+            'set_numero': set_atual,
+        })
+        bloqueios[numero_sai] = {
+            'tipo': 'substituicao_normal_encerrada',
+            'escopo': 'set',
+            'set_numero': set_atual,
+            'vinculo': titular_vinculado,
+        }
+    else:
+        # Primeira entrada do reserva: se já havia vínculo, ele só pode repetir com o mesmo titular.
+        vinculo_previo = str(status_entra.get('vinculo') or '').strip()
+        if vinculo_previo and vinculo_previo != numero_sai:
+            return False, f'O atleta #{numero_entra} só pode entrar no vínculo do titular #{vinculo_previo}.'
+        if status_entra.get('encerrado') or status_entra.get('tipo') in {'substituicao_encerrada', 'bloqueado'}:
+            return False, 'Esse atleta já teve o vínculo de substituição encerrado neste set.'
+
+        status_entra.update({
+            'em_quadra': True,
+            'tipo': 'substituto',
+            'vinculo': numero_sai,
+            'set_numero': set_atual,
+        })
+        status_sai.update({
+            'em_quadra': False,
+            'tipo': 'retorno' if numero_sai in titulares_iniciais else 'substituido',
+            'vinculo': numero_entra,
+            'set_numero': set_atual,
+        })
+
+    rotacao_atual[pos_real] = numero_entra
     status_alvo[numero_sai] = status_sai
     status_alvo[numero_entra] = status_entra
 
-    subs_a = int(estado.get('subs_a') or 0)
-    subs_b = int(estado.get('subs_b') or 0)
+    subs_a = subs_usadas + 1 if equipe == 'A' else int(estado.get('subs_a') or 0)
+    subs_b = subs_usadas + 1 if equipe == 'B' else int(estado.get('subs_b') or 0)
 
     if equipe == 'A':
-        subs_a += 1
         nova_rotacao_a = rotacao_atual
         nova_rotacao_b = list(estado.get('rotacao_b') or [])
     else:
-        subs_b += 1
         nova_rotacao_a = list(estado.get('rotacao_a') or [])
         nova_rotacao_b = rotacao_atual
 
+    detalhes_evento = {
+        'numero_sai': numero_sai,
+        'numero_entra': numero_entra,
+        'placar_a': int(partida.get('pontos_a') or 0),
+        'placar_b': int(partida.get('pontos_b') or 0),
+        'set_numero': set_atual,
+        'retorno_titular': bool(retorno_de_titular),
+    }
     registrar_evento_partida(
         partida_id,
         competicao,
@@ -11319,7 +11392,8 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         equipe,
         'substituicao',
         detalhe=f'{numero_sai}>{numero_entra}',
-        numero=numero_entra
+        numero=numero_entra,
+        detalhes=detalhes_evento,
     )
 
     snapshot = {
@@ -11339,7 +11413,7 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         'vinculos_reserva_titular_a': estado.get('vinculos_reserva_titular_a', {}),
         'vinculos_reserva_titular_b': estado.get('vinculos_reserva_titular_b', {}),
         'substituicao_forcada': estado.get('substituicao_forcada', {}),
-        'bloqueios': estado.get('bloqueios', {}),
+        'bloqueios': bloqueios,
         'retardamentos_a': estado.get('retardamentos_a', []),
         'retardamentos_b': estado.get('retardamentos_b', []),
         'subs_excepcionais': estado.get('subs_excepcionais', []),
@@ -11348,50 +11422,17 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         'cartoes_verdes_a': estado.get('cartoes_verdes_a', []),
         'cartoes_verdes_b': estado.get('cartoes_verdes_b', []),
     }
-
     _salvar_snapshot_estado_jogo(partida_id, competicao, snapshot)
 
     tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-
-    historico = []
-    ultima_acao = f'Substituição {equipe}: #{numero_sai} → #{numero_entra}'
-
-    try:
-        eventos = listar_eventos_partida(partida_id, competicao, limite=5) or []
-
-        for ev in eventos:
-            descricao = (ev.get("descricao") or "").strip()
-
-            if not descricao:
-                tipo_evento = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip()
-                equipe_ev = str(ev.get("equipe") or "").strip()
-                detalhe_ev = str(ev.get("detalhe") or ev.get("detalhes") or "").strip()
-                numero_ev = str(ev.get("numero") or "").strip()
-
-                partes = []
-                if tipo_evento:
-                    partes.append(tipo_evento.replace("_", " ").title())
-                if equipe_ev:
-                    partes.append(f"Equipe {equipe_ev}")
-                if detalhe_ev:
-                    partes.append(detalhe_ev.replace("_", " "))
-                if numero_ev:
-                    partes.append(f"#{numero_ev}")
-
-                descricao = " • ".join([p for p in partes if p]) or "Ação registrada"
-
-            historico.append({"descricao": descricao})
-
-        if historico:
-            ultima_acao = historico[0]["descricao"]
-
-    except Exception:
-        historico = [{"descricao": ultima_acao}]
+    historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
 
     resposta = {
         'mensagem': 'Substituição registrada.',
         'pontos_a': int(partida.get('pontos_a') or 0),
         'pontos_b': int(partida.get('pontos_b') or 0),
+        'placar_a': int(partida.get('pontos_a') or 0),
+        'placar_b': int(partida.get('pontos_b') or 0),
         'sets_a': int(partida.get('sets_a') or 0),
         'sets_b': int(partida.get('sets_b') or 0),
         'set_atual': set_atual,
@@ -11401,31 +11442,35 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         'partida_finalizada': False,
         'rotacao_a': nova_rotacao_a,
         'rotacao_b': nova_rotacao_b,
-        'tempos_a': tempos.get('tempos_a'),
-        'tempos_b': tempos.get('tempos_b'),
+        'tempos_restantes_a': tempos.get('tempos_a'),
+        'tempos_restantes_b': tempos.get('tempos_b'),
+        'tempos_a': int(estado.get('tempos_a') or 0),
+        'tempos_b': int(estado.get('tempos_b') or 0),
         'subs_a': subs_a,
         'subs_b': subs_b,
+        'subs_restantes_a': max(0, limite - subs_a),
+        'subs_restantes_b': max(0, limite - subs_b),
         'limite_substituicoes': limite,
+        'limite_tempos': int(comp.get('tempos_por_set') or estado.get('limite_tempos') or 2),
         'status_jogadores_a': status_jogadores_a,
         'status_jogadores_b': status_jogadores_b,
         'sancoes_a': estado.get('sancoes_a', []),
         'sancoes_b': estado.get('sancoes_b', []),
         'cartoes_verdes_a': estado.get('cartoes_verdes_a', []),
         'cartoes_verdes_b': estado.get('cartoes_verdes_b', []),
-        'bloqueios': estado.get('bloqueios', {}),
+        'bloqueios': bloqueios,
         'substituicao_forcada': estado.get('substituicao_forcada', {}),
         'retardamentos_a': estado.get('retardamentos_a', []),
         'retardamentos_b': estado.get('retardamentos_b', []),
         'subs_excepcionais': estado.get('subs_excepcionais', []),
         'historico': historico,
-        'ultima_acao': ultima_acao,
+        'ultima_acao': historico[0]['descricao'] if historico else (estado.get('ultima_acao') or '-'),
     }
 
     _emitir_estado_tempo_real(partida_id, competicao)
-
     return True, resposta
-    
-        
+
+
 def registrar_substituicao_excepcional_partida(partida_id, competicao, equipe, numero_sai, numero_entra, motivo='', observacao=''):
     criar_tabela_eventos()
     criar_campos_jogo_partida()
@@ -11765,18 +11810,17 @@ def desfazer_ultima_acao_partida(partida_id, competicao):
             ids_para_remover = []
             for evento in recentes:
                 tipo = (evento.get("tipo") or "").strip().lower()
+                # Desfazer do apontador volta SOMENTE ponto.
+                # Tempo, substituição, sanções e avisos ficam registrados para súmula.
                 if tipo in {"fim_partida", "fim_set"}:
                     ids_para_remover.append(evento["id"])
                     continue
-                if tipo == "retardamento_penalidade":
+                if tipo in {"ponto", "retardamento_penalidade"}:
                     ids_para_remover.append(evento["id"])
-                    continue
-                if tipo in {"ponto", "tempo", "substituicao", "substituicao_excepcional", "retardamento", "sancao", "cartao_verde"}:
-                    ids_para_remover.append(evento["id"])
-                break
+                    break
 
             if not ids_para_remover:
-                ids_para_remover.append(recentes[0]["id"])
+                return False, "Nenhum ponto para desfazer."
 
             cur.execute(
                 f"DELETE FROM eventos WHERE id IN ({', '.join(['%s'] * len(ids_para_remover))})",
@@ -11921,12 +11965,19 @@ def registrar_tempo_partida(partida_id, competicao, equipe):
             if usados >= limite:
                 return False, "Limite de tempos atingido."
 
+            detalhes_tempo = json.dumps({
+                'placar_a': int(partida.get('pontos_a') or 0),
+                'placar_b': int(partida.get('pontos_b') or 0),
+                'set_numero': set_atual,
+                'origem': 'apontador_confirmado'
+            }, ensure_ascii=False)
+
             cur.execute("""
                 INSERT INTO eventos (
                     partida_id, competicao, set_numero, equipe, tipo, detalhes
                 )
-                VALUES (%s, %s, %s, %s, 'tempo', 'pedido_tempo')
-            """, (partida_id, competicao, set_atual, equipe))
+                VALUES (%s, %s, %s, %s, 'tempo', %s)
+            """, (partida_id, competicao, set_atual, equipe, detalhes_tempo))
 
         conn.commit()
 
@@ -11958,13 +12009,16 @@ def registrar_tempo_partida(partida_id, competicao, equipe):
         "set_atual": estado["set_atual"],
         "saque_atual": estado["saque_atual"],
         "status_jogo": estado["status_jogo"],
-        "tempos_a": limite - usados_a,
-        "tempos_b": limite - usados_b,
+        "limite_tempos": limite,
+        "tempos_a": usados_a,
+        "tempos_b": usados_b,
+        "tempos_restantes_a": max(limite - usados_a, 0),
+        "tempos_restantes_b": max(limite - usados_b, 0),
         "partida_finalizada": (estado["status_jogo"] or "").lower() == "finalizada",
         "rotacao_a": estado.get("rotacao_a", ["", "", "", "", "", ""]),
         "rotacao_b": estado.get("rotacao_b", ["", "", "", "", "", ""]),
-        "ultima_acao": "Ponto registrado",
         "historico": _montar_historico_resumido_partida(partida_id, competicao, limite=5),
+        "ultima_acao": (_montar_historico_resumido_partida(partida_id, competicao, limite=1) or [{"descricao": estado.get("ultima_acao") or "-"}])[0]["descricao"],
         "subs_a": int(estado.get("subs_a") or 0),
         "subs_b": int(estado.get("subs_b") or 0),
         "limite_substituicoes": int(estado.get("limite_substituicoes") or 6),
