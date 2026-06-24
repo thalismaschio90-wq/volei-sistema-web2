@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block titulo %}SuperADMs clientes{% endblock %}
+
+{% block conteudo %}
+<style>
+    .adm-wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+    .adm-hero { background: linear-gradient(135deg, #111827, #123852 62%, #071827); color: #fff; border-radius: 26px; padding: 26px; box-shadow: var(--shadow, 0 12px 28px rgba(15,23,42,.14)); }
+    .adm-kicker { font-size: 13px; font-weight: 1000; text-transform: uppercase; color: rgba(255,255,255,.72); letter-spacing: .4px; }
+    .adm-title { margin-top: 6px; font-size: clamp(28px, 4vw, 42px); font-weight: 1000; line-height: 1; }
+    .adm-sub { margin-top: 8px; color: rgba(255,255,255,.78); font-weight: 700; max-width: 780px; line-height: 1.45; }
+    .adm-card { background: #fff; border: 1px solid var(--border, #dbe4ec); border-radius: 22px; padding: 20px; box-shadow: var(--shadow, 0 10px 24px rgba(15,23,42,.06)); }
+    .adm-card-title { font-size: 22px; font-weight: 1000; color: var(--text, #17324a); margin-bottom: 12px; }
+    .adm-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .adm-field label { display: block; margin-bottom: 7px; font-weight: 900; color: var(--text, #17324a); font-size: 14px; }
+    .adm-field input { width: 100%; padding: 13px 14px; border: 1px solid #cfd9e3; border-radius: 14px; font-size: 15px; background: #fcfdff; outline: none; }
+    .adm-actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .adm-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; text-decoration: none; border-radius: 15px; padding: 12px 16px; font-weight: 1000; cursor: pointer; background: #123852; color: #fff; }
+    .adm-btn.secondary { background: #eef4fb; color: #123852; border: 1px solid #dbeafe; }
+    .adm-btn.danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .adm-cred { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; border-radius: 18px; padding: 14px; font-weight: 900; }
+    .adm-table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 18px; }
+    .adm-table th, .adm-table td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+    .adm-table th { color: #64748b; font-size: 12px; text-transform: uppercase; font-weight: 1000; background: #f8fafc; }
+    .adm-empty { color: #64748b; font-weight: 800; padding: 12px 0; }
+    .adm-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 1000; background: #dcfce7; color: #166534; }
+    .adm-pill.off { background: #fee2e2; color: #991b1b; }
+    @media (max-width: 780px) { .adm-grid { grid-template-columns: 1fr; } .adm-table { display: block; overflow-x: auto; } .adm-btn { width: 100%; } }
+</style>
+
+<div class="adm-wrap">
+    <div class="adm-hero">
+        <div class="adm-kicker">ThalisADM master</div>
+        <div class="adm-title">SuperADMs abaixo do ThalisADM</div>
+        <div class="adm-sub">
+            Crie um SuperADM para cada cliente/liga. As competições criadas por ele já ficam vinculadas ao cliente dele.
+        </div>
+    </div>
+
+    {% if credenciais %}
+    <div class="adm-cred">
+        Cliente criado: {{ credenciais.cliente_nome }}<br>
+        Login: {{ credenciais.login }}<br>
+        Senha: {{ credenciais.senha }}
+    </div>
+    {% endif %}
+
+    <div class="adm-card">
+        <div class="adm-card-title">Criar SuperADM de cliente</div>
+        <form method="POST" action="{{ url_for('painel.novo_superadmin_cliente') }}">
+            <div class="adm-grid">
+                <div class="adm-field">
+                    <label>Nome do cliente / liga</label>
+                    <input type="text" name="nome_cliente" placeholder="Ex.: Liga Gaúcha" required>
+                </div>
+                <div class="adm-field">
+                    <label>Nome do SuperADM</label>
+                    <input type="text" name="nome_admin" placeholder="Ex.: Admin Liga Gaúcha" required>
+                </div>
+                <div class="adm-field">
+                    <label>Login do SuperADM</label>
+                    <input type="text" name="login_admin" placeholder="Ex.: adm_liga_gaucha">
+                </div>
+            </div>
+            <div class="adm-actions">
+                <button class="adm-btn" type="submit">👑 Criar SuperADM</button>
+                <a class="adm-btn secondary" href="{{ url_for('painel.inicio') }}">Voltar</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="adm-card">
+        <div class="adm-card-title">SuperADMs cadastrados</div>
+        {% if superadmins %}
+        <table class="adm-table">
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>SuperADM</th>
+                    <th>Login</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for adm in superadmins %}
+                <tr>
+                    <td><strong>{{ adm.cliente_nome or '-' }}</strong></td>
+                    <td>{{ adm.nome }}</td>
+                    <td><strong>{{ adm.login }}</strong></td>
+                    <td>
+                        {% if adm.ativo and adm.cliente_ativo %}
+                            <span class="adm-pill">Ativo</span>
+                        {% else %}
+                            <span class="adm-pill off">Inativo</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <form method="POST" action="{{ url_for('painel.excluir_superadmin_cliente_view', login_alvo=adm.login) }}" onsubmit="return confirm('Remover este SuperADM e desativar o cliente?');">
+                            <button class="adm-btn danger" type="submit">Excluir</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+            <div class="adm-empty">Nenhum SuperADM de cliente cadastrado ainda.</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

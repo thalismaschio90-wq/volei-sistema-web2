@@ -181,6 +181,54 @@ def _limpar_cache_equipes(competicao=None, equipe=None, login=None):
         _CACHE_COMPETICOES_LOGIN.pop(login, None)
 
 
+
+
+def _salvar_upload_foto_atleta(arquivo):
+    """Processa foto do atleta e devolve data URL base64 para salvar no banco."""
+    if not arquivo or not getattr(arquivo, "filename", ""):
+        return None, None
+
+    extensao = _extensao_arquivo(arquivo.filename)
+    if extensao not in _EXTENSOES_ESCUDO_PERMITIDAS:
+        return None, "Formato inválido. Envie PNG, JPG, JPEG, WebP, HEIC ou HEIF."
+
+    try:
+        arquivo.stream.seek(0)
+        imagem = Image.open(arquivo.stream)
+        imagem = ImageOps.exif_transpose(imagem)
+        imagem.load()
+
+        if imagem.mode in ("RGBA", "LA") or (imagem.mode == "P" and "transparency" in imagem.info):
+            imagem = imagem.convert("RGBA")
+            fundo = Image.new("RGBA", imagem.size, (255, 255, 255, 255))
+            fundo.alpha_composite(imagem)
+            imagem = fundo.convert("RGB")
+        else:
+            imagem = imagem.convert("RGB")
+
+        largura, altura = imagem.size
+        if largura <= 0 or altura <= 0:
+            return None, "Imagem inválida. Envie outra imagem."
+
+        lado = min(largura, altura)
+        esquerda = max((largura - lado) // 2, 0)
+        topo = max((altura - lado) // 2, 0)
+        imagem = imagem.crop((esquerda, topo, esquerda + lado, topo + lado))
+
+        filtro = getattr(Image, "Resampling", Image).LANCZOS
+        imagem = imagem.resize((420, 420), filtro)
+
+        buffer = BytesIO()
+        imagem.save(buffer, format="JPEG", quality=82, optimize=True, progressive=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}", None
+
+    except UnidentifiedImageError:
+        return None, "Não foi possível ler essa foto. Envie uma imagem válida."
+    except Exception:
+        current_app.logger.exception("ERRO PROCESSAR FOTO ATLETA")
+        return None, "Não foi possível processar a foto. Tente outra imagem."
+
 def _buscar_competicao_cache(nome_competicao):
     nome_competicao = (nome_competicao or "").strip()
     if not nome_competicao:
@@ -512,7 +560,7 @@ def nova_equipe():
             )
 
         if acao == "buscar":
-            equipes_encontradas = buscar_equipes_globais_por_nome(nome_busca)
+            equipes_encontradas = buscar_equipes_globais_por_nome(nome_busca, competicao=competicao["nome"])
 
             if not equipes_encontradas:
                 flash("Nenhuma equipe encontrada com esse nome. Você pode criar uma nova equipe.", "aviso")
@@ -533,7 +581,7 @@ def nova_equipe():
                     "nova_equipe.html",
                     competicao=competicao,
                     nome_busca=nome_busca,
-                    equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca),
+                    equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca, competicao=competicao["nome"]),
                 )
 
             session["credenciais_nova_equipe"] = {
@@ -548,7 +596,7 @@ def nova_equipe():
             return redirect(url_for("equipes.listar_equipes_view"))
 
         # Compatibilidade: se algum botão antigo postar sem acao, faz busca.
-        equipes_encontradas = buscar_equipes_globais_por_nome(nome_busca)
+        equipes_encontradas = buscar_equipes_globais_por_nome(nome_busca, competicao=competicao["nome"])
         return render_template(
             "nova_equipe.html",
             competicao=competicao,
@@ -1470,7 +1518,7 @@ def cadastrar_atleta_pagina_view():
             if not cpf_busca:
                 erro = "Informe o CPF para buscar o atleta."
             else:
-                atleta_encontrado = buscar_atleta_global_por_cpf(cpf_busca)
+                atleta_encontrado = buscar_atleta_global_por_cpf(cpf_busca, competicao=equipe.get("competicao"))
                 if atleta_encontrado:
                     flash("Atleta encontrado no banco. Confira os dados e informe o número para vincular nesta competição.", "sucesso")
                 else:
@@ -1480,14 +1528,22 @@ def cadastrar_atleta_pagina_view():
             # Deixa a função cadastrar_atleta validar CPF, prazo, limite e número.
             # Se o CPF já existir em outra competição, ela reaproveita os dados enviados
             # e cria um novo registro apenas para a competição atual.
-            resultado = cadastrar_atleta(
-                request.form.get("nome", "").strip(),
-                request.form.get("cpf", "").strip(),
-                request.form.get("data_nascimento", "").strip(),
-                request.form.get("numero", "").strip(),
-                equipe["nome"],
-                equipe["competicao"]
-            )
+            foto_atleta, erro_foto = _salvar_upload_foto_atleta(request.files.get("foto_atleta"))
+            if erro_foto:
+                resultado = (False, erro_foto)
+            else:
+                if not foto_atleta:
+                    foto_atleta = request.form.get("foto_atleta_existente", "").strip()
+                resultado = cadastrar_atleta(
+                    request.form.get("nome", "").strip(),
+                    request.form.get("cpf", "").strip(),
+                    request.form.get("data_nascimento", "").strip(),
+                    request.form.get("numero", "").strip(),
+                    equipe["nome"],
+                    equipe["competicao"],
+                    foto_atleta=foto_atleta,
+                    instagram=request.form.get("instagram", "").strip()
+                )
 
             if isinstance(resultado, tuple):
                 ok, msg = resultado
@@ -1496,6 +1552,7 @@ def cadastrar_atleta_pagina_view():
                 msg = None
 
             if ok:
+                _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=usuario)
                 flash(msg or "Atleta cadastrado com sucesso.", "sucesso")
                 return redirect(url_for("equipes.cadastrar_atleta_pagina_view"))
 
@@ -1506,6 +1563,8 @@ def cadastrar_atleta_pagina_view():
                 "nome": request.form.get("nome", "").strip(),
                 "cpf": request.form.get("cpf", "").strip(),
                 "data_nascimento": request.form.get("data_nascimento", "").strip(),
+                "instagram": request.form.get("instagram", "").strip(),
+                "foto_atleta": None,
             }
 
     contexto = _montar_contexto_atletas_equipe(
@@ -1577,6 +1636,11 @@ def editar_atleta_view(id_atleta):
         flash(controle_inscricao.get("motivo") or "Inscrição bloqueada.", "erro")
         return redirect(url_for("equipes.meus_atletas_view"))
 
+    foto_atleta, erro_foto = _salvar_upload_foto_atleta(request.files.get("foto_atleta"))
+    if erro_foto:
+        flash(erro_foto, "erro")
+        return redirect(url_for("equipes.meus_atletas_view"))
+
     ok, msg = atualizar_atleta_equipe(
         id_atleta=id_atleta,
         equipe=equipe["nome"],
@@ -1584,9 +1648,9 @@ def editar_atleta_view(id_atleta):
         nome=request.form.get("nome", "").strip(),
         cpf=request.form.get("cpf", "").strip(),
         data_nascimento=request.form.get("data_nascimento", "").strip(),
+        foto_atleta=foto_atleta or request.form.get("foto_atleta_existente", "").strip(),
+        instagram=request.form.get("instagram", "").strip(),
     )
-    if ok:
-        _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=session.get("usuario"))
     if ok:
         _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=session.get("usuario"))
     flash(msg, "sucesso" if ok else "erro")

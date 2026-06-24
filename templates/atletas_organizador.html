@@ -217,6 +217,64 @@
     font-weight: 700;
 }
 
+
+.atleta-link-detalhe {
+    border: 0;
+    background: transparent;
+    color: #0b3556;
+    font-weight: 900;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+}
+.modal-atleta-org {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+}
+.modal-atleta-org.aberto { display: block; }
+.modal-atleta-org-fundo {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.58);
+    backdrop-filter: blur(2px);
+}
+.modal-atleta-org-caixa {
+    position: relative;
+    width: min(94vw, 620px);
+    margin: 5vh auto 0;
+    background: #fff;
+    border: 1px solid #dbe7f3;
+    border-radius: 18px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+    padding: 18px;
+}
+.modal-atleta-org-topo {
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    align-items:flex-start;
+    border-bottom:1px solid #e5edf6;
+    padding-bottom:12px;
+    margin-bottom:14px;
+}
+.modal-atleta-org-titulo { font-size:20px; font-weight:900; color:#0b3556; }
+.modal-atleta-org-fechar {
+    width:34px; height:34px; border-radius:999px; border:1px solid #dbe7f3; background:white; font-size:24px; cursor:pointer;
+}
+.modal-atleta-org-corpo { display:grid; grid-template-columns:120px 1fr; gap:16px; align-items:start; }
+.modal-atleta-org-foto { width:112px; height:112px; object-fit:cover; border-radius:18px; border:1px solid #dbe7f3; background:#f8fafc; }
+.modal-atleta-org-dados { display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+.modal-atleta-org-dado strong { display:block; font-size:12px; color:#64748b; margin-bottom:2px; }
+.modal-atleta-org-acoes { margin-top:18px; display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+body.modal-atleta-org-aberto { overflow:hidden; }
+@media (max-width: 640px) {
+    .modal-atleta-org-corpo { grid-template-columns:1fr; }
+    .modal-atleta-org-dados { grid-template-columns:1fr; }
+}
+
 @media (max-width: 760px) {
     .conferencia-grid,
     .bloco-conferencia-inferior {
@@ -345,17 +403,21 @@
 
         <table>
             <tr>
+                <th>Foto</th>
                 <th>Nome</th>
                 <th>Status</th>
                 <th>Número</th>
+                <th>Instagram</th>
                 <th>Ações</th>
             </tr>
 
             {% for atleta in lista %}
             <tr>
-                <td>{{ atleta.nome }}</td>
+                <td>{% if atleta.foto_atleta %}<img src="{{ atleta.foto_atleta }}" alt="Foto" style="width:44px;height:44px;object-fit:cover;border-radius:999px;border:1px solid #dbe7f3;">{% else %}<span style="color:#991b1b;font-weight:800;">Sem foto</span>{% endif %}</td>
+                <td><button type="button" class="atleta-link-detalhe" onclick="abrirModalAtletaOrg('modal-atleta-org-{{ atleta.id }}')">{{ atleta.nome }}</button></td>
                 <td>{{ atleta.status }}</td>
                 <td>{{ atleta.numero if atleta.numero else atleta.get('numero') or atleta.get('numero_camisa') or "-" }}</td>
+                <td>{{ atleta.instagram or '-' }}</td>
 
                 <td>
                     <div class="acoes-container">
@@ -390,6 +452,49 @@
                 </td>
 
             </tr>
+
+            <div id="modal-atleta-org-{{ atleta.id }}" class="modal-atleta-org" aria-hidden="true">
+                <div class="modal-atleta-org-fundo" onclick="fecharModalAtletaOrg('modal-atleta-org-{{ atleta.id }}')"></div>
+                <div class="modal-atleta-org-caixa" role="dialog" aria-modal="true" aria-labelledby="titulo-atleta-org-{{ atleta.id }}">
+                    <div class="modal-atleta-org-topo">
+                        <div>
+                            <div id="titulo-atleta-org-{{ atleta.id }}" class="modal-atleta-org-titulo">{{ atleta.nome }}</div>
+                            <div style="color:#64748b;font-weight:700;">{{ nome_equipe }}</div>
+                        </div>
+                        <button type="button" class="modal-atleta-org-fechar" onclick="fecharModalAtletaOrg('modal-atleta-org-{{ atleta.id }}')" aria-label="Fechar">×</button>
+                    </div>
+
+                    <div class="modal-atleta-org-corpo">
+                        <div>
+                            {% if atleta.foto_atleta %}
+                                <img class="modal-atleta-org-foto" src="{{ atleta.foto_atleta }}" alt="Foto de {{ atleta.nome }}">
+                            {% else %}
+                                <div class="modal-atleta-org-foto" style="display:flex;align-items:center;justify-content:center;color:#991b1b;font-weight:900;text-align:center;">Sem foto</div>
+                            {% endif %}
+                        </div>
+                        <div class="modal-atleta-org-dados">
+                            <div class="modal-atleta-org-dado"><strong>Nome</strong>{{ atleta.nome }}</div>
+                            <div class="modal-atleta-org-dado"><strong>CPF</strong>{{ atleta.cpf or '-' }}</div>
+                            <div class="modal-atleta-org-dado"><strong>Data nascimento</strong>{{ atleta.data_nascimento or '-' }}</div>
+                            <div class="modal-atleta-org-dado"><strong>Número</strong>{{ atleta.numero if atleta.numero else atleta.get('numero') or atleta.get('numero_camisa') or '-' }}</div>
+                            <div class="modal-atleta-org-dado"><strong>Instagram</strong>{{ atleta.instagram or '-' }}</div>
+                            <div class="modal-atleta-org-dado"><strong>Status</strong>{{ atleta.status or '-' }}</div>
+                        </div>
+                    </div>
+
+                    <div class="modal-atleta-org-acoes">
+                        {% if atleta.status == "pendente" %}
+                            <form method="post" action="{{ url_for('equipes.aprovar_atleta', id=atleta.id) }}"><button class="btn-sucesso">Aprovar atleta</button></form>
+                            <form method="post" action="{{ url_for('equipes.reprovar_atleta', id=atleta.id) }}"><button class="btn-perigo">Reprovar atleta</button></form>
+                        {% elif atleta.status == "aprovado" %}
+                            <span class="badge-sucesso">Atleta aprovado</span>
+                            <form method="post" action="{{ url_for('equipes.excluir_atleta_organizador', id=atleta.id) }}"><button class="btn-perigo-outline">Excluir</button></form>
+                        {% elif atleta.status == "reprovado" %}
+                            <span class="badge-perigo">Atleta reprovado</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
             {% endfor %}
 
         </table>
@@ -402,5 +507,27 @@
         Nenhuma equipe possui atletas cadastrados nesta competição.
     </div>
 {% endif %}
+
+
+<script>
+function abrirModalAtletaOrg(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.add('aberto');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-atleta-org-aberto');
+}
+function fecharModalAtletaOrg(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.remove('aberto');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-atleta-org-aberto');
+}
+document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('.modal-atleta-org.aberto').forEach(function(modal) { fecharModalAtletaOrg(modal.id); });
+});
+</script>
 
 {% endblock %}

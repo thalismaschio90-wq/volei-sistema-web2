@@ -266,7 +266,7 @@ def listar_competicoes_view():
     perfil = perfil_atual()
 
     if perfil == "superadmin":
-        competicoes = listar_competicoes()
+        competicoes = listar_competicoes(session.get("usuario"))
         credenciais = session.pop("credenciais_novas", None)
         senha_redefinida = session.pop("senha_redefinida_organizador", None)
 
@@ -335,30 +335,39 @@ def listar_competicoes_view():
 @competicoes_bp.route("/competicoes/nova", methods=["GET", "POST"])
 @exigir_perfil("superadmin")
 def nova_competicao():
+    """Criação enxuta pelo SuperADM.
+
+    O SuperADM informa apenas os dados iniciais do evento. Regras técnicas
+    ficam para o organizador configurar depois.
+    """
     if request.method == "POST":
         nome = request.form.get("nome", "").strip()
-        data = request.form.get("data", "").strip()
-        status = request.form.get("status", "").strip() or "Em preparação"
-        modo_operacao = request.form.get("modo_operacao", "simples").strip() or "simples"
-
-        tempos_por_set = _to_int(request.form.get("tempos_por_set"), padrao=2, minimo=0)
-        substituicoes_por_set = _to_int(request.form.get("substituicoes_por_set"), padrao=6, minimo=0)
+        data_inicio = request.form.get("data_inicio", "").strip()
+        data_fim = request.form.get("data_fim", "").strip()
+        dados_form = {"nome": nome, "data_inicio": data_inicio, "data_fim": data_fim}
 
         if not nome:
             flash("Informe o nome da competição.", "erro")
-            return render_template("nova_competicao.html")
+            return render_template("nova_competicao.html", dados_form=dados_form)
+
+        if data_inicio and data_fim and data_fim < data_inicio:
+            flash("A data de fim não pode ser anterior à data de início.", "erro")
+            return render_template("nova_competicao.html", dados_form=dados_form)
 
         if competicao_existe(nome):
             flash("Já existe uma competição com esse nome.", "erro")
-            return render_template("nova_competicao.html")
+            return render_template("nova_competicao.html", dados_form=dados_form)
 
         credenciais = criar_competicao_com_organizador(
-            nome,
-            data,
-            status,
-            modo_operacao=modo_operacao,
-            tempos_por_set=tempos_por_set,
-            substituicoes_por_set=substituicoes_por_set,
+            nome=nome,
+            data=data_inicio,
+            status="Em preparação",
+            modo_operacao="simples",
+            tempos_por_set=2,
+            substituicoes_por_set=6,
+            criador_login=session.get("usuario"),
+            data_inicio=data_inicio,
+            data_fim=data_fim or data_inicio,
         )
 
         session["credenciais_novas"] = {
@@ -366,11 +375,10 @@ def nova_competicao():
             "login": credenciais["login"],
             "senha": credenciais["senha"],
         }
-
-        flash("Competição criada com sucesso.", "sucesso")
+        flash("Competição criada com sucesso. O organizador poderá configurar as regras depois.", "sucesso")
         return redirect(url_for("competicoes.listar_competicoes_view"))
 
-    return render_template("nova_competicao.html")
+    return render_template("nova_competicao.html", dados_form={})
 
 
 @competicoes_bp.route("/competicoes/salvar", methods=["POST"])
@@ -444,7 +452,7 @@ def excluir_competicao_view(nome):
 @competicoes_bp.route("/competicoes/<nome>/resetar-senha", methods=["POST"])
 @exigir_perfil("superadmin")
 def resetar_senha_organizador_view(nome):
-    competicoes = listar_competicoes()
+    competicoes = listar_competicoes(session.get("usuario"))
     comp = next((c for c in competicoes if c["nome"] == nome), None)
 
     if not comp:
@@ -495,6 +503,43 @@ def salvar_regras_jogo_view():
     return redirect(url_for("competicoes.listar_competicoes_view"))
 
 
+
+def _salvar_exigencias_inscricao_atletas(nome_competicao, exigir_foto_atleta=False, exigir_instagram_atleta=False):
+    """Garante a persistência das opções de inscrição de atletas.
+
+    Esta rotina fica aqui como proteção extra porque a tela /competicoes usa a aba
+    Estrutura para salvar várias configurações ao mesmo tempo. Mesmo que alguma
+    versão antiga de banco.atualizar_estrutura_competicao ainda não esteja
+    atualizando estes campos, esta função cria as colunas e salva os valores.
+    """
+    if not nome_competicao:
+        return False
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE competicoes
+                ADD COLUMN IF NOT EXISTS exigir_foto_atleta BOOLEAN DEFAULT FALSE
+            """)
+            cur.execute("""
+                ALTER TABLE competicoes
+                ADD COLUMN IF NOT EXISTS exigir_instagram_atleta BOOLEAN DEFAULT FALSE
+            """)
+            cur.execute("""
+                UPDATE competicoes
+                SET exigir_foto_atleta = %s,
+                    exigir_instagram_atleta = %s
+                WHERE nome = %s
+            """, (
+                bool(exigir_foto_atleta),
+                bool(exigir_instagram_atleta),
+                nome_competicao,
+            ))
+        conn.commit()
+
+    return True
+
+
 @competicoes_bp.route("/competicoes/estrutura", methods=["POST"])
 @exigir_perfil("organizador")
 def salvar_estrutura_view():
@@ -524,10 +569,18 @@ def salvar_estrutura_view():
         "hora_limite_inscricao": hora_limite_inscricao,
         "limite_atletas": _to_int(request.form.get("limite_atletas"), padrao=0, minimo=0),
         "permitir_edicao_pos_prazo": request.form.get("permitir_edicao_pos_prazo") == "on",
+        "exigir_foto_atleta": request.form.get("exigir_foto_atleta") == "on",
+        "exigir_instagram_atleta": request.form.get("exigir_instagram_atleta") == "on",
         "bloquear_apos_inicio": not bool(data_limite_inscricao),
     }
 
     atualizar_estrutura_competicao(comp["nome"], dados)
+
+    _salvar_exigencias_inscricao_atletas(
+        comp["nome"],
+        exigir_foto_atleta=dados.get("exigir_foto_atleta", False),
+        exigir_instagram_atleta=dados.get("exigir_instagram_atleta", False),
+    )
 
     flash("Estrutura da competição salva com sucesso.", "sucesso")
     return redirect(url_for("competicoes.listar_competicoes_view", tab="estrutura"))

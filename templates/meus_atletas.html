@@ -65,34 +65,145 @@
 
 {% if atleta_encontrado %}
 <div class="card-painel" style="background:#f8fbff; border-color:#bfdbfe;">
-    <div style="font-weight: 900; margin-bottom: 10px;">Atleta encontrado</div>
-    <div style="line-height:1.7; margin-bottom:14px;">
-        <div><strong>Nome:</strong> {{ atleta_encontrado.nome }}</div>
-        <div><strong>CPF:</strong> {{ atleta_encontrado.cpf }}</div>
-        <div><strong>Data de nascimento:</strong> {{ atleta_encontrado.data_nascimento or '-' }}</div>
+    <div style="display:flex; justify-content:space-between; gap:14px; align-items:flex-start; flex-wrap:wrap; margin-bottom: 12px;">
+        <div>
+            <div style="font-weight: 900; margin-bottom: 8px;">Atleta encontrado</div>
+            <div style="line-height:1.7;">
+                <div><strong>Nome:</strong> {{ atleta_encontrado.nome }}</div>
+                <div><strong>CPF:</strong> {{ atleta_encontrado.cpf }}</div>
+                <div><strong>Data de nascimento:</strong> {{ atleta_encontrado.data_nascimento or '-' }}</div>
+                <div><strong>Foto:</strong> {% if atleta_encontrado.foto_atleta %}<span style="color:#166534;font-weight:800;">cadastrada</span>{% else %}<span style="color:#991b1b;font-weight:800;">sem foto</span>{% endif %}</div>
+                <div><strong>Instagram:</strong> {{ atleta_encontrado.instagram or 'não informado' }}</div>
+            </div>
+        </div>
+
+        <div style="min-width:130px; text-align:center;">
+            <div id="previewFotoEncontradoBox" style="width:118px;height:118px;border-radius:18px;border:1px dashed #b6c8da;background:white;display:flex;align-items:center;justify-content:center;color:#6b7280;font-weight:800;font-size:13px;text-align:center;padding:8px;overflow:hidden;">
+                {% if atleta_encontrado.foto_atleta %}
+                    <img src="{{ atleta_encontrado.foto_atleta }}" alt="Foto do atleta" style="width:100%;height:100%;object-fit:cover;border-radius:18px;">
+                {% else %}
+                    Prévia da foto
+                {% endif %}
+            </div>
+        </div>
     </div>
 
-    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarFormularioAtleta(this);">
-        <input type="hidden" name="acao" value="cadastrar">
-        <input type="hidden" name="nome" value="{{ atleta_encontrado.nome }}">
-        <input type="hidden" name="cpf" value="{{ atleta_encontrado.cpf }}">
-        <input type="hidden" name="data_nascimento" value="{{ atleta_encontrado.data_nascimento or '' }}">
+    {% set falta_foto = not atleta_encontrado.foto_atleta %}
+    {% set falta_instagram = not atleta_encontrado.instagram %}
+    {% set precisa_completar = (controle_inscricao.exigir_foto_atleta and falta_foto) or (controle_inscricao.exigir_instagram_atleta and falta_instagram) %}
 
-        <label>Número (opcional no cadastro)</label>
-        <input type="number" name="numero" min="1" max="99" inputmode="numeric" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
-
-        <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
-                Vincular atleta nesta competição
-            </button>
+    {% if precisa_completar %}
+        <div class="flash-erro" style="margin-bottom:14px;">
+            Esta competição exige informações que ainda faltam neste atleta. Complete os dados abaixo antes de vincular.
         </div>
-    </form>
+    {% elif falta_foto or falta_instagram %}
+        <div style="background:#fffdf5;border:1px solid #fde68a;color:#7c5200;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-weight:700;">
+            Este atleta tem dados incompletos. Não é obrigatório para esta competição, mas você pode completar antes de vincular.
+        </div>
+    {% endif %}
+
+    {% if not precisa_completar and not falta_foto and not falta_instagram %}
+        <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarFormularioAtleta(this);" style="background:white;border:1px solid #d7e4f2;border-radius:14px;padding:14px;margin-bottom:14px;">
+            <input type="hidden" name="acao" value="cadastrar">
+            <input type="hidden" name="nome" value="{{ atleta_encontrado.nome }}">
+            <input type="hidden" name="cpf" value="{{ atleta_encontrado.cpf }}">
+            <input type="hidden" name="data_nascimento" value="{{ atleta_encontrado.data_nascimento or '' }}">
+            <input type="hidden" name="instagram" value="{{ atleta_encontrado.instagram or '' }}">
+            {% if atleta_encontrado.foto_atleta %}
+                <input type="hidden" name="foto_atleta_existente" value="{{ atleta_encontrado.foto_atleta }}">
+            {% endif %}
+
+            <label>Número (opcional no cadastro)</label>
+            <input type="number" name="numero" min="1" max="99" inputmode="numeric" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+            <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                    Vincular atleta nesta competição
+                </button>
+                <span style="color:#166534;font-weight:800;">Dados completos. Pode vincular direto.</span>
+            </div>
+        </form>
+    {% endif %}
+
+    <details {% if precisa_completar or falta_foto or falta_instagram %}open{% endif %} style="background:white;border:1px solid #d7e4f2;border-radius:14px;padding:14px;margin-bottom:14px;">
+        <summary style="cursor:pointer;font-weight:900;color:#123852;">
+            {% if not precisa_completar and not falta_foto and not falta_instagram %}
+                Editar dados antes de vincular
+            {% else %}
+                Completar / editar dados antes de vincular
+            {% endif %}
+        </summary>
+
+        <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" enctype="multipart/form-data" onsubmit="return validarFormularioAtleta(this);" style="margin-top:14px;">
+            <input type="hidden" name="acao" value="cadastrar">
+            {% if atleta_encontrado.foto_atleta %}
+                <input type="hidden" name="foto_atleta_existente" value="{{ atleta_encontrado.foto_atleta }}">
+            {% endif %}
+
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;">
+                <div>
+                    <label>Nome completo</label>
+                    <input type="text" name="nome" value="{{ atleta_encontrado.nome }}" required autocomplete="name" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                </div>
+                <div>
+                    <label>CPF</label>
+                    <input
+                        type="text"
+                        name="cpf"
+                        required
+                        maxlength="14"
+                        minlength="14"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        placeholder="000.000.000-00"
+                        pattern="\d{3}\.\d{3}\.\d{3}-\d{2}"
+                        value="{{ atleta_encontrado.cpf }}"
+                        oninput="mascaraCPF(this)"
+                        onblur="validarCPFNaTela(this)"
+                        {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}
+                    >
+                </div>
+                <div>
+                    <label>Data de nascimento</label>
+                    <input type="date" name="data_nascimento" value="{{ atleta_encontrado.data_nascimento or '' }}" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                </div>
+                <div>
+                    <label>Instagram do atleta {% if controle_inscricao.exigir_instagram_atleta %}*{% endif %}</label>
+                    <input type="text" name="instagram" value="{{ atleta_encontrado.instagram or '' }}" placeholder="@usuario" autocomplete="off" {% if controle_inscricao.exigir_instagram_atleta %}required{% endif %} {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:140px 1fr;gap:14px;align-items:start;margin-top:14px;">
+                <div id="previewFotoEditarBox" style="width:118px;height:118px;border-radius:18px;border:1px dashed #b6c8da;background:white;display:flex;align-items:center;justify-content:center;color:#6b7280;font-weight:800;font-size:13px;text-align:center;padding:8px;overflow:hidden;">
+                    {% if atleta_encontrado.foto_atleta %}
+                        <img src="{{ atleta_encontrado.foto_atleta }}" alt="Foto atual" style="width:100%;height:100%;object-fit:cover;border-radius:18px;">
+                    {% else %}
+                        Prévia da foto
+                    {% endif %}
+                </div>
+                <div>
+                    <label>Foto do atleta {% if controle_inscricao.exigir_foto_atleta %}*{% endif %}</label>
+                    <input type="file" name="foto_atleta" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" onchange="previewFotoAtleta(this, 'previewFotoEditarBox'); previewFotoAtleta(this, 'previewFotoEncontradoBox')" {% if controle_inscricao.exigir_foto_atleta and not atleta_encontrado.foto_atleta %}required{% endif %} {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                    <small style="display:block;color:#6b7280;margin-top:4px;">Você pode manter a foto atual ou escolher outra. A prévia aparece antes de vincular.</small>
+                </div>
+            </div>
+
+            <label>Número (opcional no cadastro)</label>
+            <input type="number" name="numero" min="1" max="99" inputmode="numeric" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+            <div style="margin-top: 14px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button type="submit" class="btn-padrao" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                    Salvar dados e vincular atleta
+                </button>
+            </div>
+        </form>
+    </details>
 </div>
 {% elif cpf_busca %}
 <div class="card-painel">
     <div style="font-weight: 900; margin-bottom: 14px;">CPF não encontrado. Complete o cadastro</div>
 
-    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" onsubmit="return validarFormularioAtleta(this);">
+    <form method="post" action="{{ url_for('equipes.cadastrar_atleta_pagina_view') }}" enctype="multipart/form-data" onsubmit="return validarFormularioAtleta(this);">
         <input type="hidden" name="acao" value="cadastrar">
 
         <label>CPF</label>
@@ -117,6 +228,20 @@
 
         <label>Data de nascimento</label>
         <input type="date" name="data_nascimento" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+        <div style="display:grid;grid-template-columns:140px 1fr;gap:14px;align-items:start;margin-top:10px;">
+            <div id="previewFotoNovoBox" style="width:118px;height:118px;border-radius:18px;border:1px dashed #b6c8da;background:white;display:flex;align-items:center;justify-content:center;color:#6b7280;font-weight:800;font-size:13px;text-align:center;padding:8px;">
+                Prévia da foto
+            </div>
+            <div>
+                <label>Foto do atleta {% if controle_inscricao.exigir_foto_atleta %}*{% endif %}</label>
+                <input type="file" name="foto_atleta" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" onchange="previewFotoAtleta(this, 'previewFotoNovoBox')" {% if controle_inscricao.exigir_foto_atleta %}required{% endif %} {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                <small style="display:block;color:#6b7280;margin-top:4px;">A prévia aparece antes de cadastrar o atleta.</small>
+            </div>
+        </div>
+
+        <label>Instagram do atleta {% if controle_inscricao.exigir_instagram_atleta %}*{% endif %}</label>
+        <input type="text" name="instagram" placeholder="@usuario" autocomplete="off" {% if controle_inscricao.exigir_instagram_atleta %}required{% endif %} {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
 
         <label>Número (opcional no cadastro)</label>
         <input type="number" name="numero" min="1" max="99" inputmode="numeric" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
@@ -145,10 +270,12 @@
             <table>
                 <thead>
                     <tr>
+                        <th>Foto</th>
                         <th>Nome</th>
                         <th>CPF</th>
                         <th>Data de nascimento</th>
                         <th>Número</th>
+                        <th>Instagram</th>
                         <th>Status</th>
                         <th>Ações</th>
                     </tr>
@@ -157,6 +284,7 @@
                     {% for atleta in atletas %}
                     {% set status = (atleta.status or 'pendente')|lower %}
                     <tr>
+                        <td>{% if atleta.foto_atleta %}<img src="{{ atleta.foto_atleta }}" alt="Foto" style="width:44px;height:44px;object-fit:cover;border-radius:999px;border:1px solid #dbe7f3;">{% else %}<span style="color:#991b1b;font-weight:800;">Sem foto</span>{% endif %}</td>
                         <td>{{ atleta.nome }}</td>
                         <td>{{ atleta.cpf }}</td>
                         <td>{{ atleta.data_nascimento or '-' }}</td>
@@ -172,6 +300,7 @@
                                 {{ atleta.numero or '-' }}
                             {% endif %}
                         </td>
+                        <td>{{ atleta.instagram or '-' }}</td>
                         <td>{{ atleta.status or 'pendente' }}</td>
                         <td>
                             <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
@@ -204,7 +333,7 @@
                                 </button>
                             </div>
 
-                            <form method="post" action="{{ url_for('equipes.editar_atleta_view', id_atleta=atleta.id) }}" onsubmit="return validarFormularioAtleta(this);">
+                            <form method="post" action="{{ url_for('equipes.editar_atleta_view', id_atleta=atleta.id) }}" enctype="multipart/form-data" onsubmit="return validarFormularioAtleta(this);">
                                 <label>Nome</label>
                                 <input type="text" name="nome" value="{{ atleta.nome }}" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
 
@@ -227,6 +356,22 @@
 
                                 <label>Data de nascimento</label>
                                 <input type="date" name="data_nascimento" value="{{ atleta.data_nascimento or '' }}" required {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+                                <label>Instagram</label>
+                                <input type="text" name="instagram" value="{{ atleta.instagram or '' }}" placeholder="@usuario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+
+                                {% if atleta.foto_atleta %}
+                                    <input type="hidden" name="foto_atleta_existente" value="{{ atleta.foto_atleta }}">
+                                {% endif %}
+                                <div style="display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:start;margin-top:12px;">
+                                    <div id="previewFotoModal{{ atleta.id }}" style="width:82px;height:82px;border-radius:16px;border:1px dashed #b6c8da;background:white;display:flex;align-items:center;justify-content:center;color:#6b7280;font-weight:800;font-size:12px;text-align:center;overflow:hidden;">
+                                        {% if atleta.foto_atleta %}<img src="{{ atleta.foto_atleta }}" alt="Foto" style="width:100%;height:100%;object-fit:cover;border-radius:16px;">{% else %}Foto{% endif %}
+                                    </div>
+                                    <div>
+                                        <label style="margin-top:0;">Alterar foto</label>
+                                        <input type="file" name="foto_atleta" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" onchange="previewFotoAtleta(this, 'previewFotoModal{{ atleta.id }}')" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>
+                                    </div>
+                                </div>
 
                                 <div class="modal-editar-atleta-acoes">
                                     <button type="button" class="btn-secundario" onclick="fecharModalEditarAtleta('modal-editar-atleta-{{ atleta.id }}')">
@@ -428,6 +573,30 @@ function validarBuscaCPFAtleta(form) {
         }
     }
     return true;
+}
+
+
+function previewFotoAtleta(input, previewId) {
+    const box = document.getElementById(previewId);
+    if (!box || !input || !input.files || !input.files[0]) return;
+
+    const arquivo = input.files[0];
+    if (!arquivo.type || !arquivo.type.startsWith('image/')) {
+        box.innerHTML = 'Arquivo inválido';
+        return;
+    }
+
+    const url = URL.createObjectURL(arquivo);
+    box.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = 'Prévia da foto';
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'cover';
+    img.style.borderRadius = '18px';
+    img.onload = function() { URL.revokeObjectURL(url); };
+    box.appendChild(img);
 }
 
 function validarFormularioAtleta(form) {

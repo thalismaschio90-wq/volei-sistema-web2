@@ -802,6 +802,12 @@ def _campos_competicao(prefixo="", incluir_senha_organizador=False):
         _campo_ou_alias(colunas, "permitir_edicao_pos_prazo", "FALSE AS permitir_edicao_pos_prazo") if not prefixo else (
             f"{p}permitir_edicao_pos_prazo" if "permitir_edicao_pos_prazo" in colunas else "FALSE AS permitir_edicao_pos_prazo"
         ),
+        _campo_ou_alias(colunas, "exigir_foto_atleta", "FALSE AS exigir_foto_atleta") if not prefixo else (
+            f"{p}exigir_foto_atleta" if "exigir_foto_atleta" in colunas else "FALSE AS exigir_foto_atleta"
+        ),
+        _campo_ou_alias(colunas, "exigir_instagram_atleta", "FALSE AS exigir_instagram_atleta") if not prefixo else (
+            f"{p}exigir_instagram_atleta" if "exigir_instagram_atleta" in colunas else "FALSE AS exigir_instagram_atleta"
+        ),
         _campo_ou_alias(colunas, "aprovacao_automatica_atletas", "FALSE AS aprovacao_automatica_atletas") if not prefixo else (
             f"{p}aprovacao_automatica_atletas" if "aprovacao_automatica_atletas" in colunas else "FALSE AS aprovacao_automatica_atletas"
         ),
@@ -1690,6 +1696,12 @@ def atualizar_estrutura_competicao(nome_competicao, dados):
     if "permitir_edicao_pos_prazo" in colunas:
         sets.append("permitir_edicao_pos_prazo = %s")
         valores.append(dados.get("permitir_edicao_pos_prazo", False))
+    if "exigir_foto_atleta" in colunas:
+        sets.append("exigir_foto_atleta = %s")
+        valores.append(dados.get("exigir_foto_atleta", False))
+    if "exigir_instagram_atleta" in colunas:
+        sets.append("exigir_instagram_atleta = %s")
+        valores.append(dados.get("exigir_instagram_atleta", False))
 
     if not sets:
         return True
@@ -1941,6 +1953,23 @@ def excluir_competicao(nome):
                     tabela = _valor_linha(linha, "table_name", 0)
                     coluna = _valor_linha(linha, "column_name", 1)
                     colunas_por_tabela.setdefault(tabela, set()).add(coluna)
+
+                # Corrige a trava única de atletas antes de soltar os vínculos.
+                # Bancos antigos podem ter o índice antigo que não permite vários atletas
+                # com competicao vazia. A exclusão precisa preservar atletas e limpar o
+                # vínculo, então o índice deve valer somente para atletas vinculados a
+                # uma competição real.
+                if _tabela_existe(tabelas_existentes, "atletas"):
+                    cur.execute("DROP INDEX IF EXISTS uq_atletas_cpf_competicao")
+                    cur.execute("""
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_atletas_cpf_competicao
+                        ON atletas (
+                            REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g'),
+                            COALESCE(competicao, '')
+                        )
+                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') <> ''
+                          AND COALESCE(competicao, '') <> ''
+                    """)
 
                 # Guarda o login do organizador antes de apagar a competição.
                 organizador_login = None
@@ -2792,8 +2821,17 @@ def criar_campos_controle_inscricao_competicoes(force=False):
                 ALTER TABLE competicoes
                 ADD COLUMN IF NOT EXISTS permitir_edicao_pos_prazo BOOLEAN DEFAULT FALSE
             """)
+            cur.execute("""
+                ALTER TABLE competicoes
+                ADD COLUMN IF NOT EXISTS exigir_foto_atleta BOOLEAN DEFAULT FALSE
+            """)
+            cur.execute("""
+                ALTER TABLE competicoes
+                ADD COLUMN IF NOT EXISTS exigir_instagram_atleta BOOLEAN DEFAULT FALSE
+            """)
         conn.commit()
 
+    _CACHE_COLUNAS.pop("competicoes", None)
     _marcar_schema_pronto(chave)
 
 def obter_controle_inscricao_competicao(nome_competicao):
@@ -2808,7 +2846,9 @@ def obter_controle_inscricao_competicao(nome_competicao):
                     hora_limite_inscricao,
                     bloquear_apos_inicio,
                     limite_atletas,
-                    permitir_edicao_pos_prazo
+                    permitir_edicao_pos_prazo,
+                    COALESCE(exigir_foto_atleta, FALSE) AS exigir_foto_atleta,
+                    COALESCE(exigir_instagram_atleta, FALSE) AS exigir_instagram_atleta
                 FROM competicoes
                 WHERE nome = %s
                 LIMIT 1
@@ -2822,7 +2862,9 @@ def salvar_controle_inscricao_competicao(
     hora_limite_inscricao,
     bloquear_apos_inicio,
     limite_atletas=0,
-    permitir_edicao_pos_prazo=False
+    permitir_edicao_pos_prazo=False,
+    exigir_foto_atleta=False,
+    exigir_instagram_atleta=False
 ):
     criar_campos_controle_inscricao_competicoes()
 
@@ -2835,7 +2877,9 @@ def salvar_controle_inscricao_competicao(
                     hora_limite_inscricao = %s,
                     bloquear_apos_inicio = %s,
                     limite_atletas = %s,
-                    permitir_edicao_pos_prazo = %s
+                    permitir_edicao_pos_prazo = %s,
+                    exigir_foto_atleta = %s,
+                    exigir_instagram_atleta = %s
                 WHERE nome = %s
             """, (
                 data_limite_inscricao or None,
@@ -2843,6 +2887,8 @@ def salvar_controle_inscricao_competicao(
                 bloquear_apos_inicio,
                 limite_atletas,
                 permitir_edicao_pos_prazo,
+                exigir_foto_atleta,
+                exigir_instagram_atleta,
                 nome_competicao
             ))
         conn.commit()
@@ -3272,6 +3318,9 @@ def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
             "login": equipe["login"],
             "senha": equipe["senha"],
             "nome": equipe["nome"],
+            "escudo": equipe.get("escudo") if isinstance(equipe, dict) else None,
+            "escudo_blob": equipe.get("escudo_blob") if isinstance(equipe, dict) else None,
+            "escudo_exibicao": equipe.get("escudo_exibicao") if isinstance(equipe, dict) else None,
             "ja_vinculada": ja_vinculada,
             "vinculada": True,
         }
@@ -3415,22 +3464,54 @@ def listar_competicoes_da_equipe_por_login(login):
             return cur.fetchall()
 
 def listar_equipes_da_competicao(nome_competicao):
+    """Lista as equipes vinculadas à competição já com escudo pronto para exibição.
+
+    Correção importante:
+    - a tela do organizador lista equipes a partir de equipes_competicoes;
+    - o escudo real fica na tabela global equipes;
+    - registros antigos podem ter equipe_login vazio/desatualizado e só bater pelo nome;
+    - quando o JOIN por nome encontra mais de uma linha, priorizamos a equipe cujo login
+      bate com o vínculo e depois a que possui escudo salvo.
+
+    Assim /equipes, nova vinculação e telas do organizador recebem sempre:
+    escudo, escudo_blob e escudo_exibicao.
+    """
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
     criar_campos_perfil_equipe()
     criar_campo_escudo_equipes()
     criar_tabela_equipes_competicoes()
 
+    nome_competicao = (nome_competicao or "").strip()
+    if not nome_competicao:
+        return []
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT DISTINCT ON (e.login, ec.competicao)
-                    e.nome,
-                    e.login,
+                WITH vinculos AS (
+                    SELECT
+                        ec.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY
+                                LOWER(TRIM(COALESCE(ec.equipe_login, ''))),
+                                LOWER(TRIM(COALESCE(ec.equipe_nome, ''))),
+                                ec.competicao
+                            ORDER BY ec.id NULLS LAST
+                        ) AS rn
+                    FROM equipes_competicoes ec
+                    WHERE ec.competicao = %s
+                      AND COALESCE(ec.status, 'ativa') = 'ativa'
+                )
+                SELECT
+                    COALESCE(NULLIF(e.nome, ''), v.equipe_nome) AS nome,
+                    COALESCE(NULLIF(e.login, ''), v.equipe_login) AS login,
                     e.senha,
-                    ec.competicao,
-                    ec.equipe_nome AS nome_vinculo,
-                    ec.equipe_login AS login_vinculo,
+                    v.competicao,
+                    v.equipe_nome AS nome_vinculo,
+                    v.equipe_login AS login_vinculo,
+                    v.grupo,
+
                     e.treinador,
                     e.auxiliar_tecnico,
                     e.preparador_fisico,
@@ -3443,20 +3524,43 @@ def listar_equipes_da_competicao(nome_competicao):
                     e.telefone,
                     e.email,
                     e.instagram,
+
                     COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
                     e.escudo_blob,
                     COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
                     COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
-                    ec.status AS status_vinculo
-                FROM equipes_competicoes ec
-                JOIN equipes e
-                  ON e.login = ec.equipe_login
-                  OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
-                WHERE ec.competicao = %s
-                ORDER BY e.login, ec.competicao, e.nome
+                    v.status AS status_vinculo
+                FROM vinculos v
+                LEFT JOIN LATERAL (
+                    SELECT e2.*
+                    FROM equipes e2
+                    WHERE
+                        (
+                            COALESCE(v.equipe_login, '') <> ''
+                            AND LOWER(TRIM(e2.login)) = LOWER(TRIM(v.equipe_login))
+                        )
+                        OR (
+                            COALESCE(v.equipe_nome, '') <> ''
+                            AND LOWER(TRIM(e2.nome)) = LOWER(TRIM(v.equipe_nome))
+                        )
+                    ORDER BY
+                        CASE
+                            WHEN COALESCE(v.equipe_login, '') <> ''
+                             AND LOWER(TRIM(e2.login)) = LOWER(TRIM(v.equipe_login)) THEN 0
+                            ELSE 1
+                        END,
+                        CASE
+                            WHEN COALESCE(NULLIF(e2.escudo_blob, ''), NULLIF(e2.escudo, '')) IS NOT NULL THEN 0
+                            ELSE 1
+                        END,
+                        e2.nome ASC,
+                        e2.login ASC
+                    LIMIT 1
+                ) e ON TRUE
+                WHERE v.rn = 1
+                ORDER BY COALESCE(NULLIF(e.nome, ''), v.equipe_nome) ASC
             """, (nome_competicao,))
             return cur.fetchall()
-
 
 def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
     criar_campos_quadro_tecnico_equipes()
@@ -4353,17 +4457,77 @@ def criar_tabela_atletas(force=False):
             # dados antigos, mas passamos a salvar também o login/id quando possível.
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS equipe_login TEXT")
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS equipe_id INTEGER")
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS foto_atleta TEXT")
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS instagram TEXT")
+
+            # Cadastro global persistente por CPF.
+            # A tabela atletas é o vínculo do atleta com equipe/competição.
+            # Se a equipe excluir o vínculo, os dados globais não podem sumir.
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS atletas_globais (
+                    cpf_limpo TEXT PRIMARY KEY,
+                    cpf TEXT,
+                    nome TEXT,
+                    data_nascimento TEXT,
+                    foto_atleta TEXT,
+                    instagram TEXT,
+                    atualizado_em TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS cpf TEXT")
+            cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS nome TEXT")
+            cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS data_nascimento TEXT")
+            cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS foto_atleta TEXT")
+            cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS instagram TEXT")
+            cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()")
+
+            # Migração leve: copia dados bons já existentes para o cadastro global.
+            cur.execute(f"""
+                INSERT INTO atletas_globais (cpf_limpo, cpf, nome, data_nascimento, foto_atleta, instagram, atualizado_em)
+                SELECT DISTINCT ON ({_cpf_sql_limpo('cpf')})
+                    {_cpf_sql_limpo('cpf')} AS cpf_limpo,
+                    cpf,
+                    nome,
+                    data_nascimento,
+                    foto_atleta,
+                    instagram,
+                    NOW()
+                FROM atletas
+                WHERE {_cpf_sql_limpo('cpf')} <> ''
+                ORDER BY
+                    {_cpf_sql_limpo('cpf')},
+                    CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
+                    CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
+                    id DESC
+                ON CONFLICT (cpf_limpo) DO UPDATE SET
+                    cpf = COALESCE(NULLIF(EXCLUDED.cpf, ''), atletas_globais.cpf),
+                    nome = COALESCE(NULLIF(EXCLUDED.nome, ''), atletas_globais.nome),
+                    data_nascimento = COALESCE(NULLIF(EXCLUDED.data_nascimento, ''), atletas_globais.data_nascimento),
+                    foto_atleta = COALESCE(NULLIF(EXCLUDED.foto_atleta, ''), atletas_globais.foto_atleta),
+                    instagram = COALESCE(NULLIF(EXCLUDED.instagram, ''), atletas_globais.instagram),
+                    atualizado_em = NOW()
+            """)
 
             # Compatibilidade com bancos antigos: remove trava global de CPF.
             cur.execute("ALTER TABLE atletas DROP CONSTRAINT IF EXISTS atletas_cpf_key")
 
             # O mesmo CPF pode estar em competições diferentes, mas não pode duplicar dentro da mesma competição.
+            #
+            # IMPORTANTE:
+            # Quando uma competição é excluída, os atletas permanentes ficam no banco e
+            # perdem o vínculo da competição. Como vários atletas podem ficar com
+            # competicao vazia, o índice precisa ignorar registros sem competição.
+            # Sem isso, a exclusão falha com:
+            # duplicate key value violates unique constraint "uq_atletas_cpf_competicao"
+            cur.execute("DROP INDEX IF EXISTS uq_atletas_cpf_competicao")
             cur.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_atletas_cpf_competicao
                 ON atletas (
                     REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g'),
                     COALESCE(competicao, '')
                 )
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') <> ''
+                  AND COALESCE(competicao, '') <> ''
             """)
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS capitao_padrao BOOLEAN DEFAULT FALSE")
             cur.execute("""
@@ -4403,9 +4567,9 @@ def atleta_existe_por_cpf(cpf):
 
 def buscar_atleta_global_por_cpf(cpf):
     """
-    Busca um atleta já existente em qualquer competição pelo CPF.
-    Usado para reaproveitar nome/data de nascimento quando a equipe cadastra
-    o mesmo atleta em uma nova competição.
+    Busca um atleta global pelo CPF.
+    Primeiro usa atletas_globais, que não é apagada quando o vínculo com a
+    competição é removido. Se ainda não existir, usa a tabela atletas como fallback.
     """
     cpf_limpo = somente_digitos(cpf)
     if not cpf_limpo:
@@ -4415,18 +4579,83 @@ def buscar_atleta_global_por_cpf(cpf):
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    nome,
+                    cpf,
+                    data_nascimento,
+                    foto_atleta,
+                    instagram
+                FROM atletas_globais
+                WHERE cpf_limpo = %s
+                LIMIT 1
+            """, (cpf_limpo,))
+            row = cur.fetchone()
+            if row:
+                return row
+
             cur.execute(f"""
                 SELECT
                     nome,
                     cpf,
-                    data_nascimento
+                    data_nascimento,
+                    foto_atleta,
+                    instagram
                 FROM atletas
                 WHERE {_cpf_sql_limpo('cpf')} = %s
-                ORDER BY id DESC
+                ORDER BY
+                    CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
+                    CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
+                    id DESC
                 LIMIT 1
             """, (cpf_limpo,))
             return cur.fetchone()
 
+
+def _salvar_atleta_global(cur, nome, cpf, data_nascimento, foto_atleta=None, instagram=None):
+    """Salva/atualiza os dados globais do atleta por CPF.
+
+    Usa COALESCE/NULLIF para não apagar foto/Instagram existentes quando o
+    formulário vier vazio. Também replica para vínculos antigos do mesmo CPF,
+    assim na próxima busca os dados aparecem completos em qualquer competição.
+    """
+    cpf_limpo = somente_digitos(cpf)
+    if not cpf_limpo:
+        return
+
+    cpf_formatado = formatar_cpf(cpf_limpo)
+    nome = (nome or '').strip()
+    data_nascimento = (data_nascimento or '').strip()
+    foto_atleta = (foto_atleta or '').strip()
+    instagram = (instagram or '').strip()
+    if instagram and not instagram.startswith('@'):
+        instagram = '@' + instagram.lstrip('@')
+
+    cur.execute("""
+        INSERT INTO atletas_globais (cpf_limpo, cpf, nome, data_nascimento, foto_atleta, instagram, atualizado_em)
+        VALUES (%s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (cpf_limpo) DO UPDATE SET
+            cpf = COALESCE(NULLIF(EXCLUDED.cpf, ''), atletas_globais.cpf),
+            nome = COALESCE(NULLIF(EXCLUDED.nome, ''), atletas_globais.nome),
+            data_nascimento = COALESCE(NULLIF(EXCLUDED.data_nascimento, ''), atletas_globais.data_nascimento),
+            foto_atleta = COALESCE(NULLIF(EXCLUDED.foto_atleta, ''), atletas_globais.foto_atleta),
+            instagram = COALESCE(NULLIF(EXCLUDED.instagram, ''), atletas_globais.instagram),
+            atualizado_em = NOW()
+    """, (cpf_limpo, cpf_formatado, nome, data_nascimento, foto_atleta or None, instagram or None))
+
+    cur.execute(f"""
+        UPDATE atletas
+        SET
+            nome = COALESCE(NULLIF(%s, ''), nome),
+            cpf = COALESCE(NULLIF(%s, ''), cpf),
+            data_nascimento = CASE
+                WHEN NULLIF(%s, '') IS NULL THEN data_nascimento
+                ELSE %s::date
+            END,
+            foto_atleta = COALESCE(NULLIF(%s, ''), foto_atleta),
+            instagram = COALESCE(NULLIF(%s, ''), instagram)
+        WHERE {_cpf_sql_limpo('cpf')} = %s
+    """, (nome, cpf_formatado, data_nascimento, data_nascimento, foto_atleta, instagram, cpf_limpo))
 
 def atleta_existe_na_competicao_por_cpf(cpf, competicao):
     cpf_limpo = somente_digitos(cpf)
@@ -4447,13 +4676,17 @@ def atleta_existe_na_competicao_por_cpf(cpf, competicao):
             """, (cpf_limpo, competicao))
             return cur.fetchone() is not None
 
-def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
+def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao, foto_atleta=None, instagram=None):
     nome = (nome or "").strip()
     cpf_limpo = somente_digitos(cpf)
     cpf = formatar_cpf(cpf_limpo)
     data_nascimento = (data_nascimento or "").strip()
     equipe = (equipe or "").strip()
     competicao = (competicao or "").strip()
+    foto_atleta = (foto_atleta or "").strip()
+    instagram = (instagram or "").strip()
+    if instagram and not instagram.startswith("@"):
+        instagram = "@" + instagram.lstrip("@")
 
     if not nome or not cpf_limpo:
         return False, "Informe nome e CPF do atleta."
@@ -4495,6 +4728,8 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
                     c.hora_limite_inscricao,
                     COALESCE(c.bloquear_apos_inicio, TRUE) AS bloquear_apos_inicio,
                     COALESCE(c.limite_atletas, 0) AS limite_atletas,
+                    COALESCE(c.exigir_foto_atleta, FALSE) AS exigir_foto_atleta,
+                    COALESCE(c.exigir_instagram_atleta, FALSE) AS exigir_instagram_atleta,
                     COALESCE(c.aprovacao_automatica_atletas, FALSE) AS aprovacao_automatica_atletas,
                     COALESCE(c.travada, FALSE) AS travada,
                     COALESCE(e.liberacao_extra_inscricao, FALSE) AS liberacao_extra_inscricao,
@@ -4583,6 +4818,37 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
                 if cur.fetchone() is not None:
                     return False, "Já existe outro atleta com essa numeração nesta equipe."
 
+            # Se o atleta já existe em outra competição, reaproveita foto/Instagram globais.
+            cur.execute(f"""
+                SELECT foto_atleta, instagram
+                FROM atletas
+                WHERE {_cpf_sql_limpo('cpf')} = %s
+                  AND (COALESCE(foto_atleta, '') <> '' OR COALESCE(instagram, '') <> '')
+                ORDER BY
+                    CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
+                    CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
+                    id DESC
+                LIMIT 1
+            """, (cpf_limpo,))
+            atleta_global_dados = cur.fetchone() or {}
+            if not foto_atleta:
+                foto_atleta = (atleta_global_dados.get("foto_atleta") or "").strip()
+            if not instagram:
+                instagram = (atleta_global_dados.get("instagram") or "").strip()
+
+            # Salva as alterações do cadastro global ANTES de vincular.
+            # Assim, mesmo que a equipe exclua o atleta desta competição depois,
+            # foto/Instagram/nome/data continuam guardados para a próxima busca por CPF.
+            _salvar_atleta_global(cur, nome, cpf, data_nascimento, foto_atleta, instagram)
+
+            pendencias_obrigatorias = []
+            if bool(controle.get("exigir_foto_atleta")) and not foto_atleta:
+                pendencias_obrigatorias.append("foto")
+            if bool(controle.get("exigir_instagram_atleta")) and not instagram:
+                pendencias_obrigatorias.append("Instagram")
+            if pendencias_obrigatorias:
+                return False, "Esta competição exige " + " e ".join(pendencias_obrigatorias) + " dos atletas. Preencha antes de concluir a inscrição."
+
             status_inicial = "aprovado" if bool(controle.get("aprovacao_automatica_atletas")) else "pendente"
 
             equipe_login_vinculo = None
@@ -4612,10 +4878,10 @@ def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao):
 
             cur.execute("""
                 INSERT INTO atletas (
-                    nome, cpf, data_nascimento, numero, equipe, competicao, status, equipe_login, equipe_id
+                    nome, cpf, data_nascimento, numero, equipe, competicao, status, equipe_login, equipe_id, foto_atleta, instagram
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao, status_inicial, equipe_login_vinculo, equipe_id_vinculo))
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao, status_inicial, equipe_login_vinculo, equipe_id_vinculo, foto_atleta or None, instagram or None))
         conn.commit()
 
     return True, "Atleta cadastrado com sucesso."
@@ -4633,7 +4899,7 @@ def listar_atletas_da_equipe(equipe, competicao):
             return cur.fetchall()
 
 
-def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nascimento):
+def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nascimento, foto_atleta=None, instagram=None):
     """
     Atualiza dados básicos do atleta pela própria equipe.
     Regras:
@@ -4645,6 +4911,10 @@ def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nasci
     nome = (nome or "").strip()
     cpf = (cpf or "").strip()
     data_nascimento = (data_nascimento or "").strip()
+    foto_atleta = (foto_atleta or "").strip()
+    instagram = (instagram or "").strip()
+    if instagram and not instagram.startswith("@"):
+        instagram = "@" + instagram.lstrip("@")
     cpf_limpo = somente_digitos(cpf)
 
     if not nome or not cpf or not data_nascimento:
@@ -4657,7 +4927,7 @@ def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nasci
         with conectar() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, equipe, competicao, status
+                    SELECT id, equipe, competicao, status, foto_atleta, instagram
                     FROM atletas
                     WHERE id = %s
                     LIMIT 1
@@ -4675,7 +4945,10 @@ def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nasci
                     return False, "Atleta reprovado não pode ser editado. Só é possível excluir."
 
                 cur.execute("""
-                    SELECT COALESCE(travada, FALSE) AS travada
+                    SELECT
+                        COALESCE(travada, FALSE) AS travada,
+                        COALESCE(exigir_foto_atleta, FALSE) AS exigir_foto_atleta,
+                        COALESCE(exigir_instagram_atleta, FALSE) AS exigir_instagram_atleta
                     FROM competicoes
                     WHERE nome = %s
                     LIMIT 1
@@ -4710,13 +4983,28 @@ def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nasci
                 if cur.fetchone():
                     return False, "Já existe outro atleta com este CPF nesta competição."
 
+                foto_final = foto_atleta or (atleta.get("foto_atleta") or "")
+                instagram_final = instagram or (atleta.get("instagram") or "")
+
+                pendencias = []
+                if comp and bool(comp.get("exigir_foto_atleta")) and not foto_final:
+                    pendencias.append("foto")
+                if comp and bool(comp.get("exigir_instagram_atleta")) and not instagram_final:
+                    pendencias.append("Instagram")
+                if pendencias:
+                    return False, "Esta competição exige " + " e ".join(pendencias) + " dos atletas. Preencha antes de salvar."
+
                 cur.execute("""
                     UPDATE atletas
                     SET nome = %s,
                         cpf = %s,
-                        data_nascimento = %s
+                        data_nascimento = %s,
+                        foto_atleta = COALESCE(NULLIF(%s, ''), foto_atleta),
+                        instagram = COALESCE(NULLIF(%s, ''), instagram)
                     WHERE id = %s
-                """, (nome, cpf, data_nascimento, id_atleta))
+                """, (nome, cpf, data_nascimento, foto_atleta, instagram, id_atleta))
+
+                _salvar_atleta_global(cur, nome, cpf, data_nascimento, foto_final, instagram_final)
 
             conn.commit()
 
@@ -4789,7 +5077,7 @@ def listar_atletas_da_competicao(nome_competicao):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, nome, cpf, equipe, status
+                SELECT id, nome, cpf, data_nascimento, numero, equipe, status, foto_atleta, instagram
                 FROM atletas
                 WHERE competicao = %s
                 ORDER BY status, nome
@@ -16664,3 +16952,2228 @@ def criar_indices_performance():
 
     except Exception as e:
         print("ERRO INDICES:", repr(e))
+
+
+# =========================================================
+# SUPERADMIN MASTER / CLIENTES (MULTIEMPRESA - ETAPA 1)
+# =========================================================
+MASTER_SUPERADMIN_LOGIN = "ThalisADM"
+
+
+def garantir_schema_multiempresa_superadmin():
+    """Cria a base para separar SuperADM master e SuperADMs de clientes.
+
+    Mantém compatibilidade: o perfil continua sendo 'superadmin'.
+    A hierarquia fica nas colunas superadmin_nivel/cliente_id.
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS clientes_sistema (
+                        id SERIAL PRIMARY KEY,
+                        nome TEXT NOT NULL,
+                        slug TEXT UNIQUE NOT NULL,
+                        ativo BOOLEAN DEFAULT TRUE,
+                        criado_por TEXT,
+                        criado_em TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+
+                cur.execute("""
+                    ALTER TABLE usuarios
+                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
+                    ADD COLUMN IF NOT EXISTS superadmin_nivel TEXT DEFAULT 'cliente',
+                    ADD COLUMN IF NOT EXISTS criado_por TEXT
+                """)
+
+                cur.execute("""
+                    ALTER TABLE competicoes
+                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER
+                """)
+
+                # Tabelas de cadastro global podem não existir em bancos antigos.
+                for tabela in ["equipes", "atletas", "apontadores_acesso", "oficiais"]:
+                    try:
+                        cur.execute(f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+                    except Exception as e:
+                        print(f"AVISO multiempresa/{tabela}:", repr(e), flush=True)
+
+                # O ThalisADM vira o master absoluto. Mantém perfil superadmin.
+                cur.execute("""
+                    UPDATE usuarios
+                    SET perfil = 'superadmin',
+                        superadmin_nivel = 'master',
+                        cliente_id = NULL,
+                        ativo = TRUE
+                    WHERE LOWER(login) = LOWER(%s)
+                """, (MASTER_SUPERADMIN_LOGIN,))
+
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_usuarios_cliente_id ON usuarios (cliente_id)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_competicoes_cliente_id ON competicoes (cliente_id)
+                """)
+
+            conn.commit()
+        try:
+            _CACHE_COLUNAS.pop("usuarios", None)
+            _CACHE_COLUNAS.pop("competicoes", None)
+            _CACHE_COLUNAS.pop("equipes", None)
+            _CACHE_COLUNAS.pop("atletas", None)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print("ERRO garantir_schema_multiempresa_superadmin:", repr(e), flush=True)
+        return False
+
+
+def _slug_cliente(nome):
+    base = _normalizar_texto_base(nome or "cliente")
+    return base or "cliente"
+
+
+def _gerar_slug_cliente_unico(cur, nome):
+    base = _slug_cliente(nome)
+    slug = base
+    contador = 1
+    while True:
+        cur.execute("SELECT id FROM clientes_sistema WHERE slug = %s LIMIT 1", (slug,))
+        if not cur.fetchone():
+            return slug
+        contador += 1
+        slug = f"{base}_{contador}"
+
+
+def obter_contexto_superadmin(login):
+    garantir_schema_multiempresa_superadmin()
+    login = (login or "").strip()
+    if not login:
+        return {"eh_master": False, "cliente_id": None, "nivel": "cliente"}
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT login, perfil, ativo, cliente_id,
+                       COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel
+                FROM usuarios
+                WHERE LOWER(login) = LOWER(%s)
+                LIMIT 1
+            """, (login,))
+            usuario = cur.fetchone() or {}
+
+    nivel = (usuario.get("superadmin_nivel") or "cliente").strip().lower()
+    eh_master = (login.lower() == MASTER_SUPERADMIN_LOGIN.lower()) or nivel == "master"
+    return {
+        "login": usuario.get("login") or login,
+        "perfil": usuario.get("perfil"),
+        "ativo": usuario.get("ativo"),
+        "cliente_id": usuario.get("cliente_id"),
+        "nivel": "master" if eh_master else "cliente",
+        "eh_master": eh_master,
+    }
+
+
+def superadmin_eh_master(login):
+    return bool(obter_contexto_superadmin(login).get("eh_master"))
+
+
+def listar_superadmins_clientes(login_master=None):
+    garantir_schema_multiempresa_superadmin()
+    if login_master and not superadmin_eh_master(login_master):
+        return []
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    u.login,
+                    u.nome,
+                    u.senha,
+                    u.ativo,
+                    u.cliente_id,
+                    COALESCE(u.superadmin_nivel, 'cliente') AS superadmin_nivel,
+                    COALESCE(c.nome, '') AS cliente_nome,
+                    COALESCE(c.ativo, TRUE) AS cliente_ativo,
+                    c.criado_em
+                FROM usuarios u
+                LEFT JOIN clientes_sistema c ON c.id = u.cliente_id
+                WHERE u.perfil = 'superadmin'
+                  AND COALESCE(u.superadmin_nivel, 'cliente') <> 'master'
+                ORDER BY COALESCE(c.nome, u.nome), u.nome
+            """)
+            return cur.fetchall()
+
+
+def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admin=None):
+    garantir_schema_multiempresa_superadmin()
+    if not superadmin_eh_master(criador_login):
+        return {"ok": False, "erro": "Apenas o ThalisADM master pode criar SuperADMs de clientes."}
+
+    nome_cliente = (nome_cliente or "").strip()
+    nome_admin = (nome_admin or "").strip()
+    login_admin = (login_admin or "").strip()
+
+    if not nome_cliente or not nome_admin:
+        return {"ok": False, "erro": "Informe o nome do cliente e o nome do SuperADM."}
+
+    if not login_admin:
+        login_admin = f"adm_{_normalizar_texto_base(nome_cliente)}"
+    login_admin = re.sub(r"\s+", "_", login_admin)
+    login_admin = re.sub(r"[^A-Za-z0-9_.@-]", "", login_admin)[:80]
+    if not login_admin:
+        login_admin = f"adm_{_normalizar_texto_base(nome_admin)}"
+
+    senha = _gerar_senha_aleatoria(8)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT login FROM usuarios WHERE LOWER(login) = LOWER(%s) LIMIT 1", (login_admin,))
+            if cur.fetchone():
+                return {"ok": False, "erro": "Este login já está em uso."}
+
+            slug = _gerar_slug_cliente_unico(cur, nome_cliente)
+            cur.execute("""
+                INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
+                VALUES (%s, %s, TRUE, %s)
+                RETURNING id
+            """, (nome_cliente, slug, criador_login))
+            cliente_id = (cur.fetchone() or {}).get("id")
+
+            cur.execute("""
+                INSERT INTO usuarios (
+                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
+                    cliente_id, superadmin_nivel, criado_por
+                )
+                VALUES (%s, %s, %s, 'superadmin', TRUE, NULL, NULL, %s, 'cliente', %s)
+            """, (login_admin, nome_admin, senha, cliente_id, criador_login))
+        conn.commit()
+
+    return {
+        "ok": True,
+        "cliente_id": cliente_id,
+        "cliente_nome": nome_cliente,
+        "login": login_admin,
+        "senha": senha,
+        "nome": nome_admin,
+    }
+
+
+def excluir_superadmin_cliente(criador_login, login_alvo):
+    garantir_schema_multiempresa_superadmin()
+    if not superadmin_eh_master(criador_login):
+        return {"ok": False, "erro": "Apenas o ThalisADM master pode excluir SuperADMs de clientes."}
+
+    login_alvo = (login_alvo or "").strip()
+    if not login_alvo or login_alvo.lower() == MASTER_SUPERADMIN_LOGIN.lower():
+        return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT login, cliente_id, COALESCE(superadmin_nivel, 'cliente') AS nivel
+                FROM usuarios
+                WHERE LOWER(login) = LOWER(%s)
+                  AND perfil = 'superadmin'
+                LIMIT 1
+            """, (login_alvo,))
+            alvo = cur.fetchone()
+            if not alvo:
+                return {"ok": False, "erro": "SuperADM não encontrado."}
+            if (alvo.get("nivel") or "").lower() == "master":
+                return {"ok": False, "erro": "Não é permitido excluir um SuperADM master."}
+
+            cliente_id = alvo.get("cliente_id")
+            cur.execute("DELETE FROM usuarios WHERE login = %s AND perfil = 'superadmin'", (alvo.get("login"),))
+            if cliente_id:
+                cur.execute("UPDATE clientes_sistema SET ativo = FALSE WHERE id = %s", (cliente_id,))
+        conn.commit()
+
+    return {"ok": True}
+
+
+def listar_competicoes(login_superadmin=None):
+    sincronizar_status_competicoes()
+    garantir_schema_multiempresa_superadmin()
+
+    campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
+    where = ""
+    params = []
+
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        if not contexto.get("eh_master"):
+            where = "WHERE c.cliente_id = %s"
+            params.append(contexto.get("cliente_id"))
+
+    sql = f"""
+        SELECT {", ".join(campos)}
+        FROM competicoes c
+        LEFT JOIN usuarios u
+            ON u.login = c.organizador_login
+        {where}
+        ORDER BY
+            CASE
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
+                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
+                ELSE 4
+            END,
+            c.nome
+    """
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            return cur.fetchall()
+
+
+def contar_competicoes(login_superadmin=None):
+    garantir_schema_multiempresa_superadmin()
+    where = ""
+    params = []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        if not contexto.get("eh_master"):
+            where = "WHERE cliente_id = %s"
+            params.append(contexto.get("cliente_id"))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM competicoes {where}", tuple(params))
+            row = cur.fetchone()
+            return row["total"] if row else 0
+
+
+def contar_equipes(login_superadmin=None):
+    garantir_schema_multiempresa_superadmin()
+    where = ""
+    params = []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        if not contexto.get("eh_master"):
+            where = "WHERE cliente_id = %s"
+            params.append(contexto.get("cliente_id"))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM equipes {where}", tuple(params))
+            row = cur.fetchone()
+            return row["total"] if row else 0
+
+
+def contar_partidas(login_superadmin=None):
+    try:
+        garantir_schema_multiempresa_superadmin()
+        join = ""
+        where = ""
+        params = []
+        if login_superadmin:
+            contexto = obter_contexto_superadmin(login_superadmin)
+            if not contexto.get("eh_master"):
+                join = "LEFT JOIN competicoes c ON c.nome = p.competicao"
+                where = "WHERE c.cliente_id = %s"
+                params.append(contexto.get("cliente_id"))
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT COUNT(*) AS total FROM partidas p {join} {where}", tuple(params))
+                row = cur.fetchone()
+                return row["total"] if row else 0
+    except Exception:
+        return 0
+
+
+# Substitui a versão antiga para vincular a competição ao cliente do SuperADM criador.
+def criar_competicao_com_organizador(nome, data, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None):
+    garantir_schema_multiempresa_superadmin()
+    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
+    senha_organizador = _gerar_senha_aleatoria(8)
+
+    contexto = obter_contexto_superadmin(criador_login) if criador_login else {"cliente_id": None, "eh_master": True}
+    cliente_id = contexto.get("cliente_id")
+
+    # Se o master criar uma competição diretamente, ela fica sem cliente_id e só o master enxerga.
+    colunas = _buscar_colunas_tabela("competicoes")
+    colunas_usuarios = _buscar_colunas_tabela("usuarios")
+
+    data_base = data or data_inicio or datetime.now().strftime("%Y-%m-%d")
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            campos_usuario = ["login", "nome", "senha", "perfil", "ativo", "equipe", "competicao_vinculada"]
+            valores_usuario = [login_organizador, f"Organizador - {nome}", senha_organizador, "organizador", True, None, nome]
+            if "cliente_id" in colunas_usuarios:
+                campos_usuario.append("cliente_id")
+                valores_usuario.append(cliente_id)
+            if "criado_por" in colunas_usuarios:
+                campos_usuario.append("criado_por")
+                valores_usuario.append(criador_login)
+
+            cur.execute(
+                f"INSERT INTO usuarios ({', '.join(campos_usuario)}) VALUES ({', '.join(['%s'] * len(valores_usuario))})",
+                tuple(valores_usuario),
+            )
+
+            campos = ["nome", "data", "status", "organizador_login"]
+            valores = [nome, data_base, status or "Em preparação", login_organizador]
+
+            mapa_defaults = {
+                "cliente_id": cliente_id,
+                "data_inicio": data_inicio or data_base,
+                "data_fim": data_fim or data_inicio or data_base,
+                "cidade": "",
+                "ginasio": "",
+                "categoria": "",
+                "sexo": "",
+                "divisao": "",
+                "qtd_equipes": 0,
+                "formato": "grupos",
+                "tem_grupos": False,
+                "qtd_grupos": 0,
+                "qtd_quadras": 1,
+                "modo_operacao": modo_operacao or "simples",
+                "tempos_por_set": tempos_por_set,
+                "substituicoes_por_set": substituicoes_por_set,
+                "sets_tipo": "melhor_de_3",
+                "pontos_set": 25,
+                "tem_tiebreak": True,
+                "pontos_tiebreak": 15,
+                "diferenca_minima": 2,
+                "vitoria_set_unico": 2,
+                "derrota_set_unico": 0,
+                "vitoria_2x0": 3,
+                "vitoria_2x1": 2,
+                "derrota_1x2": 1,
+                "derrota_0x2": 0,
+                "vitoria_3x0": 3,
+                "vitoria_3x1": 3,
+                "vitoria_3x2": 2,
+                "derrota_2x3": 1,
+                "derrota_1x3": 0,
+                "derrota_0x3": 0,
+                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
+                "tipo_classificacao": "grupo",
+                "qtd_classificados": 0,
+                "formato_finais": "mata_mata",
+                "possui_bye": False,
+                "qtd_bye": 0,
+                "fases_config": json.dumps({}, ensure_ascii=False),
+                "tipo_confronto": "grupo_interno",
+                "cruzamentos_grupos": "",
+                "data_limite_inscricao": None,
+                "hora_limite_inscricao": None,
+                "bloquear_apos_inicio": False,
+                "limite_atletas": 0,
+                "permitir_edicao_pos_prazo": False,
+                "exigir_foto_atleta": False,
+                "exigir_instagram_atleta": False,
+                "aprovacao_automatica_atletas": False,
+                "travada": False,
+                "motivo_travamento": "",
+                "travada_em": None,
+            }
+
+            for campo, default in mapa_defaults.items():
+                if campo in colunas:
+                    campos.append(campo)
+                    valores.append(default)
+
+            cur.execute(
+                f"INSERT INTO competicoes ({', '.join(campos)}) VALUES ({', '.join(['%s'] * len(valores))})",
+                tuple(valores),
+            )
+
+        conn.commit()
+
+    try:
+        garantir_quadras_competicao(nome, 1)
+    except Exception as e:
+        print("AVISO: não foi possível criar quadra padrão da competição:", e)
+
+    return {"login": login_organizador, "senha": senha_organizador}
+
+
+# =========================================================
+# MULTIEMPRESA - ISOLAMENTO TOTAL POR CLIENTE/SUPERADM
+# Patch: cada SuperADM cliente possui cliente_id próprio. O ThalisADM
+# master também possui seu próprio ambiente (cliente_id), e o painel normal
+# filtra por esse ambiente. Dados de clientes não são compartilhados.
+# =========================================================
+MASTER_SUPERADMIN_LOGIN = "ThalisADM"
+
+
+def _limpar_cache_colunas_multiempresa():
+    try:
+        for _t in [
+            "usuarios", "competicoes", "equipes", "atletas", "atletas_globais",
+            "apontadores_acesso", "oficiais", "competicao_oficiais", "equipes_competicoes",
+            "partidas", "grupos", "grupos_equipes", "competicao_quadras", "classificacao_cache",
+            "competicao_agenda_config", "competicao_avanco_config", "eventos_partida",
+            "pins_operacionais", "jogos_avulsos"
+        ]:
+            _CACHE_COLUNAS.pop(_t, None)
+    except Exception:
+        pass
+
+
+def _tabela_existe_cur(cur, tabela):
+    cur.execute("SELECT to_regclass(%s) AS tabela", (f"public.{tabela}",))
+    return bool((cur.fetchone() or {}).get("tabela"))
+
+
+def _colunas_cur(cur, tabela):
+    cur.execute("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+    """, (tabela,))
+    return {r["column_name"] for r in (cur.fetchall() or [])}
+
+
+def _garantir_coluna_cliente_cur(cur, tabela):
+    if not _tabela_existe_cur(cur, tabela):
+        return False
+    try:
+        cur.execute(f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+        return True
+    except Exception as e:
+        print(f"AVISO multiempresa: não foi possível adicionar cliente_id em {tabela}:", repr(e), flush=True)
+        return False
+
+
+def _obter_ou_criar_cliente_thalis_cur(cur):
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clientes_sistema (
+            id SERIAL PRIMARY KEY,
+            nome TEXT NOT NULL,
+            slug TEXT UNIQUE NOT NULL,
+            ativo BOOLEAN DEFAULT TRUE,
+            criado_por TEXT,
+            criado_em TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.execute("SELECT id FROM clientes_sistema WHERE slug = 'thalisadm' LIMIT 1")
+    row = cur.fetchone()
+    if row:
+        return row["id"]
+    cur.execute("""
+        INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
+        VALUES ('ThalisADM', 'thalisadm', TRUE, %s)
+        RETURNING id
+    """, (MASTER_SUPERADMIN_LOGIN,))
+    return (cur.fetchone() or {}).get("id")
+
+
+def garantir_schema_multiempresa_superadmin():
+    """Cria e migra a base multiempresa.
+
+    Regras:
+    - ThalisADM é master, mas possui cliente_id próprio para o ambiente dele.
+    - SuperADMs criados abaixo possuem outro cliente_id.
+    - Registros antigos sem cliente_id viram dados do ambiente ThalisADM.
+    - Tabelas operacionais recebem cliente_id para impedir vazamento entre clientes.
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cliente_thalis = _obter_ou_criar_cliente_thalis_cur(cur)
+
+                cur.execute("""
+                    ALTER TABLE usuarios
+                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
+                    ADD COLUMN IF NOT EXISTS superadmin_nivel TEXT DEFAULT 'cliente',
+                    ADD COLUMN IF NOT EXISTS criado_por TEXT
+                """)
+                cur.execute("""
+                    ALTER TABLE competicoes
+                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
+                    ADD COLUMN IF NOT EXISTS data_inicio TEXT,
+                    ADD COLUMN IF NOT EXISTS data_fim TEXT
+                """)
+
+                tabelas_cliente = [
+                    "equipes", "atletas", "atletas_globais", "apontadores_acesso", "oficiais",
+                    "competicao_oficiais", "equipes_competicoes", "partidas", "grupos",
+                    "grupos_equipes", "competicao_quadras", "classificacao_cache",
+                    "competicao_agenda_config", "competicao_avanco_config", "eventos_partida",
+                    "pins_operacionais", "jogos_avulsos"
+                ]
+                for tabela in tabelas_cliente:
+                    _garantir_coluna_cliente_cur(cur, tabela)
+
+                # ThalisADM: master e dono do próprio ambiente.
+                cur.execute("""
+                    UPDATE usuarios
+                    SET perfil = 'superadmin',
+                        superadmin_nivel = 'master',
+                        cliente_id = %s,
+                        ativo = TRUE
+                    WHERE LOWER(login) = LOWER(%s)
+                """, (cliente_thalis, MASTER_SUPERADMIN_LOGIN))
+
+                # Migração segura: tudo antigo sem cliente_id fica no ambiente ThalisADM.
+                cur.execute("UPDATE usuarios SET cliente_id = %s WHERE cliente_id IS NULL", (cliente_thalis,))
+                cur.execute("UPDATE competicoes SET cliente_id = %s WHERE cliente_id IS NULL", (cliente_thalis,))
+
+                # Propaga cliente_id por competição quando possível.
+                for tabela, campo_comp in [
+                    ("equipes", "competicao"),
+                    ("atletas", "competicao"),
+                    ("competicao_oficiais", "competicao"),
+                    ("equipes_competicoes", "competicao"),
+                    ("partidas", "competicao"),
+                    ("grupos", "competicao"),
+                    ("grupos_equipes", "competicao"),
+                    ("competicao_quadras", "competicao"),
+                    ("classificacao_cache", "competicao"),
+                    ("competicao_agenda_config", "competicao"),
+                    ("competicao_avanco_config", "competicao"),
+                    ("eventos_partida", "competicao"),
+                ]:
+                    try:
+                        if _tabela_existe_cur(cur, tabela):
+                            cols = _colunas_cur(cur, tabela)
+                            if "cliente_id" in cols and campo_comp in cols:
+                                cur.execute(f"""
+                                    UPDATE {tabela} t
+                                    SET cliente_id = c.cliente_id
+                                    FROM competicoes c
+                                    WHERE t.cliente_id IS NULL
+                                      AND TRIM(LOWER(t.{campo_comp})) = TRIM(LOWER(c.nome))
+                                """)
+                    except Exception as e:
+                        print(f"AVISO multiempresa backfill {tabela}:", repr(e), flush=True)
+
+                # Equipe/usuário por login.
+                try:
+                    if _tabela_existe_cur(cur, "equipes"):
+                        cur.execute("""
+                            UPDATE equipes e
+                            SET cliente_id = u.cliente_id
+                            FROM usuarios u
+                            WHERE e.cliente_id IS NULL
+                              AND e.login = u.login
+                        """)
+                except Exception as e:
+                    print("AVISO multiempresa equipes/usuarios:", repr(e), flush=True)
+
+                # Oficiais e apontadores antigos ficam no ambiente ThalisADM se não houver vínculo por competição.
+                for tabela in ["equipes", "atletas", "atletas_globais", "apontadores_acesso", "oficiais", "competicao_oficiais", "equipes_competicoes", "partidas", "grupos", "grupos_equipes", "competicao_quadras"]:
+                    try:
+                        if _tabela_existe_cur(cur, tabela) and "cliente_id" in _colunas_cur(cur, tabela):
+                            cur.execute(f"UPDATE {tabela} SET cliente_id = %s WHERE cliente_id IS NULL", (cliente_thalis,))
+                    except Exception as e:
+                        print(f"AVISO multiempresa default {tabela}:", repr(e), flush=True)
+
+                # Índices.
+                for tabela in ["usuarios", "competicoes", "equipes", "atletas", "apontadores_acesso", "oficiais", "competicao_oficiais", "equipes_competicoes", "partidas"]:
+                    try:
+                        if _tabela_existe_cur(cur, tabela) and "cliente_id" in _colunas_cur(cur, tabela):
+                            cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabela}_cliente_id ON {tabela} (cliente_id)")
+                    except Exception:
+                        pass
+
+                # Permite mesmo CPF em clientes diferentes quando o banco antigo permitir remover UNIQUE global.
+                # Se algum ambiente Neon não permitir DROP por nome, apenas ignora e o restante do isolamento continua.
+                for tabela, constraint in [("oficiais", "oficiais_cpf_key"), ("apontadores_acesso", "apontadores_acesso_cpf_key")]:
+                    try:
+                        if _tabela_existe_cur(cur, tabela):
+                            cur.execute(f"ALTER TABLE {tabela} DROP CONSTRAINT IF EXISTS {constraint}")
+                            cur.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{tabela}_cpf_cliente ON {tabela} (cpf, cliente_id)")
+                    except Exception as e:
+                        print(f"AVISO multiempresa unique {tabela}:", repr(e), flush=True)
+
+            conn.commit()
+        _limpar_cache_colunas_multiempresa()
+        return True
+    except Exception as e:
+        print("ERRO garantir_schema_multiempresa_superadmin:", repr(e), flush=True)
+        return False
+
+
+def _slug_cliente(nome):
+    base = _normalizar_texto_base(nome or "cliente")
+    return base or "cliente"
+
+
+def _gerar_slug_cliente_unico(cur, nome):
+    base = _slug_cliente(nome)
+    slug = base
+    contador = 1
+    while True:
+        cur.execute("SELECT id FROM clientes_sistema WHERE slug = %s LIMIT 1", (slug,))
+        if not cur.fetchone():
+            return slug
+        contador += 1
+        slug = f"{base}_{contador}"
+
+
+def cliente_id_thalisadm():
+    garantir_schema_multiempresa_superadmin()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            return _obter_ou_criar_cliente_thalis_cur(cur)
+
+
+def obter_contexto_superadmin(login):
+    garantir_schema_multiempresa_superadmin()
+    login = (login or "").strip()
+    if not login:
+        return {"eh_master": False, "cliente_id": None, "nivel": "cliente"}
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT login, perfil, ativo, cliente_id,
+                       COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel
+                FROM usuarios
+                WHERE LOWER(login) = LOWER(%s)
+                LIMIT 1
+            """, (login,))
+            usuario = cur.fetchone() or {}
+    nivel = (usuario.get("superadmin_nivel") or "cliente").strip().lower()
+    eh_master = (login.lower() == MASTER_SUPERADMIN_LOGIN.lower()) or nivel == "master"
+    return {
+        "login": usuario.get("login") or login,
+        "perfil": usuario.get("perfil"),
+        "ativo": usuario.get("ativo"),
+        "cliente_id": usuario.get("cliente_id"),
+        "nivel": "master" if eh_master else "cliente",
+        "eh_master": eh_master,
+    }
+
+
+def superadmin_eh_master(login):
+    return bool(obter_contexto_superadmin(login).get("eh_master"))
+
+
+def cliente_id_por_login(login):
+    garantir_schema_multiempresa_superadmin()
+    login = (login or "").strip()
+    if not login:
+        return None
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT cliente_id FROM usuarios WHERE LOWER(login)=LOWER(%s) LIMIT 1", (login,))
+            row = cur.fetchone() or {}
+            return row.get("cliente_id")
+
+
+def cliente_id_por_competicao(competicao):
+    garantir_schema_multiempresa_superadmin()
+    competicao = (competicao or "").strip()
+    if not competicao:
+        return None
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT cliente_id FROM competicoes WHERE TRIM(LOWER(nome))=TRIM(LOWER(%s)) LIMIT 1", (competicao,))
+            row = cur.fetchone() or {}
+            return row.get("cliente_id")
+
+
+def _resolver_cliente_id_contexto(valor=None):
+    """Aceita cliente_id direto, nome de competição ou login de usuário."""
+    garantir_schema_multiempresa_superadmin()
+    if isinstance(valor, int):
+        return valor
+    texto = (valor or "").strip() if isinstance(valor, str) else ""
+    if not texto:
+        return None
+    # tenta competição
+    cid = cliente_id_por_competicao(texto)
+    if cid is not None:
+        return cid
+    # tenta login
+    return cliente_id_por_login(texto)
+
+
+def buscar_usuario_por_login(login, conn=None):
+    garantir_schema_multiempresa_superadmin()
+    sql = """
+        SELECT login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
+               cliente_id, COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel, criado_por
+        FROM usuarios
+        WHERE LOWER(login) = LOWER(%s)
+        LIMIT 1
+    """
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, (login,))
+            return cur.fetchone()
+    with conectar() as conn:
+        return buscar_usuario_por_login(login, conn)
+
+
+def listar_superadmins_clientes(login_master=None):
+    garantir_schema_multiempresa_superadmin()
+    if login_master and not superadmin_eh_master(login_master):
+        return []
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    u.login, u.nome, u.senha, u.ativo, u.cliente_id,
+                    COALESCE(u.superadmin_nivel, 'cliente') AS superadmin_nivel,
+                    COALESCE(c.nome, '') AS cliente_nome,
+                    COALESCE(c.ativo, TRUE) AS cliente_ativo,
+                    c.criado_em
+                FROM usuarios u
+                LEFT JOIN clientes_sistema c ON c.id = u.cliente_id
+                WHERE u.perfil = 'superadmin'
+                  AND COALESCE(u.superadmin_nivel, 'cliente') <> 'master'
+                ORDER BY COALESCE(c.nome, u.nome), u.nome
+            """)
+            return cur.fetchall()
+
+
+def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admin=None):
+    garantir_schema_multiempresa_superadmin()
+    if not superadmin_eh_master(criador_login):
+        return {"ok": False, "erro": "Apenas o ThalisADM master pode criar SuperADMs de clientes."}
+    nome_cliente = (nome_cliente or "").strip()
+    nome_admin = (nome_admin or "").strip()
+    login_admin = (login_admin or "").strip()
+    if not nome_cliente or not nome_admin:
+        return {"ok": False, "erro": "Informe o nome do cliente e o nome do SuperADM."}
+    if not login_admin:
+        login_admin = f"adm_{_normalizar_texto_base(nome_cliente)}"
+    login_admin = re.sub(r"\s+", "_", login_admin)
+    login_admin = re.sub(r"[^A-Za-z0-9_.@-]", "", login_admin)[:80]
+    if not login_admin:
+        login_admin = f"adm_{_normalizar_texto_base(nome_admin)}"
+    senha = _gerar_senha_aleatoria(8)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT login FROM usuarios WHERE LOWER(login) = LOWER(%s) LIMIT 1", (login_admin,))
+            if cur.fetchone():
+                return {"ok": False, "erro": "Este login já está em uso."}
+            slug = _gerar_slug_cliente_unico(cur, nome_cliente)
+            cur.execute("""
+                INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
+                VALUES (%s, %s, TRUE, %s)
+                RETURNING id
+            """, (nome_cliente, slug, criador_login))
+            cliente_id = (cur.fetchone() or {}).get("id")
+            cur.execute("""
+                INSERT INTO usuarios (
+                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
+                    cliente_id, superadmin_nivel, criado_por
+                )
+                VALUES (%s, %s, %s, 'superadmin', TRUE, NULL, NULL, %s, 'cliente', %s)
+            """, (login_admin, nome_admin, senha, cliente_id, criador_login))
+        conn.commit()
+    return {"ok": True, "cliente_id": cliente_id, "cliente_nome": nome_cliente, "login": login_admin, "senha": senha, "nome": nome_admin}
+
+
+def excluir_superadmin_cliente(criador_login, login_alvo):
+    garantir_schema_multiempresa_superadmin()
+    if not superadmin_eh_master(criador_login):
+        return {"ok": False, "erro": "Apenas o ThalisADM master pode excluir SuperADMs de clientes."}
+    login_alvo = (login_alvo or "").strip()
+    if not login_alvo or login_alvo.lower() == MASTER_SUPERADMIN_LOGIN.lower():
+        return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT login, cliente_id, COALESCE(superadmin_nivel, 'cliente') AS nivel
+                FROM usuarios
+                WHERE LOWER(login) = LOWER(%s)
+                  AND perfil = 'superadmin'
+                LIMIT 1
+            """, (login_alvo,))
+            alvo = cur.fetchone()
+            if not alvo:
+                return {"ok": False, "erro": "SuperADM não encontrado."}
+            if (alvo.get("nivel") or "").lower() == "master":
+                return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
+            cliente_id = alvo.get("cliente_id")
+            # Suspende o cliente inteiro em vez de apagar dados operacionais.
+            cur.execute("UPDATE usuarios SET ativo = FALSE WHERE cliente_id = %s", (cliente_id,))
+            if cliente_id:
+                cur.execute("UPDATE clientes_sistema SET ativo = FALSE WHERE id = %s", (cliente_id,))
+        conn.commit()
+    return {"ok": True}
+
+
+def listar_competicoes(login_superadmin=None, incluir_todos=False):
+    sincronizar_status_competicoes()
+    garantir_schema_multiempresa_superadmin()
+    campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
+    where = ""
+    params = []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        if not incluir_todos:
+            where = "WHERE c.cliente_id = %s"
+            params.append(contexto.get("cliente_id"))
+    sql = f"""
+        SELECT {", ".join(campos)}
+        FROM competicoes c
+        LEFT JOIN usuarios u ON u.login = c.organizador_login
+        {where}
+        ORDER BY
+            CASE
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
+                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
+                ELSE 4
+            END,
+            c.nome
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            return cur.fetchall()
+
+
+def contar_competicoes(login_superadmin=None):
+    garantir_schema_multiempresa_superadmin()
+    where, params = "", []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        where = "WHERE cliente_id = %s"
+        params.append(contexto.get("cliente_id"))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM competicoes {where}", tuple(params))
+            return (cur.fetchone() or {}).get("total", 0)
+
+
+def contar_equipes(login_superadmin=None):
+    garantir_schema_multiempresa_superadmin()
+    where, params = "", []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        where = "WHERE cliente_id = %s"
+        params.append(contexto.get("cliente_id"))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM equipes {where}", tuple(params))
+            return (cur.fetchone() or {}).get("total", 0)
+
+
+def contar_partidas(login_superadmin=None):
+    garantir_schema_multiempresa_superadmin()
+    join, where, params = "", "", []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        join = "LEFT JOIN competicoes c ON c.nome = p.competicao"
+        where = "WHERE c.cliente_id = %s"
+        params.append(contexto.get("cliente_id"))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) AS total FROM partidas p {join} {where}", tuple(params))
+            return (cur.fetchone() or {}).get("total", 0)
+
+
+def criar_competicao_com_organizador(nome, data=None, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None):
+    garantir_schema_multiempresa_superadmin()
+    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
+    senha_organizador = _gerar_senha_aleatoria(8)
+    contexto = obter_contexto_superadmin(criador_login) if criador_login else {"cliente_id": cliente_id_thalisadm()}
+    cliente_id = contexto.get("cliente_id")
+    colunas = _buscar_colunas_tabela("competicoes")
+    colunas_usuarios = _buscar_colunas_tabela("usuarios")
+    data_base = data or data_inicio or datetime.now().strftime("%Y-%m-%d")
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            campos_usuario = ["login", "nome", "senha", "perfil", "ativo", "equipe", "competicao_vinculada"]
+            valores_usuario = [login_organizador, f"Organizador - {nome}", senha_organizador, "organizador", True, None, nome]
+            if "cliente_id" in colunas_usuarios:
+                campos_usuario.append("cliente_id"); valores_usuario.append(cliente_id)
+            if "criado_por" in colunas_usuarios:
+                campos_usuario.append("criado_por"); valores_usuario.append(criador_login)
+            cur.execute(f"INSERT INTO usuarios ({', '.join(campos_usuario)}) VALUES ({', '.join(['%s'] * len(valores_usuario))})", tuple(valores_usuario))
+            campos = ["nome", "data", "status", "organizador_login"]
+            valores = [nome, data_base, status or "Em preparação", login_organizador]
+            mapa_defaults = {
+                "cliente_id": cliente_id, "data_inicio": data_inicio or data_base, "data_fim": data_fim or data_inicio or data_base,
+                "cidade": "", "ginasio": "", "categoria": "", "sexo": "", "divisao": "", "qtd_equipes": 0,
+                "formato": "grupos", "tem_grupos": False, "qtd_grupos": 0, "qtd_quadras": 1,
+                "modo_operacao": modo_operacao or "simples", "tempos_por_set": tempos_por_set, "substituicoes_por_set": substituicoes_por_set,
+                "sets_tipo": "melhor_de_3", "pontos_set": 25, "tem_tiebreak": True, "pontos_tiebreak": 15, "diferenca_minima": 2,
+                "vitoria_set_unico": 2, "derrota_set_unico": 0, "vitoria_2x0": 3, "vitoria_2x1": 2, "derrota_1x2": 1, "derrota_0x2": 0,
+                "vitoria_3x0": 3, "vitoria_3x1": 3, "vitoria_3x2": 2, "derrota_2x3": 1, "derrota_1x3": 0, "derrota_0x3": 0,
+                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
+                "tipo_classificacao": "grupo", "qtd_classificados": 0, "formato_finais": "mata_mata", "possui_bye": False, "qtd_bye": 0,
+                "fases_config": json.dumps({}, ensure_ascii=False), "tipo_confronto": "grupo_interno", "cruzamentos_grupos": "",
+                "data_limite_inscricao": None, "hora_limite_inscricao": None, "bloquear_apos_inicio": False, "limite_atletas": 0,
+                "permitir_edicao_pos_prazo": False, "exigir_foto_atleta": False, "exigir_instagram_atleta": False,
+                "aprovacao_automatica_atletas": False, "travada": False, "motivo_travamento": "", "travada_em": None,
+            }
+            for campo, default in mapa_defaults.items():
+                if campo in colunas:
+                    campos.append(campo); valores.append(default)
+            cur.execute(f"INSERT INTO competicoes ({', '.join(campos)}) VALUES ({', '.join(['%s'] * len(valores))})", tuple(valores))
+        conn.commit()
+    try:
+        garantir_quadras_competicao(nome, 1)
+        # garante cliente_id na quadra padrão criada por função antiga
+        cid = cliente_id
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                if _tabela_existe_cur(cur, "competicao_quadras") and "cliente_id" in _colunas_cur(cur, "competicao_quadras"):
+                    cur.execute("UPDATE competicao_quadras SET cliente_id = %s WHERE competicao = %s AND cliente_id IS NULL", (cid, nome))
+            conn.commit()
+    except Exception as e:
+        print("AVISO: não foi possível criar quadra padrão da competição:", e)
+    return {"login": login_organizador, "senha": senha_organizador}
+
+
+def buscar_equipe_global_por_nome(nome_equipe, conn=None, cliente_id=None, competicao=None):
+    garantir_schema_multiempresa_superadmin()
+    nome_equipe = (nome_equipe or "").strip()
+    if not nome_equipe:
+        return None
+    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
+    sql = """
+        SELECT *
+        FROM equipes
+        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+          AND (%s::INTEGER IS NULL OR cliente_id = %s)
+        ORDER BY id DESC
+        LIMIT 1
+    """
+    params = (nome_equipe, cid, cid)
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()
+    with conectar() as conn:
+        return buscar_equipe_global_por_nome(nome_equipe, conn, cliente_id=cid)
+
+
+def buscar_equipes_globais_por_nome(termo, limite=20, cliente_id=None, competicao=None):
+    garantir_schema_multiempresa_superadmin()
+    termo = (termo or "").strip()
+    if not termo:
+        return []
+    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
+    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_campo_escudo_equipes()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
+                       liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel,
+                       telefone, email, instagram,
+                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                       escudo_blob,
+                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
+                       COALESCE(perfil_completo, FALSE) AS perfil_completo,
+                       cliente_id
+                FROM equipes
+                WHERE LOWER(TRIM(nome)) LIKE LOWER(TRIM(%s))
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                ORDER BY CASE WHEN LOWER(TRIM(nome)) = LOWER(TRIM(%s)) THEN 0 ELSE 1 END, nome ASC, login ASC
+                LIMIT %s
+            """, (f"%{termo}%", cid, cid, termo, limite))
+            return cur.fetchall()
+
+
+def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabela_equipes_competicoes()
+    cid = cliente_id_por_competicao(nome_competicao)
+    def _executar(cnx):
+        equipe = buscar_equipe_global_por_nome(nome_equipe, cnx, cliente_id=cid)
+        if not equipe:
+            return None
+        with cnx.cursor() as cur:
+            cur.execute("""
+                SELECT id FROM equipes_competicoes
+                WHERE equipe_login = %s AND competicao = %s AND cliente_id = %s
+                LIMIT 1
+            """, (equipe["login"], nome_competicao, cid))
+            existente = cur.fetchone()
+            if not existente:
+                cur.execute("""
+                    INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
+                    VALUES (%s, %s, %s, 'ativa', %s)
+                    ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                    SET equipe_login = EXCLUDED.equipe_login, status = 'ativa', cliente_id = EXCLUDED.cliente_id
+                """, (equipe["login"], equipe["nome"], nome_competicao, cid))
+            try:
+                cur.execute("UPDATE equipes SET cliente_id = %s WHERE login = %s", (cid, equipe["login"]))
+                cur.execute("UPDATE usuarios SET cliente_id = %s WHERE login = %s", (cid, equipe["login"]))
+            except Exception:
+                pass
+        equipe = dict(equipe)
+        equipe["ja_vinculada"] = bool(existente)
+        return equipe
+    if conn is not None:
+        return _executar(conn)
+    with conectar() as conn:
+        res = _executar(conn); conn.commit(); return res
+
+
+def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
+    garantir_schema_multiempresa_superadmin()
+    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_tabela_equipes_competicoes()
+    nome_equipe = (nome_equipe or "").strip(); nome_competicao = (nome_competicao or "").strip()
+    if not nome_equipe or not nome_competicao:
+        return None
+    cid = cliente_id_por_competicao(nome_competicao)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe)); senha_equipe = _gerar_senha_aleatoria(8)
+            cur.execute("""
+                INSERT INTO equipes (nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
+                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel, telefone, email, instagram, escudo, perfil_completo, cliente_id)
+                VALUES (%s, %s, %s, %s, '', '', '', '', FALSE, NULL, NULL, '', '', '', '', '', '', FALSE, %s)
+            """, (nome_equipe, login_equipe, senha_equipe, nome_competicao, cid))
+            cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
+                VALUES (%s, %s, %s, 'ativa', %s)
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login, status = 'ativa', cliente_id = EXCLUDED.cliente_id
+            """, (login_equipe, nome_equipe, nome_competicao, cid))
+            cur.execute("""
+                INSERT INTO usuarios (login, nome, senha, perfil, ativo, equipe, competicao_vinculada, cliente_id)
+                VALUES (%s, %s, %s, 'equipe', TRUE, %s, %s, %s)
+            """, (login_equipe, nome_equipe, senha_equipe, nome_equipe, nome_competicao, cid))
+        conn.commit()
+    return {"login": login_equipe, "senha": senha_equipe, "nome": nome_equipe, "vinculada": True, "ja_existia": False, "ja_vinculada": False}
+
+
+def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
+    garantir_schema_multiempresa_superadmin()
+    cid = cliente_id_por_competicao(nome_competicao)
+    with conectar() as conn:
+        existente = buscar_equipe_global_por_nome(nome_equipe, conn, cliente_id=cid)
+        if existente:
+            resultado = vincular_equipe_a_competicao(existente["nome"], nome_competicao, conn)
+            conn.commit()
+            return {"login": resultado["login"], "senha": resultado["senha"], "nome": resultado["nome"], "vinculada": True, "ja_existia": True, "ja_vinculada": resultado.get("ja_vinculada", False)}
+    return criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao)
+
+
+def buscar_atleta_global_por_cpf(cpf, cliente_id=None, competicao=None):
+    """Busca atleta por CPF somente dentro do cliente/competição informados."""
+    garantir_schema_multiempresa_superadmin(); criar_tabela_atletas()
+    cpf_limpo = somente_digitos(cpf)
+    if not cpf_limpo:
+        return None
+    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT nome, cpf, data_nascimento, foto_atleta, instagram
+                FROM atletas
+                WHERE {_cpf_sql_limpo('cpf')} = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                ORDER BY CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
+                         CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
+                         id DESC
+                LIMIT 1
+            """, (cpf_limpo, cid, cid))
+            return cur.fetchone()
+
+
+def criar_tabelas_oficiais():
+    garantir_schema_multiempresa_superadmin()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS oficiais (
+                id SERIAL PRIMARY KEY,
+                nome TEXT NOT NULL,
+                cpf TEXT NOT NULL,
+                criado_em TIMESTAMP DEFAULT NOW(),
+                cliente_id INTEGER
+            )
+            """)
+            cur.execute("ALTER TABLE oficiais ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS apontadores_acesso (
+                id SERIAL PRIMARY KEY,
+                cpf TEXT NOT NULL,
+                senha TEXT,
+                ativo BOOLEAN DEFAULT TRUE,
+                primeiro_acesso BOOLEAN DEFAULT TRUE,
+                cliente_id INTEGER
+            )
+            """)
+            cur.execute("ALTER TABLE apontadores_acesso ADD COLUMN IF NOT EXISTS primeiro_acesso BOOLEAN DEFAULT TRUE")
+            cur.execute("ALTER TABLE apontadores_acesso ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS competicao_oficiais (
+                id SERIAL PRIMARY KEY,
+                competicao TEXT NOT NULL,
+                cpf TEXT NOT NULL,
+                funcao TEXT NOT NULL,
+                criado_em TIMESTAMP DEFAULT NOW(),
+                cliente_id INTEGER
+            )
+            """)
+            cur.execute("ALTER TABLE competicao_oficiais ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+            try:
+                cur.execute("ALTER TABLE oficiais DROP CONSTRAINT IF EXISTS oficiais_cpf_key")
+                cur.execute("ALTER TABLE apontadores_acesso DROP CONSTRAINT IF EXISTS apontadores_acesso_cpf_key")
+            except Exception:
+                pass
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_oficiais_cpf_cliente ON oficiais (cpf, cliente_id)")
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_apontadores_cpf_cliente ON apontadores_acesso (cpf, cliente_id)")
+        conn.commit()
+
+
+def buscar_oficial_por_cpf(cpf, contexto=None, cliente_id=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM oficiais
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                LIMIT 1
+            """, (cpf_limpo, cid, cid))
+            return cur.fetchone()
+
+
+def cadastrar_oficial(nome, cpf, contexto=None, cliente_id=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO oficiais (nome, cpf, cliente_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (cpf, cliente_id) DO UPDATE
+                SET nome = COALESCE(NULLIF(EXCLUDED.nome, ''), oficiais.nome)
+            """, (nome, cpf_limpo, cid))
+        conn.commit()
+    return True
+
+
+def criar_apontador(cpf, contexto=None, cliente_id=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO apontadores_acesso (cpf, senha, ativo, primeiro_acesso, cliente_id)
+                VALUES (%s, NULL, TRUE, TRUE, %s)
+                ON CONFLICT (cpf, cliente_id) DO NOTHING
+            """, (cpf_limpo, cid))
+        conn.commit()
+    return True
+
+
+def buscar_apontador(cpf, contexto=None, cliente_id=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT a.*, o.nome
+                FROM apontadores_acesso a
+                LEFT JOIN oficiais o
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
+                 AND o.cliente_id = a.cliente_id
+                WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
+                  AND (%s::INTEGER IS NULL OR a.cliente_id = %s)
+                ORDER BY a.id DESC
+                LIMIT 1
+            """, (cpf_limpo, cid, cid))
+            return cur.fetchone()
+
+
+def definir_senha_apontador(cpf, senha, contexto=None, cliente_id=None):
+    garantir_schema_multiempresa_superadmin()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE apontadores_acesso
+                SET senha = %s, primeiro_acesso = FALSE
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+            """, (senha, cpf_limpo, cid, cid))
+        conn.commit()
+    return True
+
+
+def autenticar_apontador(cpf, senha):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            # Primeiro tenta CPF + senha. Isso permite o mesmo CPF em clientes diferentes.
+            cur.execute("""
+                SELECT a.*, o.nome
+                FROM apontadores_acesso a
+                LEFT JOIN oficiais o
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
+                 AND o.cliente_id = a.cliente_id
+                WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
+                  AND COALESCE(a.ativo, TRUE) = TRUE
+                  AND a.senha = %s
+                ORDER BY a.id DESC
+                LIMIT 1
+            """, (cpf_limpo, senha))
+            row = cur.fetchone()
+            if row:
+                return row
+            # Primeiro acesso: só aceita se houver um único cadastro ativo sem senha para este CPF.
+            cur.execute("""
+                SELECT a.*, o.nome
+                FROM apontadores_acesso a
+                LEFT JOIN oficiais o
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
+                 AND o.cliente_id = a.cliente_id
+                WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
+                  AND COALESCE(a.ativo, TRUE) = TRUE
+                  AND (a.senha IS NULL OR a.senha = '')
+                ORDER BY a.id DESC
+                LIMIT 2
+            """, (cpf_limpo,))
+            rows = cur.fetchall() or []
+            if len(rows) == 1:
+                return rows[0]
+            if len(rows) > 1:
+                return False
+    return None
+
+
+def vincular_oficial_competicao(competicao, cpf, funcao):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cid = cliente_id_por_competicao(competicao)
+    cpf_limpo = somente_digitos(cpf)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id FROM competicao_oficiais
+                WHERE TRIM(LOWER(competicao)) = TRIM(LOWER(%s))
+                  AND REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND TRIM(LOWER(funcao)) = TRIM(LOWER(%s))
+                  AND cliente_id = %s
+                LIMIT 1
+            """, (competicao, cpf_limpo, funcao, cid))
+            if cur.fetchone():
+                return True
+            cur.execute("""
+                INSERT INTO competicao_oficiais (competicao, cpf, funcao, cliente_id)
+                VALUES (%s, %s, %s, %s)
+            """, (competicao, cpf_limpo, funcao, cid))
+        conn.commit()
+    return True
+
+
+def listar_oficiais_competicao(competicao):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cid = cliente_id_por_competicao(competicao)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.id, c.competicao, c.cpf, c.funcao, c.criado_em,
+                       COALESCE(o.nome, c.cpf) AS nome,
+                       COALESCE(a.ativo, TRUE) AS apontador_ativo,
+                       COALESCE(a.primeiro_acesso, TRUE) AS primeiro_acesso
+                FROM competicao_oficiais c
+                LEFT JOIN oficiais o
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g')
+                 AND o.cliente_id = c.cliente_id
+                LEFT JOIN apontadores_acesso a
+                  ON REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g')
+                 AND a.cliente_id = c.cliente_id
+                WHERE TRIM(LOWER(c.competicao)) = TRIM(LOWER(%s))
+                  AND c.cliente_id = %s
+                ORDER BY c.funcao, nome
+            """, (competicao, cid))
+            return cur.fetchall()
+
+
+def listar_competicoes_apontador(cpf):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT c.competicao, comp.data, comp.status, c.cliente_id
+                FROM competicao_oficiais c
+                LEFT JOIN competicoes comp
+                  ON TRIM(LOWER(comp.nome)) = TRIM(LOWER(c.competicao))
+                 AND comp.cliente_id = c.cliente_id
+                WHERE REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g') = %s
+                  AND TRIM(LOWER(c.funcao)) = 'apontador'
+                ORDER BY c.competicao
+            """, (cpf_limpo,))
+            return cur.fetchall()
+
+
+# =========================================================
+# CORREÇÕES FINAIS MULTIEMPRESA - ISOLAMENTO TOTAL
+# =========================================================
+# As funções abaixo ficam no final do arquivo para sobrescrever versões antigas
+# que ainda trabalhavam com cadastros globais. A regra é: todo SuperADM/cliente
+# só enxerga registros do próprio cliente_id. O ThalisADM master também possui
+# cliente_id próprio para o painel normal dele.
+
+def criar_tabela_equipes_competicoes(force=False):
+    chave = "tabela_equipes_competicoes"
+    if _schema_ja_pronto(chave, force=force):
+        return
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS equipes_competicoes (
+                    id SERIAL PRIMARY KEY,
+                    equipe_id INTEGER,
+                    equipe_login TEXT,
+                    equipe_nome TEXT NOT NULL,
+                    competicao TEXT NOT NULL,
+                    status TEXT DEFAULT 'ativa',
+                    grupo TEXT,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    cliente_id INTEGER,
+                    UNIQUE (equipe_nome, competicao)
+                )
+            """)
+            cur.execute("ALTER TABLE equipes_competicoes ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_competicao ON equipes_competicoes (competicao)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_login ON equipes_competicoes (equipe_login)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_cliente_id ON equipes_competicoes (cliente_id)")
+
+            try:
+                cur.execute("""
+                    INSERT INTO equipes_competicoes (equipe_id, equipe_login, equipe_nome, competicao, status, cliente_id)
+                    SELECT NULL, e.login, e.nome, e.competicao, 'ativa', e.cliente_id
+                    FROM equipes e
+                    WHERE COALESCE(e.competicao, '') <> ''
+                    ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                    SET equipe_login = EXCLUDED.equipe_login,
+                        status = 'ativa',
+                        cliente_id = COALESCE(equipes_competicoes.cliente_id, EXCLUDED.cliente_id)
+                """)
+            except Exception as e:
+                print("AVISO criar_tabela_equipes_competicoes/migracao:", repr(e), flush=True)
+        conn.commit()
+    _marcar_schema_pronto(chave)
+    try:
+        _CACHE_COLUNAS.pop("equipes_competicoes", None)
+    except Exception:
+        pass
+
+
+def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=None):
+    garantir_schema_multiempresa_superadmin()
+    criar_tabela_equipes_competicoes()
+    login_equipe = (login_equipe or "").strip()
+    nome_competicao = (nome_competicao or "").strip()
+    if not login_equipe or not nome_competicao:
+        return None
+
+    cid = cliente_id_por_competicao(nome_competicao)
+
+    def _executar(cnx):
+        with cnx.cursor() as cur:
+            cur.execute("""
+                SELECT nome, login, senha, competicao, cidade, responsavel, telefone, email, instagram,
+                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                       escudo_blob,
+                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
+                       COALESCE(perfil_completo, FALSE) AS perfil_completo,
+                       cliente_id
+                FROM equipes
+                WHERE login = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                LIMIT 1
+            """, (login_equipe, cid, cid))
+            equipe = cur.fetchone()
+            if not equipe:
+                return None
+
+            cur.execute("""
+                SELECT id
+                FROM equipes_competicoes
+                WHERE equipe_login = %s
+                  AND competicao = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                LIMIT 1
+            """, (equipe["login"], nome_competicao, cid, cid))
+            ja_vinculada = cur.fetchone() is not None
+
+            cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
+                VALUES (%s, %s, %s, 'ativa', %s)
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login,
+                    equipe_nome = EXCLUDED.equipe_nome,
+                    status = 'ativa',
+                    cliente_id = EXCLUDED.cliente_id
+            """, (equipe["login"], equipe["nome"], nome_competicao, cid))
+
+            try:
+                cur.execute("UPDATE equipes SET cliente_id = %s WHERE login = %s AND cliente_id IS NULL", (cid, equipe["login"]))
+                cur.execute("UPDATE usuarios SET cliente_id = %s WHERE login = %s AND cliente_id IS NULL", (cid, equipe["login"]))
+            except Exception:
+                pass
+
+            equipe = dict(equipe)
+            equipe["ja_vinculada"] = ja_vinculada
+            return equipe
+
+    if conn is not None:
+        return _executar(conn)
+    with conectar() as conn:
+        resultado = _executar(conn)
+        conn.commit()
+        return resultado
+
+
+def buscar_equipe_global_por_nome(nome_equipe, conn=None, cliente_id=None, competicao=None):
+    garantir_schema_multiempresa_superadmin()
+    nome_equipe = (nome_equipe or "").strip()
+    if not nome_equipe:
+        return None
+    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
+    sql = """
+        SELECT *
+        FROM equipes
+        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+          AND (%s::INTEGER IS NULL OR cliente_id = %s)
+        ORDER BY id DESC
+        LIMIT 1
+    """
+    params = (nome_equipe, cid, cid)
+    if conn is not None:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()
+    with conectar() as conn:
+        return buscar_equipe_global_por_nome(nome_equipe, conn=conn, cliente_id=cid)
+
+
+def buscar_equipes_globais_por_nome(termo, limite=20, cliente_id=None, competicao=None):
+    garantir_schema_multiempresa_superadmin()
+    termo = (termo or "").strip()
+    if not termo:
+        return []
+    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
+    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_campo_escudo_equipes()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
+                       liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel,
+                       telefone, email, instagram,
+                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+                       escudo_blob,
+                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
+                       COALESCE(perfil_completo, FALSE) AS perfil_completo,
+                       cliente_id
+                FROM equipes
+                WHERE LOWER(TRIM(nome)) LIKE LOWER(TRIM(%s))
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                ORDER BY CASE WHEN LOWER(TRIM(nome)) = LOWER(TRIM(%s)) THEN 0 ELSE 1 END, nome ASC, login ASC
+                LIMIT %s
+            """, (f"%{termo}%", cid, cid, termo, limite))
+            return cur.fetchall() or []
+
+
+def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
+    garantir_schema_multiempresa_superadmin()
+    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_tabela_equipes_competicoes()
+    nome_equipe = (nome_equipe or "").strip(); nome_competicao = (nome_competicao or "").strip()
+    if not nome_equipe or not nome_competicao:
+        return None
+    cid = cliente_id_por_competicao(nome_competicao)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
+            senha_equipe = _gerar_senha_aleatoria(8)
+            cur.execute("""
+                INSERT INTO equipes (nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
+                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel, telefone, email, instagram, escudo, perfil_completo, cliente_id)
+                VALUES (%s, %s, %s, %s, '', '', '', '', FALSE, NULL, NULL, '', '', '', '', '', '', FALSE, %s)
+            """, (nome_equipe, login_equipe, senha_equipe, nome_competicao, cid))
+            cur.execute("""
+                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
+                VALUES (%s, %s, %s, 'ativa', %s)
+                ON CONFLICT (equipe_nome, competicao) DO UPDATE
+                SET equipe_login = EXCLUDED.equipe_login,
+                    status = 'ativa',
+                    cliente_id = EXCLUDED.cliente_id
+            """, (login_equipe, nome_equipe, nome_competicao, cid))
+            cur.execute("""
+                INSERT INTO usuarios (login, nome, senha, perfil, ativo, equipe, competicao_vinculada, cliente_id)
+                VALUES (%s, %s, %s, 'equipe', TRUE, %s, %s, %s)
+            """, (login_equipe, nome_equipe, senha_equipe, nome_equipe, nome_competicao, cid))
+        conn.commit()
+    return {"login": login_equipe, "senha": senha_equipe, "nome": nome_equipe, "vinculada": True, "ja_existia": False, "ja_vinculada": False}
+
+
+def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
+    garantir_schema_multiempresa_superadmin()
+    cid = cliente_id_por_competicao(nome_competicao)
+    with conectar() as conn:
+        existente = buscar_equipe_global_por_nome(nome_equipe, conn=conn, cliente_id=cid)
+        if existente:
+            resultado = vincular_equipe_existente_competicao(existente["login"], nome_competicao, conn=conn)
+            conn.commit()
+            if not resultado:
+                return None
+            return {"login": resultado["login"], "senha": resultado["senha"], "nome": resultado["nome"], "vinculada": True, "ja_existia": True, "ja_vinculada": resultado.get("ja_vinculada", False)}
+    return criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao)
+
+
+def buscar_atleta_global_por_cpf(cpf, cliente_id=None, competicao=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabela_atletas()
+    cpf_limpo = somente_digitos(cpf)
+    if not cpf_limpo:
+        return None
+    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT nome, cpf, data_nascimento, foto_atleta, instagram, cliente_id
+                FROM atletas
+                WHERE {_cpf_sql_limpo('cpf')} = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                ORDER BY CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
+                         CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
+                         id DESC
+                LIMIT 1
+            """, (cpf_limpo, cid, cid))
+            return cur.fetchone()
+
+
+def excluir_apontador_global(cpf, cliente_id=None, contexto=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM apontadores_acesso
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+            """, (cpf_limpo, cid, cid))
+            cur.execute("""
+                DELETE FROM competicao_oficiais
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+            """, (cpf_limpo, cid, cid))
+        conn.commit()
+    return True
+
+
+def definir_senha_apontador(cpf, senha, contexto=None, cliente_id=None):
+    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    cpf_limpo = somente_digitos(cpf)
+    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE apontadores_acesso
+                SET senha = %s, primeiro_acesso = FALSE
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+            """, (senha, cpf_limpo, cid, cid))
+        conn.commit()
+    return True
+
+
+# =========================================================
+# CORREÇÃO FINAL - MULTIEMPRESA SEM TRAVAR LOGIN
+# =========================================================
+# As funções acima podem ter sido redefinidas por patches anteriores.
+# Estas definições ficam no final do arquivo para prevalecerem no Python.
+# Objetivos:
+# - ThalisADM é master e também possui cliente próprio.
+# - Login não executa migração pesada.
+# - Painel usa consultas filtradas por cliente sem chamar ALTER TABLE em todo request.
+# - Registros antigos sem cliente_id continuam visíveis para ThalisADM.
+
+_MULTIEMPRESA_LEVE_OK = False
+_MULTIEMPRESA_LEVE_LOCK = Lock()
+
+
+def _coluna_existe_rapido(cur, tabela, coluna):
+    try:
+        cur.execute("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = %s
+              AND column_name = %s
+            LIMIT 1
+        """, (tabela, coluna))
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _tabela_existe_rapido(cur, tabela):
+    try:
+        cur.execute("SELECT to_regclass(%s) AS tabela", (f"public.{tabela}",))
+        return bool((cur.fetchone() or {}).get("tabela"))
+    except Exception:
+        return False
+
+
+def _limpar_cache_colunas_multiempresa_rapido(*tabelas):
+    try:
+        for tabela in (tabelas or []):
+            _CACHE_COLUNAS.pop(tabela, None)
+    except Exception:
+        pass
+
+
+def garantir_schema_multiempresa_superadmin():
+    """Garantia LEVE do schema multiempresa.
+
+    Não faz backfill pesado nem varre tabelas grandes. Pode ser chamada em painel,
+    mas não deve atrasar login. A migração completa deve ser feita manualmente se
+    necessário; aqui garantimos só o mínimo para o sistema funcionar.
+    """
+    global _MULTIEMPRESA_LEVE_OK
+
+    if _MULTIEMPRESA_LEVE_OK:
+        return True
+
+    with _MULTIEMPRESA_LEVE_LOCK:
+        if _MULTIEMPRESA_LEVE_OK:
+            return True
+
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS clientes_sistema (
+                            id SERIAL PRIMARY KEY,
+                            nome TEXT NOT NULL,
+                            slug TEXT UNIQUE NOT NULL,
+                            ativo BOOLEAN DEFAULT TRUE,
+                            criado_por TEXT,
+                            criado_em TIMESTAMP DEFAULT NOW()
+                        )
+                    """)
+
+                    # Somente colunas pequenas indispensáveis.
+                    cur.execute("""
+                        ALTER TABLE usuarios
+                        ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
+                        ADD COLUMN IF NOT EXISTS superadmin_nivel TEXT DEFAULT 'cliente',
+                        ADD COLUMN IF NOT EXISTS criado_por TEXT
+                    """)
+
+                    cur.execute("""
+                        ALTER TABLE competicoes
+                        ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
+                        ADD COLUMN IF NOT EXISTS data_inicio TEXT,
+                        ADD COLUMN IF NOT EXISTS data_fim TEXT
+                    """)
+
+                    # Garante o cliente próprio do ThalisADM.
+                    cur.execute("SELECT id FROM clientes_sistema WHERE slug = 'thalisadm' LIMIT 1")
+                    row = cur.fetchone()
+                    if row:
+                        cliente_thalis = row.get("id")
+                    else:
+                        cur.execute("""
+                            INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
+                            VALUES ('ThalisADM', 'thalisadm', TRUE, %s)
+                            RETURNING id
+                        """, (MASTER_SUPERADMIN_LOGIN,))
+                        cliente_thalis = (cur.fetchone() or {}).get("id")
+
+                    cur.execute("""
+                        UPDATE usuarios
+                        SET perfil = 'superadmin',
+                            superadmin_nivel = 'master',
+                            cliente_id = %s,
+                            ativo = TRUE
+                        WHERE LOWER(login) = LOWER(%s)
+                    """, (cliente_thalis, MASTER_SUPERADMIN_LOGIN))
+
+                    # Índices leves apenas nas tabelas garantidas acima.
+                    try:
+                        cur.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_cliente_id ON usuarios (cliente_id)")
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute("CREATE INDEX IF NOT EXISTS idx_competicoes_cliente_id ON competicoes (cliente_id)")
+                    except Exception:
+                        pass
+
+                conn.commit()
+
+            _limpar_cache_colunas_multiempresa_rapido("usuarios", "competicoes")
+            _MULTIEMPRESA_LEVE_OK = True
+            return True
+        except Exception as e:
+            print("ERRO garantir_schema_multiempresa_superadmin leve:", repr(e), flush=True)
+            return False
+
+
+def cliente_id_thalisadm():
+    garantir_schema_multiempresa_superadmin()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM clientes_sistema WHERE slug = 'thalisadm' LIMIT 1")
+                row = cur.fetchone() or {}
+                if row.get("id") is not None:
+                    return row.get("id")
+                cur.execute("""
+                    INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
+                    VALUES ('ThalisADM', 'thalisadm', TRUE, %s)
+                    RETURNING id
+                """, (MASTER_SUPERADMIN_LOGIN,))
+                row = cur.fetchone() or {}
+            conn.commit()
+            return row.get("id")
+    except Exception as e:
+        print("AVISO cliente_id_thalisadm:", repr(e), flush=True)
+        return None
+
+
+def buscar_usuario_por_login(login, conn=None):
+    """Busca usuário sem rodar migração/DDL no login."""
+    login = (login or "").strip()
+    if not login:
+        return None
+
+    sql_completo = """
+        SELECT login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
+               cliente_id, COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel, criado_por
+        FROM usuarios
+        WHERE LOWER(login) = LOWER(%s)
+        LIMIT 1
+    """
+    sql_basico = """
+        SELECT login, nome, senha, perfil, ativo, equipe, competicao_vinculada
+        FROM usuarios
+        WHERE LOWER(login) = LOWER(%s)
+        LIMIT 1
+    """
+
+    def _exec(cnx):
+        with cnx.cursor() as cur:
+            try:
+                cur.execute(sql_completo, (login,))
+                row = cur.fetchone()
+                if row:
+                    return row
+            except Exception as e:
+                # Banco ainda sem colunas multiempresa: mantém login funcionando.
+                print("AVISO buscar_usuario_por_login fallback:", repr(e), flush=True)
+                try:
+                    cnx.rollback()
+                except Exception:
+                    pass
+                with cnx.cursor() as cur2:
+                    cur2.execute(sql_basico, (login,))
+                    row = cur2.fetchone()
+                    if row:
+                        row = dict(row)
+                        row.setdefault("cliente_id", None)
+                        row.setdefault("superadmin_nivel", "master" if login.lower() == MASTER_SUPERADMIN_LOGIN.lower() else "cliente")
+                        row.setdefault("criado_por", None)
+                    return row
+            return None
+
+    if conn is not None:
+        return _exec(conn)
+    with conectar() as conn:
+        return _exec(conn)
+
+
+def obter_contexto_superadmin(login):
+    """Contexto rápido, sem migração pesada em cadeia."""
+    login = (login or "").strip()
+    if not login:
+        return {"eh_master": False, "cliente_id": None, "nivel": "cliente"}
+
+    usuario = buscar_usuario_por_login(login)
+    if not usuario:
+        if login.lower() == MASTER_SUPERADMIN_LOGIN.lower():
+            return {"login": login, "perfil": "superadmin", "ativo": True, "cliente_id": cliente_id_thalisadm(), "nivel": "master", "eh_master": True}
+        return {"login": login, "perfil": None, "ativo": None, "cliente_id": None, "nivel": "cliente", "eh_master": False}
+
+    nivel = (usuario.get("superadmin_nivel") or "cliente").strip().lower()
+    eh_master = (login.lower() == MASTER_SUPERADMIN_LOGIN.lower()) or nivel == "master"
+    cid = usuario.get("cliente_id")
+
+    if eh_master and cid is None:
+        cid = cliente_id_thalisadm()
+
+    return {
+        "login": usuario.get("login") or login,
+        "perfil": usuario.get("perfil"),
+        "ativo": usuario.get("ativo"),
+        "cliente_id": cid,
+        "nivel": "master" if eh_master else "cliente",
+        "eh_master": eh_master,
+    }
+
+
+def superadmin_eh_master(login):
+    login = (login or "").strip()
+    if not login:
+        return False
+    if login.lower() == MASTER_SUPERADMIN_LOGIN.lower():
+        return True
+    return bool(obter_contexto_superadmin(login).get("eh_master"))
+
+
+def cliente_id_por_login(login):
+    usuario = buscar_usuario_por_login(login)
+    if not usuario:
+        return None
+    cid = usuario.get("cliente_id")
+    if (login or "").strip().lower() == MASTER_SUPERADMIN_LOGIN.lower() and cid is None:
+        return cliente_id_thalisadm()
+    return cid
+
+
+def cliente_id_por_competicao(competicao):
+    competicao = (competicao or "").strip()
+    if not competicao:
+        return None
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("SELECT cliente_id FROM competicoes WHERE TRIM(LOWER(nome)) = TRIM(LOWER(%s)) LIMIT 1", (competicao,))
+                    row = cur.fetchone() or {}
+                    return row.get("cliente_id")
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    return None
+    except Exception:
+        return None
+
+
+def _where_cliente_sql(alias, cliente_id, incluir_sem_cliente=False):
+    prefixo = f"{alias}." if alias else ""
+    if cliente_id is None:
+        return "", []
+    if incluir_sem_cliente:
+        return f"WHERE ({prefixo}cliente_id = %s OR {prefixo}cliente_id IS NULL)", [cliente_id]
+    return f"WHERE {prefixo}cliente_id = %s", [cliente_id]
+
+
+def listar_competicoes(login_superadmin=None, incluir_todos=False):
+    """Lista competições sem rodar migração pesada nem sincronização global no login."""
+    try:
+        campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
+    except Exception:
+        campos = ["c.nome", "c.data", "c.status", "c.organizador_login", "u.senha AS organizador_senha"]
+
+    where = ""
+    params = []
+    incluir_sem_cliente = False
+
+    if login_superadmin and not incluir_todos:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        cid = contexto.get("cliente_id")
+        incluir_sem_cliente = bool(contexto.get("eh_master"))
+        where, params = _where_cliente_sql("c", cid, incluir_sem_cliente=incluir_sem_cliente)
+
+    sql = f"""
+        SELECT {", ".join(campos)}
+        FROM competicoes c
+        LEFT JOIN usuarios u ON u.login = c.organizador_login
+        {where}
+        ORDER BY
+            CASE
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
+                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
+                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
+                ELSE 4
+            END,
+            c.nome
+    """
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(sql, tuple(params))
+                return cur.fetchall()
+            except Exception as e:
+                print("AVISO listar_competicoes fallback:", repr(e), flush=True)
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                cur.execute("""
+                    SELECT c.nome, c.data, c.status, c.organizador_login, u.senha AS organizador_senha
+                    FROM competicoes c
+                    LEFT JOIN usuarios u ON u.login = c.organizador_login
+                    ORDER BY c.nome
+                """)
+                return cur.fetchall()
+
+
+def contar_competicoes(login_superadmin=None):
+    where = ""
+    params = []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        where, params = _where_cliente_sql("", contexto.get("cliente_id"), incluir_sem_cliente=bool(contexto.get("eh_master")))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"SELECT COUNT(*) AS total FROM competicoes {where}", tuple(params))
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                cur.execute("SELECT COUNT(*) AS total FROM competicoes")
+            return (cur.fetchone() or {}).get("total", 0)
+
+
+def contar_equipes(login_superadmin=None):
+    where = ""
+    params = []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        where, params = _where_cliente_sql("", contexto.get("cliente_id"), incluir_sem_cliente=bool(contexto.get("eh_master")))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"SELECT COUNT(*) AS total FROM equipes {where}", tuple(params))
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                cur.execute("SELECT COUNT(*) AS total FROM equipes")
+            return (cur.fetchone() or {}).get("total", 0)
+
+
+def contar_partidas(login_superadmin=None):
+    where = ""
+    params = []
+    if login_superadmin:
+        contexto = obter_contexto_superadmin(login_superadmin)
+        where, params = _where_cliente_sql("", contexto.get("cliente_id"), incluir_sem_cliente=bool(contexto.get("eh_master")))
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(f"SELECT COUNT(*) AS total FROM partidas {where}", tuple(params))
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                cur.execute("SELECT COUNT(*) AS total FROM partidas")
+            return (cur.fetchone() or {}).get("total", 0)
+
+
+def listar_superadmins_clientes(login_master=None):
+    if login_master and not superadmin_eh_master(login_master):
+        return []
+    garantir_schema_multiempresa_superadmin()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    u.login, u.nome, u.senha, u.ativo, u.cliente_id,
+                    COALESCE(u.superadmin_nivel, 'cliente') AS superadmin_nivel,
+                    COALESCE(c.nome, '') AS cliente_nome,
+                    COALESCE(c.ativo, TRUE) AS cliente_ativo,
+                    c.criado_em
+                FROM usuarios u
+                LEFT JOIN clientes_sistema c ON c.id = u.cliente_id
+                WHERE u.perfil = 'superadmin'
+                  AND LOWER(u.login) <> LOWER(%s)
+                  AND COALESCE(u.superadmin_nivel, 'cliente') <> 'master'
+                ORDER BY COALESCE(c.nome, u.nome), u.nome
+            """, (MASTER_SUPERADMIN_LOGIN,))
+            return cur.fetchall()
+
+
+def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admin=None):
+    garantir_schema_multiempresa_superadmin()
+    if not superadmin_eh_master(criador_login):
+        return {"ok": False, "erro": "Apenas o ThalisADM master pode criar SuperADMs de clientes."}
+
+    nome_cliente = (nome_cliente or "").strip()
+    nome_admin = (nome_admin or "").strip()
+    login_admin = (login_admin or "").strip()
+    if not nome_cliente or not nome_admin:
+        return {"ok": False, "erro": "Informe o nome do cliente e o nome do SuperADM."}
+
+    if not login_admin:
+        login_admin = f"adm_{_normalizar_texto_base(nome_cliente)}"
+    login_admin = re.sub(r"\s+", "_", login_admin)
+    login_admin = re.sub(r"[^A-Za-z0-9_.@-]", "", login_admin)[:80]
+    if not login_admin:
+        login_admin = f"adm_{_normalizar_texto_base(nome_admin)}"
+
+    senha = _gerar_senha_aleatoria(8)
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT login FROM usuarios WHERE LOWER(login) = LOWER(%s) LIMIT 1", (login_admin,))
+            if cur.fetchone():
+                return {"ok": False, "erro": "Este login já está em uso."}
+
+            slug = _gerar_slug_cliente_unico(cur, nome_cliente)
+            cur.execute("""
+                INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
+                VALUES (%s, %s, TRUE, %s)
+                RETURNING id
+            """, (nome_cliente, slug, criador_login))
+            cliente_id = (cur.fetchone() or {}).get("id")
+
+            cur.execute("""
+                INSERT INTO usuarios (
+                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
+                    cliente_id, superadmin_nivel, criado_por
+                )
+                VALUES (%s, %s, %s, 'superadmin', TRUE, NULL, NULL, %s, 'cliente', %s)
+            """, (login_admin, nome_admin, senha, cliente_id, criador_login))
+        conn.commit()
+
+    return {"ok": True, "cliente_id": cliente_id, "cliente_nome": nome_cliente, "login": login_admin, "senha": senha, "nome": nome_admin}
+
+
+def excluir_superadmin_cliente(criador_login, login_alvo):
+    garantir_schema_multiempresa_superadmin()
+    if not superadmin_eh_master(criador_login):
+        return {"ok": False, "erro": "Apenas o ThalisADM master pode excluir SuperADMs de clientes."}
+    login_alvo = (login_alvo or "").strip()
+    if not login_alvo or login_alvo.lower() == MASTER_SUPERADMIN_LOGIN.lower():
+        return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT login, cliente_id, COALESCE(superadmin_nivel, 'cliente') AS nivel
+                FROM usuarios
+                WHERE LOWER(login) = LOWER(%s)
+                  AND perfil = 'superadmin'
+                LIMIT 1
+            """, (login_alvo,))
+            alvo = cur.fetchone()
+            if not alvo:
+                return {"ok": False, "erro": "SuperADM não encontrado."}
+            if (alvo.get("nivel") or "").lower() == "master":
+                return {"ok": False, "erro": "Não é permitido excluir um SuperADM master."}
+            cliente_id = alvo.get("cliente_id")
+            cur.execute("UPDATE usuarios SET ativo = FALSE WHERE cliente_id = %s", (cliente_id,))
+            if cliente_id:
+                cur.execute("UPDATE clientes_sistema SET ativo = FALSE WHERE id = %s", (cliente_id,))
+        conn.commit()
+    return {"ok": True}
+
+
+def criar_competicao_com_organizador(nome, data=None, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None):
+    """Cria competição no cliente do SuperADM logado.
+
+    Mantém compatibilidade com chamadas antigas e com a nova tela simplificada.
+    """
+    garantir_schema_multiempresa_superadmin()
+
+    nome = (nome or "").strip()
+    data = (data or data_inicio or "").strip()
+    data_inicio = (data_inicio or data or "").strip()
+    data_fim = (data_fim or data_inicio or data or "").strip()
+    status = (status or "Em preparação").strip()
+
+    contexto = obter_contexto_superadmin(criador_login) if criador_login else {"cliente_id": cliente_id_thalisadm()}
+    cid = contexto.get("cliente_id")
+    if cid is None:
+        cid = cliente_id_thalisadm()
+
+    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
+    senha_organizador = _gerar_senha_aleatoria(8)
+
+    colunas_comp = _buscar_colunas_tabela("competicoes")
+    colunas_usuarios = _buscar_colunas_tabela("usuarios")
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            campos_user = ["login", "nome", "senha", "perfil", "ativo", "equipe", "competicao_vinculada"]
+            vals_user = [login_organizador, f"Organizador - {nome}", senha_organizador, "organizador", True, None, nome]
+            if "cliente_id" in colunas_usuarios:
+                campos_user.append("cliente_id"); vals_user.append(cid)
+            if "criado_por" in colunas_usuarios:
+                campos_user.append("criado_por"); vals_user.append(criador_login)
+            ph_user = ", ".join(["%s"] * len(vals_user))
+            cur.execute(f"INSERT INTO usuarios ({', '.join(campos_user)}) VALUES ({ph_user})", tuple(vals_user))
+
+            campos = ["nome", "data", "status", "organizador_login"]
+            valores = [nome, data, status, login_organizador]
+
+            mapa_defaults = {
+                "cliente_id": cid,
+                "data_inicio": data_inicio,
+                "data_fim": data_fim,
+                "cidade": "",
+                "ginasio": "",
+                "categoria": "",
+                "sexo": "",
+                "divisao": "",
+                "qtd_equipes": 0,
+                "formato": "grupos",
+                "tem_grupos": False,
+                "qtd_grupos": 0,
+                "qtd_quadras": 1,
+                "modo_operacao": modo_operacao or "simples",
+                "tempos_por_set": tempos_por_set,
+                "substituicoes_por_set": substituicoes_por_set,
+                "sets_tipo": "melhor_de_3",
+                "pontos_set": 25,
+                "tem_tiebreak": True,
+                "pontos_tiebreak": 15,
+                "diferenca_minima": 2,
+                "vitoria_set_unico": 2,
+                "derrota_set_unico": 0,
+                "vitoria_2x0": 3,
+                "vitoria_2x1": 2,
+                "derrota_1x2": 1,
+                "derrota_0x2": 0,
+                "vitoria_3x0": 3,
+                "vitoria_3x1": 3,
+                "vitoria_3x2": 2,
+                "derrota_2x3": 1,
+                "derrota_1x3": 0,
+                "derrota_0x3": 0,
+                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
+                "tipo_classificacao": "grupo",
+                "qtd_classificados": 0,
+                "formato_finais": "mata_mata",
+                "possui_bye": False,
+                "qtd_bye": 0,
+                "fases_config": json.dumps({}, ensure_ascii=False),
+                "tipo_confronto": "grupo_interno",
+                "cruzamentos_grupos": "",
+                "data_limite_inscricao": None,
+                "hora_limite_inscricao": None,
+                "bloquear_apos_inicio": False,
+                "limite_atletas": 0,
+                "permitir_edicao_pos_prazo": False,
+                "aprovacao_automatica_atletas": False,
+                "travada": False,
+                "motivo_travamento": "",
+                "travada_em": None,
+            }
+
+            for campo, default in mapa_defaults.items():
+                if campo in colunas_comp and campo not in campos:
+                    campos.append(campo)
+                    valores.append(default)
+
+            placeholders = ", ".join(["%s"] * len(valores))
+            cur.execute(f"INSERT INTO competicoes ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
+        conn.commit()
+
+    try:
+        garantir_quadras_competicao(nome, 1)
+    except Exception as e:
+        print("AVISO: não foi possível criar quadra padrão da competição:", e, flush=True)
+
+    return {"login": login_organizador, "senha": senha_organizador, "cliente_id": cid}

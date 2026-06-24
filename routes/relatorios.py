@@ -403,7 +403,9 @@ def _montar_fichas_inscricao(competicao_nome, equipe_logada=None, equipe_filtro=
                 doc = _primeiro_valor(atleta, "documento", "cpf", "rg", padrao="-")
                 nasc = _primeiro_valor(atleta, "nascimento", "data_nascimento", "dt_nascimento", padrao="-")
                 posicao = _primeiro_valor(atleta, "posicao", "função", "funcao", padrao="-")
-                linhas.append(f"{pos}. Nº {numero} | {nome} | Doc: {doc} | Nasc.: {nasc} | Posição: {posicao}")
+                instagram = _primeiro_valor(atleta, "instagram", padrao="-")
+                foto_status = "com foto" if _primeiro_valor(atleta, "foto_atleta", "foto", "foto_url", padrao="") else "sem foto"
+                linhas.append(f"{pos}. Nº {numero} | {nome} | Doc: {doc} | Nasc.: {nasc} | Instagram: {instagram} | Foto: {foto_status} | Posição: {posicao}")
 
         linhas.append("")
         linhas.append("Assinatura do responsável: ______________________________________________")
@@ -720,6 +722,7 @@ def _pdf_response(titulo, linhas, competicao_nome=None):
 
     import os
     import re
+    import base64
 
     def _registrar_fonte_moderna():
         fontes = [
@@ -798,6 +801,19 @@ def _pdf_response(titulo, linhas, competicao_nome=None):
         except Exception:
             return None
         return None
+
+    def img_data_url(data_url, w, h):
+        try:
+            valor = str(data_url or "").strip()
+            if not valor.startswith("data:image/") or "," not in valor:
+                return None
+            raw = base64.b64decode(valor.split(",", 1)[1])
+            bio = BytesIO(raw)
+            im = Image(bio, width=w, height=h)
+            im.hAlign = "CENTER"
+            return im
+        except Exception:
+            return None
 
     logo_path = caminho_static("/static/img/logo.png")
     logo = img_safe(logo_path, 17 * mm, 17 * mm)
@@ -920,19 +936,22 @@ def _pdf_response(titulo, linhas, competicao_nome=None):
             metric_cards(rows)
             atletas = _listar_atletas_inscritos(competicao_nome, nome_equipe)
             story.append(Paragraph("ATLETAS INSCRITOS", styles["Secao"]))
-            dados = [["Ordem", "Nº camisa", "Nome completo", "CPF", "Data nascimento"]]
+            dados = [["Foto", "Nº", "Nome completo", "CPF", "Nascimento", "Instagram"]]
             for pos, atleta in enumerate(atletas, start=1):
+                foto_valor = _primeiro_valor(atleta, "foto_atleta", "foto", "foto_url", padrao="")
+                foto = img_data_url(foto_valor, 15 * mm, 15 * mm) or ptxt("Sem foto", "Small")
                 dados.append([
-                    str(pos),
+                    foto,
                     _primeiro_valor(atleta, "numero", "camisa", "n", padrao="-"),
                     _primeiro_valor(atleta, "nome", "nome_atleta", "atleta", "jogador", padrao="Sem identificação"),
                     _primeiro_valor(atleta, "cpf", "documento", "rg", padrao="-"),
                     _primeiro_valor(atleta, "data_nascimento", "nascimento", "dt_nascimento", padrao="-"),
+                    _primeiro_valor(atleta, "instagram", padrao="-"),
                 ])
             if len(dados) == 1:
                 story.append(Paragraph("Nenhum atleta cadastrado/encontrado para esta equipe.", styles["Texto"]))
             else:
-                story.append(tabela(dados, [15 * mm, 22 * mm, 74 * mm, 35 * mm, 30 * mm]))
+                story.append(tabela(dados, [18 * mm, 13 * mm, 58 * mm, 32 * mm, 28 * mm, 27 * mm]))
             story.append(Spacer(1, 18))
             story.append(Paragraph("Assinatura do responsável: ______________________________________________", styles["TextoBold"]))
         else:

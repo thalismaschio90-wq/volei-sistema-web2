@@ -267,7 +267,7 @@ def _limpar_cache_apontador(competicao=None, cpf=None):
 
 def _montar_home_apontador_cache(cpf):
     cpf = str(cpf or "").strip()
-    chave = ("home", cpf, "v1")
+    chave = ("home", cpf, session.get("cliente_id"), "v2")
     cached = _cache_aux_get(_CACHE_HOME_APONTADOR, chave, ttl=30)
     if cached is not None:
         return cached
@@ -282,7 +282,7 @@ def _montar_home_apontador_cache(cpf):
 
     if cpf:
         payload["pode_jogo_avulso"] = bool(apontador_pode_criar_jogo_avulso(cpf))
-        payload["oficial"] = buscar_oficial_por_cpf(cpf)
+        payload["oficial"] = buscar_oficial_por_cpf(cpf, cliente_id=session.get("cliente_id"))
         if payload["oficial"]:
             payload["competicoes"] = listar_competicoes_apontador(cpf) or []
 
@@ -1939,21 +1939,25 @@ def listar_apontadores():
     except Exception as e:
         print("ERRO garantir coluna jogo avulso:", e, flush=True)
 
+    cliente_id = session.get("cliente_id")
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
                     COALESCE(NULLIF(TRIM(o.nome), ''), 'Apontador sem nome') AS nome,
-                    REGEXP_REPLACE(COALESCE(a.cpf, o.cpf, ''), '\\D', '', 'g') AS cpf,
+                    REGEXP_REPLACE(COALESCE(a.cpf, o.cpf, ''), '\D', '', 'g') AS cpf,
                     a.ativo,
                     a.primeiro_acesso,
-                    COALESCE(a.pode_criar_jogo_avulso, FALSE) AS pode_criar_jogo_avulso
+                    COALESCE(a.pode_criar_jogo_avulso, FALSE) AS pode_criar_jogo_avulso,
+                    a.cliente_id
                 FROM apontadores_acesso a
                 LEFT JOIN oficiais o
-                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') =
-                     REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\D', '', 'g') =
+                     REGEXP_REPLACE(COALESCE(a.cpf, ''), '\D', '', 'g')
+                 AND o.cliente_id = a.cliente_id
+                WHERE (%s::INTEGER IS NULL OR a.cliente_id = %s)
                 ORDER BY COALESCE(NULLIF(TRIM(o.nome), ''), 'Apontador sem nome')
-            """)
+            """, (cliente_id, cliente_id))
             return cur.fetchall()
 
 
@@ -1975,14 +1979,16 @@ def apontadores():
             return redirect(url_for("apontadores.apontadores"))
 
         try:
+            cliente_id = session.get("cliente_id")
             with conectar() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT cpf
                         FROM oficiais
-                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\D', '', 'g') = %s
+                          AND (%s::INTEGER IS NULL OR cliente_id = %s)
                         LIMIT 1
-                    """, (cpf_limpo,))
+                    """, (cpf_limpo, cliente_id, cliente_id))
                     oficial_existente = cur.fetchone()
 
             if oficial_existente and oficial_existente.get("cpf"):
@@ -1992,13 +1998,14 @@ def apontadores():
                             UPDATE oficiais
                                SET nome = COALESCE(NULLIF(%s, ''), nome),
                                    cpf = %s
-                             WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
-                        """, (nome, cpf_limpo, cpf_limpo))
+                             WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\D', '', 'g') = %s
+                               AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                        """, (nome, cpf_limpo, cpf_limpo, cliente_id, cliente_id))
                     conn.commit()
             else:
-                cadastrar_oficial(nome, cpf_limpo)
+                cadastrar_oficial(nome, cpf_limpo, cliente_id=cliente_id)
 
-            criar_apontador(cpf_limpo)
+            criar_apontador(cpf_limpo, cliente_id=cliente_id)
             flash("Apontador cadastrado com sucesso. Ele ainda não está vinculado a nenhuma competição.", "sucesso")
         except Exception as e:
             print("ERRO cadastrar apontador global:", e, flush=True)
@@ -2947,7 +2954,7 @@ def assumir_partida_view(competicao, partida_id):
 
     oficial = None
     try:
-        oficial = buscar_oficial_por_cpf(cpf_sessao)
+        oficial = buscar_oficial_por_cpf(cpf_sessao, cliente_id=session.get("cliente_id"))
     except Exception:
         oficial = None
 

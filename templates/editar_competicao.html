@@ -947,6 +947,26 @@
                             <input type="number" id="limite_atletas" name="limite_atletas" value="{{ competicao.limite_atletas or 0 }}">
                         </div>
 
+                    <div class="competicao-check-card full" style="margin-top: 4px;">
+                        <label class="competicao-check-inline">
+                            <input type="checkbox" name="exigir_foto_atleta" {% if competicao.exigir_foto_atleta in [true, True, 1, '1', 'true', 'True', 'on', 'sim', 'Sim'] %}checked{% endif %}>
+                            <span>Exigir foto dos atletas na inscrição</span>
+                        </label>
+                        <div class="helper-text" style="margin-top:8px;">
+                            Quando ativado, atletas sem foto não poderão ser vinculados às equipes desta competição.
+                        </div>
+                    </div>
+
+                    <div class="competicao-check-card full" style="margin-top: 4px;">
+                        <label class="competicao-check-inline">
+                            <input type="checkbox" name="exigir_instagram_atleta" {% if competicao.exigir_instagram_atleta in [true, True, 1, '1', 'true', 'True', 'on', 'sim', 'Sim'] %}checked{% endif %}>
+                            <span>Exigir Instagram dos atletas na inscrição</span>
+                        </label>
+                        <div class="helper-text" style="margin-top:8px;">
+                            Quando ativado, atletas sem @ do Instagram não poderão ser vinculados às equipes desta competição.
+                        </div>
+                    </div>
+
                         <div class="full">
                             <div class="competicao-check-card">
                                 <label class="competicao-check-inline" for="permitir_edicao_pos_prazo">

@@ -163,6 +163,8 @@ def login():
             session["perfil"] = usuario.get("perfil") or ""
             session["equipe"] = usuario.get("equipe")
             session["competicao_vinculada"] = usuario.get("competicao_vinculada")
+            session["cliente_id"] = usuario.get("cliente_id")
+            session["superadmin_nivel"] = usuario.get("superadmin_nivel")
 
             if session.get("perfil") == "equipe":
                 try:
@@ -196,6 +198,8 @@ def login():
             session["perfil"] = "apontador"
             session["equipe"] = None
             session["competicao_vinculada"] = None
+            session["cliente_id"] = apontador.get("cliente_id")
+            session["superadmin_nivel"] = None
 
             if apontador.get("primeiro_acesso", True) or not apontador.get("senha"):
                 return redirect(url_for("auth.criar_senha_apontador"))
@@ -225,7 +229,7 @@ def criar_senha_apontador():
             return render_template("criar_senha_apontador.html")
 
         try:
-            definir_senha_apontador(session.get("usuario"), senha)
+            definir_senha_apontador(session.get("usuario"), senha, cliente_id=session.get("cliente_id"))
         except Exception as e:
             print("ERRO DEFINIR SENHA APONTADOR:", repr(e))
             flash("Erro ao salvar senha. Tente novamente.", "erro")

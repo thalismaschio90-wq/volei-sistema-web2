@@ -39,9 +39,11 @@
         <table>
             <thead>
                 <tr>
+                    <th>Foto</th>
                     <th>Nome</th>
                     <th>CPF</th>
                     <th>Número</th>
+                    <th>Instagram</th>
                     <th>Status</th>
                     <th>Ação</th>
                 </tr>
@@ -49,9 +51,11 @@
             <tbody>
                 {% for atleta in bloco.atletas %}
                 <tr>
+                    <td>{% if atleta.foto_atleta %}<img src="{{ atleta.foto_atleta }}" alt="Foto" style="width:44px;height:44px;object-fit:cover;border-radius:999px;border:1px solid #dbe7f3;">{% else %}<span style="color:#991b1b;font-weight:800;">Sem foto</span>{% endif %}</td>
                     <td>{{ atleta.nome }}</td>
                     <td>{{ atleta.cpf }}</td>
                     <td>{{ atleta.numero or "-" }}</td>
+                    <td>{{ atleta.instagram or "-" }}</td>
                     <td>{{ atleta.status or "-" }}</td>
                     <td>
                 {% if atleta.status == "pendente" %}

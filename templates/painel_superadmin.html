@@ -292,6 +292,7 @@
 </div>
 
 
+{% if eh_master %}
 <div class="sa-offline-box">
     <div class="sa-offline-head">
         <div>
@@ -317,6 +318,7 @@
         Se desativar aqui, o recurso some do painel do apontador e o acesso direto ao offline também é bloqueado.
     </div>
 </div>
+{% endif %}
 
 
 <div class="card-painel">
@@ -348,6 +350,7 @@
             <div class="sa-cta">Criar →</div>
         </a>
 
+        {% if eh_master %}
         <a class="sa-module" href="/demos">
             <div class="sa-icon demo">🧪</div>
             <div class="sa-module-title">Demonstrações</div>
@@ -356,6 +359,7 @@
             </div>
             <div class="sa-cta">Gerenciar →</div>
         </a>
+        {% endif %}
 
         <a class="sa-module" href="/apontadores">
             <div class="sa-icon">📝</div>
@@ -365,6 +369,18 @@
             </div>
             <div class="sa-cta">Gerenciar →</div>
         </a>
+
+        
+        {% if eh_master %}
+        <a class="sa-module" href="/superadmins">
+            <div class="sa-icon">👑</div>
+            <div class="sa-module-title">SuperADMs clientes</div>
+            <div class="sa-module-desc">
+                Criar e remover SuperADMs abaixo do ThalisADM, cada um com seu próprio cliente.
+            </div>
+            <div class="sa-cta">Gerenciar →</div>
+        </a>
+        {% endif %}
 
         <a class="sa-module" href="/minha-conta">
             <div class="sa-icon">👤</div>
@@ -380,6 +396,7 @@
 
 <div id="sa-toast" class="sa-toast"></div>
 
+{% if eh_master %}
 <script>
 (function () {
     const toggle = document.getElementById("offline-toggle");
@@ -468,5 +485,6 @@
     carregarOfflineGlobalSuperadmin();
 })();
 </script>
+{% endif %}
 
 {% endblock %}

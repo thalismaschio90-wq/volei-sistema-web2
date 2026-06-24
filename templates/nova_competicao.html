@@ -83,8 +83,7 @@
         font-size: 14px;
     }
 
-    .nova-field input,
-    .nova-field select {
+    .nova-field input {
         width: 100%;
         padding: 13px 14px;
         border: 1px solid #cfd9e3;
@@ -95,8 +94,7 @@
         transition: .18s ease;
     }
 
-    .nova-field input:focus,
-    .nova-field select:focus {
+    .nova-field input:focus {
         background: #fff;
         border-color: #8da8bf;
         box-shadow: 0 0 0 4px rgba(18,56,82,.08);
@@ -106,56 +104,20 @@
         grid-column: 1 / -1;
     }
 
-    .modo-box {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-    }
-
-    .modo-card {
-        position: relative;
-        border: 1px solid #dbe4ec;
+    .nova-info {
+        grid-column: 1 / -1;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
         border-radius: 18px;
-        padding: 16px;
-        background: #f8fbff;
-        cursor: pointer;
-        transition: .16s ease;
-        min-height: 120px;
-    }
-
-    .modo-card:hover {
-        transform: translateY(-1px);
-        border-color: #b7c9da;
-        background: #fff;
-    }
-
-    .modo-card input {
-        position: absolute;
-        top: 16px;
-        right: 16px;
-        width: auto;
-        transform: scale(1.2);
-    }
-
-    .modo-card:has(input:checked) {
-        border-color: #123852;
-        box-shadow: 0 0 0 4px rgba(18,56,82,.08);
-        background: #eef4fb;
-    }
-
-    .modo-title {
-        font-size: 18px;
-        font-weight: 1000;
-        color: #123852;
-        margin-bottom: 7px;
-        padding-right: 34px;
-    }
-
-    .modo-desc {
-        color: var(--muted, #64748b);
-        font-size: 13px;
-        font-weight: 700;
+        padding: 14px;
+        color: #334155;
+        font-weight: 750;
         line-height: 1.45;
+    }
+
+    .nova-info strong {
+        color: #123852;
+        font-weight: 1000;
     }
 
     .nova-actions {
@@ -204,9 +166,13 @@
     }
 
     @media (max-width: 760px) {
-        .nova-grid,
-        .modo-box {
+        .nova-grid {
             grid-template-columns: 1fr;
+        }
+
+        .nova-actions,
+        .nova-btn {
+            width: 100%;
         }
     }
 </style>
@@ -216,7 +182,7 @@
         <div class="nova-kicker">Super ADM</div>
         <div class="nova-title">Criar competição</div>
         <div class="nova-sub">
-            Defina os dados iniciais e escolha se a competição vai nascer no modo simples ou avançado.
+            Informe somente os dados iniciais do evento. As regras da competição ficam para o organizador configurar depois.
         </div>
     </div>
 
@@ -228,54 +194,21 @@
             </div>
 
             <div class="nova-field">
-                <label for="data">Data</label>
-                <input type="date" id="data" name="data" value="{{ form.data or '' }}">
+                <label for="data_inicio">Data de início</label>
+                <input type="date" id="data_inicio" name="data_inicio" value="{{ form.data_inicio or '' }}">
+                <div class="helper-text">Primeiro dia previsto para o evento.</div>
             </div>
 
             <div class="nova-field">
-                <label for="status">Status</label>
-                <select id="status" name="status">
-                    {% set status_atual = form.status or 'Em preparação' %}
-                    <option value="Em preparação" {% if status_atual == 'Em preparação' %}selected{% endif %}>Em preparação</option>
-                    <option value="Inscrições abertas" {% if status_atual == 'Inscrições abertas' %}selected{% endif %}>Inscrições abertas</option>
-                    <option value="Em andamento" {% if status_atual == 'Em andamento' %}selected{% endif %}>Em andamento</option>
-                    <option value="Finalizada" {% if status_atual == 'Finalizada' %}selected{% endif %}>Finalizada</option>
-                </select>
+                <label for="data_fim">Data de fim</label>
+                <input type="date" id="data_fim" name="data_fim" value="{{ form.data_fim or '' }}">
+                <div class="helper-text">Último dia previsto para o evento.</div>
             </div>
 
-            <div class="nova-field nova-full">
-                <label>Modo de operação da competição</label>
-                {% set modo_atual = form.modo_operacao or 'simples' %}
-                <div class="modo-box">
-                    <label class="modo-card" for="modo_simples">
-                        <input type="radio" id="modo_simples" name="modo_operacao" value="simples" {% if modo_atual != 'avancado' %}checked{% endif %}>
-                        <div class="modo-title">Simples</div>
-                        <div class="modo-desc">
-                            Ideal para torneios rápidos, com menos configurações e operação mais direta.
-                        </div>
-                    </label>
-
-                    <label class="modo-card" for="modo_avancado">
-                        <input type="radio" id="modo_avancado" name="modo_operacao" value="avancado" {% if modo_atual == 'avancado' %}checked{% endif %}>
-                        <div class="modo-title">Avançado</div>
-                        <div class="modo-desc">
-                            Libera configuração completa de fases, critérios, grupos, mata-mata, quadras e regras detalhadas.
-                        </div>
-                    </label>
-                </div>
-                <div class="helper-text">
-                    Depois de criada, essa opção ainda pode ser alterada em Minha competição enquanto a competição não estiver travada.
-                </div>
-            </div>
-
-            <div class="nova-field">
-                <label for="tempos_por_set">Tempos por set</label>
-                <input type="number" id="tempos_por_set" name="tempos_por_set" min="0" value="{{ form.tempos_por_set if form.tempos_por_set is not none else 2 }}">
-            </div>
-
-            <div class="nova-field">
-                <label for="substituicoes_por_set">Substituições por set</label>
-                <input type="number" id="substituicoes_por_set" name="substituicoes_por_set" min="0" value="{{ form.substituicoes_por_set if form.substituicoes_por_set is not none else 6 }}">
+            <div class="nova-info">
+                <strong>O organizador configura depois:</strong>
+                modo de operação, formato, grupos, quadras, regras dos sets, tempos por set,
+                substituições por set, critérios de classificação e exigências de inscrição.
             </div>
         </div>
 

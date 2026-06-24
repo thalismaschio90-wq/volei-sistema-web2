@@ -18,6 +18,10 @@ from banco import (
     atualizar_dados_conta_apontador,
     buscar_vinculo_arbitragem_por_pin,
     buscar_vinculo_operacional_por_pin,
+    superadmin_eh_master,
+    listar_superadmins_clientes,
+    criar_superadmin_cliente,
+    excluir_superadmin_cliente,
 )
 from routes.utils import login_obrigatorio
 
@@ -304,17 +308,21 @@ def inicio():
     # SUPER ADMIN
     # =========================
     if perfil == "superadmin":
-        totais = _cache_get(_cache_key("superadmin_totais"), ttl=30)
+        login_superadmin = session.get("usuario")
+        eh_master = superadmin_eh_master(login_superadmin)
+        totais = _cache_get(_cache_key("superadmin_totais", login_superadmin), ttl=30)
         if totais is None:
             totais = {
-                "total_competicoes": contar_competicoes(),
-                "total_equipes": contar_equipes(),
-                "total_partidas": contar_partidas(),
+                "total_competicoes": contar_competicoes(login_superadmin),
+                "total_equipes": contar_equipes(login_superadmin),
+                "total_partidas": contar_partidas(login_superadmin),
             }
-            _cache_set(_cache_key("superadmin_totais"), totais)
+            _cache_set(_cache_key("superadmin_totais", login_superadmin), totais)
 
         return render_template(
             "painel_superadmin.html",
+            eh_master=eh_master,
+            superadmins_clientes=listar_superadmins_clientes(login_superadmin) if eh_master else [],
             **totais
         )
 
@@ -760,3 +768,70 @@ def alterar_senha_minha_conta():
 
     flash("Senha alterada com sucesso!", "sucesso")
     return redirect(url_for("painel.minha_conta"))
+
+
+# =========================================================
+# SUPERADM MASTER - CLIENTES / SUPERADMS ABAIXO DO THALISADM
+# =========================================================
+@painel_bp.route("/superadmins", methods=["GET"])
+@login_obrigatorio
+def superadmins_clientes():
+    if _perfil_normalizado() != "superadmin":
+        return redirect(url_for("painel.inicio"))
+
+    login = session.get("usuario")
+    if not superadmin_eh_master(login):
+        flash("Apenas o ThalisADM master pode gerenciar SuperADMs de clientes.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    return render_template(
+        "superadmins_clientes.html",
+        superadmins=listar_superadmins_clientes(login),
+        credenciais=session.pop("credenciais_superadmin_cliente", None),
+    )
+
+
+@painel_bp.route("/superadmins/novo", methods=["POST"])
+@login_obrigatorio
+def novo_superadmin_cliente():
+    if _perfil_normalizado() != "superadmin":
+        return redirect(url_for("painel.inicio"))
+
+    login = session.get("usuario")
+    if not superadmin_eh_master(login):
+        flash("Apenas o ThalisADM master pode criar SuperADMs de clientes.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    resultado = criar_superadmin_cliente(
+        login,
+        request.form.get("nome_cliente", "").strip(),
+        request.form.get("nome_admin", "").strip(),
+        request.form.get("login_admin", "").strip(),
+    )
+
+    if not resultado.get("ok"):
+        flash(resultado.get("erro") or "Não foi possível criar o SuperADM.", "erro")
+        return redirect(url_for("painel.superadmins_clientes"))
+
+    session["credenciais_superadmin_cliente"] = resultado
+    _cache_delete_prefix(("superadmin_totais",))
+    flash("SuperADM de cliente criado com sucesso.", "sucesso")
+    return redirect(url_for("painel.superadmins_clientes"))
+
+
+@painel_bp.route("/superadmins/excluir/<login_alvo>", methods=["POST"])
+@login_obrigatorio
+def excluir_superadmin_cliente_view(login_alvo):
+    if _perfil_normalizado() != "superadmin":
+        return redirect(url_for("painel.inicio"))
+
+    login = session.get("usuario")
+    resultado = excluir_superadmin_cliente(login, login_alvo)
+
+    if not resultado.get("ok"):
+        flash(resultado.get("erro") or "Não foi possível excluir o SuperADM.", "erro")
+    else:
+        flash("SuperADM removido com sucesso. O cliente foi desativado.", "sucesso")
+        _cache_delete_prefix(("superadmin_totais",))
+
+    return redirect(url_for("painel.superadmins_clientes"))

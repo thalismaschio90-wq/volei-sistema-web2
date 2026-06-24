@@ -310,17 +310,17 @@ def oficiais():
             flash("Selecione a função.", "erro")
             return redirect(url_for("oficiais.oficiais"))
 
-        oficial = buscar_oficial_por_cpf(cpf)
+        oficial = buscar_oficial_por_cpf(cpf, nome_competicao)
 
         if not oficial:
             if not nome:
                 flash("Esse CPF ainda não está cadastrado. Informe o nome.", "erro")
                 return redirect(url_for("oficiais.oficiais"))
 
-            cadastrar_oficial(nome, cpf)
+            cadastrar_oficial(nome, cpf, nome_competicao)
 
         if funcao == "apontador":
-            criar_apontador(cpf)
+            criar_apontador(cpf, nome_competicao)
 
         vincular_oficial_competicao(nome_competicao, cpf, funcao)
 
