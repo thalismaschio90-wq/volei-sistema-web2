@@ -77,6 +77,19 @@
 </div>
 
 <form id="formAvanco" method="post" action="{{ url_for('competicoes.avanco_competicao_view') }}" class="{% if avanco_bloqueado_tpl %}avanco-readonly{% endif %}">
+<div class="avanco-panel" style="margin-bottom:16px;">
+    <h3 style="margin-top:0;">Como a classificação alimenta o avanço</h3>
+    <div style="color:var(--muted);font-weight:700;margin-bottom:12px;">Estas opções pertencem ao chaveamento. A aba Classificação fica somente com pontuação e critérios.</div>
+    <div class="avanco-grid2">
+        <div class="avanco-field"><label>Tipo de classificação</label><select name="tipo_classificacao"><option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo/chave</option><option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option><option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option></select></div>
+        <div class="avanco-field"><label>Quantidade total de classificados</label><input type="number" name="qtd_classificados" value="{{ config.qtd_classificados or 0 }}"></div>
+        <div class="avanco-field"><label>Próxima fase principal</label><select name="formato_finais"><option value="oitavas" {% if config.formato_finais == 'oitavas' %}selected{% endif %}>Oitavas</option><option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas</option><option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal</option><option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Final direta</option><option value="series" {% if config.formato_finais == 'series' %}selected{% endif %}>Séries Ouro/Prata/Bronze</option><option value="personalizado" {% if config.formato_finais == 'personalizado' %}selected{% endif %}>Personalizado</option></select></div>
+        <div class="avanco-field"><label>Possui bye?</label><select name="possui_bye"><option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option><option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option></select></div>
+        <div class="avanco-field"><label>Quantidade de byes</label><input type="number" name="qtd_bye" value="{{ config.qtd_bye or 0 }}"></div>
+        <div class="avanco-field"><label>Confronto na classificatória</label><select name="tipo_confronto"><option value="grupo_interno" {% if config.tipo_confronto == 'grupo_interno' %}selected{% endif %}>Dentro do grupo</option><option value="geral" {% if config.tipo_confronto == 'geral' %}selected{% endif %}>Todos contra todos geral</option><option value="intergrupos_total" {% if config.tipo_confronto == 'intergrupos_total' %}selected{% endif %}>Intergrupos total</option><option value="intergrupos_parcial" {% if config.tipo_confronto == 'intergrupos_parcial' %}selected{% endif %}>Intergrupos parcial</option></select></div>
+        <div class="avanco-field" style="grid-column:1/-1;"><label>Cruzamentos entre grupos</label><input type="text" name="cruzamentos_grupos" value="{{ config.cruzamentos_grupos or '' }}" placeholder="Ex.: A-B,B-C,C-A"></div>
+    </div>
+</div>
 <div class="avanco-layout">
     <div class="avanco-panel">
         <h3 style="margin-top:0;">Séries</h3>

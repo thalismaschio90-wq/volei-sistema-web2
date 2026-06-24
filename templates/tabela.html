@@ -527,6 +527,7 @@
     </form>
 </div>
 
+{% if not grupo_unico_auto %}
 <div class="card-painel">
     <h3 style="margin-top: 0;">Criar grupo</h3>
 
@@ -542,6 +543,11 @@
         </div>
     </form>
 </div>
+{% else %}
+<div class="card-painel" style="border:1px solid #bfdbfe; background:#eff6ff;">
+    <strong>Grupo único automático.</strong> O sistema usa o Grupo A e vincula as equipes automaticamente conforme a Estrutura da competição.
+</div>
+{% endif %}
 
 <div class="card-painel">
     <h3 style="margin-top: 0;">Grupos</h3>
@@ -565,11 +571,14 @@
                             Quadra padrão: {{ g.quadra_label or 'Sem quadra' }}
                         </div>
                     </div>
+                    {% if not grupo_unico_auto %}
                     <form method="post" action="{{ url_for('tabela.excluir_grupo_view', grupo_id=g.grupo.id) }}" onsubmit="return confirm('Excluir este grupo vai remover também as equipes vinculadas e os jogos deste grupo. Deseja continuar?');">
                         <button class="tabela-danger-button" type="submit" {% if grupos_travados %}disabled{% endif %}>Excluir grupo</button>
                     </form>
+                    {% endif %}
                 </div>
 
+                {% if not quadra_unica_auto %}
                 <form method="post" action="{{ url_for('tabela.vincular_grupo_quadra_view') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
                     <input type="hidden" name="grupo_nome" value="{{ g.grupo.nome }}">
                     <div style="min-width:220px; flex:1;">
@@ -583,7 +592,11 @@
                     </div>
                     <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Salvar quadra</button>
                 </form>
+                {% else %}
+                <div style="color:var(--muted); font-weight:700; margin-bottom:12px;">Quadra única herdada automaticamente.</div>
+                {% endif %}
 
+                {% if not grupo_unico_auto %}
                 <button
                     class="btn-add-equipe-grupo"
                     type="button"
@@ -648,15 +661,18 @@
                     </div>
                 </div>
 
+                {% endif %}
                 {% if g.equipes %}
                     {% for e in g.equipes %}
                         <div class="card-grupo-equipe">
                             <strong>{{ e.equipe }}</strong>
+                            {% if not grupo_unico_auto %}
                             <form method="post" action="{{ url_for('tabela.remover_equipe_grupo_view') }}" onsubmit="return confirm('Remover esta equipe do grupo? Os jogos desse grupo envolvendo ela também serão apagados.');">
                                 <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
                                 <input type="hidden" name="equipe" value="{{ e.equipe }}">
                                 <button class="tabela-danger-outline" type="submit" {% if grupos_travados %}disabled{% endif %}>Remover</button>
                             </form>
+                            {% endif %}
                         </div>
                     {% endfor %}
                 {% else %}
@@ -874,7 +890,13 @@
     <form id="form-nova-partida" method="post" action="{{ url_for('tabela.nova_partida') }}" novalidate>
         <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            {% if fase_ativa == 'classificatorias' %}
+            {% if fase_ativa == 'classificatorias' and grupo_unico_auto %}
+                <input type="hidden" id="grupo" name="grupo" value="A">
+                <div style="min-width:180px; flex:1;">
+                    <label>Grupo</label>
+                    <input type="text" value="Grupo A automático" disabled>
+                </div>
+            {% elif fase_ativa == 'classificatorias' %}
             <div style="min-width:180px; flex:1;">
                 <label for="grupo">Grupo</label>
                 <select id="grupo" name="grupo" required>
@@ -892,6 +914,14 @@
                 </div>
             {% endif %}
 
+            {% if quadra_unica_auto %}
+                {% set q_auto = quadras[0] if quadras else None %}
+                <input type="hidden" id="quadra_id" name="quadra_id" value="{{ q_auto.id if q_auto else '' }}">
+                <div style="min-width:220px; flex:1;">
+                    <label>Quadra</label>
+                    <input type="text" value="{{ q_auto.nome_exibicao or q_auto.nome if q_auto else 'Quadra automática' }}" disabled>
+                </div>
+            {% else %}
             <div style="min-width:220px; flex:1;">
                 <label for="quadra_id">Quadra</label>
                 <select id="quadra_id" name="quadra_id">
@@ -901,6 +931,7 @@
                     {% endfor %}
                 </select>
             </div>
+            {% endif %}
 
             <div style="min-width:240px; flex:1;">
                 <label for="equipe_a">Equipe A</label>

@@ -2196,6 +2196,53 @@ def visualizador_publico(competicao_nome):
     )
 
 
+
+
+def _estrutura_grupo_unico(competicao):
+    """Retorna True quando a competição deve operar como grupo único.
+
+    Considera qtd_grupos = 1 ou tem_grupos desligado como grupo único para a tela
+    não pedir a mesma configuração novamente na Tabela.
+    """
+    try:
+        qtd = int((competicao or {}).get("qtd_grupos") or 0)
+    except Exception:
+        qtd = 0
+    tem_grupos = _to_bool((competicao or {}).get("tem_grupos"))
+    return qtd <= 1 or not tem_grupos
+
+
+def _sincronizar_grupo_unico_automatico(competicao):
+    if not competicao or not _estrutura_grupo_unico(competicao):
+        return False
+    nome_competicao = competicao.get("nome")
+    if not nome_competicao or fase_grupos_esta_travada_por_jogo(nome_competicao):
+        return False
+    grupos = listar_grupos(nome_competicao) or []
+    grupo_a = next((g for g in grupos if str(g.get("nome") or "").upper() == "A"), None)
+    if not grupo_a:
+        criar_grupo("A", nome_competicao)
+        grupos = listar_grupos(nome_competicao) or []
+        grupo_a = next((g for g in grupos if str(g.get("nome") or "").upper() == "A"), None)
+    if not grupo_a:
+        return False
+    try:
+        equipes = listar_equipes_da_competicao(nome_competicao) or []
+        ja = listar_equipes_por_grupo(grupo_a.get("id")) or []
+        nomes_ja = {str(e.get("equipe") or "").strip().lower() for e in ja}
+        for eq in equipes:
+            nome = (eq.get("nome") or "").strip()
+            if nome and nome.lower() not in nomes_ja:
+                adicionar_equipe_no_grupo(grupo_a.get("id"), nome, nome_competicao)
+        quadras = listar_quadras_competicao(nome_competicao) or []
+        ativas = [q for q in quadras if q.get("ativa") is not False]
+        if len(ativas) == 1:
+            vincular_grupo_a_quadra(nome_competicao, "A", ativas[0].get("id"))
+        _limpar_cache_tabela(nome_competicao)
+        return True
+    except Exception as e:
+        print("AVISO sincronizar grupo único:", repr(e), flush=True)
+        return False
 # =========================================================
 # TELA PRINCIPAL
 # =========================================================
@@ -2229,6 +2276,7 @@ def tabela_view():
     # O restante só é carregado conforme a aba ativa. Isso evita que abrir
     # "Configurações" carregue classificação, partidas e avanço completos.
     nome_competicao = competicao["nome"]
+    _sincronizar_grupo_unico_automatico(competicao)
     fases = _fases_disponiveis(competicao)
     grupos_travados = _grupos_travados_cache(nome_competicao)
     fase_banco_ativa = _fase_subaba_para_banco(fase_subaba)
@@ -2259,6 +2307,8 @@ def tabela_view():
         "avanco_espelho": [],
         "config_agenda": None,
         "config_geracao": None,
+        "grupo_unico_auto": _estrutura_grupo_unico(competicao),
+        "quadra_unica_auto": False,
         **fases,
     }
 
@@ -2281,6 +2331,8 @@ def tabela_view():
         grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
         config_agenda = _config_agenda_cache(nome_competicao)
         pacote_contexto.update({
+            "grupo_unico_auto": _estrutura_grupo_unico(competicao),
+            "quadra_unica_auto": len([q for q in quadras if q.get("ativa") is not False]) == 1,
             "grupos": grupos,
             "equipes": equipes,
             "quadras": quadras,
@@ -2319,6 +2371,8 @@ def tabela_view():
         avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
         config_agenda = _config_agenda_cache(nome_competicao)
         pacote_contexto.update({
+            "grupo_unico_auto": _estrutura_grupo_unico(competicao),
+            "quadra_unica_auto": len([q for q in quadras if q.get("ativa") is not False]) == 1,
             "grupos": grupos,
             "equipes": equipes,
             "quadras": quadras,
@@ -2624,7 +2678,11 @@ def nova_partida():
     fase_banco = _fase_subaba_para_banco(fase_subaba)
 
     # O mata-mata NÃO usa grupo. Grupo só é obrigatório nas classificatórias.
-    grupo = (grupo or "").strip().upper() if fase_banco == "grupos" else None
+    if fase_banco == "grupos" and _estrutura_grupo_unico(competicao):
+        _sincronizar_grupo_unico_automatico(competicao)
+        grupo = "A"
+    else:
+        grupo = (grupo or "").strip().upper() if fase_banco == "grupos" else None
     if fase_banco == "grupos" and not quadra_id:
         quadra_id = _quadra_padrao_do_grupo(listar_grupos(competicao["nome"]), grupo)
 
@@ -3323,6 +3381,7 @@ def gerar_automatico():
         flash("Esta fase já iniciou. Não é possível gerar jogos automaticamente nela.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
+    _sincronizar_grupo_unico_automatico(competicao)
     grupos_raw = _listar_grupos_cache(nome_competicao)
     mapa_quadras = _mapa_quadras_formatadas(nome_competicao)
 

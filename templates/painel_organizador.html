@@ -17,20 +17,30 @@
     .org-module-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
     .org-module { background:#fff; border:1px solid var(--border); border-radius:22px; padding:18px; box-shadow:var(--shadow); text-decoration:none; color:var(--text); display:flex; flex-direction:column; gap:9px; min-height:145px; transition:.16s ease; }
     .org-module:hover { transform:translateY(-2px); }
+    .org-module.bloqueado { opacity:.58; cursor:not-allowed; filter:grayscale(.2); }
     .org-icon { width:48px; height:48px; border-radius:16px; background:#eef4fb; display:flex; align-items:center; justify-content:center; font-size:24px; }
     .org-module-title { font-size:19px; font-weight:1000; }
     .org-module-desc { color:var(--muted); font-weight:700; font-size:13px; line-height:1.45; flex:1; }
     .org-cta { font-weight:900; color:#123852; }
     .org-section-head { display:flex; justify-content:space-between; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
     .org-section-title { font-size:20px; font-weight:1000; color:var(--text); }
-    .org-alert { background:#fff7ed; border:1px solid #fdba74; color:#9a3412; border-radius:18px; padding:16px; font-weight:800; line-height:1.45; }
+    .org-alert { background:#fff7ed; border:1px solid #fdba74; color:#9a3412; border-radius:18px; padding:16px; font-weight:800; line-height:1.45; margin-bottom:18px; }
+    .org-pendencias { border:1px solid #fde68a; background:#fffbeb; }
+    .org-pendencia-lista { margin-top:12px; display:grid; gap:8px; }
+    .org-pendencia-item { background:#fff; border:1px solid var(--border); border-radius:12px; padding:10px; font-weight:800; }
+    .org-comunicado-toggle { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+    .org-comunicado-form { display:none; margin-top:14px; }
+    .org-comunicado-form.aberto { display:grid; gap:10px; }
+    .org-config-alert { background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a; border-radius:18px; padding:16px; font-weight:800; line-height:1.45; margin-bottom:18px; }
     @media (max-width:950px) { .org-grid,.org-module-grid { grid-template-columns:1fr; } }
 </style>
+
+{% set config_concluida = config_inicial_status.concluida if config_inicial_status is defined and config_inicial_status else operacao_liberada %}
 
 <div class="org-hero">
     <div>
         <div class="org-kicker">Central da competição</div>
-        <div class="org-title">{% if competicao %}{{ competicao.nome }}{% else %}Organizador{% endif %}</div>
+        <div class="org-title">{% if competicao %}{{ competicao }}{% else %}Organizador{% endif %}</div>
         <div class="org-sub">
             {% if competicao %}
                 Controle equipes, atletas, arbitragem/oficiais, tabela e relatórios a partir de uma visão mais limpa e direta.
@@ -41,19 +51,57 @@
     </div>
     <div class="org-status">
         <strong>Status</strong>
-        <span>{% if competicao %}Ativo{% else %}Sem competição{% endif %}</span>
+        <span>{% if competicao and config_concluida %}Ativo{% elif competicao %}Configuração{% else %}Sem competição{% endif %}</span>
     </div>
 </div>
 
 <div class="org-grid">
     <div class="numero-card"><div class="numero-titulo">Competição</div><div class="numero-valor">{% if competicao %}1{% else %}0{% endif %}</div></div>
     <div class="numero-card"><div class="numero-titulo">Módulos</div><div class="numero-valor">6</div></div>
-    <div class="numero-card"><div class="numero-titulo">Operação</div><div class="numero-valor" style="font-size:24px;">{% if competicao %}Liberada{% else %}Bloqueada{% endif %}</div></div>
+    <div class="numero-card"><div class="numero-titulo">Operação</div><div class="numero-valor" style="font-size:24px;">{% if config_concluida %}Liberada{% else %}Bloqueada{% endif %}</div></div>
 </div>
 
 {% if not competicao %}
 <div class="org-alert">Este usuário ainda não tem uma competição vinculada. Vincule uma competição para liberar a operação.</div>
+{% elif not config_concluida %}
+<div class="org-config-alert">
+    A operação ainda está bloqueada. Complete a configuração inicial em <strong>Minha competição</strong> para liberar equipes, atletas, tabela e arbitragem.
+    <div style="margin-top:12px;"><a class="btn-padrao" href="{{ url_for('competicoes.listar_competicoes_view') }}">Continuar configuração</a></div>
+</div>
 {% endif %}
+
+<div id="pendencias-organizacao" class="card-painel org-pendencias">
+    <div class="org-comunicado-toggle">
+        <div>
+            <h3 style="margin:0 0 6px;">🔔 Notificações e pendências</h3>
+            <div style="color:var(--muted);font-weight:700;">{{ solicitacoes_pendentes or 0 }} solicitação(ões) pendente(s).</div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a class="btn-padrao" href="{{ url_for('equipes.solicitacoes_equipes_view') if 'equipes.solicitacoes_equipes_view' else '#' }}">Abrir solicitações</a>
+            <button type="button" class="btn-secundario" onclick="document.getElementById('form-comunicado-geral').classList.toggle('aberto')">Enviar comunicado</button>
+        </div>
+    </div>
+
+    {% if ultimas_solicitacoes %}
+        <div class="org-pendencia-lista">
+            {% for sol in ultimas_solicitacoes %}
+                <div class="org-pendencia-item">
+                    {{ sol.equipe }} pediu {{ (sol.tipo or '')|replace('_',' ') }}{% if sol.atleta_nome %} de {{ sol.atleta_nome }}{% endif %}.
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if tem_competicao %}
+    <form id="form-comunicado-geral" class="org-comunicado-form" method="post" action="{{ url_for('equipes.enviar_comunicado_geral_view') }}">
+        <label>Título</label>
+        <input type="text" name="titulo" value="Aviso da organização">
+        <label>Mensagem</label>
+        <textarea name="mensagem" rows="3" required placeholder="Ex.: inscrições encerram amanhã às 20h."></textarea>
+        <div><button class="btn-padrao" type="submit">Enviar comunicado</button></div>
+    </form>
+    {% endif %}
+</div>
 
 <div class="card-painel">
     <div class="org-section-head">
@@ -65,11 +113,11 @@
 
     <div class="org-module-grid">
         <a class="org-module" href="/competicoes"><div class="org-icon">🏆</div><div class="org-module-title">Minha competição</div><div class="org-module-desc">Regras, dados gerais e configurações principais.</div><div class="org-cta">Abrir →</div></a>
-        <a class="org-module" href="/equipes"><div class="org-icon">👥</div><div class="org-module-title">Equipes</div><div class="org-module-desc">Cadastro, vínculos, aprovação e gerenciamento das equipes.</div><div class="org-cta">Gerenciar →</div></a>
-        <a class="org-module" href="/atletas"><div class="org-icon">🏐</div><div class="org-module-title">Atletas</div><div class="org-module-desc">Conferência de atletas inscritos, status e documentos.</div><div class="org-cta">Conferir →</div></a>
-        <a class="org-module" href="/tabela"><div class="org-icon">📅</div><div class="org-module-title">Tabela</div><div class="org-module-desc">Partidas, grupos, mata-mata, quadras e ordem dos jogos.</div><div class="org-cta">Abrir tabela →</div></a>
-        <a class="org-module" href="/oficiais"><div class="org-icon">🧑‍⚖️</div><div class="org-module-title">Arbitragem e oficiais</div><div class="org-module-desc">Vincule oficiais, apontadores e gerencie os PINs de árbitro/telão.</div><div class="org-cta">Configurar →</div></a>
-        <a class="org-module" href="/relatorios"><div class="org-icon">📊</div><div class="org-module-title">Relatórios</div><div class="org-module-desc">Súmulas, scouts, estatísticas e fechamento da competição.</div><div class="org-cta">Ver relatórios →</div></a>
+        <a class="org-module {% if not config_concluida %}bloqueado{% endif %}" href="{% if config_concluida %}/equipes{% else %}/competicoes{% endif %}"><div class="org-icon">👥</div><div class="org-module-title">Equipes</div><div class="org-module-desc">Cadastro, vínculos, aprovação e gerenciamento das equipes.</div><div class="org-cta">{% if config_concluida %}Gerenciar →{% else %}Bloqueado 🔒{% endif %}</div></a>
+        <a class="org-module {% if not config_concluida %}bloqueado{% endif %}" href="{% if config_concluida %}/atletas{% else %}/competicoes{% endif %}"><div class="org-icon">🏐</div><div class="org-module-title">Atletas</div><div class="org-module-desc">Aprovações, pendências e conferência dos atletas.</div><div class="org-cta">{% if config_concluida %}Acompanhar →{% else %}Bloqueado 🔒{% endif %}</div></a>
+        <a class="org-module {% if not config_concluida %}bloqueado{% endif %}" href="{% if config_concluida %}/tabela{% else %}/competicoes{% endif %}"><div class="org-icon">📊</div><div class="org-module-title">Tabela</div><div class="org-module-desc">Grupos, partidas, classificação e link público.</div><div class="org-cta">{% if config_concluida %}Abrir →{% else %}Bloqueado 🔒{% endif %}</div></a>
+        <a class="org-module {% if not config_concluida %}bloqueado{% endif %}" href="{% if config_concluida %}/oficiais{% else %}/competicoes{% endif %}"><div class="org-icon">🧑‍⚖️</div><div class="org-module-title">Arbitragem</div><div class="org-module-desc">Oficiais, apontadores, PINs e operação de quadra.</div><div class="org-cta">{% if config_concluida %}Organizar →{% else %}Bloqueado 🔒{% endif %}</div></a>
+        <a class="org-module {% if not config_concluida %}bloqueado{% endif %}" href="{% if config_concluida %}/relatorios{% else %}/competicoes{% endif %}"><div class="org-icon">📄</div><div class="org-module-title">Relatórios</div><div class="org-module-desc">Súmulas, estatísticas, rankings e conferências.</div><div class="org-cta">{% if config_concluida %}Ver →{% else %}Bloqueado 🔒{% endif %}</div></a>
     </div>
 </div>
 {% endblock %}

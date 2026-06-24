@@ -55,6 +55,12 @@ from banco import (
     atualizar_escudo_equipe_por_login,
     atualizar_dados_conta_usuario,
     escudo_padrao_equipe,
+    criar_solicitacao_equipe,
+    listar_solicitacoes_equipes,
+    responder_solicitacao_equipe,
+    listar_notificacoes_sistema,
+    contar_notificacoes_nao_lidas,
+    criar_notificacao_sistema,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
 from routes.tabela import (
@@ -964,6 +970,9 @@ def minha_equipe():
         erro=erro,
         sucesso=sucesso,
         escudo_padrao=escudo_padrao_equipe(),
+        notificacoes_equipe=notificacoes_equipe,
+        solicitacoes_equipe=solicitacoes_equipe,
+        notificacoes_nao_lidas=contar_notificacoes_nao_lidas(equipe["competicao"], "equipe", usuario, equipe["nome"]),
     )
 
 
@@ -1408,6 +1417,9 @@ def painel_equipe_inicio_view():
         status_equipe = "Possui atleta reprovado"
         status_classe = "tag-reprovado"
 
+    notificacoes_equipe = listar_notificacoes_sistema(equipe["competicao"], "equipe", usuario, equipe["nome"], limite=8)
+    solicitacoes_equipe = listar_solicitacoes_equipes(equipe["competicao"], equipe=equipe["nome"], limite=10)
+
     return render_template(
         "painel_equipe_inicio.html",
         equipe=equipe,
@@ -1454,6 +1466,9 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
             if (a.get("status") or "").lower() == "aprovado"
         ]
 
+    solicitacoes_equipe = listar_solicitacoes_equipes(equipe.get("competicao"), equipe=equipe.get("nome"), limite=20) if equipe.get("competicao") and equipe.get("nome") else []
+    notificacoes_equipe = listar_notificacoes_sistema(equipe.get("competicao"), "equipe", session.get("usuario"), equipe.get("nome"), limite=10) if equipe.get("competicao") else []
+
     return {
         "equipe": equipe,
         "atletas": atletas,
@@ -1465,6 +1480,9 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
         "erro": erro,
         "sucesso": sucesso,
         "modo_tela": modo_tela,
+        "solicitacoes_equipe": solicitacoes_equipe,
+        "notificacoes_equipe": notificacoes_equipe,
+        "notificacoes_nao_lidas": contar_notificacoes_nao_lidas(equipe.get("competicao"), "equipe", session.get("usuario"), equipe.get("nome")) if equipe.get("competicao") else 0,
     }
 
 
@@ -1494,6 +1512,26 @@ def meus_atletas_view():
 
     contexto = _montar_contexto_atletas_equipe(equipe, erro=erro, sucesso=sucesso, modo_tela="lista")
     return render_template("meus_atletas.html", **contexto)
+
+
+
+@equipes_bp.route("/atletas/solicitar-liberacao", methods=["POST"])
+@exigir_perfil("equipe")
+def solicitar_liberacao_inscricao_view():
+    equipe = _equipe_logada_com_competicao()
+    if not equipe:
+        flash("Equipe não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+    motivo = (request.form.get("motivo") or "").strip()
+    if not motivo:
+        flash("Informe o motivo da solicitação.", "erro")
+        return redirect(url_for("equipes.meus_atletas_view"))
+    sid = criar_solicitacao_equipe(
+        equipe["competicao"], equipe["nome"], "liberacao_inscricao", motivo,
+        equipe_login=session.get("usuario"), criado_por=session.get("usuario")
+    )
+    flash("Solicitação enviada para a organização." if sid else "Não foi possível enviar a solicitação.", "sucesso" if sid else "erro")
+    return redirect(url_for("equipes.meus_atletas_view"))
 
 
 @equipes_bp.route("/cadastrar-atleta", methods=["GET", "POST"])
@@ -1534,7 +1572,16 @@ def cadastrar_atleta_pagina_view():
             else:
                 if not foto_atleta:
                     foto_atleta = request.form.get("foto_atleta_existente", "").strip()
-                resultado = cadastrar_atleta(
+                controle_inscricao = controle_inscricao_para_equipe(equipe["competicao"], equipe["nome"])
+                if not controle_inscricao.get("aberta", True):
+                    motivo_solicitacao = request.form.get("motivo_solicitacao", "").strip() or controle_inscricao.get("motivo") or "Solicitação de cadastro após o prazo."
+                    sid = criar_solicitacao_equipe(
+                        equipe["competicao"], equipe["nome"], "liberacao_inscricao", motivo_solicitacao,
+                        equipe_login=session.get("usuario"), criado_por=session.get("usuario")
+                    )
+                    resultado = (bool(sid), "Solicitação enviada para a organização." if sid else "Não foi possível enviar a solicitação.")
+                else:
+                    resultado = cadastrar_atleta(
                     request.form.get("nome", "").strip(),
                     request.form.get("cpf", "").strip(),
                     request.form.get("data_nascimento", "").strip(),
@@ -1669,8 +1716,16 @@ def excluir_atleta_view(id_atleta):
 
     controle_inscricao = _controle_inscricao_cache(equipe["competicao"], equipe["nome"])
     atletas_liberados, mensagem_atletas = validar_edicao_atletas_equipe(equipe["competicao"], equipe["nome"])
+    motivo_exclusao = request.form.get("motivo_exclusao", "").strip()
     if not controle_inscricao.get("aberta", True):
-        flash(controle_inscricao.get("motivo") or "Inscrição bloqueada.", "erro")
+        if not motivo_exclusao:
+            flash("Informe o motivo para solicitar a exclusão do atleta.", "erro")
+            return redirect(url_for("equipes.meus_atletas_view"))
+        sid = criar_solicitacao_equipe(
+            equipe["competicao"], equipe["nome"], "exclusao_atleta", motivo_exclusao,
+            atleta_id=id_atleta, equipe_login=session.get("usuario"), criado_por=session.get("usuario")
+        )
+        flash("Solicitação de exclusão enviada para a organização." if sid else "Não foi possível enviar a solicitação.", "sucesso" if sid else "erro")
         return redirect(url_for("equipes.meus_atletas_view"))
 
     ok, msg = excluir_atleta(id_atleta)
@@ -1679,6 +1734,60 @@ def excluir_atleta_view(id_atleta):
     flash(msg, "sucesso" if ok else "erro")
     return redirect(url_for("equipes.meus_atletas_view"))
 
+
+
+# =========================
+# ORGANIZADOR - SOLICITAÇÕES / NOTIFICAÇÕES
+# =========================
+@equipes_bp.route("/equipes/solicitacoes")
+@exigir_perfil("organizador")
+def solicitacoes_equipes_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+    solicitacoes = listar_solicitacoes_equipes(competicao["nome"], limite=200)
+    return render_template("solicitacoes_equipes.html", competicao=competicao, solicitacoes=solicitacoes)
+
+
+@equipes_bp.route("/equipes/solicitacoes/<int:solicitacao_id>/responder", methods=["POST"])
+@exigir_perfil("organizador")
+def responder_solicitacao_equipe_view(solicitacao_id):
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+    acao = (request.form.get("acao") or "").strip().lower()
+    resposta = (request.form.get("resposta") or "").strip()
+    aprovado = acao == "aprovar"
+    ok, msg = responder_solicitacao_equipe(solicitacao_id, aprovado, respondido_por=session.get("usuario"), resposta=resposta)
+    _limpar_cache_equipes(competicao=competicao["nome"])
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("equipes.solicitacoes_equipes_view"))
+
+
+@equipes_bp.route("/equipes/comunicado-geral", methods=["POST"])
+@exigir_perfil("organizador")
+def enviar_comunicado_geral_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+    if not competicao:
+        flash("Nenhuma competição vinculada ao organizador.", "erro")
+        return redirect(url_for("painel.inicio"))
+    titulo = (request.form.get("titulo") or "Aviso da organização").strip()
+    mensagem = (request.form.get("mensagem") or "").strip()
+    if not mensagem:
+        flash("Escreva a mensagem do comunicado.", "erro")
+        return redirect(url_for("painel.inicio"))
+    equipes = listar_equipes_da_competicao(competicao["nome"]) or []
+    total = 0
+    for eq in equipes:
+        criar_notificacao_sistema(
+            competicao["nome"], "equipe", titulo, mensagem,
+            destino_login=eq.get("login"), equipe=eq.get("nome"), tipo="comunicado", criado_por=session.get("usuario"), link="/painel-equipe/inicio"
+        )
+        total += 1
+    flash(f"Comunicado enviado para {total} equipe(s).", "sucesso")
+    return redirect(url_for("painel.inicio"))
 
 # =========================
 # ORGANIZADOR - ATLETAS

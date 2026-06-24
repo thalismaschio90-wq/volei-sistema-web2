@@ -757,6 +757,57 @@
             color: #111827;
         }
 
+
+        .topbar-right-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .topbar-bell {
+            position: relative;
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.18);
+            background: rgba(255,255,255,0.10);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            font-size: 20px;
+            transition: 0.18s ease;
+        }
+
+        .topbar-bell:hover {
+            background: rgba(255,255,255,0.18);
+        }
+
+        .topbar-bell-count {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: #d4a62a;
+            color: #0f172a;
+            border: 2px solid #0b3557;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 1000;
+            line-height: 1;
+        }
+
+        .topbar-bell-count.sem-pendencia {
+            display: none;
+        }
+
         @media (min-width: 861px) {
             .sidebar {
                 position: fixed;
@@ -1169,20 +1220,30 @@
                 </a>
             </div>
 
-            <a href="{{ topbar_url|default('/minha-conta') }}" class="topbar-user topbar-user-link" title="Abrir dados da conta/equipe">
-                {% if topbar_tem_escudo|default(false) %}
-                    <img
-                        src="{{ topbar_escudo|default('/static/img/escudo_padrao.svg') }}"
-                        class="topbar-user-escudo"
-                        alt="Escudo da equipe"
-                        onerror="this.onerror=null;this.src='/static/img/escudo_padrao.svg';"
-                    >
+            <div class="topbar-right-actions">
+                {% if perfil == 'organizador' %}
+                    {% set qtd_notificacoes_topbar = topbar_notificacoes_pendentes|default(0) %}
+                    <a href="/inicio#pendencias-organizacao" class="topbar-bell" title="Abrir notificações e pendências da organização">
+                        🔔
+                        <span class="topbar-bell-count {% if not qtd_notificacoes_topbar %}sem-pendencia{% endif %}">{{ qtd_notificacoes_topbar }}</span>
+                    </a>
                 {% endif %}
-                <div class="topbar-user-info">
-                    <strong>{{ topbar_nome|default(session.get("nome", session.get("usuario"))) }}</strong>
-                    <span>{{ topbar_perfil|default(session.get("perfil", "")) }}</span>
-                </div>
-            </a>
+
+                <a href="{{ topbar_url|default('/minha-conta') }}" class="topbar-user topbar-user-link" title="Abrir dados da conta/equipe">
+                    {% if topbar_tem_escudo|default(false) %}
+                        <img
+                            src="{{ topbar_escudo|default('/static/img/escudo_padrao.svg') }}"
+                            class="topbar-user-escudo"
+                            alt="Escudo da equipe"
+                            onerror="this.onerror=null;this.src='/static/img/escudo_padrao.svg';"
+                        >
+                    {% endif %}
+                    <div class="topbar-user-info">
+                        <strong>{{ topbar_nome|default(session.get("nome", session.get("usuario"))) }}</strong>
+                        <span>{{ topbar_perfil|default(session.get("perfil", "")) }}</span>
+                    </div>
+                </a>
+            </div>
         </div>
 
         <main class="content">

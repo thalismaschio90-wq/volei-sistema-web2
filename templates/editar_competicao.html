@@ -58,6 +58,35 @@
         border-color: #123852;
     }
 
+    .competicao-tab-btn.salva::after {
+        content: " ✓";
+        color: #16a34a;
+        font-weight: 1000;
+    }
+
+    .etapa-lock-box {
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-bottom: 18px;
+        font-weight: 800;
+    }
+
+    .competicao-tab-pane.etapa-bloqueada .etapa-lock-box {
+        display: flex;
+    }
+
+    .competicao-tab-pane.etapa-bloqueada form {
+        opacity: .72;
+    }
+
     .competicao-tab-pane {
         display: none;
         padding: 22px;
@@ -701,18 +730,20 @@
 
 {% set criterios_salvos = (competicao.criterios_desempate or 'pontos,vitorias,saldo_sets,sets_average,saldo_pontos,pontos_average,confronto_direto,sorteio').split(',') %}
 
+{% set cfg = config_inicial_status if config_inicial_status is defined and config_inicial_status else {} %}
 <div class="competicao-tabs-wrap">
     <div class="competicao-tabs-header">
-        <button type="button" class="competicao-tab-btn active" data-tab="tab-dados">Dados</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-quadras">Quadras</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-estrutura">Estrutura</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-regras">Regras do jogo</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-pontuacao">Classificação</button>
-        <button type="button" class="competicao-tab-btn" data-tab="tab-avanco-chaveamento">Avanço / Chaveamento</button>
+        <button type="button" class="competicao-tab-btn {% if cfg.dados %}salva{% endif %} active" data-etapa="dados" data-tab="tab-dados">Dados</button>
+        <button type="button" class="competicao-tab-btn {% if cfg.quadras %}salva{% endif %}" data-etapa="quadras" data-tab="tab-quadras">Quadras</button>
+        <button type="button" class="competicao-tab-btn {% if cfg.estrutura %}salva{% endif %}" data-etapa="estrutura" data-tab="tab-estrutura">Estrutura</button>
+        <button type="button" class="competicao-tab-btn {% if cfg.regras %}salva{% endif %}" data-etapa="regras" data-tab="tab-regras">Regras do jogo</button>
+        <button type="button" class="competicao-tab-btn {% if cfg.classificacao %}salva{% endif %}" data-etapa="pontuacao" data-tab="tab-pontuacao">Classificação</button>
+        <button type="button" class="competicao-tab-btn {% if cfg.avanco %}salva{% endif %}" data-etapa="avanco" data-tab="tab-avanco-chaveamento">Avanço / Chaveamento</button>
     </div>
 
     <!-- ABA: DADOS -->
-    <div id="tab-dados" class="competicao-tab-pane active">
+    <div id="tab-dados" class="competicao-tab-pane active" data-etapa="dados" data-salva="{{ 1 if cfg.dados else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Dados salvos. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='dados', edit='dados') }}">Editar</a></div>
         <div class="competicao-pane-title">Dados da competição</div>
         <div class="competicao-pane-subtitle">
             Informações gerais e administrativas da competição.
@@ -763,7 +794,8 @@
     </div>
 
     <!-- ABA: QUADRAS -->
-    <div id="tab-quadras" class="competicao-tab-pane">
+    <div id="tab-quadras" class="competicao-tab-pane" data-etapa="quadras" data-salva="{{ 1 if cfg.quadras else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Quadras salvas. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='quadras', edit='quadras') }}">Editar</a></div>
         <div class="competicao-pane-title">Quadras da competição</div>
         <div class="competicao-pane-subtitle">
             Cadastre as quadras reais da competição. Depois essas quadras poderão ser vinculadas às chaves/grupos e cada partida poderá herdar automaticamente a quadra da sua chave.
@@ -863,7 +895,8 @@
 
 
     <!-- ABA: ESTRUTURA -->
-    <div id="tab-estrutura" class="competicao-tab-pane">
+    <div id="tab-estrutura" class="competicao-tab-pane" data-etapa="estrutura" data-salva="{{ 1 if cfg.estrutura else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Estrutura salva. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='estrutura', edit='estrutura') }}">Editar</a></div>
         <div class="competicao-pane-title">Estrutura da competição</div>
         <div class="competicao-pane-subtitle">
             Configuração base da competição. A parte de grupos, distribuição e geração da tabela fica para a aba Tabela depois.
@@ -996,7 +1029,8 @@
     </div>
 
     <!-- ABA: REGRAS -->
-    <div id="tab-regras" class="competicao-tab-pane">
+    <div id="tab-regras" class="competicao-tab-pane" data-etapa="regras" data-salva="{{ 1 if cfg.regras else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Regras salvas. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='regras', edit='regras') }}">Editar</a></div>
         <div class="competicao-pane-title">Regras do jogo</div>
         <div class="competicao-pane-subtitle">
             Define como as partidas da competição vão funcionar.
@@ -1061,7 +1095,8 @@
     </div>
 
     <!-- ABA: PONTUAÇÃO -->
-    <div id="tab-pontuacao" class="competicao-tab-pane">
+    <div id="tab-pontuacao" class="competicao-tab-pane" data-etapa="pontuacao" data-salva="{{ 1 if cfg.classificacao else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Classificação salva. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='pontuacao', edit='pontuacao') }}">Editar</a></div>
         <div class="competicao-pane-title">Pontuação e critérios de classificação</div>
         <div class="competicao-pane-subtitle">
             Define a pontuação da tabela e a ordem oficial dos critérios de classificação. Arraste para alterar conforme o regulamento.
@@ -1174,75 +1209,16 @@
                 </div>
             </div>
         </form>
-
-        <form method="post" action="{{ url_for('competicoes.salvar_fases_competicao_view') }}" style="margin-top:18px;">
-            <div class="competicao-section-box">
-                <div class="competicao-pane-title" style="font-size:20px;">Como a classificação alimenta o avanço</div>
-                <div class="helper-text" style="margin-bottom:14px;">
-                    Aqui tu define apenas de onde vêm os classificados. O desenho das séries Ouro/Prata/Bronze e os cruzamentos ficam na aba <strong>Avanço / Chaveamento</strong>.
-                </div>
-                <div class="competicao-form-grid">
-                    <div class="competicao-form-field">
-                        <label for="tipo_classificacao">Tipo de classificação</label>
-                        <select name="tipo_classificacao" id="tipo_classificacao">
-                            <option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo/chave</option>
-                            <option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option>
-                            <option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option>
-                        </select>
-                    </div>
-                    <div class="competicao-form-field">
-                        <label for="qtd_classificados">Quantidade total de classificados</label>
-                        <input type="number" id="qtd_classificados" name="qtd_classificados" value="{{ config.qtd_classificados or 0 }}">
-                    </div>
-                    <div class="competicao-form-field">
-                        <label for="formato_finais">Próxima fase principal</label>
-                        <select name="formato_finais" id="formato_finais">
-                            <option value="oitavas" {% if config.formato_finais == 'oitavas' %}selected{% endif %}>Oitavas</option>
-                            <option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas</option>
-                            <option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal</option>
-                            <option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Final direta</option>
-                            <option value="series" {% if config.formato_finais == 'series' %}selected{% endif %}>Séries Ouro/Prata/Bronze</option>
-                            <option value="personalizado" {% if config.formato_finais == 'personalizado' %}selected{% endif %}>Personalizado no Avanço</option>
-                        </select>
-                    </div>
-                    <div class="competicao-form-field">
-                        <label for="possui_bye">Possui bye/standby?</label>
-                        <select name="possui_bye" id="possui_bye">
-                            <option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option>
-                            <option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option>
-                        </select>
-                    </div>
-                    <div class="competicao-form-field">
-                        <label for="qtd_bye">Quantidade de byes</label>
-                        <input type="number" id="qtd_bye" name="qtd_bye" value="{{ config.qtd_bye or 0 }}">
-                    </div>
-                    <div class="competicao-form-field">
-                        <label for="tipo_confronto">Confronto na classificatória</label>
-                        <select name="tipo_confronto" id="tipo_confronto">
-                            <option value="grupo_interno" {% if config.tipo_confronto == 'grupo_interno' %}selected{% endif %}>Dentro do grupo</option>
-                            <option value="geral" {% if config.tipo_confronto == 'geral' %}selected{% endif %}>Todos contra todos geral</option>
-                            <option value="intergrupos_total" {% if config.tipo_confronto == 'intergrupos_total' %}selected{% endif %}>Intergrupos total</option>
-                            <option value="intergrupos_parcial" {% if config.tipo_confronto == 'intergrupos_parcial' %}selected{% endif %}>Intergrupos parcial</option>
-                        </select>
-                    </div>
-                    <div class="competicao-form-field full">
-                        <label for="cruzamentos_grupos">Cruzamentos entre grupos, se usar intergrupos parcial</label>
-                        <input type="text" id="cruzamentos_grupos" name="cruzamentos_grupos" value="{{ config.cruzamentos_grupos or '' }}" placeholder="Ex.: A-B,B-C,C-A">
-                    </div>
-                </div>
-                <div class="competicao-actions">
-                    <button class="btn-padrao" type="submit">Salvar classificação</button>
-                </div>
-            </div>
-        </form>
     </div>
 
 
     <!-- ABA: AVANÇO / CHAVEAMENTO VISUAL -->
-    <div id="tab-avanco-chaveamento" class="competicao-tab-pane">
+    <div id="tab-avanco-chaveamento" class="competicao-tab-pane" data-etapa="avanco" data-salva="{{ 1 if cfg.avanco else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Avanço salvo. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='avanco', edit='avanco') }}">Editar</a></div>
         <div class="competicao-pane-title">Avanço / Chaveamento</div>
         <div class="competicao-pane-subtitle">
             Monte as séries e os cruzamentos. As opções de origem são filtradas conforme a classificação salva: por grupo mostra só posições reais de cada grupo; geral mostra posições gerais.
+            <br><strong>Esta etapa é opcional no primeiro acesso:</strong> você pode configurar o avanço depois, antes de gerar o mata-mata.
         </div>
 
         {% set avanco_cfg = avanco if avanco is defined and avanco else {
@@ -1276,6 +1252,61 @@
         </div>
 
         <form id="formAvancoCompeticao" method="post" action="{{ url_for('competicoes.avanco_competicao_view') }}">
+            <div class="competicao-section-box" style="margin-bottom:18px;">
+                <div class="competicao-pane-title" style="font-size:20px;">Como a classificação alimenta o avanço</div>
+                <div class="helper-text" style="margin-bottom:14px;">
+                    Estas regras ficam aqui porque fazem parte do chaveamento. A aba Classificação fica apenas com pontuação e critérios de desempate.
+                </div>
+                <div class="competicao-form-grid">
+                    <div class="competicao-form-field">
+                        <label for="tipo_classificacao_avanco">Tipo de classificação</label>
+                        <select name="tipo_classificacao" id="tipo_classificacao_avanco">
+                            <option value="grupo" {% if config.tipo_classificacao == 'grupo' %}selected{% endif %}>Por grupo/chave</option>
+                            <option value="geral" {% if config.tipo_classificacao == 'geral' %}selected{% endif %}>Geral</option>
+                            <option value="misto" {% if config.tipo_classificacao == 'misto' %}selected{% endif %}>Mista</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="qtd_classificados_avanco">Quantidade total de classificados</label>
+                        <input type="number" id="qtd_classificados_avanco" name="qtd_classificados" value="{{ config.qtd_classificados or 0 }}">
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="formato_finais_avanco">Próxima fase principal</label>
+                        <select name="formato_finais" id="formato_finais_avanco">
+                            <option value="oitavas" {% if config.formato_finais == 'oitavas' %}selected{% endif %}>Oitavas</option>
+                            <option value="quartas" {% if config.formato_finais == 'quartas' %}selected{% endif %}>Quartas</option>
+                            <option value="semifinal" {% if config.formato_finais == 'semifinal' %}selected{% endif %}>Semifinal</option>
+                            <option value="final" {% if config.formato_finais == 'final' %}selected{% endif %}>Final direta</option>
+                            <option value="series" {% if config.formato_finais == 'series' %}selected{% endif %}>Séries Ouro/Prata/Bronze</option>
+                            <option value="personalizado" {% if config.formato_finais == 'personalizado' %}selected{% endif %}>Personalizado no Avanço</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="possui_bye_avanco">Possui bye/standby?</label>
+                        <select name="possui_bye" id="possui_bye_avanco">
+                            <option value="nao" {% if not config.possui_bye %}selected{% endif %}>Não</option>
+                            <option value="sim" {% if config.possui_bye %}selected{% endif %}>Sim</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="qtd_bye_avanco">Quantidade de byes</label>
+                        <input type="number" id="qtd_bye_avanco" name="qtd_bye" value="{{ config.qtd_bye or 0 }}">
+                    </div>
+                    <div class="competicao-form-field">
+                        <label for="tipo_confronto_avanco">Confronto na classificatória</label>
+                        <select name="tipo_confronto" id="tipo_confronto_avanco">
+                            <option value="grupo_interno" {% if config.tipo_confronto == 'grupo_interno' %}selected{% endif %}>Dentro do grupo</option>
+                            <option value="geral" {% if config.tipo_confronto == 'geral' %}selected{% endif %}>Todos contra todos geral</option>
+                            <option value="intergrupos_total" {% if config.tipo_confronto == 'intergrupos_total' %}selected{% endif %}>Intergrupos total</option>
+                            <option value="intergrupos_parcial" {% if config.tipo_confronto == 'intergrupos_parcial' %}selected{% endif %}>Intergrupos parcial</option>
+                        </select>
+                    </div>
+                    <div class="competicao-form-field full">
+                        <label for="cruzamentos_grupos_avanco">Cruzamentos entre grupos, se usar intergrupos parcial</label>
+                        <input type="text" id="cruzamentos_grupos_avanco" name="cruzamentos_grupos" value="{{ config.cruzamentos_grupos or '' }}" placeholder="Ex.: A-B,B-C,C-A">
+                    </div>
+                </div>
+            </div>
             <div class="avanco-layout">
                 <div class="avanco-panel">
                     <div class="avanco-panel-title">Séries</div>
@@ -1877,19 +1908,51 @@
     (function () {
         const buttons = document.querySelectorAll('.competicao-tab-btn');
         const panes = document.querySelectorAll('.competicao-tab-pane');
+        const params = new URLSearchParams(window.location.search);
+        const tabParam = params.get('tab') || 'dados';
+        const editParam = params.get('edit') || '';
+        const tabMap = {
+            dados: 'tab-dados',
+            quadras: 'tab-quadras',
+            estrutura: 'tab-estrutura',
+            regras: 'tab-regras',
+            pontuacao: 'tab-pontuacao',
+            classificacao: 'tab-pontuacao',
+            avanco: 'tab-avanco-chaveamento',
+            fases: 'tab-avanco-chaveamento',
+        };
+
+        function ativarTabPorId(target) {
+            if (!target) return;
+            buttons.forEach((btn) => btn.classList.remove('active'));
+            panes.forEach((pane) => pane.classList.remove('active'));
+            const botao = Array.from(buttons).find((btn) => btn.getAttribute('data-tab') === target);
+            const pane = document.getElementById(target);
+            if (botao) botao.classList.add('active');
+            if (pane) pane.classList.add('active');
+        }
+
+        function aplicarBloqueioEtapas() {
+            panes.forEach((pane) => {
+                const etapa = pane.getAttribute('data-etapa') || '';
+                const salva = pane.getAttribute('data-salva') === '1';
+                const editando = editParam === etapa || (etapa === 'pontuacao' && editParam === 'classificacao');
+                if (!salva || editando) return;
+                pane.classList.add('etapa-bloqueada');
+                pane.querySelectorAll('input, select, textarea, button').forEach((el) => {
+                    if (el.closest('.etapa-lock-box')) return;
+                    el.disabled = true;
+                });
+            });
+        }
+
+        ativarTabPorId(tabMap[tabParam] || 'tab-dados');
+        aplicarBloqueioEtapas();
 
         buttons.forEach((button) => {
             button.addEventListener('click', function () {
                 const target = this.getAttribute('data-tab');
-
-                buttons.forEach((btn) => btn.classList.remove('active'));
-                panes.forEach((pane) => pane.classList.remove('active'));
-
-                this.classList.add('active');
-                const pane = document.getElementById(target);
-                if (pane) {
-                    pane.classList.add('active');
-                }
+                ativarTabPorId(target);
             });
         });
 

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titulo %}Solicitações das equipes{% endblock %}
+{% block conteudo %}
+<div class="topo-secao">
+    <div>
+        <div class="titulo-secao">Solicitações das equipes</div>
+        <p style="margin:0;color:var(--muted);font-weight:700;">Aprove ou reprove pedidos de inscrição, edição e exclusão de atletas.</p>
+    </div>
+    <a class="btn-secundario" href="{{ url_for('painel.inicio') }}">Voltar</a>
+</div>
+
+{% if solicitacoes %}
+    <div style="display:grid;gap:14px;">
+    {% for s in solicitacoes %}
+        <div class="card-painel" style="border-left:6px solid {% if s.status == 'pendente' %}#d4a62a{% elif s.status == 'aprovada' %}#16a34a{% else %}#dc2626{% endif %};">
+            <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start;">
+                <div>
+                    <h3 style="margin:0 0 6px;">{{ s.equipe }} — {{ (s.tipo or '')|replace('_',' ')|title }}</h3>
+                    <div style="color:var(--muted);font-weight:700;line-height:1.45;">
+                        {% if s.atleta_nome %}<strong>Atleta:</strong> {{ s.atleta_nome }}<br>{% endif %}
+                        <strong>Motivo:</strong> {{ s.motivo or '-' }}<br>
+                        <strong>Status:</strong> {{ s.status }}
+                    </div>
+                </div>
+                <div style="color:var(--muted);font-weight:800;font-size:13px;">{{ s.criado_em }}</div>
+            </div>
+            {% if s.status == 'pendente' %}
+            <form method="post" action="{{ url_for('equipes.responder_solicitacao_equipe_view', solicitacao_id=s.id) }}" style="margin-top:14px;display:grid;gap:10px;">
+                <label>Resposta opcional</label>
+                <input type="text" name="resposta" placeholder="Ex.: autorizado por lesão, cadastro liberado até hoje...">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <button class="btn-padrao" type="submit" name="acao" value="aprovar">Aprovar</button>
+                    <button class="tabela-danger-outline" type="submit" name="acao" value="reprovar">Reprovar</button>
+                </div>
+            </form>
+            {% elif s.resposta %}
+                <div style="margin-top:12px;color:var(--muted);font-weight:700;"><strong>Resposta:</strong> {{ s.resposta }}</div>
+            {% endif %}
+        </div>
+    {% endfor %}
+    </div>
+{% else %}
+    <div class="card-painel">Nenhuma solicitação registrada.</div>
+{% endif %}
+{% endblock %}

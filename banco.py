@@ -19177,3 +19177,421 @@ def criar_competicao_com_organizador(nome, data=None, status="Em preparação", 
         print("AVISO: não foi possível criar quadra padrão da competição:", e, flush=True)
 
     return {"login": login_organizador, "senha": senha_organizador, "cliente_id": cid}
+
+
+# =========================================================
+# SOLICITAÇÕES / NOTIFICAÇÕES DE EQUIPES E ORGANIZAÇÃO
+# =========================================================
+def garantir_schema_solicitacoes_notificacoes():
+    """Cria estruturas genéricas para pendências da equipe e avisos.
+
+    Tipos de solicitação previstos:
+    - exclusao_atleta
+    - liberacao_inscricao
+    - editar_atleta
+    - adicionar_atleta
+    - outro
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS solicitacoes_equipes (
+                        id SERIAL PRIMARY KEY,
+                        competicao TEXT NOT NULL,
+                        equipe TEXT NOT NULL,
+                        equipe_login TEXT,
+                        atleta_id INTEGER,
+                        atleta_nome TEXT,
+                        tipo TEXT NOT NULL,
+                        motivo TEXT,
+                        status TEXT DEFAULT 'pendente',
+                        resposta TEXT,
+                        criado_por TEXT,
+                        criado_em TIMESTAMP DEFAULT NOW(),
+                        respondido_por TEXT,
+                        respondido_em TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS notificacoes_sistema (
+                        id SERIAL PRIMARY KEY,
+                        competicao TEXT,
+                        destino_tipo TEXT NOT NULL,
+                        destino_login TEXT,
+                        equipe TEXT,
+                        titulo TEXT NOT NULL,
+                        mensagem TEXT,
+                        tipo TEXT DEFAULT 'aviso',
+                        lida BOOLEAN DEFAULT FALSE,
+                        criado_por TEXT,
+                        criado_em TIMESTAMP DEFAULT NOW(),
+                        link TEXT
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_solicitacoes_equipes_comp_status ON solicitacoes_equipes (competicao, status)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_solicitacoes_equipes_equipe_status ON solicitacoes_equipes (competicao, equipe, status)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_notificacoes_destino ON notificacoes_sistema (destino_tipo, destino_login, competicao, lida)")
+            conn.commit()
+        return True
+    except Exception as e:
+        print('AVISO garantir_schema_solicitacoes_notificacoes:', repr(e), flush=True)
+        return False
+
+
+def criar_notificacao_sistema(competicao, destino_tipo, titulo, mensagem='', destino_login=None, equipe=None, tipo='aviso', criado_por=None, link=None):
+    garantir_schema_solicitacoes_notificacoes()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO notificacoes_sistema
+                        (competicao, destino_tipo, destino_login, equipe, titulo, mensagem, tipo, criado_por, link)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING id
+                """, (competicao, destino_tipo, destino_login, equipe, titulo, mensagem, tipo, criado_por, link))
+                row = cur.fetchone() or {}
+            conn.commit()
+        return row.get('id')
+    except Exception as e:
+        print('AVISO criar_notificacao_sistema:', repr(e), flush=True)
+        return None
+
+
+def listar_notificacoes_sistema(competicao=None, destino_tipo=None, destino_login=None, equipe=None, somente_nao_lidas=False, limite=20):
+    garantir_schema_solicitacoes_notificacoes()
+    filtros=[]; params=[]
+    if competicao:
+        filtros.append('(competicao = %s OR competicao IS NULL)'); params.append(competicao)
+    if destino_tipo:
+        filtros.append('destino_tipo = %s'); params.append(destino_tipo)
+    if destino_login:
+        filtros.append('(destino_login = %s OR destino_login IS NULL)'); params.append(destino_login)
+    if equipe:
+        filtros.append('(equipe = %s OR equipe IS NULL)'); params.append(equipe)
+    if somente_nao_lidas:
+        filtros.append('COALESCE(lida, FALSE) = FALSE')
+    where = ('WHERE ' + ' AND '.join(filtros)) if filtros else ''
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT *
+                    FROM notificacoes_sistema
+                    {where}
+                    ORDER BY criado_em DESC, id DESC
+                    LIMIT %s
+                """, tuple(params+[int(limite or 20)]))
+                return cur.fetchall() or []
+    except Exception as e:
+        print('AVISO listar_notificacoes_sistema:', repr(e), flush=True)
+        return []
+
+
+def contar_notificacoes_nao_lidas(competicao=None, destino_tipo=None, destino_login=None, equipe=None):
+    return len(listar_notificacoes_sistema(competicao, destino_tipo, destino_login, equipe, True, 50))
+
+
+def criar_solicitacao_equipe(competicao, equipe, tipo, motivo, atleta_id=None, equipe_login=None, criado_por=None):
+    garantir_schema_solicitacoes_notificacoes()
+    atleta_nome = None
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                if atleta_id:
+                    cur.execute("SELECT nome FROM atletas WHERE id=%s AND competicao=%s LIMIT 1", (atleta_id, competicao))
+                    row = cur.fetchone() or {}
+                    atleta_nome = row.get('nome')
+                cur.execute("""
+                    INSERT INTO solicitacoes_equipes
+                        (competicao, equipe, equipe_login, atleta_id, atleta_nome, tipo, motivo, criado_por)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING id
+                """, (competicao, equipe, equipe_login, atleta_id, atleta_nome, tipo, motivo, criado_por))
+                row = cur.fetchone() or {}
+                sid = row.get('id')
+            conn.commit()
+        criar_notificacao_sistema(
+            competicao, 'organizador',
+            'Nova solicitação de equipe',
+            f'{equipe} enviou uma solicitação: {tipo.replace("_", " ")}.',
+            equipe=equipe, tipo='solicitacao', criado_por=criado_por,
+            link='/equipes/solicitacoes'
+        )
+        return sid
+    except Exception as e:
+        print('AVISO criar_solicitacao_equipe:', repr(e), flush=True)
+        return None
+
+
+def listar_solicitacoes_equipes(competicao, status=None, equipe=None, limite=100):
+    garantir_schema_solicitacoes_notificacoes()
+    filtros=['competicao = %s']; params=[competicao]
+    if status:
+        filtros.append('status = %s'); params.append(status)
+    if equipe:
+        filtros.append('equipe = %s'); params.append(equipe)
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT * FROM solicitacoes_equipes
+                    WHERE {' AND '.join(filtros)}
+                    ORDER BY CASE WHEN status='pendente' THEN 0 ELSE 1 END, criado_em DESC, id DESC
+                    LIMIT %s
+                """, tuple(params+[int(limite or 100)]))
+                return cur.fetchall() or []
+    except Exception as e:
+        print('AVISO listar_solicitacoes_equipes:', repr(e), flush=True)
+        return []
+
+
+def contar_solicitacoes_pendentes(competicao):
+    return len(listar_solicitacoes_equipes(competicao, status='pendente', limite=200))
+
+
+def responder_solicitacao_equipe(solicitacao_id, aprovado, respondido_por=None, resposta=''):
+    garantir_schema_solicitacoes_notificacoes()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM solicitacoes_equipes WHERE id=%s LIMIT 1", (solicitacao_id,))
+                sol = cur.fetchone()
+                if not sol:
+                    return False, 'Solicitação não encontrada.'
+                if sol.get('status') != 'pendente':
+                    return False, 'Esta solicitação já foi respondida.'
+
+                status = 'aprovada' if aprovado else 'reprovada'
+                if aprovado and sol.get('tipo') == 'exclusao_atleta' and sol.get('atleta_id'):
+                    # Executa exclusão autorizada pela organização, sem passar pela trava de prazo da equipe.
+                    cur.execute("DELETE FROM atletas WHERE id=%s AND competicao=%s", (sol.get('atleta_id'), sol.get('competicao')))
+
+                if aprovado and sol.get('tipo') in {'liberacao_inscricao', 'adicionar_atleta', 'editar_atleta'}:
+                    cur.execute("ALTER TABLE equipes ADD COLUMN IF NOT EXISTS liberacao_extra_inscricao BOOLEAN DEFAULT FALSE")
+                    cur.execute("ALTER TABLE equipes ADD COLUMN IF NOT EXISTS liberacao_extra_data TEXT")
+                    cur.execute("ALTER TABLE equipes ADD COLUMN IF NOT EXISTS liberacao_extra_hora TEXT")
+                    cur.execute("""
+                        UPDATE equipes
+                        SET liberacao_extra_inscricao = TRUE,
+                            liberacao_extra_data = NULL,
+                            liberacao_extra_hora = NULL
+                        WHERE competicao = %s
+                          AND LOWER(TRIM(nome)) = LOWER(TRIM(%s))
+                    """, (sol.get('competicao'), sol.get('equipe')))
+
+                cur.execute("""
+                    UPDATE solicitacoes_equipes
+                    SET status=%s, resposta=%s, respondido_por=%s, respondido_em=NOW()
+                    WHERE id=%s
+                """, (status, resposta, respondido_por, solicitacao_id))
+            conn.commit()
+
+        msg = 'Sua solicitação foi aprovada.' if aprovado else 'Sua solicitação foi reprovada.'
+        if resposta:
+            msg += ' Resposta: ' + resposta
+        criar_notificacao_sistema(
+            sol.get('competicao'), 'equipe',
+            'Solicitação ' + ('aprovada' if aprovado else 'reprovada'),
+            msg,
+            destino_login=sol.get('equipe_login'), equipe=sol.get('equipe'), tipo='resposta_solicitacao', criado_por=respondido_por,
+            link='/painel-equipe/inicio'
+        )
+        return True, 'Solicitação respondida com sucesso.'
+    except Exception as e:
+        print('AVISO responder_solicitacao_equipe:', repr(e), flush=True)
+        return False, f'Erro ao responder solicitação: {e}'
+
+
+def marcar_notificacoes_lidas(destino_tipo, destino_login=None, competicao=None):
+    garantir_schema_solicitacoes_notificacoes()
+    try:
+        filtros=['destino_tipo=%s']; params=[destino_tipo]
+        if destino_login:
+            filtros.append('(destino_login=%s OR destino_login IS NULL)'); params.append(destino_login)
+        if competicao:
+            filtros.append('(competicao=%s OR competicao IS NULL)'); params.append(competicao)
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"UPDATE notificacoes_sistema SET lida=TRUE WHERE {' AND '.join(filtros)}", tuple(params))
+            conn.commit()
+        return True
+    except Exception as e:
+        print('AVISO marcar_notificacoes_lidas:', repr(e), flush=True)
+        return False
+
+
+# =========================================================
+# FLUXO DE CONFIGURAÇÃO INICIAL DA COMPETIÇÃO
+# =========================================================
+def garantir_schema_fluxo_configuracao_competicoes():
+    """Cria flags de etapas da configuração inicial.
+
+    Observação importante: avanço/chaveamento NÃO é obrigatório para liberar
+    a operação inicial. O organizador pode configurar o avanço depois, antes de
+    gerar o mata-mata.
+    """
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    ALTER TABLE competicoes
+                    ADD COLUMN IF NOT EXISTS config_dados_salva BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS config_quadras_salva BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS config_estrutura_salva BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS config_regras_salva BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS config_classificacao_salva BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS config_avanco_salva BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS configuracao_inicial_concluida BOOLEAN DEFAULT FALSE
+                """)
+
+                cur.execute("""
+                    UPDATE competicoes
+                    SET configuracao_inicial_concluida = COALESCE(config_dados_salva, FALSE)
+                        AND COALESCE(config_quadras_salva, FALSE)
+                        AND COALESCE(config_estrutura_salva, FALSE)
+                        AND COALESCE(config_regras_salva, FALSE)
+                        AND COALESCE(config_classificacao_salva, FALSE)
+                    WHERE configuracao_inicial_concluida IS DISTINCT FROM (
+                        COALESCE(config_dados_salva, FALSE)
+                        AND COALESCE(config_quadras_salva, FALSE)
+                        AND COALESCE(config_estrutura_salva, FALSE)
+                        AND COALESCE(config_regras_salva, FALSE)
+                        AND COALESCE(config_classificacao_salva, FALSE)
+                    )
+                """)
+            conn.commit()
+        try:
+            _CACHE_COLUNAS.pop("competicoes", None)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print("AVISO garantir_schema_fluxo_configuracao_competicoes:", repr(e), flush=True)
+        return False
+
+
+def _config_inicial_bool(valor):
+    return bool(valor) if valor is not None else False
+
+
+def status_configuracao_inicial_competicao(nome_competicao):
+    """Retorna status das etapas.
+
+    Avanço é opcional e não entra na conclusão inicial.
+    """
+    nome_competicao = (nome_competicao or "").strip()
+    status_vazio = {
+        "dados": False,
+        "quadras": False,
+        "estrutura": False,
+        "regras": False,
+        "classificacao": False,
+        "avanco": False,
+        "concluida": False,
+    }
+    if not nome_competicao:
+        return status_vazio
+
+    garantir_schema_fluxo_configuracao_competicoes()
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                        COALESCE(config_dados_salva, FALSE) AS dados,
+                        COALESCE(config_quadras_salva, FALSE) AS quadras,
+                        COALESCE(config_estrutura_salva, FALSE) AS estrutura,
+                        COALESCE(config_regras_salva, FALSE) AS regras,
+                        COALESCE(config_classificacao_salva, FALSE) AS classificacao,
+                        COALESCE(config_avanco_salva, FALSE) AS avanco,
+                        COALESCE(configuracao_inicial_concluida, FALSE) AS concluida
+                    FROM competicoes
+                    WHERE nome = %s
+                    LIMIT 1
+                """, (nome_competicao,))
+                row = cur.fetchone() or {}
+
+        dados = _config_inicial_bool(row.get("dados"))
+        quadras = _config_inicial_bool(row.get("quadras"))
+        estrutura = _config_inicial_bool(row.get("estrutura"))
+        regras = _config_inicial_bool(row.get("regras"))
+        classificacao = _config_inicial_bool(row.get("classificacao"))
+        avanco = _config_inicial_bool(row.get("avanco"))
+        concluida = dados and quadras and estrutura and regras and classificacao
+
+        # Corrige banco antigo automaticamente.
+        if concluida != _config_inicial_bool(row.get("concluida")):
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE competicoes
+                        SET configuracao_inicial_concluida = %s
+                        WHERE nome = %s
+                    """, (concluida, nome_competicao))
+                conn.commit()
+
+        return {
+            "dados": dados,
+            "quadras": quadras,
+            "estrutura": estrutura,
+            "regras": regras,
+            "classificacao": classificacao,
+            "avanco": avanco,
+            "concluida": concluida,
+        }
+    except Exception as e:
+        print("AVISO status_configuracao_inicial_competicao:", repr(e), flush=True)
+        return status_vazio
+
+
+def marcar_etapa_configuracao_competicao(nome_competicao, etapa, salva=True):
+    """Marca uma etapa como salva e atualiza conclusão inicial.
+
+    Etapas obrigatórias: dados, quadras, estrutura, regras e classificação.
+    Etapa opcional: avanco.
+    """
+    nome_competicao = (nome_competicao or "").strip()
+    etapa = (etapa or "").strip().lower()
+    if not nome_competicao:
+        return False
+
+    mapa = {
+        "dados": "config_dados_salva",
+        "quadras": "config_quadras_salva",
+        "estrutura": "config_estrutura_salva",
+        "regras": "config_regras_salva",
+        "pontuacao": "config_classificacao_salva",
+        "classificacao": "config_classificacao_salva",
+        "avanco": "config_avanco_salva",
+    }
+    coluna = mapa.get(etapa)
+    if not coluna:
+        return False
+
+    garantir_schema_fluxo_configuracao_competicoes()
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    UPDATE competicoes
+                    SET {coluna} = %s
+                    WHERE nome = %s
+                """, (bool(salva), nome_competicao))
+
+                cur.execute("""
+                    UPDATE competicoes
+                    SET configuracao_inicial_concluida = COALESCE(config_dados_salva, FALSE)
+                        AND COALESCE(config_quadras_salva, FALSE)
+                        AND COALESCE(config_estrutura_salva, FALSE)
+                        AND COALESCE(config_regras_salva, FALSE)
+                        AND COALESCE(config_classificacao_salva, FALSE)
+                    WHERE nome = %s
+                """, (nome_competicao,))
+            conn.commit()
+        return True
+    except Exception as e:
+        print("AVISO marcar_etapa_configuracao_competicao:", repr(e), flush=True)
+        return False

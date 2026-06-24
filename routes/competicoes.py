@@ -29,6 +29,9 @@ from banco import (
     gerar_partidas_avanco_competicao,
     status_avanco_classificatorias_competicao,
     avanco_ja_gerado_competicao,
+    garantir_schema_fluxo_configuracao_competicoes,
+    status_configuracao_inicial_competicao,
+    marcar_etapa_configuracao_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -284,6 +287,9 @@ def listar_competicoes_view():
             flash("Nenhuma competição vinculada a este organizador.", "erro")
             return redirect(url_for("painel.inicio"))
 
+        garantir_schema_fluxo_configuracao_competicoes()
+        config_inicial_status = status_configuracao_inicial_competicao(competicao["nome"])
+
         quadras = garantir_quadras_competicao(
             competicao["nome"],
             _to_int(competicao.get("qtd_quadras"), padrao=1, minimo=1),
@@ -323,6 +329,7 @@ def listar_competicoes_view():
             avanco_bloqueios=avanco_bloqueios,
             avanco_bloqueado=avanco_bloqueado,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
+            config_inicial_status=config_inicial_status,
         )
         # A trava visual agora é feita diretamente pelo template, por jogo.
         # Não injetamos JavaScript por fora porque isso confundia J1/J5/J7
@@ -358,6 +365,8 @@ def nova_competicao():
             flash("Já existe uma competição com esse nome.", "erro")
             return render_template("nova_competicao.html", dados_form=dados_form)
 
+        garantir_schema_fluxo_configuracao_competicoes()
+
         credenciais = criar_competicao_com_organizador(
             nome=nome,
             data=data_inicio,
@@ -375,7 +384,7 @@ def nova_competicao():
             "login": credenciais["login"],
             "senha": credenciais["senha"],
         }
-        flash("Competição criada com sucesso. O organizador poderá configurar as regras depois.", "sucesso")
+        flash("Competição criada com sucesso. Ao entrar com o organizador, ele será direcionado para Minha Competição.", "sucesso")
         return redirect(url_for("competicoes.listar_competicoes_view"))
 
     return render_template("nova_competicao.html", dados_form={})
@@ -419,8 +428,10 @@ def salvar_competicao_view():
 
     session["competicao"] = dados["nome"]
 
-    flash("Dados da competição salvos com sucesso.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view"))
+    marcar_etapa_configuracao_competicao(dados["nome"], "dados", True)
+
+    flash("Dados da competição salvos com sucesso. Próxima etapa: quadras.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="quadras"))
 
 
 @competicoes_bp.route("/competicoes/<nome>/excluir", methods=["POST"])
@@ -498,9 +509,10 @@ def salvar_regras_jogo_view():
     }
 
     atualizar_regras_jogo(comp["nome"], dados)
+    marcar_etapa_configuracao_competicao(comp["nome"], "regras", True)
 
-    flash("Regras do jogo salvas.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view"))
+    flash("Regras do jogo salvas. Próxima etapa: classificação.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="pontuacao"))
 
 
 
@@ -582,8 +594,10 @@ def salvar_estrutura_view():
         exigir_instagram_atleta=dados.get("exigir_instagram_atleta", False),
     )
 
-    flash("Estrutura da competição salva com sucesso.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view", tab="estrutura"))
+    marcar_etapa_configuracao_competicao(comp["nome"], "estrutura", True)
+
+    flash("Estrutura da competição salva com sucesso. Próxima etapa: regras do jogo.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="regras"))
 
 
 
@@ -610,8 +624,10 @@ def salvar_quadras_view():
     salvar_quadras_competicao(comp["nome"], quadras)
     atualizar_estrutura_competicao(comp["nome"], {"qtd_quadras": qtd_quadras})
 
-    flash("Quadras da competição salvas com sucesso.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view"))
+    marcar_etapa_configuracao_competicao(comp["nome"], "quadras", True)
+
+    flash("Quadras da competição salvas com sucesso. Próxima etapa: estrutura.", "sucesso")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="estrutura"))
 
 
 
@@ -741,9 +757,10 @@ def salvar_pontuacao_desempate_view():
     dados["criterios_desempate"] = criterios_ordenados
 
     atualizar_pontuacao_desempate(comp["nome"], dados)
+    marcar_etapa_configuracao_competicao(comp["nome"], "classificacao", True)
 
-    flash("Pontuação e critérios de classificação salvos.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view"))
+    flash("Pontuação e critérios de classificação salvos. Configuração inicial concluída; os acessos do organizador foram liberados. O avanço/chaveamento pode ser configurado depois.", "sucesso")
+    return redirect(url_for("painel.inicio"))
 
 
 
@@ -820,8 +837,9 @@ def salvar_fases_competicao_view():
         bloquear_apos_inicio=comp.get("bloquear_apos_inicio", False),
     )
 
-    flash("Classificação e avanço salvos com sucesso.", "sucesso")
-    return redirect(url_for("competicoes.listar_competicoes_view", tab="fases"))
+    marcar_etapa_configuracao_competicao(comp["nome"], "avanco", True)
+    flash("Classificação e avanço salvos com sucesso. Configuração inicial concluída.", "sucesso")
+    return redirect(url_for("painel.inicio"))
 
 
 
@@ -1350,6 +1368,40 @@ def avanco_competicao_view():
         )
 
         salvar_avanco_config_competicao(comp["nome"], avanco_novo)
+
+        # As regras de alimentação do avanço agora pertencem ao próprio Avanço/Chaveamento,
+        # não à aba Classificação. Mantemos a mesma tabela/configuração por compatibilidade.
+        tipo_confronto = request.form.get("tipo_confronto", "grupo_interno").strip() or "grupo_interno"
+        tipo_classificacao = request.form.get("tipo_classificacao", "grupo").strip() or "grupo"
+        cruzamentos_grupos = request.form.get("cruzamentos_grupos", "").strip()
+        formato_finais = request.form.get("formato_finais", "quartas").strip() or "quartas"
+        possui_bye = request.form.get("possui_bye", "nao").strip() == "sim"
+        qtd_classificados = _to_int(request.form.get("qtd_classificados"), padrao=0, minimo=0)
+        qtd_bye = _to_int(request.form.get("qtd_bye"), padrao=0, minimo=0)
+        config_atual = buscar_configuracao_avancada_competicao(comp["nome"]) or {}
+        fases_config = config_atual.get("fases_config") or {}
+        fases_config.update({
+            "tipo_confronto": tipo_confronto,
+            "tipo_classificacao": tipo_classificacao,
+            "cruzamentos_grupos": cruzamentos_grupos,
+            "formato_finais": formato_finais,
+        })
+        atualizar_configuracao_avancada_competicao(
+            nome_competicao=comp["nome"],
+            tipo_classificacao=tipo_classificacao,
+            qtd_classificados=qtd_classificados,
+            formato_finais=formato_finais,
+            possui_bye=possui_bye,
+            qtd_bye=qtd_bye,
+            fases_config=fases_config,
+            tipo_confronto=tipo_confronto,
+            cruzamentos_grupos=cruzamentos_grupos,
+            data_limite_inscricao=comp.get("data_limite_inscricao"),
+            hora_limite_inscricao=comp.get("hora_limite_inscricao"),
+            bloquear_apos_inicio=comp.get("bloquear_apos_inicio", False),
+        )
+
+        marcar_etapa_configuracao_competicao(comp["nome"], "avanco", True)
         if preservados:
             flash(f"Chaveamento salvo. {preservados} confronto(s) já iniciado(s)/finalizado(s) foram preservados e não sofreram alteração.", "sucesso")
         else:
@@ -1357,6 +1409,7 @@ def avanco_competicao_view():
         return redirect(url_for("competicoes.avanco_competicao_view"))
 
     avanco = buscar_avanco_config_competicao(comp["nome"])
+    config = buscar_configuracao_avancada_competicao(comp["nome"]) or {}
     avanco_status = status_avanco_classificatorias_competicao(comp["nome"])
     avanco_status["gerado"] = avanco_ja_gerado_competicao(comp["nome"])
     origens = listar_origens_avanco_competicao(comp["nome"])
@@ -1367,6 +1420,7 @@ def avanco_competicao_view():
         "avanco_competicao.html",
         competicao=comp,
         avanco=avanco,
+        config=config,
         avanco_status=avanco_status,
         origens=origens,
         avanco_bloqueios=avanco_bloqueios,

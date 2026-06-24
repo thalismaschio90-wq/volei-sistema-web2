@@ -461,6 +461,36 @@
         </aside>
     </section>
 
+
+    {% if notificacoes_equipe or solicitacoes_equipe %}
+    <section class="card-painel" style="border:1px solid #bfdbfe;background:#eff6ff;">
+        <div class="equipe-card-title-line">
+            <h3>🔔 Avisos e solicitações</h3>
+            {% if notificacoes_nao_lidas %}<span class="tag tag-info">{{ notificacoes_nao_lidas }} novo(s)</span>{% endif %}
+        </div>
+        {% if notificacoes_equipe %}
+            <div style="display:grid;gap:8px;margin-bottom:12px;">
+                {% for n in notificacoes_equipe %}
+                    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px;">
+                        <strong>{{ n.titulo }}</strong><br>
+                        <span style="color:var(--muted);font-weight:700;">{{ n.mensagem }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% if solicitacoes_equipe %}
+            <div style="display:grid;gap:8px;">
+                {% for sol in solicitacoes_equipe[:5] %}
+                    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px;font-weight:800;">
+                        {{ (sol.tipo or '')|replace('_',' ')|title }} — {{ sol.status }}
+                        {% if sol.atleta_nome %}<br><span style="color:var(--muted);">Atleta: {{ sol.atleta_nome }}</span>{% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
     <section class="equipe-metrics-grid">
         <div class="equipe-metric-card">
             <div class="equipe-metric-label">Atletas cadastrados</div>

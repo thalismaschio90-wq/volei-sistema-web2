@@ -26,6 +26,18 @@
     <div><strong>Situação da inscrição:</strong> {{ controle_inscricao.motivo if controle_inscricao and controle_inscricao.motivo else "Cadastro liberado." }}</div>
 </div>
 
+{% if controle_inscricao and not controle_inscricao.aberta %}
+<div class="card-painel" style="border:1px solid #fde68a;background:#fffbeb;">
+    <h3 style="margin-top:0;">Solicitar liberação de inscrição</h3>
+    <p style="color:var(--muted);font-weight:700;">As inscrições estão bloqueadas. Envie um motivo para a organização aprovar ou reprovar.</p>
+    <form method="post" action="{{ url_for('equipes.solicitar_liberacao_inscricao_view') }}" style="display:grid;gap:10px;">
+        <label>Motivo</label>
+        <input type="text" name="motivo" required placeholder="Ex.: atleta novo, correção necessária, lesão, troca autorizada...">
+        <div><button class="btn-padrao" type="submit">Enviar solicitação</button></div>
+    </form>
+</div>
+{% endif %}
+
 {% if tela_cadastro %}
 <div class="card-painel">
     <div style="font-weight: 900; margin-bottom: 14px;">Buscar atleta por CPF</div>
@@ -310,8 +322,13 @@
                                     </button>
                                 {% endif %}
 
-                                <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('Deseja excluir este atleta?');" style="margin:0;">
-                                    <button type="submit" class="btn-secundario" {% if controle_inscricao and not controle_inscricao.aberta %}disabled{% endif %}>Excluir</button>
+                                <form method="post" action="{{ url_for('equipes.excluir_atleta_view', id_atleta=atleta.id) }}" onsubmit="return confirm('{% if controle_inscricao and not controle_inscricao.aberta %}Enviar solicitação de exclusão para a organização?{% else %}Deseja excluir este atleta?{% endif %}');" style="margin:0;display:grid;gap:6px;min-width:220px;">
+                                    {% if controle_inscricao and not controle_inscricao.aberta %}
+                                        <input type="text" name="motivo_exclusao" required placeholder="Motivo da exclusão">
+                                        <button type="submit" class="btn-secundario">Solicitar exclusão</button>
+                                    {% else %}
+                                        <button type="submit" class="btn-secundario">Excluir</button>
+                                    {% endif %}
                                 </form>
                             </div>
                         </td>

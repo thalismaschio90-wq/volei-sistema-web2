@@ -22,6 +22,12 @@ from banco import (
     listar_superadmins_clientes,
     criar_superadmin_cliente,
     excluir_superadmin_cliente,
+    contar_solicitacoes_pendentes,
+    listar_solicitacoes_equipes,
+    listar_notificacoes_sistema,
+    buscar_competicao_por_organizador,
+    garantir_schema_fluxo_configuracao_competicoes,
+    status_configuracao_inicial_competicao,
 )
 from routes.utils import login_obrigatorio
 
@@ -367,6 +373,17 @@ def inicio():
 
         tem_competicao = bool(nomes_competicoes or competicao_atual)
 
+        if tem_competicao and competicao_atual:
+            garantir_schema_fluxo_configuracao_competicoes()
+            status_config = status_configuracao_inicial_competicao(competicao_atual)
+            if not status_config.get("concluida"):
+                flash("Complete a configuração inicial da competição antes de liberar os demais módulos.", "erro")
+                return redirect(url_for("competicoes.listar_competicoes_view"))
+
+        solicitacoes_pendentes = contar_solicitacoes_pendentes(competicao_atual) if competicao_atual else 0
+        ultimas_solicitacoes = listar_solicitacoes_equipes(competicao_atual, status="pendente", limite=5) if competicao_atual else []
+        notificacoes_organizador = listar_notificacoes_sistema(competicao_atual, "organizador", limite=5) if competicao_atual else []
+
         return render_template(
             "painel_organizador.html",
             competicoes=competicoes,
@@ -376,7 +393,10 @@ def inicio():
             tem_competicao=tem_competicao,
             total_competicoes=len(nomes_competicoes),
             operacao_liberada=tem_competicao,
-            mensagem=None if tem_competicao else "Você ainda não possui competição cadastrada."
+            mensagem=None if tem_competicao else "Você ainda não possui competição cadastrada.",
+            solicitacoes_pendentes=solicitacoes_pendentes,
+            ultimas_solicitacoes=ultimas_solicitacoes,
+            notificacoes_organizador=notificacoes_organizador,
         )
 
     # =========================
