@@ -3182,10 +3182,8 @@ function montarPayloadTempoReal(extra = {}) {
         const mensagem = String(dados.mensagem || `${base} - ${equipeNome}`).trim();
 
         mostrarAlertaSolicitacao(mensagem);
-        atualizarUltimaAcao(mensagem);
-        if (typeof renderHistoricoBackend === "function") {
-            renderHistoricoBackend([{ descricao: mensagem }]);
-        }
+        // Solicitação de treinador é aviso operacional. Não entra em Últimas ações,
+        // que deve mostrar somente descrição de ponto/scout.
     }
 
     function mostrarAlertaSolicitacao(texto) {
@@ -3865,7 +3863,23 @@ function renderHistoricoBackend(lista) {
         return;
     }
 
-    lista.slice(0, 5).forEach((acao) => {
+    const filtrada = lista.filter((acao) => {
+        const texto = String((typeof acao === "string" ? acao : (acao?.descricao || acao?.mensagem || "")) || "").toLowerCase();
+        const tipo = String((acao && typeof acao === "object" ? (acao.tipo || acao.tipo_evento || "") : "") || "").toLowerCase();
+        if (["tempo", "substituicao", "substituição", "substituicao_excepcional"].includes(tipo)) return false;
+        if (texto.includes("tempo") || texto.includes("substituição") || texto.includes("substituicao") || texto.includes("solicitou")) return false;
+        return true;
+    }).slice(0, 5);
+
+    if (!filtrada.length) {
+        const item = document.createElement("div");
+        item.className = "historico-item";
+        item.textContent = "Nenhuma ação de ponto registrada.";
+        historicoAcoesEl.appendChild(item);
+        return;
+    }
+
+    filtrada.forEach((acao) => {
         const item = document.createElement("div");
         item.className = "historico-item";
 
@@ -4084,11 +4098,10 @@ function inverterLadosVisual() {
 
             if (tempoAtual <= 0) {
                 clearInterval(intervaloTempo);
-                cronometroEl.textContent = "";
-                cronometroEl.style.display = "none";
-                atualizarMobileCronometro("", false);
+                cronometroEl.textContent = "⏱️ FIM DO TEMPO";
+                atualizarMobileCronometro("⏱️ FIM", true);
                 atualizarPopupTempo(0);
-                fecharPopupJogoGrande();
+                setTimeout(fecharPopupJogoGrande, 1200);
                 try {
                     if (socket && socket.connected) {
                         socket.emit("cronometro_tempo", {
@@ -4817,15 +4830,7 @@ function inverterLadosVisual() {
         }
 
         return elenco
-            .filter((a) => {
-                const numero = numeroAtletaOperacional(a.numero);
-                const st = mapaStatus[String(numero || "")] || {};
-                if (!numero || emQuadra.has(numero)) return false;
-                if (a.libero === true || a.libero === "true" || a.libero === 1 || a.libero === "1") return false;
-                if (st.encerrado || st.tipo === "substituicao_encerrada" || st.tipo === "bloqueado") return false;
-                if (st.vinculo && String(st.vinculo).trim() !== String(numeroSai || "").trim()) return false;
-                return true;
-            })
+            .filter((a) => !emQuadra.has(numeroAtletaOperacional(a.numero)))
             .map((a) => ({
                 valor: numeroAtletaOperacional(a.numero),
                 label: numeroAtletaOperacional(a.numero),
@@ -6174,8 +6179,6 @@ function aplicarAcaoLocal(tipo, payload) {
 }
 
 async function enviarAcaoRapida(tipo, payload, aoSucesso) {
-    // LOCAL/SOCKET ONLY: durante a partida não grava no banco.
-    // O banco só recebe no encerramento oficial da partida.
     payload = payload || {};
     limparErro();
 
@@ -6183,6 +6186,43 @@ async function enviarAcaoRapida(tipo, payload, aoSucesso) {
         return false;
     }
 
+    const exigeConfirmacaoBackend = ["tempo", "substituicao", "substituicao_excepcional"].includes(String(tipo || ""));
+
+    if (exigeConfirmacaoBackend) {
+        const url = URLS_ACAO[tipo];
+        if (!url) {
+            mostrarErro("Rota da ação não encontrada.");
+            return false;
+        }
+
+        try {
+            travarBotoes(true);
+            const resp = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload || {})
+            });
+            const dados = await resp.json().catch(() => ({}));
+
+            if (!resp.ok || dados.ok === false) {
+                throw new Error(dados.mensagem || dados.erro || "Ação recusada pela regra da partida.");
+            }
+
+            aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: `${tipo}_fetch`, origem: "backend" }), { fonte: `${tipo}_fetch` });
+            if (dados.ultima_acao) atualizarUltimaAcao(dados.ultima_acao);
+            if (typeof aoSucesso === "function") {
+                try { aoSucesso(dados); } catch (e) {}
+            }
+            return true;
+        } catch (e) {
+            mostrarErro((e && e.message) ? e.message : "Falha ao registrar ação.");
+            return false;
+        } finally {
+            travarBotoes(false);
+        }
+    }
+
+    // Sanções/cartão verde continuam leves, mas não entram no desfazer nem nas últimas ações de ponto.
     aplicarAcaoLocal(tipo, payload);
     adicionarFilaOffline(tipo, payload || {});
     placarProtegidoAte = Date.now() + 6000;
@@ -6279,7 +6319,7 @@ async function registrarPonto(equipe, scout) {
 }
 
     async function registrarSubstituicao() {
-        if (enviando || partidaFinalizada || !equipeSubAtual) return;
+        if (partidaFinalizada || !equipeSubAtual) return;
 
         const numeroSai = String(numeroSaiSelecionado || "").trim();
         const numeroEntra = String(numeroEntraSelecionado || "").trim();
@@ -6288,36 +6328,13 @@ async function registrarPonto(equipe, scout) {
             mostrarErro("Selecione corretamente quem sai e quem entra.");
             return;
         }
-        if (!podePedirSubstituicao(equipeSubAtual)) {
-            mostrarErro("Limite de substituições atingido para esta equipe neste set.");
-            atualizarTravasOperacionais();
-            return;
-        }
 
-        enviando = true;
-        travarBotoes(true);
-        limparErro();
-
-        try {
-            const resp = await fetch(URLS_ACAO.substituicao, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                body: JSON.stringify({ equipe: equipeSubAtual, numero_sai: numeroSai, numero_entra: numeroEntra })
-            });
-            const dados = await resp.json().catch(() => ({}));
-            if (!resp.ok || dados.ok === false) {
-                throw new Error(dados.mensagem || "Não foi possível registrar a substituição.");
-            }
-            aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: "substituicao_fetch" }), { fonte: "substituicao_fetch" });
-            fecharModalSubstituicao();
-        } catch (e) {
-            mostrarErro((e && e.message) ? e.message : "Erro ao registrar substituição.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
-        }
+        await enviarAcaoRapida(
+            "substituicao",
+            { equipe: equipeSubAtual, numero_sai: numeroSai, numero_entra: numeroEntra },
+            fecharModalSubstituicao
+        );
     }
-
 
     function confirmarPontoAvancado() {
         if (!podeConfirmarPontoAvancado()) {
@@ -6380,38 +6397,17 @@ async function registrarPonto(equipe, scout) {
     }
 
     async function registrarTempo(equipe) {
-        if (enviando || partidaFinalizada) return;
-        limparErro();
+    if (partidaFinalizada) return;
+    limparErro();
 
-        if (!podePedirTempo(equipe)) {
-            mostrarErro("Limite de tempos atingido para esta equipe neste set.");
-            atualizarTravasOperacionais();
-            return;
-        }
-
-        enviando = true;
-        travarBotoes(true);
-
-        try {
-            const resp = await fetch(URLS_ACAO.tempo, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
-                body: JSON.stringify({ equipe: equipe })
-            });
-            const dados = await resp.json().catch(() => ({}));
-            if (!resp.ok || dados.ok === false) {
-                throw new Error(dados.mensagem || "Não foi possível registrar o tempo.");
-            }
-            aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: "tempo_fetch" }), { fonte: "tempo_fetch" });
-            iniciarCronometro(30, equipe);
-        } catch (e) {
-            mostrarErro((e && e.message) ? e.message : "Erro ao registrar tempo.");
-        } finally {
-            enviando = false;
-            travarBotoes(false);
-        }
+    if (!podePedirTempo(equipe)) {
+        mostrarErro("Limite de tempos atingido para esta equipe neste set.");
+        atualizarTravasOperacionais();
+        return;
     }
 
+    await enviarAcaoRapida("tempo", { equipe: equipe });
+}
 
 async function registrarSubstituicaoExcepcional() {
     if (partidaFinalizada || !equipeSubExAtual) return;

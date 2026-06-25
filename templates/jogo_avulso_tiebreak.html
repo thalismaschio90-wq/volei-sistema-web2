@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block titulo %}Sorteio do Tie-break Avulso{% endblock %}
+
+{% block conteudo %}
+<style>
+.av-wrap{max-width:980px;margin:0 auto;padding:18px}.av-card{background:#fff;border:1px solid var(--border,#dbe3ef);border-radius:22px;box-shadow:var(--shadow,0 10px 30px rgba(15,23,42,.08));padding:18px;margin-bottom:14px}.av-title{font-size:26px;font-weight:1000;color:#0f172a}.av-sub{color:#64748b;font-weight:800;margin-top:6px}.av-alerta{margin-top:14px;padding:14px;border:1px solid #93c5fd;border-radius:14px;background:#eff6ff;color:#1d4ed8;font-weight:800;line-height:1.35}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.campo label{display:block;font-weight:1000;color:#0f172a;margin-bottom:6px}.campo select{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:12px;font-weight:900;background:#fff;color:#0f172a}.acoes{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;margin-top:18px}.btn-primary{border:0;border-radius:12px;padding:13px 18px;background:#16a34a;color:#fff;font-weight:1000;cursor:pointer}.btn-secondary{border:1px solid #dbe3ef;border-radius:12px;padding:13px 18px;background:#fff;color:#0f172a;font-weight:900;text-decoration:none}.resumo{margin-top:14px;padding:12px;border-radius:14px;background:#f8fafc;border:1px solid #e5e7eb;color:#334155;font-weight:800}@media(max-width:760px){.grid{grid-template-columns:1fr}.av-wrap{padding:10px}}
+</style>
+
+{% set equipe_a = estado.equipe_a or 'Equipe A' %}
+{% set equipe_b = estado.equipe_b or 'Equipe B' %}
+{% set set_atual = estado.set_atual or 3 %}
+
+<div class="topo-secao"><div class="titulo-secao">Sorteio do tie-break</div></div>
+
+<div class="av-wrap">
+    <div class="av-card">
+        <div class="av-title">Jogo Avulso • {{ codigo }}</div>
+        <div class="av-sub">{{ equipe_a }} x {{ equipe_b }}</div>
+        <div class="av-sub">Sets: {{ estado.sets_a or 0 }} x {{ estado.sets_b or 0 }} • Agora: {{ set_atual }}º set decisivo</div>
+        <div class="av-alerta">
+            Set decisivo (tie-break). Realize o novo sorteio. Após salvar, o sistema abrirá automaticamente a papeleta do tie-break.
+        </div>
+    </div>
+
+    <div class="av-card">
+        <form method="post" action="{{ url_for('jogo_avulso.tiebreak_jogo_avulso', codigo=codigo) }}">
+            <div class="grid">
+                <div class="campo">
+                    <label>Equipe vencedora do sorteio</label>
+                    <select id="sorteio_vencedor" name="sorteio_vencedor" required>
+                        <option value="">Selecione</option>
+                        <option value="A" {% if estado.sorteio_tiebreak_vencedor == 'A' %}selected{% endif %}>{{ equipe_a }}</option>
+                        <option value="B" {% if estado.sorteio_tiebreak_vencedor == 'B' %}selected{% endif %}>{{ equipe_b }}</option>
+                    </select>
+                </div>
+
+                <div class="campo">
+                    <label>Escolha da vencedora</label>
+                    <select id="sorteio_escolha" name="sorteio_escolha" required>
+                        <option value="">Selecione</option>
+                        <option value="saque" {% if estado.sorteio_tiebreak_escolha == 'saque' %}selected{% endif %}>Saque</option>
+                        <option value="lado" {% if estado.sorteio_tiebreak_escolha == 'lado' %}selected{% endif %}>Lado</option>
+                    </select>
+                </div>
+
+                <div class="campo">
+                    <label>Equipe que inicia sacando</label>
+                    <select id="saque_tiebreak" name="saque_tiebreak" required>
+                        <option value="">Selecione</option>
+                        <option value="A" {% if estado.saque_tiebreak == 'A' %}selected{% endif %}>{{ equipe_a }}</option>
+                        <option value="B" {% if estado.saque_tiebreak == 'B' %}selected{% endif %}>{{ equipe_b }}</option>
+                    </select>
+                </div>
+
+                <div class="campo">
+                    <label>Equipe que ficará à esquerda do apontador</label>
+                    <select id="lado_esquerdo_tiebreak" name="lado_esquerdo_tiebreak" required>
+                        <option value="">Selecione</option>
+                        <option value="A" {% if estado.lado_esquerdo_tiebreak == 'A' %}selected{% endif %}>{{ equipe_a }}</option>
+                        <option value="B" {% if estado.lado_esquerdo_tiebreak == 'B' %}selected{% endif %}>{{ equipe_b }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="resumo" id="resumoSorteio">Selecione a vencedora do sorteio e a escolha feita.</div>
+
+            <div class="acoes">
+                <a class="btn-secondary" href="{{ url_for('jogo_avulso.papeleta_jogo_avulso', codigo=codigo) }}">Voltar</a>
+                <button class="btn-primary" type="submit">Salvar sorteio e abrir papeleta</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const equipeA = {{ equipe_a|tojson }};
+    const equipeB = {{ equipe_b|tojson }};
+    const nomes = {A: equipeA, B: equipeB};
+    const vencedor = document.getElementById("sorteio_vencedor");
+    const escolha = document.getElementById("sorteio_escolha");
+    const saque = document.getElementById("saque_tiebreak");
+    const lado = document.getElementById("lado_esquerdo_tiebreak");
+    const resumo = document.getElementById("resumoSorteio");
+
+    function outraEquipe(eq){ return eq === "A" ? "B" : "A"; }
+
+    function atualizarAutomaticamente(){
+        const eq = vencedor.value;
+        const tipo = escolha.value;
+        if (!eq || !tipo){
+            resumo.textContent = "Selecione a vencedora do sorteio e a escolha feita.";
+            return;
+        }
+        const outra = outraEquipe(eq);
+        if (tipo === "saque"){
+            saque.value = eq;
+            lado.value = outra;
+        }else if (tipo === "lado"){
+            lado.value = eq;
+            saque.value = outra;
+        }
+        resumo.textContent = `Vencedora: ${nomes[eq]}. Escolha: ${tipo}. Saque inicial: ${nomes[saque.value]}. Esquerda do apontador: ${nomes[lado.value]}.`;
+    }
+
+    vencedor.addEventListener("change", atualizarAutomaticamente);
+    escolha.addEventListener("change", atualizarAutomaticamente);
+    saque.addEventListener("change", atualizarAutomaticamente);
+    lado.addEventListener("change", atualizarAutomaticamente);
+    atualizarAutomaticamente();
+});
+</script>
+{% endblock %}

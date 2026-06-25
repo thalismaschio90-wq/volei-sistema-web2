@@ -475,6 +475,7 @@ def _payload_placar_rapido(payload):
         "rotacao_a", "rotacao_b",
         "tempos_a", "tempos_b", "limite_tempos",
         "subs_a", "subs_b", "limite_substituicoes",
+        "status_jogadores_a", "status_jogadores_b",
         "pontos_set", "ponto_alvo_set", "pontos_para_vencer_set",
         "pontos_tiebreak", "diferenca_minima", "sets_para_vencer", "sets_max",
         "fase_partida", "status_jogo", "fim_set", "set_finalizado", "fim_jogo",

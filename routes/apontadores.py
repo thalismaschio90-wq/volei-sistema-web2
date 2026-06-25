@@ -86,6 +86,7 @@ from socket_events import (
     atualizar_estado_cache,
     emitir_tempo_executado,
     emitir_substituicao_executada,
+    emitir_resposta_solicitacao,
 )
 
 
@@ -900,49 +901,20 @@ def _contar_eventos_lado(partida_id, competicao, equipe, tipos, set_atual=None):
 
 
 def _contadores_operacionais(partida_id, competicao, partida=None, estado=None):
-    """Contadores oficiais do set atual.
-
-    Aqui a regra precisa vir do banco, não do cache da tela. O cache pode estar
-    atrasado no celular/tablet ou depois de reconectar; por isso contamos os
-    eventos oficiais já confirmados no set atual.
-
-    tempos_a/tempos_b = USADOS no set.
-    subs_a/subs_b = substituições normais USADAS no set.
+    """
+    Contadores rápidos do set atual.
+    IMPORTANTE: aqui NÃO varremos mais a tabela eventos. Essa varredura era o
+    gargalo que fazia tempo/substituição/pedidos travarem por muitos segundos.
+    Os contadores vivos ficam no cache/estado e são incrementados de forma
+    otimista no clique; o banco salva em seguida.
     """
     estado = estado or {}
-    partida = partida or {}
-    set_atual = _int_seguro(partida.get("set_atual") or estado.get("set_atual") or 1, 1)
-
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT
-                        SUM(CASE WHEN equipe = 'A' AND tipo = 'tempo' THEN 1 ELSE 0 END) AS tempos_a,
-                        SUM(CASE WHEN equipe = 'B' AND tipo = 'tempo' THEN 1 ELSE 0 END) AS tempos_b,
-                        SUM(CASE WHEN equipe = 'A' AND tipo = 'substituicao' THEN 1 ELSE 0 END) AS subs_a,
-                        SUM(CASE WHEN equipe = 'B' AND tipo = 'substituicao' THEN 1 ELSE 0 END) AS subs_b
-                    FROM eventos
-                    WHERE partida_id = %s
-                      AND competicao = %s
-                      AND set_numero = %s
-                      AND tipo IN ('tempo', 'substituicao')
-                """, (partida_id, competicao, set_atual))
-                row = cur.fetchone() or {}
-        return {
-            "tempos_a": _int_seguro(row.get("tempos_a"), 0),
-            "tempos_b": _int_seguro(row.get("tempos_b"), 0),
-            "subs_a": _int_seguro(row.get("subs_a"), 0),
-            "subs_b": _int_seguro(row.get("subs_b"), 0),
-        }
-    except Exception as e:
-        print("AVISO contadores_operacionais fallback:", repr(e), flush=True)
-        return {
-            "tempos_a": _int_seguro(estado.get("tempos_a"), 0),
-            "tempos_b": _int_seguro(estado.get("tempos_b"), 0),
-            "subs_a": _int_seguro(estado.get("subs_a"), 0),
-            "subs_b": _int_seguro(estado.get("subs_b"), 0),
-        }
+    return {
+        "tempos_a": _int_seguro(estado.get("tempos_a"), 0),
+        "tempos_b": _int_seguro(estado.get("tempos_b"), 0),
+        "subs_a": _int_seguro(estado.get("subs_a"), 0),
+        "subs_b": _int_seguro(estado.get("subs_b"), 0),
+    }
 
 def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, partida=None):
     estado = dict(estado or {})
@@ -970,10 +942,6 @@ def _aplicar_regras_e_contadores_estado(partida_id, competicao, estado=None, par
         estado["tempos_b"] = contadores["tempos_b"]
         estado["subs_a"] = contadores["subs_a"]
         estado["subs_b"] = contadores["subs_b"]
-        estado["tempos_restantes_a"] = max(0, estado["limite_tempos"] - estado["tempos_a"])
-        estado["tempos_restantes_b"] = max(0, estado["limite_tempos"] - estado["tempos_b"])
-        estado["subs_restantes_a"] = max(0, estado["limite_substituicoes"] - estado["subs_a"])
-        estado["subs_restantes_b"] = max(0, estado["limite_substituicoes"] - estado["subs_b"])
     except Exception:
         estado.setdefault("tempos_a", 0)
         estado.setdefault("tempos_b", 0)
@@ -1372,11 +1340,9 @@ def _montar_descricao_evento(ev):
 
 def _buscar_historico_resumido(partida_id, competicao, limite=5):
     try:
-        try:
-            eventos = listar_eventos_partida(partida_id, competicao, limite=50) or []
-        except TypeError:
-            eventos = listar_eventos_partida(partida_id, competicao) or []
-        eventos = [ev for ev in eventos if str(ev.get("tipo") or "").strip().lower() in {"ponto", "retardamento_penalidade"}]
+        eventos = listar_eventos_partida(partida_id, competicao, limite=limite) or []
+    except TypeError:
+        eventos = listar_eventos_partida(partida_id, competicao) or []
         eventos = eventos[:limite]
     except Exception:
         return [], "-"
@@ -4345,20 +4311,43 @@ def registrar_tempo_view(competicao, partida_id):
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
 
-        # Regra oficial: confirma no backend/banco antes de iniciar cronômetro
-        # ou atualizar a tela. Isso impede segundo pedido quando a organização
-        # configurou apenas 1 tempo por set, inclusive no celular.
-        ok, retorno = registrar_tempo_partida(partida_id, competicao, equipe)
-        if not ok:
+        # =========================
+        # ⚡ ESTADO ATUAL (SEM BANCO PESADO)
+        # =========================
+        estado_atual = dict(obter_estado_cache(partida_id) or {})
+        if not estado_atual:
             estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
-            estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, _partida_lock or {})
-            return _json_no_cache({"ok": False, "mensagem": retorno, **estado_atual}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-        estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, _partida_lock or {})
-        estado = _normalizar_estado_pos_acao(partida_id, competicao, estado, origem="TEMPO_CONFIRMADO", acao=None)
+        estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, {})
+
+        usado = _int_seguro(
+            estado_atual.get("tempos_a") if equipe == "A" else estado_atual.get("tempos_b"), 0
+        )
+        limite = _int_seguro(estado_atual.get("limite_tempos"), 2)
+
+        if usado >= limite:
+            return _json_no_cache({
+                "ok": False,
+                "mensagem": f"Limite de tempos atingido para a Equipe {equipe} neste set.",
+                **estado_atual
+            }, 400)
+
+        # A regra oficial é do backend/banco. A tela só aceita depois de confirmar
+        # limite, set atual e registro do evento. Isso evita tempo extra no celular/PC.
+        ok_reg, retorno_reg = registrar_tempo_partida(partida_id, competicao, equipe)
+        if not ok_reg:
+            return _json_no_cache({"ok": False, "mensagem": retorno_reg, **estado_atual}, 400)
+
+        estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
+        estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, {})
+        set_atual = _int_seguro(estado.get("set_atual"), 1)
+        estado["tempos_a"] = _contar_eventos_lado(partida_id, competicao, "A", {"tempo"}, set_atual)
+        estado["tempos_b"] = _contar_eventos_lado(partida_id, competicao, "B", {"tempo"}, set_atual)
+        estado["ultima_acao"] = estado.get("ultima_acao") or "Tempo registrado."
+        estado["historico"] = estado.get("historico") or []
 
         equipe_nome = estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b")
+
         payload = {
             "partida_id": partida_id,
             "competicao": competicao,
@@ -4367,25 +4356,33 @@ def registrar_tempo_view(competicao, partida_id):
             "duracao": 30,
             "equipe": equipe,
             "equipe_nome": equipe_nome,
-            "mensagem": f"Tempo - {equipe_nome or equipe}",
+            "mensagem": f"Tempo - {equipe_nome}",
             "origem": "apontador",
+            "placar_a": estado.get("pontos_a") or estado.get("placar_a") or 0,
+            "placar_b": estado.get("pontos_b") or estado.get("placar_b") or 0,
+            "set_atual": estado.get("set_atual") or 1,
             "timestamp": time.time()
         }
 
         try:
             emitir_tempo_executado(partida_id, payload)
+            emitir_resposta_solicitacao(partida_id, {**payload, "status": "confirmada", "cor_status": "verde"})
             emitir_estado_partida(partida_id, estado)
-            socketio.emit("cronometro_arbitros", payload, room=str(partida_id))
-            socketio.emit("notificacao_geral", payload, room=str(partida_id))
         except Exception as e:
             print("ERRO socket tempo:", e, flush=True)
 
-        _limpar_cache_apontador(competicao)
-        return _json_no_cache({"ok": True, "mensagem": "Tempo registrado.", **estado})
+        return _json_no_cache({
+            "ok": True,
+            "mensagem": "Tempo registrado.",
+            **estado
+        })
 
     except Exception as e:
         print("ERRO registrar_tempo_view:", e, flush=True)
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar tempo: {e}"}, 500)
+        return _json_no_cache({
+            "ok": False,
+            "mensagem": f"Erro ao registrar tempo: {e}"
+        }, 500)
 
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao", methods=["POST"])
@@ -4403,35 +4400,50 @@ def registrar_substituicao_view(competicao, partida_id):
 
         if equipe not in {"A", "B"}:
             return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
+
         if not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Selecione quem sai e quem entra."}, 400)
 
-        # Regra oficial: substituição só aparece como feita depois do backend
-        # validar limite, líbero, vínculo titular/reserva e bloqueios.
-        ok, retorno = registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
-        if not ok:
+        estado_atual = dict(obter_estado_cache(partida_id) or {})
+        if not estado_atual:
             estado_atual = buscar_estado_jogo_partida(partida_id, competicao) or {}
-            estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, _partida_lock or {})
-            return _json_no_cache({"ok": False, "mensagem": retorno, **estado_atual}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-        estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, _partida_lock or {})
-        estado = _normalizar_estado_pos_acao(partida_id, competicao, estado, origem="SUBSTITUICAO_CONFIRMADA", acao=None)
+        estado_atual = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado_atual, {})
+        usado = _int_seguro(estado_atual.get("subs_a") if equipe == "A" else estado_atual.get("subs_b"), 0)
+        limite = _int_seguro(estado_atual.get("limite_substituicoes"), 6)
 
-        try:
-            emitir_substituicao_executada(partida_id, {
-                "equipe": equipe,
-                "equipe_nome": estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b"),
-                "numero_sai": numero_sai,
-                "numero_entra": numero_entra,
-                "mensagem": f"Substituição executada - Equipe {equipe}: #{numero_sai} → #{numero_entra}",
-                "origem": "apontador",
-            })
-            emitir_estado_partida(partida_id, estado)
-        except Exception as e:
-            print("ERRO socket substituição:", e, flush=True)
+        if usado >= limite:
+            return _json_no_cache({"ok": False, "mensagem": f"Limite de substituições atingido para a Equipe {equipe} neste set.", **estado_atual}, 400)
 
-        _limpar_cache_apontador(competicao)
+        ok_reg, retorno_reg = registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra)
+        if not ok_reg:
+            return _json_no_cache({"ok": False, "mensagem": retorno_reg, **estado_atual}, 400)
+
+        estado = retorno_reg if isinstance(retorno_reg, dict) else (buscar_estado_jogo_partida(partida_id, competicao) or {})
+        estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, {})
+        estado["ultima_acao"] = estado.get("ultima_acao") or f"Substituição {equipe}: #{numero_sai} → #{numero_entra}"
+
+        payload_substituicao_confirmada = {
+            "equipe": equipe,
+            "equipe_nome": estado.get("equipe_a") if equipe == "A" else estado.get("equipe_b"),
+            "numero_sai": numero_sai,
+            "numero_entra": numero_entra,
+            "status_jogadores_a": estado.get("status_jogadores_a", {}),
+            "status_jogadores_b": estado.get("status_jogadores_b", {}),
+            "rotacao_a": estado.get("rotacao_a", []),
+            "rotacao_b": estado.get("rotacao_b", []),
+            "subs_a": estado.get("subs_a", 0),
+            "subs_b": estado.get("subs_b", 0),
+            "placar_a": estado.get("pontos_a") or estado.get("placar_a") or 0,
+            "placar_b": estado.get("pontos_b") or estado.get("placar_b") or 0,
+            "set_atual": estado.get("set_atual") or 1,
+            "mensagem": f"Substituição executada - Equipe {equipe}: #{numero_sai} → #{numero_entra}",
+            "origem": "apontador",
+        }
+        emitir_substituicao_executada(partida_id, payload_substituicao_confirmada)
+        emitir_resposta_solicitacao(partida_id, {**payload_substituicao_confirmada, "status": "confirmada", "cor_status": "verde"})
+        emitir_estado_partida(partida_id, estado)
+
         return _json_no_cache({"ok": True, "mensagem": "Substituição registrada.", **estado})
 
     except Exception as e:

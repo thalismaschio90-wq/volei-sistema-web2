@@ -114,6 +114,16 @@
     font-weight: 900;
 }
 
+.info-linha.pendente {
+    border-left: 4px solid #ef4444;
+    padding-left: 8px;
+}
+
+.info-linha.confirmada {
+    border-left: 4px solid #22c55e;
+    padding-left: 8px;
+}
+
 .lista-banco {
     display: flex;
     flex-wrap: wrap;
@@ -1040,7 +1050,8 @@ function atualizarSolicitacoes(solicitacoes) {
         const momento = s.momento ? ` — ${s.momento}` : "";
         const status = textoSeguro(s.status, "pendente");
         const linha = document.createElement("div");
-        linha.className = "info-linha";
+        const statusClasse = String(status).toLowerCase().includes("confirm") || String(status).toLowerCase().includes("execut") ? "confirmada" : "pendente";
+        linha.className = `info-linha ${statusClasse}`;
         linha.innerHTML = `<span>${tipo.charAt(0).toUpperCase() + tipo.slice(1)}${momento}</span><strong>${status}</strong>`;
         lista.appendChild(linha);
     });
@@ -1484,6 +1495,38 @@ function mostrarRetorno(msg, ok = true) {
 
 let pedidoTempoEnviando = false;
 let pedidoSubEnviando = false;
+const solicitacoesTreinadorLocal = [];
+
+function registrarSolicitacaoLocal(payload) {
+    if (!payload) return;
+    const id = String(payload.id_solicitacao || `${payload.tipo}-${Date.now()}`);
+    const existente = solicitacoesTreinadorLocal.find(s => String(s.id_solicitacao || "") === id);
+    const item = {
+        id_solicitacao: id,
+        tipo: payload.tipo || "solicitação",
+        status: payload.status || "pendente",
+        momento: payload.momento || "pendente",
+        placar: payload.placar || "",
+    };
+    if (existente) Object.assign(existente, item);
+    else solicitacoesTreinadorLocal.unshift(item);
+    atualizarSolicitacoes(solicitacoesTreinadorLocal.slice(0, 10));
+}
+
+function confirmarSolicitacaoLocal(dados) {
+    if (!dados) return;
+    const id = String(dados.id_solicitacao || "");
+    let alvo = id ? solicitacoesTreinadorLocal.find(s => String(s.id_solicitacao || "") === id) : null;
+    if (!alvo) {
+        alvo = solicitacoesTreinadorLocal.find(s => String(s.tipo || "") === String(dados.tipo || ""));
+    }
+    if (!alvo) return;
+    const pa = dados.placar_a ?? dados.pontos_a;
+    const pb = dados.placar_b ?? dados.pontos_b;
+    alvo.status = dados.status || "confirmada";
+    alvo.momento = `Set ${dados.set_atual || "-"}${pa !== undefined && pb !== undefined ? ` • ${pa}x${pb}` : ""}`;
+    atualizarSolicitacoes(solicitacoesTreinadorLocal.slice(0, 10));
+}
 
 function gerarIdSolicitacao(tipo) {
     try {
@@ -1535,6 +1578,7 @@ function pedirTempo() {
         socket.emit("pedido_tempo", payload);
     }
 
+    registrarSolicitacaoLocal(payload);
     mostrarRetorno("Pedido de tempo enviado ao apontador.", true);
 
     fetch("{{ url_for('treinador.solicitar_tempo_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
@@ -1587,6 +1631,7 @@ function pedirSubstituicao() {
         socket.emit("pedido_substituicao", payload);
     }
 
+    registrarSolicitacaoLocal(payload);
     mostrarRetorno("Pedido de substituição enviado ao apontador.", true);
 
     fetch("{{ url_for('treinador.solicitar_substituicao_treinador', competicao=competicao_nome, partida_id=partida.id) }}", {
@@ -1667,6 +1712,7 @@ if (socket) {
 
     socket.on("resposta_solicitacao", (dados) => {
         if (!dados || String(dados.partida_id) !== String({{ partida.id }})) return;
+        confirmarSolicitacaoLocal(dados);
         mostrarRetorno(dados.mensagem || "Atualização recebida.", dados.status !== "recusada");
     });
 

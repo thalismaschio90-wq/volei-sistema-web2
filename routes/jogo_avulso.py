@@ -160,6 +160,41 @@ def _sets_config(sets_tipo):
     return 1, 1
 
 
+def _normalizar_lado_avulso(valor, padrao="A"):
+    valor = str(valor or "").strip().upper()
+    return valor if valor in {"A", "B"} else padrao
+
+
+def _nome_lado_avulso(estado, lado):
+    lado = _normalizar_lado_avulso(lado)
+    return (estado.get("equipe_a") if lado == "A" else estado.get("equipe_b")) or ("Equipe A" if lado == "A" else "Equipe B")
+
+
+def _precisa_sorteio_tiebreak_avulso(estado):
+    """Retorna True somente quando a próxima etapa deve ser o sorteio do tie-break."""
+    estado = estado or {}
+    if str(estado.get("sets_tipo") or "set_unico") == "set_unico":
+        return False
+    sets_para_vencer = _normalizar_int(estado.get("sets_para_vencer"), 1, 1, 3)
+    return (
+        _normalizar_int(estado.get("sets_a"), 0, 0, 5) == sets_para_vencer - 1
+        and _normalizar_int(estado.get("sets_b"), 0, 0, 5) == sets_para_vencer - 1
+        and _normalizar_int(estado.get("set_atual"), 1, 1, 5) == _normalizar_int(estado.get("sets_max"), 1, 1, 5)
+    )
+
+
+def _sorteio_tiebreak_concluido_avulso(estado):
+    estado = estado or {}
+    if not _precisa_sorteio_tiebreak_avulso(estado):
+        return True
+    return bool(
+        estado.get("sorteio_tiebreak_concluido")
+        and estado.get("saque_tiebreak") in {"A", "B"}
+        and estado.get("lado_esquerdo_tiebreak") in {"A", "B"}
+        and _normalizar_int(estado.get("sorteio_tiebreak_set"), 0, 0, 5) == _normalizar_int(estado.get("set_atual"), 1, 1, 5)
+    )
+
+
 def _ordenar_numeros(lista):
     unicos = []
     for n in lista:
@@ -246,6 +281,9 @@ def novo_jogo_avulso():
         "scout_resumo": {},
         "relatorio_gerado": False,
         "ultima_acao": "Jogo rápido criado",
+        "aguardando_tiebreak_sorteio": False,
+        "aguardando_tiebreak_saque": False,
+        "sorteio_tiebreak_concluido": False,
     }
 
     _salvar_estado(codigo, estado)
@@ -264,7 +302,73 @@ def papeleta_jogo_avulso(codigo):
         flash("Jogo avulso não encontrado ou expirado.", "erro")
         return redirect(url_for("apontadores.painel_apontador"))
 
-    return render_template("jogo_avulso_papeleta.html", codigo=str(codigo).upper(), estado=jogo.get("estado") or {})
+    estado = jogo.get("estado") or {}
+    if _precisa_sorteio_tiebreak_avulso(estado) and not _sorteio_tiebreak_concluido_avulso(estado):
+        return redirect(url_for("jogo_avulso.tiebreak_jogo_avulso", codigo=str(codigo).upper()))
+
+    return render_template("jogo_avulso_papeleta.html", codigo=str(codigo).upper(), estado=estado)
+
+
+@jogo_avulso_bp.route("/apontador/jogo-avulso/<codigo>/tiebreak", methods=["GET", "POST"])
+@exigir_perfil("apontador")
+def tiebreak_jogo_avulso(codigo):
+    if not _tem_permissao_jogo_avulso():
+        flash("Jogo rápido não liberado para este apontador.", "erro")
+        return redirect(url_for("apontadores.painel_apontador"))
+
+    codigo = str(codigo or "").strip().upper()
+    jogo = _buscar_jogo(codigo)
+    if not jogo:
+        flash("Jogo avulso não encontrado ou expirado.", "erro")
+        return redirect(url_for("apontadores.painel_apontador"))
+
+    estado = dict(jogo.get("estado") or {})
+
+    if not _precisa_sorteio_tiebreak_avulso(estado):
+        return redirect(url_for("jogo_avulso.papeleta_jogo_avulso", codigo=codigo))
+
+    if request.method == "GET":
+        return render_template("jogo_avulso_tiebreak.html", codigo=codigo, estado=estado)
+
+    vencedor = _normalizar_lado_avulso(request.form.get("sorteio_vencedor"), "")
+    escolha = str(request.form.get("sorteio_escolha") or "").strip().lower()
+    saque = _normalizar_lado_avulso(request.form.get("saque_tiebreak"), "")
+    lado_esquerdo = _normalizar_lado_avulso(request.form.get("lado_esquerdo_tiebreak"), "")
+
+    if vencedor not in {"A", "B"} or escolha not in {"saque", "lado"} or saque not in {"A", "B"} or lado_esquerdo not in {"A", "B"}:
+        flash("Preencha todos os campos do sorteio do tie-break.", "erro")
+        return redirect(url_for("jogo_avulso.tiebreak_jogo_avulso", codigo=codigo))
+
+    historico = list(estado.get("historico") or [])
+    historico.append({
+        "descricao": f"Sorteio do tie-break: vencedor { _nome_lado_avulso(estado, vencedor) }, escolha { escolha }, saque { _nome_lado_avulso(estado, saque) }",
+        "tipo": "sorteio_tiebreak",
+        "set": _normalizar_int(estado.get("set_atual"), 1, 1, 5),
+        "ts": time.time(),
+    })
+
+    estado.update({
+        "fase_partida": "papeleta",
+        "status_jogo": "papeleta",
+        "proximo_set_pendente": True,
+        "aguardando_tiebreak_sorteio": False,
+        "aguardando_tiebreak_saque": False,
+        "sorteio_tiebreak_concluido": True,
+        "sorteio_tiebreak_set": _normalizar_int(estado.get("set_atual"), 1, 1, 5),
+        "sorteio_tiebreak_vencedor": vencedor,
+        "sorteio_tiebreak_vencedor_nome": _nome_lado_avulso(estado, vencedor),
+        "sorteio_tiebreak_escolha": escolha,
+        "saque_tiebreak": saque,
+        "saque_tiebreak_nome": _nome_lado_avulso(estado, saque),
+        "saque_atual": saque,
+        "lado_esquerdo_tiebreak": lado_esquerdo,
+        "lado_esquerdo_tiebreak_nome": _nome_lado_avulso(estado, lado_esquerdo),
+        "historico": historico,
+        "ultima_acao": "Sorteio do tie-break salvo",
+    })
+
+    _salvar_estado(codigo, estado)
+    return redirect(url_for("jogo_avulso.papeleta_jogo_avulso", codigo=codigo))
 
 
 @jogo_avulso_bp.route("/apontador/jogo-avulso/<codigo>/iniciar", methods=["POST"])
@@ -281,6 +385,10 @@ def iniciar_jogo_avulso(codigo):
 
     estado = dict(jogo.get("estado") or {})
     set_atual = _normalizar_int(estado.get("set_atual"), 1, 1, 5)
+
+    if _precisa_sorteio_tiebreak_avulso(estado) and not _sorteio_tiebreak_concluido_avulso(estado):
+        flash("Antes da papeleta do tie-break, realize o sorteio do set decisivo.", "erro")
+        return redirect(url_for("jogo_avulso.tiebreak_jogo_avulso", codigo=str(codigo).upper()))
 
     def numeros_lado(lado):
         titulares = []
@@ -307,6 +415,8 @@ def iniciar_jogo_avulso(codigo):
     rotacao_b = [request.form.get(f"B_{i}", "").strip() for i in [4, 3, 2, 5, 6, 1]]
 
     saque = (request.form.get("saque_set") or estado.get("saque_atual") or "A").strip().upper()
+    if _precisa_sorteio_tiebreak_avulso(estado) and _sorteio_tiebreak_concluido_avulso(estado):
+        saque = _normalizar_lado_avulso(estado.get("saque_tiebreak"), saque)
     if saque not in {"A", "B"}:
         saque = "A"
 
@@ -345,6 +455,7 @@ def iniciar_jogo_avulso(codigo):
         "historico": historico,
         "ultima_acao": f"{set_atual}º set iniciado",
         "aguardando_tiebreak_saque": False,
+        "aguardando_tiebreak_sorteio": False,
     })
 
     _salvar_estado(codigo, estado)

@@ -247,6 +247,7 @@
 {% set proximo_set_pendente = estado.proximo_set_pendente or estado.fase_partida == 'papeleta' %}
 {% set sets_para_vencer = estado.sets_para_vencer or 1 %}
 {% set eh_tiebreak = (estado.sets_tipo != 'set_unico' and estado.sets_a == (sets_para_vencer - 1) and estado.sets_b == (sets_para_vencer - 1)) %}
+{% set saque_set = estado.saque_tiebreak if eh_tiebreak and estado.sorteio_tiebreak_concluido else (estado.saque_atual or 'A') %}
 
 <div class="av-wrap" id="wrapPapeleta">
     <div class="av-card av-head">
@@ -264,17 +265,16 @@
     </div>
 
     <form method="post" action="{{ url_for('jogo_avulso.iniciar_jogo_avulso', codigo=codigo) }}" id="form-papeleta-avulsa" class="av-card">
-        {% if eh_tiebreak or estado.aguardando_tiebreak_saque %}
+        {% if eh_tiebreak and estado.sorteio_tiebreak_concluido %}
         <div class="tb">
-            <label>Set desempate: quem irá sacar?</label>
-            <select name="saque_set">
-                <option value="A">{{ estado.equipe_a or 'Equipe A' }}</option>
-                <option value="B">{{ estado.equipe_b or 'Equipe B' }}</option>
-            </select>
+            <strong>Tie-break sorteado.</strong>
+            <div style="margin-top:6px; font-weight:800; color:#92400e;">
+                Saque inicial: {{ estado.saque_tiebreak_nome or (estado.equipe_a if estado.saque_tiebreak == 'A' else estado.equipe_b) }}.
+                Lado esquerdo do apontador: {{ estado.lado_esquerdo_tiebreak_nome or (estado.equipe_a if estado.lado_esquerdo_tiebreak == 'A' else estado.equipe_b) }}.
+            </div>
         </div>
-        {% else %}
-        <input type="hidden" name="saque_set" value="{{ estado.saque_atual or 'A' }}">
         {% endif %}
+        <input type="hidden" name="saque_set" value="{{ saque_set }}">
 
         <div class="quadra-container">
             {% for lado, nome in [('A', estado.equipe_a or 'Equipe A'), ('B', estado.equipe_b or 'Equipe B')] %}
@@ -342,6 +342,7 @@
 <script>
 const CODIGO = {{ codigo|tojson }};
 const SET_ATUAL = {{ set_atual|tojson }};
+const LADO_ESQUERDO_TIEBREAK = {{ (estado.lado_esquerdo_tiebreak if eh_tiebreak and estado.sorteio_tiebreak_concluido else '')|tojson }};
 const K_INV_SET = "avulso_papeleta_invertido_set_" + CODIGO;
 const K_INV = "avulso_papeleta_invertido_" + CODIGO;
 
@@ -458,7 +459,11 @@ function inverterLadoLocal(){
    Mesmo assim o usuário pode inverter manualmente só esta tela.
 */
 if (localStorage.getItem(K_INV_SET) !== String(SET_ATUAL)){
-    localStorage.setItem(K_INV, (parseInt(SET_ATUAL, 10) % 2 === 0) ? "1" : "0");
+    if (LADO_ESQUERDO_TIEBREAK === "A" || LADO_ESQUERDO_TIEBREAK === "B"){
+        localStorage.setItem(K_INV, LADO_ESQUERDO_TIEBREAK === "B" ? "1" : "0");
+    }else{
+        localStorage.setItem(K_INV, (parseInt(SET_ATUAL, 10) % 2 === 0) ? "1" : "0");
+    }
     localStorage.setItem(K_INV_SET, String(SET_ATUAL));
 }
 

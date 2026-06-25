@@ -244,6 +244,18 @@
             box-shadow: 0 0 0 5px rgba(34,197,94,.16), 0 0 30px rgba(34,197,94,.28), inset 0 0 0 1px rgba(15,47,74,.08);
         }
 
+        .jogador.substituto {
+            background: linear-gradient(180deg, #dc2626 0%, #991b1b 100%);
+            color: #fff7ed;
+            border-color: rgba(254, 202, 202, .95);
+        }
+
+        .jogador.titular-retorno {
+            background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+            color: #ecfdf5;
+            border-color: rgba(187, 247, 208, .95);
+        }
+
         .jogador.sacador::before {
             content: "";
             position: absolute;
@@ -779,8 +791,13 @@
                 const posicao = posicoesOficiais[idx] || (idx + 1);
                 const numero = j.numero || '-';
                 const nome = j.nome || `P${posicao}`;
+                const statusMapa = lado === "A" ? (estadoAtual.status_jogadores_a || {}) : (estadoAtual.status_jogadores_b || {});
+                const st = statusMapa[String(numero)] || {};
+                const tipoStatus = String(st.tipo || "").toLowerCase();
+                const classeSub = tipoStatus.includes("substituto") ? "substituto" : (tipoStatus.includes("retorno") ? "titular-retorno" : "");
+                const tituloStatus = st.vinculo ? ` • vínculo #${st.vinculo}` : "";
                 return `
-                    <div class="jogador ${ehSacador ? 'sacador' : ''}" title="P${posicao} • #${numero}">
+                    <div class="jogador ${ehSacador ? 'sacador' : ''} ${classeSub}" title="P${posicao} • #${numero}${tituloStatus}">
                         <div class="num">${numero}</div>
                         <div class="nome">${nome}</div>
                     </div>
