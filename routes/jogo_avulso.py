@@ -13,10 +13,28 @@ except Exception:
         _CACHE_FALLBACK[str(partida_id)] = estado
 
 try:
-    from banco import apontador_pode_criar_jogo_avulso
+    from banco import (
+        apontador_pode_criar_jogo_avulso,
+        obter_sessao_jogo_avulso_dia,
+        salvar_sessao_jogo_avulso_dia,
+        salvar_partida_jogo_avulso,
+        buscar_partida_jogo_avulso,
+        buscar_jogo_avulso_ativo_apontador,
+        buscar_partida_jogo_avulso_por_pin,
+        registrar_memoria_jogo_avulso_estado,
+        encerrar_sessao_jogo_avulso,
+    )
 except Exception:
     def apontador_pode_criar_jogo_avulso(cpf):
         return False
+    obter_sessao_jogo_avulso_dia = None
+    salvar_sessao_jogo_avulso_dia = None
+    salvar_partida_jogo_avulso = None
+    buscar_partida_jogo_avulso = None
+    buscar_jogo_avulso_ativo_apontador = None
+    buscar_partida_jogo_avulso_por_pin = None
+    registrar_memoria_jogo_avulso_estado = None
+    encerrar_sessao_jogo_avulso = None
 
 import time
 import uuid
@@ -75,12 +93,26 @@ def _chave_sessao_avulsa(cpf=None):
 
 
 def _sessao_avulsa(cpf=None, criar=True):
+    """Sessão do dia do jogo rápido.
+
+    Em produção (Render) usa o banco. A memória Python fica só como fallback
+    local, para não perder compatibilidade se o banco estiver momentaneamente indisponível.
+    """
+    cpf = str(cpf or _cpf_apontador() or "").strip()
+    if obter_sessao_jogo_avulso_dia:
+        try:
+            sess_db = obter_sessao_jogo_avulso_dia(cpf, criar=criar)
+            if sess_db:
+                return sess_db
+        except Exception as e:
+            print("AVISO sessão avulsa banco:", repr(e), flush=True)
+
     chave = _chave_sessao_avulsa(cpf)
     sess = _SESSOES_AVULSAS_DIA.get(chave)
     if not sess and criar:
         sess = {
             "dia": _dia_hoje_avulso(),
-            "cpf": str(cpf or _cpf_apontador() or "").strip(),
+            "cpf": cpf,
             "pin": "",
             "equipes": {},
             "jogos": [],
@@ -90,6 +122,15 @@ def _sessao_avulsa(cpf=None, criar=True):
         }
         _SESSOES_AVULSAS_DIA[chave] = sess
     return sess
+
+
+def _persistir_sessao_avulsa(cpf, sess):
+    cpf = str(cpf or _cpf_apontador() or "").strip()
+    if salvar_sessao_jogo_avulso_dia and cpf and isinstance(sess, dict):
+        try:
+            salvar_sessao_jogo_avulso_dia(cpf, sess)
+        except Exception as e:
+            print("AVISO persistir sessão avulsa:", repr(e), flush=True)
 
 
 def _pin_sessao_avulsa(cpf=None):
@@ -115,6 +156,7 @@ def _pin_sessao_avulsa(cpf=None):
         if not sess.get("pin"):
             sess["pin"] = str(random.randint(1000, 9999))
     sess["atualizado_em"] = time.time()
+    _persistir_sessao_avulsa(cpf or _cpf_apontador(), sess)
     return str(sess.get("pin") or "")
 
 
@@ -183,6 +225,12 @@ def _registrar_memoria_sessao_avulsa(estado):
                     })
                     break
     sess["atualizado_em"] = time.time()
+    _persistir_sessao_avulsa(cpf, sess)
+    if registrar_memoria_jogo_avulso_estado:
+        try:
+            registrar_memoria_jogo_avulso_estado(estado)
+        except Exception as e:
+            print("AVISO registrar memória avulsa banco:", repr(e), flush=True)
 
 
 def _memoria_sessao_avulsa(cpf=None):
@@ -235,6 +283,21 @@ def buscar_jogo_avulso_por_pin(pin):
     if len(pin) != 4:
         return None
 
+    if buscar_partida_jogo_avulso_por_pin:
+        try:
+            achado = buscar_partida_jogo_avulso_por_pin(pin)
+            if achado:
+                return {
+                    "codigo": str(achado.get("codigo") or "").upper(),
+                    "pin": pin,
+                    "tipo": "avulso",
+                    "equipe_a": achado.get("equipe_a") or "Equipe A",
+                    "equipe_b": achado.get("equipe_b") or "Equipe B",
+                    "status_jogo": achado.get("status_jogo") or "aguardando",
+                }
+        except Exception as e:
+            print("AVISO buscar jogo avulso por pin no banco:", repr(e), flush=True)
+
     candidatos = []
     for codigo, jogo in list(_JOGOS_AVULSOS.items()):
         estado = (jogo or {}).get("estado") or {}
@@ -277,6 +340,24 @@ def _buscar_jogo(codigo):
     jogo = _JOGOS_AVULSOS.get(codigo)
     if jogo:
         return jogo
+
+    if buscar_partida_jogo_avulso:
+        try:
+            jogo_db = buscar_partida_jogo_avulso(codigo)
+            if jogo_db:
+                estado_db = dict(jogo_db.get("estado") or {})
+                jogo = {
+                    "codigo": codigo,
+                    "estado": estado_db,
+                    "criado_em": time.time(),
+                    "apontador": estado_db.get("apontador") or jogo_db.get("apontador") or "",
+                }
+                _JOGOS_AVULSOS[codigo] = jogo
+                atualizar_estado_cache(_partida_id(codigo), estado_db)
+                return jogo
+        except Exception as e:
+            print("AVISO buscar jogo avulso banco:", repr(e), flush=True)
+
     estado = obter_estado_cache(_partida_id(codigo)) or {}
     if estado:
         jogo = {
@@ -299,12 +380,18 @@ def _salvar_estado(codigo, estado):
     estado["competicao"] = "JOGO AVULSO"
     estado["modo_avulso"] = True
     estado["atualizado_em"] = time.time()
+    apontador_estado = estado.get("apontador") or _cpf_apontador()
     _JOGOS_AVULSOS.setdefault(codigo, {
         "codigo": codigo,
         "criado_em": time.time(),
-        "apontador": estado.get("apontador") or _cpf_apontador(),
+        "apontador": apontador_estado,
     })["estado"] = estado
     atualizar_estado_cache(partida_id, estado)
+    if salvar_partida_jogo_avulso and apontador_estado:
+        try:
+            salvar_partida_jogo_avulso(codigo, apontador_estado, estado)
+        except Exception as e:
+            print("AVISO salvar partida avulsa banco:", repr(e), flush=True)
     emitir_estado_partida(partida_id, estado)
     _registrar_memoria_sessao_avulsa(estado)
     return estado
@@ -366,14 +453,27 @@ def _ordenar_numeros(lista):
 
 
 def _buscar_jogo_avulso_ativo_do_apontador(cpf):
-    """Retorna o jogo rápido em andamento/papeleta mais recente do apontador.
-
-    Como o jogo rápido atual fica em memória/cache, essa busca é leve e evita
-    criar outro jogo sem querer quando o apontador já tem um aberto.
-    """
+    """Retorna o jogo rápido em andamento/papeleta mais recente do apontador."""
     cpf = str(cpf or "").strip()
     if not cpf:
         return None
+
+    if buscar_jogo_avulso_ativo_apontador:
+        try:
+            jogo_db = buscar_jogo_avulso_ativo_apontador(cpf)
+            if jogo_db:
+                codigo = str(jogo_db.get("codigo") or "").upper()
+                estado = dict(jogo_db.get("estado") or {})
+                _JOGOS_AVULSOS[codigo] = {
+                    "codigo": codigo,
+                    "estado": estado,
+                    "criado_em": time.time(),
+                    "apontador": cpf,
+                }
+                atualizar_estado_cache(_partida_id(codigo), estado)
+                return {"codigo": codigo, "estado": estado}
+        except Exception as e:
+            print("AVISO buscar ativo avulso banco:", repr(e), flush=True)
 
     melhor = None
     for codigo, jogo in list(_JOGOS_AVULSOS.items()):
@@ -695,6 +795,30 @@ def operacao_jogo_avulso(codigo):
     return resposta
 
 
+@jogo_avulso_bp.route("/jogo-avulso/pin/<pin>/atual")
+def jogo_avulso_atual_por_pin(pin):
+    atual = buscar_jogo_avulso_por_pin(pin)
+    if not atual or not atual.get("codigo"):
+        return _json_no_cache({"ok": True, "tem_jogo": False, "pin": "".join(ch for ch in str(pin or "") if ch.isdigit())})
+    return _json_no_cache({
+        "ok": True,
+        "tem_jogo": True,
+        "codigo": atual.get("codigo"),
+        "pin": atual.get("pin"),
+        "equipe_a": atual.get("equipe_a"),
+        "equipe_b": atual.get("equipe_b"),
+        "status_jogo": atual.get("status_jogo"),
+    })
+
+
+@jogo_avulso_bp.route("/telao-avulso-pin/<pin>")
+def telao_jogo_avulso_por_pin(pin):
+    pin = "".join(ch for ch in str(pin or "") if ch.isdigit())
+    resposta = make_response(render_template("jogo_avulso_telao_pin.html", pin=pin))
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resposta
+
+
 @jogo_avulso_bp.route("/telao-avulso/<codigo>")
 def telao_jogo_avulso(codigo):
     jogo = _buscar_jogo(codigo)
@@ -756,3 +880,25 @@ def memoria_dia_jogo_avulso():
         return _json_no_cache({"ok": False, "erro": "sem_permissao"}, 403)
     return _json_no_cache({"ok": True, "memoria": _memoria_sessao_avulsa(_cpf_apontador())})
 
+
+
+
+@jogo_avulso_bp.route("/apontador/jogo-avulso/encerrar-sessao", methods=["POST"])
+@exigir_perfil("apontador")
+def encerrar_sessao_dia_jogo_avulso():
+    if not _tem_permissao_jogo_avulso():
+        flash("Jogo rápido não liberado para este apontador.", "erro")
+        return redirect(url_for("apontadores.painel_apontador"))
+    cpf = _cpf_apontador()
+    if encerrar_sessao_jogo_avulso:
+        try:
+            encerrar_sessao_jogo_avulso(cpf)
+        except Exception as e:
+            print("AVISO encerrar sessão avulsa:", repr(e), flush=True)
+    # Limpa fallback local desse apontador/dia.
+    try:
+        _SESSOES_AVULSAS_DIA.pop(_chave_sessao_avulsa(cpf), None)
+    except Exception:
+        pass
+    flash("Sessão de jogo rápido encerrada. Um novo PIN será gerado na próxima sessão.", "sucesso")
+    return redirect(url_for("jogo_avulso.novo_jogo_avulso"))

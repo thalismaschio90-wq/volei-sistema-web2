@@ -19784,3 +19784,519 @@ def marcar_etapa_configuracao_competicao(nome_competicao, etapa, salva=True):
     except Exception as e:
         print("AVISO marcar_etapa_configuracao_competicao:", repr(e), flush=True)
         return False
+
+
+# =========================================================
+# JOGO AVULSO / JOGO RÁPIDO - SESSÃO PERSISTENTE DO DIA
+# =========================================================
+_JOGO_AVULSO_SCHEMA_OK = False
+
+
+def _json_dumps_jogo_avulso(payload):
+    return json.dumps(payload or {}, ensure_ascii=False, default=str)
+
+
+def _json_loads_jogo_avulso(valor, padrao=None):
+    if padrao is None:
+        padrao = {}
+    if valor is None:
+        return padrao
+    if isinstance(valor, (dict, list)):
+        return valor
+    try:
+        return json.loads(valor)
+    except Exception:
+        return padrao
+
+
+def garantir_schema_jogo_avulso():
+    """Cria tabelas leves para o Jogo Rápido funcionar no Render.
+
+    O estado continua em cache/socket durante o jogo, mas uma cópia persistente
+    fica no banco. Assim o jogo não expira quando o Render reinicia ou quando o
+    celular abre outra sessão.
+    """
+    global _JOGO_AVULSO_SCHEMA_OK
+    if _JOGO_AVULSO_SCHEMA_OK:
+        return True
+
+    with _SCHEMA_LOCK:
+        if _JOGO_AVULSO_SCHEMA_OK:
+            return True
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS jogo_avulso_sessoes (
+                            id SERIAL PRIMARY KEY,
+                            cpf_apontador TEXT NOT NULL,
+                            dia DATE NOT NULL,
+                            pin TEXT NOT NULL,
+                            status TEXT DEFAULT 'ativa',
+                            memoria_json JSONB DEFAULT '{}'::jsonb,
+                            jogo_atual TEXT DEFAULT '',
+                            criado_em TIMESTAMP DEFAULT NOW(),
+                            atualizado_em TIMESTAMP DEFAULT NOW(),
+                            encerrado_em TIMESTAMP
+                        )
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_jogo_avulso_sessoes_cpf_dia
+                        ON jogo_avulso_sessoes (cpf_apontador, dia, status)
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_jogo_avulso_sessoes_pin
+                        ON jogo_avulso_sessoes (pin, status)
+                    """)
+                    cur.execute("""
+                        CREATE UNIQUE INDEX IF NOT EXISTS ux_jogo_avulso_sessao_ativa_dia
+                        ON jogo_avulso_sessoes (cpf_apontador, dia)
+                        WHERE status = 'ativa'
+                    """)
+
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS jogo_avulso_partidas (
+                            codigo TEXT PRIMARY KEY,
+                            sessao_id INTEGER REFERENCES jogo_avulso_sessoes(id) ON DELETE SET NULL,
+                            cpf_apontador TEXT NOT NULL,
+                            pin TEXT NOT NULL,
+                            estado_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            status TEXT DEFAULT 'papeleta',
+                            equipe_a TEXT DEFAULT '',
+                            equipe_b TEXT DEFAULT '',
+                            criado_em TIMESTAMP DEFAULT NOW(),
+                            atualizado_em TIMESTAMP DEFAULT NOW(),
+                            finalizada_em TIMESTAMP
+                        )
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_jogo_avulso_partidas_pin_status
+                        ON jogo_avulso_partidas (pin, status, atualizado_em DESC)
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_jogo_avulso_partidas_cpf_status
+                        ON jogo_avulso_partidas (cpf_apontador, status, atualizado_em DESC)
+                    """)
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_jogo_avulso_partidas_sessao
+                        ON jogo_avulso_partidas (sessao_id, atualizado_em DESC)
+                    """)
+
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS jogo_avulso_equipes_memoria (
+                            sessao_id INTEGER NOT NULL REFERENCES jogo_avulso_sessoes(id) ON DELETE CASCADE,
+                            nome_equipe TEXT NOT NULL,
+                            numeros_json JSONB DEFAULT '[]'::jsonb,
+                            jogos INTEGER DEFAULT 0,
+                            atualizado_em TIMESTAMP DEFAULT NOW(),
+                            PRIMARY KEY (sessao_id, nome_equipe)
+                        )
+                    """)
+                conn.commit()
+            _JOGO_AVULSO_SCHEMA_OK = True
+            return True
+        except Exception as e:
+            print("AVISO garantir_schema_jogo_avulso:", repr(e), flush=True)
+            return False
+
+
+def _jogo_avulso_pin_unico(cur):
+    for _ in range(160):
+        pin = str(random.randint(1000, 9999))
+        cur.execute("""
+            SELECT 1
+            FROM jogo_avulso_sessoes
+            WHERE pin = %s
+              AND status = 'ativa'
+            LIMIT 1
+        """, (pin,))
+        if not cur.fetchone():
+            return pin
+    return str(random.randint(1000, 9999))
+
+
+def _linha_sessao_jogo_avulso_para_dict(row):
+    if not row:
+        return None
+    memoria = _json_loads_jogo_avulso(row.get("memoria_json"), {})
+    if not isinstance(memoria, dict):
+        memoria = {}
+    memoria.setdefault("equipes", {})
+    return {
+        "id": row.get("id"),
+        "dia": str(row.get("dia") or ""),
+        "cpf": row.get("cpf_apontador") or "",
+        "pin": str(row.get("pin") or ""),
+        "status": row.get("status") or "ativa",
+        "equipes": memoria.get("equipes") or {},
+        "jogos": memoria.get("jogos") or [],
+        "jogo_atual": row.get("jogo_atual") or memoria.get("jogo_atual") or "",
+        "criado_em": str(row.get("criado_em") or ""),
+        "atualizado_em": str(row.get("atualizado_em") or ""),
+    }
+
+
+def obter_sessao_jogo_avulso_dia(cpf_apontador, criar=True):
+    cpf_apontador = str(cpf_apontador or "").strip()
+    if not cpf_apontador:
+        return None
+    garantir_schema_jogo_avulso()
+    hoje_sql = datetime.now().date()
+
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT *
+                    FROM jogo_avulso_sessoes
+                    WHERE cpf_apontador = %s
+                      AND dia = %s
+                      AND status = 'ativa'
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (cpf_apontador, hoje_sql))
+                row = cur.fetchone()
+
+                if not row and criar:
+                    pin = _jogo_avulso_pin_unico(cur)
+                    memoria = {"equipes": {}, "jogos": [], "jogo_atual": ""}
+                    cur.execute("""
+                        INSERT INTO jogo_avulso_sessoes
+                            (cpf_apontador, dia, pin, status, memoria_json, jogo_atual, criado_em, atualizado_em)
+                        VALUES (%s, %s, %s, 'ativa', %s::jsonb, '', NOW(), NOW())
+                        RETURNING *
+                    """, (cpf_apontador, hoje_sql, pin, _json_dumps_jogo_avulso(memoria)))
+                    row = cur.fetchone()
+                    conn.commit()
+
+                sess = _linha_sessao_jogo_avulso_para_dict(row)
+                if sess:
+                    # Completa jogos a partir da tabela de partidas para não depender só do JSON.
+                    try:
+                        cur.execute("""
+                            SELECT codigo, equipe_a, equipe_b, status, atualizado_em
+                            FROM jogo_avulso_partidas
+                            WHERE sessao_id = %s
+                            ORDER BY atualizado_em DESC
+                            LIMIT 120
+                        """, (sess.get("id"),))
+                        jogos = []
+                        for j in cur.fetchall() or []:
+                            jogos.append({
+                                "codigo": j.get("codigo"),
+                                "equipe_a": j.get("equipe_a") or "Equipe A",
+                                "equipe_b": j.get("equipe_b") or "Equipe B",
+                                "status": j.get("status") or "",
+                                "atualizado_em": str(j.get("atualizado_em") or ""),
+                            })
+                        if jogos:
+                            sess["jogos"] = jogos
+                    except Exception:
+                        pass
+                return sess
+    except Exception as e:
+        print("AVISO obter_sessao_jogo_avulso_dia:", repr(e), flush=True)
+        return None
+
+
+def salvar_sessao_jogo_avulso_dia(cpf_apontador, sessao):
+    cpf_apontador = str(cpf_apontador or "").strip()
+    if not cpf_apontador or not isinstance(sessao, dict):
+        return False
+    garantir_schema_jogo_avulso()
+    try:
+        atual = obter_sessao_jogo_avulso_dia(cpf_apontador, criar=True) or {}
+        sessao_id = sessao.get("id") or atual.get("id")
+        pin = str(sessao.get("pin") or atual.get("pin") or "").strip()
+        memoria = {
+            "equipes": sessao.get("equipes") or {},
+            "jogos": sessao.get("jogos") or [],
+            "jogo_atual": sessao.get("jogo_atual") or "",
+        }
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE jogo_avulso_sessoes
+                    SET pin = COALESCE(NULLIF(%s, ''), pin),
+                        memoria_json = %s::jsonb,
+                        jogo_atual = %s,
+                        atualizado_em = NOW()
+                    WHERE id = %s
+                """, (pin, _json_dumps_jogo_avulso(memoria), memoria.get("jogo_atual") or "", sessao_id))
+            conn.commit()
+        return True
+    except Exception as e:
+        print("AVISO salvar_sessao_jogo_avulso_dia:", repr(e), flush=True)
+        return False
+
+
+def _status_jogo_avulso_finalizado(status):
+    return str(status or "").strip().lower() in {"finalizada", "finalizado", "encerrada", "encerrado"}
+
+
+def salvar_partida_jogo_avulso(codigo, cpf_apontador, estado):
+    codigo = str(codigo or "").strip().upper()
+    cpf_apontador = str(cpf_apontador or "").strip()
+    estado = estado or {}
+    if not codigo or not cpf_apontador:
+        return False
+    garantir_schema_jogo_avulso()
+    try:
+        sess = obter_sessao_jogo_avulso_dia(cpf_apontador, criar=True) or {}
+        sessao_id = sess.get("id")
+        pin = str(estado.get("pin_arbitragem") or sess.get("pin") or "").strip()
+        status = str(estado.get("status_jogo") or estado.get("fase_partida") or "papeleta").strip() or "papeleta"
+        equipe_a = str(estado.get("equipe_a") or "Equipe A")[:80]
+        equipe_b = str(estado.get("equipe_b") or "Equipe B")[:80]
+        finalizada = _status_jogo_avulso_finalizado(status)
+        payload = _json_dumps_jogo_avulso(estado)
+
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO jogo_avulso_partidas
+                        (codigo, sessao_id, cpf_apontador, pin, estado_json, status, equipe_a, equipe_b, criado_em, atualizado_em, finalizada_em)
+                    VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, NOW(), NOW(), CASE WHEN %s THEN NOW() ELSE NULL END)
+                    ON CONFLICT (codigo)
+                    DO UPDATE SET
+                        sessao_id = EXCLUDED.sessao_id,
+                        cpf_apontador = EXCLUDED.cpf_apontador,
+                        pin = EXCLUDED.pin,
+                        estado_json = EXCLUDED.estado_json,
+                        status = EXCLUDED.status,
+                        equipe_a = EXCLUDED.equipe_a,
+                        equipe_b = EXCLUDED.equipe_b,
+                        atualizado_em = NOW(),
+                        finalizada_em = CASE WHEN %s THEN COALESCE(jogo_avulso_partidas.finalizada_em, NOW()) ELSE jogo_avulso_partidas.finalizada_em END
+                """, (codigo, sessao_id, cpf_apontador, pin, payload, status, equipe_a, equipe_b, finalizada, finalizada))
+                if sessao_id:
+                    cur.execute("""
+                        UPDATE jogo_avulso_sessoes
+                        SET jogo_atual = %s,
+                            atualizado_em = NOW()
+                        WHERE id = %s
+                    """, (codigo, sessao_id))
+            conn.commit()
+        return True
+    except Exception as e:
+        print("AVISO salvar_partida_jogo_avulso:", repr(e), flush=True)
+        return False
+
+
+def buscar_partida_jogo_avulso(codigo):
+    codigo = str(codigo or "").strip().upper()
+    if not codigo:
+        return None
+    garantir_schema_jogo_avulso()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT p.*, s.dia, s.status AS status_sessao
+                    FROM jogo_avulso_partidas p
+                    LEFT JOIN jogo_avulso_sessoes s ON s.id = p.sessao_id
+                    WHERE p.codigo = %s
+                    LIMIT 1
+                """, (codigo,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                estado = _json_loads_jogo_avulso(row.get("estado_json"), {})
+                if not isinstance(estado, dict):
+                    estado = {}
+                return {
+                    "codigo": row.get("codigo") or codigo,
+                    "estado": estado,
+                    "criado_em": row.get("criado_em"),
+                    "apontador": row.get("cpf_apontador") or "",
+                    "pin": row.get("pin") or "",
+                    "status": row.get("status") or "",
+                }
+    except Exception as e:
+        print("AVISO buscar_partida_jogo_avulso:", repr(e), flush=True)
+        return None
+
+
+def buscar_jogo_avulso_ativo_apontador(cpf_apontador):
+    cpf_apontador = str(cpf_apontador or "").strip()
+    if not cpf_apontador:
+        return None
+    garantir_schema_jogo_avulso()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT *
+                    FROM jogo_avulso_partidas
+                    WHERE cpf_apontador = %s
+                      AND LOWER(COALESCE(status, '')) NOT IN ('finalizada', 'finalizado', 'encerrada', 'encerrado')
+                    ORDER BY atualizado_em DESC
+                    LIMIT 1
+                """, (cpf_apontador,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                estado = _json_loads_jogo_avulso(row.get("estado_json"), {})
+                return {"codigo": row.get("codigo"), "estado": estado}
+    except Exception as e:
+        print("AVISO buscar_jogo_avulso_ativo_apontador:", repr(e), flush=True)
+        return None
+
+
+def buscar_partida_jogo_avulso_por_pin(pin):
+    pin = "".join(ch for ch in str(pin or "") if ch.isdigit())
+    if len(pin) != 4:
+        return None
+    garantir_schema_jogo_avulso()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                # Primeiro tenta jogo não finalizado do PIN.
+                cur.execute("""
+                    SELECT *
+                    FROM jogo_avulso_partidas
+                    WHERE pin = %s
+                      AND LOWER(COALESCE(status, '')) NOT IN ('finalizada', 'finalizado', 'encerrada', 'encerrado')
+                    ORDER BY atualizado_em DESC
+                    LIMIT 1
+                """, (pin,))
+                row = cur.fetchone()
+
+                # Se não houver jogo ativo, pega o último jogo da sessão ativa para manter o PIN válido.
+                if not row:
+                    cur.execute("""
+                        SELECT p.*
+                        FROM jogo_avulso_sessoes s
+                        LEFT JOIN jogo_avulso_partidas p ON p.sessao_id = s.id
+                        WHERE s.pin = %s
+                          AND s.status = 'ativa'
+                        ORDER BY p.atualizado_em DESC NULLS LAST
+                        LIMIT 1
+                    """, (pin,))
+                    row = cur.fetchone()
+
+                if not row or not row.get("codigo"):
+                    # Sessão existe, mas ainda não tem jogo.
+                    cur.execute("""
+                        SELECT *
+                        FROM jogo_avulso_sessoes
+                        WHERE pin = %s
+                          AND status = 'ativa'
+                        ORDER BY atualizado_em DESC
+                        LIMIT 1
+                    """, (pin,))
+                    sess = cur.fetchone()
+                    if sess:
+                        return {
+                            "codigo": "",
+                            "pin": pin,
+                            "tipo": "avulso",
+                            "status_jogo": "aguardando",
+                            "equipe_a": "Equipe A",
+                            "equipe_b": "Equipe B",
+                        }
+                    return None
+
+                estado = _json_loads_jogo_avulso(row.get("estado_json"), {})
+                return {
+                    "codigo": row.get("codigo"),
+                    "pin": pin,
+                    "tipo": "avulso",
+                    "equipe_a": estado.get("equipe_a") or row.get("equipe_a") or "Equipe A",
+                    "equipe_b": estado.get("equipe_b") or row.get("equipe_b") or "Equipe B",
+                    "status_jogo": estado.get("status_jogo") or row.get("status") or "",
+                    "estado": estado,
+                }
+    except Exception as e:
+        print("AVISO buscar_partida_jogo_avulso_por_pin:", repr(e), flush=True)
+        return None
+
+
+def registrar_memoria_jogo_avulso_estado(estado):
+    estado = estado or {}
+    cpf = str(estado.get("apontador") or "").strip()
+    if not cpf:
+        return False
+    sess = obter_sessao_jogo_avulso_dia(cpf, criar=True)
+    if not sess:
+        return False
+
+    def _normalizar_nome(nome):
+        return " ".join(str(nome or "").strip().split())[:60]
+
+    def _nums_lado(lado):
+        nums = []
+        for chave in (f"rotacao_{lado.lower()}", f"banco_{lado.lower()}", f"numeros_{lado.lower()}"):
+            valor = estado.get(chave) or []
+            if isinstance(valor, dict):
+                valor = list(valor.values())
+            for item in valor:
+                if isinstance(item, dict):
+                    item = item.get("numero") or item.get("camisa") or item.get("numero_camisa") or ""
+                txt = str(item or "").strip()
+                if txt.isdigit() and txt not in nums:
+                    nums.append(txt)
+        return sorted(nums, key=lambda x: int(x))
+
+    equipes = sess.get("equipes") or {}
+    for lado in ("A", "B"):
+        nome = _normalizar_nome(estado.get("equipe_a") if lado == "A" else estado.get("equipe_b"))
+        if not nome or nome.lower() in {"equipe a", "equipe b"}:
+            continue
+        item = equipes.get(nome) or {"nome": nome, "numeros": [], "jogos": 0}
+        nums = [str(n) for n in item.get("numeros", []) if str(n).isdigit()] + _nums_lado(lado)
+        item["numeros"] = sorted(set(nums), key=lambda x: int(x))
+        item["atualizado_em"] = datetime.now().isoformat()
+        equipes[nome] = item
+
+    codigo = str(estado.get("codigo") or "").strip().upper()
+    jogos = list(sess.get("jogos") or [])
+    if codigo:
+        sess["jogo_atual"] = codigo
+        encontrado = False
+        for j in jogos:
+            if str(j.get("codigo") or "").upper() == codigo:
+                j.update({
+                    "equipe_a": estado.get("equipe_a") or j.get("equipe_a") or "Equipe A",
+                    "equipe_b": estado.get("equipe_b") or j.get("equipe_b") or "Equipe B",
+                    "status": estado.get("status_jogo") or estado.get("fase_partida") or j.get("status") or "",
+                    "atualizado_em": datetime.now().isoformat(),
+                })
+                encontrado = True
+                break
+        if not encontrado:
+            jogos.insert(0, {
+                "codigo": codigo,
+                "equipe_a": estado.get("equipe_a") or "Equipe A",
+                "equipe_b": estado.get("equipe_b") or "Equipe B",
+                "status": estado.get("status_jogo") or estado.get("fase_partida") or "",
+                "criado_em": datetime.now().isoformat(),
+            })
+        sess["jogos"] = jogos[:120]
+
+    sess["equipes"] = equipes
+    return salvar_sessao_jogo_avulso_dia(cpf, sess)
+
+
+def encerrar_sessao_jogo_avulso(cpf_apontador):
+    cpf_apontador = str(cpf_apontador or "").strip()
+    if not cpf_apontador:
+        return False
+    garantir_schema_jogo_avulso()
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE jogo_avulso_sessoes
+                    SET status = 'encerrada',
+                        encerrado_em = NOW(),
+                        atualizado_em = NOW()
+                    WHERE cpf_apontador = %s
+                      AND dia = %s
+                      AND status = 'ativa'
+                """, (cpf_apontador, datetime.now().date()))
+            conn.commit()
+        return True
+    except Exception as e:
+        print("AVISO encerrar_sessao_jogo_avulso:", repr(e), flush=True)
+        return False
