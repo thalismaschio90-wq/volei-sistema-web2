@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
-from routes.utils import exigir_perfil, login_obrigatorio
+from routes.utils import exigir_perfil
 
 try:
     from socket_events import emitir_estado_partida, obter_estado_cache, atualizar_estado_cache
@@ -21,10 +21,13 @@ except Exception:
 import time
 import uuid
 import random
+from datetime import datetime
 
 jogo_avulso_bp = Blueprint("jogo_avulso", __name__)
 
 _JOGOS_AVULSOS = {}
+_SESSOES_AVULSAS_DIA = {}
+
 
 
 def _json_no_cache(payload, status=200):
@@ -62,6 +65,147 @@ def _normalizar_int(valor, padrao=0, minimo=None, maximo=None):
         n = min(maximo, n)
     return n
 
+def _dia_hoje_avulso():
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _chave_sessao_avulsa(cpf=None):
+    cpf = str(cpf or _cpf_apontador() or "").strip()
+    return f"{_dia_hoje_avulso()}::{cpf}"
+
+
+def _sessao_avulsa(cpf=None, criar=True):
+    chave = _chave_sessao_avulsa(cpf)
+    sess = _SESSOES_AVULSAS_DIA.get(chave)
+    if not sess and criar:
+        sess = {
+            "dia": _dia_hoje_avulso(),
+            "cpf": str(cpf or _cpf_apontador() or "").strip(),
+            "pin": "",
+            "equipes": {},
+            "jogos": [],
+            "jogo_atual": "",
+            "criado_em": time.time(),
+            "atualizado_em": time.time(),
+        }
+        _SESSOES_AVULSAS_DIA[chave] = sess
+    return sess
+
+
+def _pin_sessao_avulsa(cpf=None):
+    sess = _sessao_avulsa(cpf, criar=True)
+    if not sess.get("pin"):
+        usados = set()
+        for chave, item in _SESSOES_AVULSAS_DIA.items():
+            if chave == _chave_sessao_avulsa(cpf):
+                continue
+            pin = str((item or {}).get("pin") or "").strip()
+            if pin:
+                usados.add(pin)
+        for jogo in _JOGOS_AVULSOS.values():
+            estado = (jogo or {}).get("estado") or {}
+            pin = str(estado.get("pin_arbitragem") or "").strip()
+            if pin:
+                usados.add(pin)
+        for _ in range(120):
+            pin = str(random.randint(1000, 9999))
+            if pin not in usados:
+                sess["pin"] = pin
+                break
+        if not sess.get("pin"):
+            sess["pin"] = str(random.randint(1000, 9999))
+    sess["atualizado_em"] = time.time()
+    return str(sess.get("pin") or "")
+
+
+def _normalizar_nome_memoria(nome):
+    return " ".join(str(nome or "").strip().split())[:60]
+
+
+def _numeros_do_estado_lado(estado, lado):
+    estado = estado or {}
+    lado = "A" if str(lado).upper() == "A" else "B"
+    nums = []
+    for chave in (f"rotacao_{lado.lower()}", f"banco_{lado.lower()}", f"numeros_{lado.lower()}"):
+        valor = estado.get(chave) or []
+        if isinstance(valor, dict):
+            valor = list(valor.values())
+        for item in valor:
+            if isinstance(item, dict):
+                item = item.get("numero") or item.get("camisa") or item.get("numero_camisa") or ""
+            txt = str(item or "").strip()
+            if txt.isdigit() and txt not in nums:
+                nums.append(txt)
+    return sorted(nums, key=lambda x: int(x))
+
+
+def _registrar_memoria_sessao_avulsa(estado):
+    estado = estado or {}
+    cpf = str(estado.get("apontador") or _cpf_apontador() or "").strip()
+    if not cpf:
+        return
+    sess = _sessao_avulsa(cpf, criar=True)
+    pin = str(estado.get("pin_arbitragem") or sess.get("pin") or "").strip()
+    if pin:
+        sess["pin"] = pin
+
+    for lado in ("A", "B"):
+        nome = _normalizar_nome_memoria(estado.get("equipe_a") if lado == "A" else estado.get("equipe_b"))
+        if not nome or nome.lower() in {"equipe a", "equipe b"}:
+            continue
+        atual = sess["equipes"].get(nome) or {"nome": nome, "numeros": [], "jogos": 0, "atualizado_em": time.time()}
+        nums = _numeros_do_estado_lado(estado, lado)
+        atual["numeros"] = sorted(set([str(n) for n in atual.get("numeros", []) if str(n).isdigit()] + nums), key=lambda x: int(x))
+        atual["atualizado_em"] = time.time()
+        sess["equipes"][nome] = atual
+
+    codigo = str(estado.get("codigo") or "").strip().upper()
+    if codigo:
+        sess["jogo_atual"] = codigo
+        ja = any(str(j.get("codigo") or "").upper() == codigo for j in sess.get("jogos", []))
+        if not ja:
+            sess.setdefault("jogos", []).insert(0, {
+                "codigo": codigo,
+                "equipe_a": estado.get("equipe_a") or "Equipe A",
+                "equipe_b": estado.get("equipe_b") or "Equipe B",
+                "status": estado.get("status_jogo") or estado.get("fase_partida") or "",
+                "criado_em": time.time(),
+            })
+            sess["jogos"] = sess["jogos"][:120]
+        else:
+            for j in sess.get("jogos", []):
+                if str(j.get("codigo") or "").upper() == codigo:
+                    j.update({
+                        "equipe_a": estado.get("equipe_a") or j.get("equipe_a") or "Equipe A",
+                        "equipe_b": estado.get("equipe_b") or j.get("equipe_b") or "Equipe B",
+                        "status": estado.get("status_jogo") or estado.get("fase_partida") or j.get("status") or "",
+                        "atualizado_em": time.time(),
+                    })
+                    break
+    sess["atualizado_em"] = time.time()
+
+
+def _memoria_sessao_avulsa(cpf=None):
+    sess = _sessao_avulsa(cpf, criar=True)
+    return {
+        "dia": sess.get("dia") or _dia_hoje_avulso(),
+        "pin": _pin_sessao_avulsa(cpf),
+        "equipes": sess.get("equipes") or {},
+        "jogos": sess.get("jogos") or [],
+        "jogo_atual": sess.get("jogo_atual") or "",
+    }
+
+
+def _numeros_memoria_por_nome(cpf, nome):
+    nome = _normalizar_nome_memoria(nome)
+    if not nome:
+        return []
+    sess = _sessao_avulsa(cpf, criar=True)
+    item = (sess.get("equipes") or {}).get(nome) or {}
+    nums = [str(n) for n in item.get("numeros", []) if str(n).isdigit()]
+    return sorted(set(nums), key=lambda x: int(x))
+
+
 
 def _novo_codigo():
     return f"AV{uuid.uuid4().hex[:8].upper()}"
@@ -91,25 +235,38 @@ def buscar_jogo_avulso_por_pin(pin):
     if len(pin) != 4:
         return None
 
+    candidatos = []
     for codigo, jogo in list(_JOGOS_AVULSOS.items()):
         estado = (jogo or {}).get("estado") or {}
         if str(estado.get("pin_arbitragem") or "") == pin:
-            return {
-                "codigo": codigo,
-                "pin": pin,
-                "equipe_a": estado.get("equipe_a") or "Equipe A",
-                "equipe_b": estado.get("equipe_b") or "Equipe B",
-            }
+            status = str(estado.get("status_jogo") or estado.get("fase_partida") or "").lower()
+            finalizado = status in {"finalizada", "finalizado", "encerrada", "encerrado"}
+            ts = float(estado.get("atualizado_em") or (jogo or {}).get("criado_em") or 0)
+            candidatos.append((finalizado, -ts, codigo, estado))
+
+    if candidatos:
+        candidatos.sort()
+        _, _, codigo, estado = candidatos[0]
+        return {
+            "codigo": str(codigo).upper(),
+            "pin": pin,
+            "tipo": "avulso",
+            "equipe_a": estado.get("equipe_a") or "Equipe A",
+            "equipe_b": estado.get("equipe_b") or "Equipe B",
+            "status_jogo": estado.get("status_jogo") or estado.get("fase_partida") or "",
+        }
+
     return None
 
 
-def _usuario_tem_perfil_arbitro_avulso():
-    return (session.get("perfil") or "").strip().lower() in {"mesario", "arbitro"}
-
-
 def _arbitro_pode_abrir_jogo_avulso(codigo):
+    """Libera a tela pública do árbitro avulso somente após validar o PIN em /arbitro.
+
+    Importante: essa tela NÃO pode exigir login do sistema, porque o fluxo por PIN
+    é público igual ao painel de árbitros da competição.
+    """
     codigo = str(codigo or "").strip().upper()
-    if not _usuario_tem_perfil_arbitro_avulso():
+    if not session.get("arbitro_pin_validado"):
         return False
     if (session.get("arbitro_pin_tipo") or "") != "avulso":
         return False
@@ -149,6 +306,7 @@ def _salvar_estado(codigo, estado):
     })["estado"] = estado
     atualizar_estado_cache(partida_id, estado)
     emitir_estado_partida(partida_id, estado)
+    _registrar_memoria_sessao_avulsa(estado)
     return estado
 
 
@@ -204,6 +362,62 @@ def _ordenar_numeros(lista):
     return sorted(unicos, key=lambda x: int(x))
 
 
+
+
+
+def _buscar_jogo_avulso_ativo_do_apontador(cpf):
+    """Retorna o jogo rápido em andamento/papeleta mais recente do apontador.
+
+    Como o jogo rápido atual fica em memória/cache, essa busca é leve e evita
+    criar outro jogo sem querer quando o apontador já tem um aberto.
+    """
+    cpf = str(cpf or "").strip()
+    if not cpf:
+        return None
+
+    melhor = None
+    for codigo, jogo in list(_JOGOS_AVULSOS.items()):
+        estado = dict((jogo or {}).get("estado") or {})
+        if str(estado.get("apontador") or (jogo or {}).get("apontador") or "").strip() != cpf:
+            continue
+
+        status = str(estado.get("status_jogo") or estado.get("fase_partida") or "").strip().lower()
+        if status in {"finalizada", "finalizado", "encerrada", "encerrado"}:
+            continue
+
+        criado = float((jogo or {}).get("criado_em") or estado.get("atualizado_em") or 0)
+        if melhor is None or criado > melhor[0]:
+            melhor = (criado, str(codigo).upper(), estado)
+
+    if not melhor:
+        return None
+
+    return {"codigo": melhor[1], "estado": melhor[2]}
+
+
+@jogo_avulso_bp.route("/apontador/jogo-avulso")
+@exigir_perfil("apontador")
+def entrada_jogo_avulso():
+    if not _tem_permissao_jogo_avulso():
+        flash("Jogo rápido não liberado para este apontador. Fale com o administrador do sistema.", "erro")
+        return redirect(url_for("apontadores.painel_apontador"))
+
+    jogo = _buscar_jogo_avulso_ativo_do_apontador(_cpf_apontador())
+    if not jogo:
+        return redirect(url_for("jogo_avulso.novo_jogo_avulso"))
+
+    codigo = jogo.get("codigo")
+    estado = jogo.get("estado") or {}
+    fase = str(estado.get("fase_partida") or estado.get("status_jogo") or "").strip().lower()
+
+    if _precisa_sorteio_tiebreak_avulso(estado) and not _sorteio_tiebreak_concluido_avulso(estado):
+        return redirect(url_for("jogo_avulso.tiebreak_jogo_avulso", codigo=codigo))
+
+    if fase in {"jogo", "em_andamento", "ao_vivo"}:
+        return redirect(url_for("jogo_avulso.operacao_jogo_avulso", codigo=codigo))
+
+    return redirect(url_for("jogo_avulso.papeleta_jogo_avulso", codigo=codigo))
+
 @jogo_avulso_bp.route("/apontador/jogo-avulso/novo", methods=["GET", "POST"])
 @exigir_perfil("apontador")
 def novo_jogo_avulso():
@@ -212,7 +426,8 @@ def novo_jogo_avulso():
         return redirect(url_for("apontadores.painel_apontador"))
 
     if request.method == "GET":
-        return render_template("jogo_avulso_novo.html")
+        memoria = _memoria_sessao_avulsa(_cpf_apontador())
+        return render_template("jogo_avulso_novo.html", memoria_dia=memoria, pin_sessao=memoria.get("pin"))
 
     codigo = _novo_codigo()
     sets_tipo = (request.form.get("sets_tipo") or "set_unico").strip()
@@ -235,7 +450,7 @@ def novo_jogo_avulso():
     estado = {
         "ok": True,
         "codigo": codigo,
-        "pin_arbitragem": _novo_pin_arbitragem_avulso(),
+        "pin_arbitragem": _pin_sessao_avulsa(_cpf_apontador()),
         "partida_id": _partida_id(codigo),
         "competicao": "JOGO AVULSO",
         "modo_avulso": True,
@@ -267,8 +482,9 @@ def novo_jogo_avulso():
         "rotacao_b": [],
         "banco_a": [],
         "banco_b": [],
-        "numeros_a": [],
-        "numeros_b": [],
+        "numeros_a": _numeros_memoria_por_nome(_cpf_apontador(), equipe_a),
+        "numeros_b": _numeros_memoria_por_nome(_cpf_apontador(), equipe_b),
+        "memoria_dia": _memoria_sessao_avulsa(_cpf_apontador()),
         "tempos_a": 0,
         "tempos_b": 0,
         "subs_a": 0,
@@ -486,25 +702,37 @@ def telao_jogo_avulso(codigo):
 
 
 @jogo_avulso_bp.route("/arbitro1-avulso/<codigo>")
-@login_obrigatorio
 def arbitro1_jogo_avulso(codigo):
     codigo = str(codigo or "").strip().upper()
     if not _arbitro_pode_abrir_jogo_avulso(codigo):
         flash("Digite o PIN do jogo rápido no painel dos árbitros antes de abrir esta tela.", "erro")
-        return redirect(url_for("painel.painel_arbitros"))
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
     jogo = _buscar_jogo(codigo)
-    return render_template("jogo_avulso_arbitro.html", codigo=codigo, estado=(jogo or {}).get("estado") or {}, arbitro="1º Árbitro")
+    estado = dict((jogo or {}).get("estado") or {})
+    estado.setdefault("codigo", codigo)
+    estado.setdefault("partida_id", _partida_id(codigo))
+    estado.setdefault("competicao", "JOGO AVULSO")
+    estado.setdefault("modo_avulso", True)
+    resposta = make_response(render_template("jogo_avulso_primeiro_arbitro.html", codigo=codigo, estado=estado))
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resposta
 
 
 @jogo_avulso_bp.route("/arbitro2-avulso/<codigo>")
-@login_obrigatorio
 def arbitro2_jogo_avulso(codigo):
     codigo = str(codigo or "").strip().upper()
     if not _arbitro_pode_abrir_jogo_avulso(codigo):
         flash("Digite o PIN do jogo rápido no painel dos árbitros antes de abrir esta tela.", "erro")
-        return redirect(url_for("painel.painel_arbitros"))
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
     jogo = _buscar_jogo(codigo)
-    return render_template("jogo_avulso_arbitro.html", codigo=codigo, estado=(jogo or {}).get("estado") or {}, arbitro="2º Árbitro")
+    estado = dict((jogo or {}).get("estado") or {})
+    estado.setdefault("codigo", codigo)
+    estado.setdefault("partida_id", _partida_id(codigo))
+    estado.setdefault("competicao", "JOGO AVULSO")
+    estado.setdefault("modo_avulso", True)
+    resposta = make_response(render_template("jogo_avulso_segundo_arbitro.html", codigo=codigo, estado=estado))
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resposta
 
 
 @jogo_avulso_bp.route("/apontador/jogo-avulso/<codigo>/estado", methods=["GET", "POST"])
@@ -519,3 +747,12 @@ def estado_jogo_avulso(codigo):
     estado = dados.get("estado") or dados
     estado = _salvar_estado(codigo, estado)
     return _json_no_cache({"ok": True, "estado": estado})
+
+
+@jogo_avulso_bp.route("/apontador/jogo-avulso/memoria-dia")
+@exigir_perfil("apontador")
+def memoria_dia_jogo_avulso():
+    if not _tem_permissao_jogo_avulso():
+        return _json_no_cache({"ok": False, "erro": "sem_permissao"}, 403)
+    return _json_no_cache({"ok": True, "memoria": _memoria_sessao_avulsa(_cpf_apontador())})
+

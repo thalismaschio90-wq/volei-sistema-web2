@@ -13727,8 +13727,108 @@ def redefinir_senha_organizador(login_organizador):
         "senha": nova_senha
     }
 # =========================================================
-# JOGO AVULSO / JOGO RÁPIDO - PERMISSÃO DO APONTADOR
+# JOGO AVULSO / JOGO RÁPIDO - PERMISSÃO DO APONTADOR + TRAVA MASTER
 # =========================================================
+def garantir_tabela_configuracoes_sistema():
+    """Cria a tabela simples de configurações globais do sistema.
+
+    Usada por travas do Master, como o Jogo Rápido global.
+    Mantém JSON em texto para ser compatível com bancos antigos e simples.
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS configuracoes_sistema (
+                    chave TEXT PRIMARY KEY,
+                    valor TEXT NOT NULL DEFAULT '',
+                    atualizado_por TEXT,
+                    atualizado_em TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        conn.commit()
+
+
+def obter_configuracao_sistema(chave, padrao=None):
+    chave = str(chave or "").strip()
+    if not chave:
+        return padrao
+
+    try:
+        garantir_tabela_configuracoes_sistema()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT valor
+                    FROM configuracoes_sistema
+                    WHERE chave = %s
+                    LIMIT 1
+                """, (chave,))
+                row = cur.fetchone()
+                if not row:
+                    return padrao
+                try:
+                    return row.get("valor")
+                except Exception:
+                    return row[0]
+    except Exception as e:
+        print("AVISO obter_configuracao_sistema:", repr(e), flush=True)
+        return padrao
+
+
+def salvar_configuracao_sistema(chave, valor, atualizado_por=None):
+    chave = str(chave or "").strip()
+    if not chave:
+        return False
+
+    garantir_tabela_configuracoes_sistema()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO configuracoes_sistema (chave, valor, atualizado_por, atualizado_em)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (chave)
+                DO UPDATE SET
+                    valor = EXCLUDED.valor,
+                    atualizado_por = EXCLUDED.atualizado_por,
+                    atualizado_em = NOW()
+            """, (chave, str(valor), atualizado_por))
+        conn.commit()
+    return True
+
+
+def _config_bool(valor, padrao=False):
+    if valor is None:
+        return bool(padrao)
+    if isinstance(valor, bool):
+        return valor
+    txt = str(valor).strip().lower()
+    if txt in {"1", "true", "sim", "s", "yes", "on", "liberado", "liberada"}:
+        return True
+    if txt in {"0", "false", "nao", "não", "n", "no", "off", "bloqueado", "bloqueada"}:
+        return False
+    return bool(padrao)
+
+
+def jogo_rapido_global_habilitado():
+    """Trava global do Master para liberar/bloquear o Jogo Rápido.
+
+    Importante:
+    - se a configuração global ainda não existir no banco, considera LIBERADO;
+    - quem decide se o apontador pode usar continua sendo a permissão individual
+      em apontadores_acesso.pode_criar_jogo_avulso;
+    - se o Master desligar a trava global no painel, aí bloqueia para todos.
+
+    Isso evita o erro onde o apontador aparece como "Liberado" na tela de
+    apontadores, mas o jogo rápido fica bloqueado porque a config global ainda
+    não tinha sido criada.
+    """
+    return _config_bool(obter_configuracao_sistema("jogo_rapido_global_habilitado", "1"), True)
+
+
+def definir_jogo_rapido_global_habilitado(liberado, atualizado_por=None):
+    return salvar_configuracao_sistema("jogo_rapido_global_habilitado", "1" if liberado else "0", atualizado_por)
+
+
 def garantir_coluna_jogo_avulso_apontador():
     """Cria a coluna de permissão do jogo rápido no cadastro de apontadores."""
     with conectar() as conn:
@@ -13740,8 +13840,8 @@ def garantir_coluna_jogo_avulso_apontador():
         conn.commit()
 
 
-def apontador_pode_criar_jogo_avulso(cpf):
-    """Retorna True quando o Super ADM liberou o modo Jogo Rápido para o apontador."""
+def apontador_tem_permissao_jogo_avulso_individual(cpf):
+    """Retorna somente a permissão individual salva no cadastro do apontador."""
     if not cpf:
         return False
 
@@ -13764,6 +13864,22 @@ def apontador_pode_criar_jogo_avulso(cpf):
                     return bool(row.get("pode"))
                 except Exception:
                     return bool(row[0])
+    except Exception as e:
+        print("ERRO apontador_tem_permissao_jogo_avulso_individual:", e, flush=True)
+        return False
+
+
+def apontador_pode_criar_jogo_avulso(cpf):
+    """Permissão efetiva do Jogo Rápido.
+
+    Só retorna True quando:
+    1) o Master liberou globalmente;
+    2) o apontador também possui permissão individual.
+    """
+    try:
+        if not jogo_rapido_global_habilitado():
+            return False
+        return apontador_tem_permissao_jogo_avulso_individual(cpf)
     except Exception as e:
         print("ERRO apontador_pode_criar_jogo_avulso:", e, flush=True)
         return False

@@ -28,6 +28,9 @@ from banco import (
     buscar_competicao_por_organizador,
     garantir_schema_fluxo_configuracao_competicoes,
     status_configuracao_inicial_competicao,
+    apontador_pode_criar_jogo_avulso,
+    jogo_rapido_global_habilitado,
+    definir_jogo_rapido_global_habilitado,
 )
 from routes.utils import login_obrigatorio
 
@@ -405,30 +408,32 @@ def inicio():
     elif perfil == "apontador":
 
         cpf = session.get("usuario")
-
         competicoes = _listar_competicoes_apontador_cache(cpf)
+
+        try:
+            pode_jogo_avulso = bool(apontador_pode_criar_jogo_avulso(cpf))
+        except Exception:
+            pode_jogo_avulso = False
 
         if not competicoes:
             return render_template(
                 "painel_apontador.html",
                 competicoes=[],
+                pode_jogo_avulso=pode_jogo_avulso,
                 mensagem="Você não está vinculado a nenhuma competição ativa."
             )
 
         if len(competicoes) == 1:
-
-            session["competicao_atual"] = competicoes[0]["competicao"]
-
-            return redirect(
-                url_for(
-                    "apontadores.entrar_competicao_apontador",
-                    competicao=competicoes[0]["competicao"]
-                )
+            return render_template(
+                "painel_apontador.html",
+                competicao_unica=competicoes[0],
+                pode_jogo_avulso=pode_jogo_avulso,
             )
 
         return render_template(
             "painel_apontador.html",
-            competicoes=competicoes
+            competicoes=competicoes,
+            pode_jogo_avulso=pode_jogo_avulso,
         )
 
     # =========================
@@ -789,6 +794,70 @@ def alterar_senha_minha_conta():
     flash("Senha alterada com sucesso!", "sucesso")
     return redirect(url_for("painel.minha_conta"))
 
+
+
+
+# =========================================================
+# SUPERADM MASTER - CONFIGURAÇÃO GLOBAL DO JOGO RÁPIDO
+# =========================================================
+def _exigir_superadmin_master_json():
+    if _perfil_normalizado() != "superadmin":
+        return False, (jsonify({"ok": False, "erro": "Sem permissão."}), 403)
+
+    login = session.get("usuario")
+    try:
+        if not superadmin_eh_master(login):
+            return False, (jsonify({"ok": False, "erro": "Apenas o SuperADM master pode alterar esta configuração."}), 403)
+    except Exception:
+        return False, (jsonify({"ok": False, "erro": "Não foi possível validar o SuperADM master."}), 500)
+
+    return True, None
+
+
+@painel_bp.route("/superadmin/config/jogo-rapido", methods=["GET"])
+@login_obrigatorio
+def config_jogo_rapido_global_get():
+    ok, erro = _exigir_superadmin_master_json()
+    if not ok:
+        return erro
+
+    try:
+        liberado = bool(jogo_rapido_global_habilitado())
+        return jsonify({
+            "ok": True,
+            "jogo_rapido_liberado": liberado,
+            "jogo_rapido_global_habilitado": liberado,
+        })
+    except Exception as e:
+        print("ERRO config_jogo_rapido_global_get:", repr(e), flush=True)
+        return jsonify({"ok": False, "erro": "Erro ao carregar configuração do Jogo Rápido."}), 500
+
+
+@painel_bp.route("/superadmin/config/jogo-rapido", methods=["POST"])
+@login_obrigatorio
+def config_jogo_rapido_global_post():
+    ok, erro = _exigir_superadmin_master_json()
+    if not ok:
+        return erro
+
+    dados = request.get_json(silent=True) or {}
+    liberado = bool(
+        dados.get("jogo_rapido_liberado")
+        if "jogo_rapido_liberado" in dados
+        else dados.get("jogo_rapido_global_habilitado")
+    )
+
+    try:
+        definir_jogo_rapido_global_habilitado(liberado, atualizado_por=session.get("usuario"))
+        _cache_delete_prefix(("competicoes_apontador",))
+        return jsonify({
+            "ok": True,
+            "jogo_rapido_liberado": liberado,
+            "jogo_rapido_global_habilitado": liberado,
+        })
+    except Exception as e:
+        print("ERRO config_jogo_rapido_global_post:", repr(e), flush=True)
+        return jsonify({"ok": False, "erro": "Erro ao salvar configuração do Jogo Rápido."}), 500
 
 # =========================================================
 # SUPERADM MASTER - CLIENTES / SUPERADMS ABAIXO DO THALISADM

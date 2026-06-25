@@ -1,53 +1,87 @@
 {% extends "base.html" %}
-
-{% block titulo %}Criar jogo rápido{% endblock %}
-
+{% block titulo %}Novo jogo rápido{% endblock %}
 {% block conteudo %}
 <style>
-.av-card{max-width:980px;margin:0 auto;background:#fff;border:1px solid var(--border);border-radius:24px;box-shadow:var(--shadow);padding:22px}.av-hero{background:linear-gradient(135deg,#0f766e,#0b2740);color:#fff;border-radius:22px;padding:22px;margin-bottom:16px}.av-hero h2{margin:0;font-size:32px;font-weight:1000}.av-hero p{margin:8px 0 0;color:rgba(255,255,255,.82);font-weight:700}.av-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.av-field label{display:block;font-weight:900;margin-bottom:6px;color:#111827}.av-field input,.av-field select{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:12px;font-weight:800;font-size:15px}.modo-box{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}.modo-card{border:2px solid #dbe3ef;border-radius:16px;padding:14px;cursor:pointer;background:#f8fafc}.modo-card input{margin-right:8px}.modo-card strong{font-size:16px}.modo-card small{display:block;color:#64748b;font-weight:800;margin-top:5px}.modo-card:has(input:checked){border-color:#16a34a;background:#ecfdf5}.av-actions{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}.av-primary{border:0;border-radius:12px;padding:13px 18px;background:#16a34a;color:#fff;font-weight:1000;cursor:pointer}.av-secondary{border:1px solid #dbe3ef;border-radius:12px;padding:13px 18px;background:#fff;color:#0f172a;font-weight:900;text-decoration:none}.av-note{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:14px;margin-top:14px;color:#475569;font-weight:700}@media(max-width:760px){.av-grid,.modo-box{grid-template-columns:1fr}}
+header,nav,.topbar,.navbar{display:none!important}.jr-wrap{min-height:100vh;background:linear-gradient(180deg,#f8fbff,#eef4fb);padding:24px}.jr-card{max-width:980px;margin:0 auto;background:#fff;border:1px solid #dbe3ef;border-radius:26px;box-shadow:0 18px 45px rgba(17,41,65,.12);padding:22px}.jr-top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:18px}.jr-title{font-size:30px;font-weight:1000;color:#0f2f4a}.jr-sub{color:#64748b;font-weight:800;margin-top:4px}.jr-pin{background:#ecfdf5;border:1px solid #86efac;color:#064e3b;border-radius:18px;padding:12px 14px;font-weight:1000}.jr-pin b{font-size:26px;letter-spacing:4px;background:#123852;color:#fff;border-radius:999px;padding:6px 12px;margin-left:8px}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{margin-bottom:14px}.field label{display:block;font-weight:1000;color:#0f2f4a;margin-bottom:6px}.field input,.field select{width:100%;border:1px solid #cbd5e1;border-radius:14px;padding:13px;font-weight:900;font-size:16px;background:#f8fafc}.hint{font-size:13px;color:#64748b;font-weight:800;margin-top:5px}.nums{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;min-height:30px}.num-chip{border:1px solid #cbd5e1;background:#f8fafc;border-radius:999px;padding:6px 10px;font-weight:1000;color:#123852}.box{border:1px solid #e2e8f0;background:#f8fafc;border-radius:18px;padding:14px;margin:12px 0}.box h3{margin:0 0 10px;color:#0f2f4a}.equipes-dia{display:flex;gap:8px;flex-wrap:wrap}.eq-chip{border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:999px;padding:8px 12px;font-weight:1000;cursor:pointer}.acoes{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:18px}.btn{border:1px solid #dbe3ef;border-radius:14px;padding:13px 16px;background:#fff;color:#0f172a;font-weight:1000;cursor:pointer;text-decoration:none}.btn-blue{background:#123852;color:#fff;border:0}.btn-green{background:#16a34a;color:#fff;border:0}@media(max-width:760px){.jr-wrap{padding:12px}.grid2{grid-template-columns:1fr}.jr-title{font-size:24px}.jr-pin b{display:inline-block;margin-top:6px;margin-left:0}}
 </style>
-
-<div class="topo-secao"><div class="titulo-secao">Criar jogo rápido</div></div>
-
-<div class="av-card">
-    <div class="av-hero">
-        <h2>⚡ Jogo Avulso</h2>
-        <p>Partida temporária, sem competição, sem cadastro de atletas e com operação por números.</p>
+{% set mem = memoria_dia if memoria_dia is defined and memoria_dia else {} %}
+<div class="jr-wrap">
+  <form class="jr-card" method="post" action="{{ url_for('jogo_avulso.novo_jogo_avulso') }}">
+    <div class="jr-top">
+      <div>
+        <div class="jr-title">Novo jogo rápido</div>
+        <div class="jr-sub">Sessão diária do apontador. O PIN permanece o mesmo durante o dia.</div>
+      </div>
+      <div class="jr-pin">PIN do dia:<b id="pinDia">{{ pin_sessao or mem.get('pin') or '----' }}</b></div>
     </div>
 
-    <form method="post" id="form-avulso">
-        <h3>Modo do jogo</h3>
-        <div class="modo-box">
-            <label class="modo-card">
-                <input type="radio" name="modo_operacao" value="simples" checked>
-                <strong>Simples</strong>
-                <small>Marca ponto direto. Scout opcional e rápido.</small>
-            </label>
-            <label class="modo-card">
-                <input type="radio" name="modo_operacao" value="avancado">
-                <strong>Avançado com scout</strong>
-                <small>Ao marcar ponto, abre o scout obrigatório por número.</small>
-            </label>
-        </div>
+    <div class="box">
+      <h3>Equipes usadas hoje</h3>
+      <div id="equipesDia" class="equipes-dia"></div>
+      <div class="hint">Clique em uma equipe para preencher rapidamente. Os números usados antes aparecem como sugestão para a papeleta.</div>
+    </div>
 
-        <div class="av-grid">
-            <div class="av-field"><label>Equipe A</label><input name="equipe_a" maxlength="60" required placeholder="Ex: Galácticas"></div>
-            <div class="av-field"><label>Equipe B</label><input name="equipe_b" maxlength="60" required placeholder="Ex: IESA"></div>
-            <div class="av-field"><label>Formato</label><select name="sets_tipo"><option value="set_unico">Set único</option><option value="melhor_de_3" selected>Melhor de 3</option><option value="melhor_de_5">Melhor de 5</option></select></div>
-            <div class="av-field"><label>Pontos do set</label><input name="pontos_set" type="number" min="1" max="99" value="21" required></div>
-            <div class="av-field"><label>Pontos do tie-break</label><input name="pontos_tiebreak" type="number" min="1" max="99" value="15" required></div>
-            <div class="av-field"><label>Diferença mínima</label><input name="diferenca_minima" type="number" min="1" max="20" value="2" required></div>
-            <div class="av-field"><label>Tempos por set</label><input name="tempos_por_set" type="number" min="0" max="9" value="2" required></div>
-            <div class="av-field"><label>Substituições por set</label><input name="substituicoes_por_set" type="number" min="0" max="30" value="6" required></div>
-            <div class="av-field"><label>Saque inicial</label><select name="saque_inicial"><option value="A">Equipe A</option><option value="B">Equipe B</option></select></div>
-        </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Equipe A</label>
+        <input id="equipeA" name="equipe_a" list="listaEquipes" autocomplete="off" placeholder="Nome da equipe A" required>
+        <div id="numsA" class="nums"></div>
+      </div>
+      <div class="field">
+        <label>Equipe B</label>
+        <input id="equipeB" name="equipe_b" list="listaEquipes" autocomplete="off" placeholder="Nome da equipe B" required>
+        <div id="numsB" class="nums"></div>
+      </div>
+    </div>
+    <datalist id="listaEquipes"></datalist>
 
-        <div class="av-note">No melhor de 3 ou 5, cada set volta para a papeleta. No tie-break, o sistema pergunta quem vai sacar.</div>
+    <div class="grid2">
+      <div class="field"><label>Formato</label><select name="sets_tipo"><option value="set_unico">Set único</option><option value="melhor_de_3">Melhor de 3</option><option value="melhor_de_5">Melhor de 5</option></select></div>
+      <div class="field"><label>Modo</label><select name="modo_operacao"><option value="simples">Simples</option><option value="avancado">Avançado / scout</option></select></div>
+      <div class="field"><label>Pontos do set</label><input name="pontos_set" type="number" min="1" max="99" value="21"></div>
+      <div class="field"><label>Pontos do tie-break</label><input name="pontos_tiebreak" type="number" min="1" max="99" value="15"></div>
+      <div class="field"><label>Diferença mínima</label><input name="diferenca_minima" type="number" min="1" max="20" value="2"></div>
+      <div class="field"><label>Saque inicial</label><select name="saque_inicial"><option value="A">Equipe A</option><option value="B">Equipe B</option></select></div>
+      <div class="field"><label>Tempos por set</label><input name="tempos_por_set" type="number" min="0" max="9" value="2"></div>
+      <div class="field"><label>Substituições por set</label><input name="substituicoes_por_set" type="number" min="0" max="30" value="6"></div>
+    </div>
 
-        <div class="av-actions">
-            <a class="av-secondary" href="{{ url_for('apontadores.painel_apontador') }}">Voltar</a>
-            <button class="av-primary" type="submit">Continuar para papeleta</button>
-        </div>
-    </form>
+    <div class="acoes">
+      <a class="btn" href="{{ url_for('apontadores.painel_apontador') }}">Voltar</a>
+      <button class="btn btn-green" type="submit">Criar jogo e ir para papeleta</button>
+    </div>
+  </form>
 </div>
+<script>
+const MEMORIA_SERVIDOR={{ mem|tojson }};
+function diaAtual(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function carregarMemoriaLocal(){
+  const pin=String((MEMORIA_SERVIDOR&&MEMORIA_SERVIDOR.pin)||document.getElementById('pinDia').textContent||'sem_pin').replace(/\D/g,'')||'sem_pin';
+  const ch=`jogo_avulso_memoria_${diaAtual()}_${pin}`;
+  try{return JSON.parse(localStorage.getItem(ch)||'{}')}catch(e){return {}}
+}
+function juntarMemorias(){
+  const local=carregarMemoriaLocal();
+  const eq={};
+  [MEMORIA_SERVIDOR.equipes||{}, local.equipes||{}].forEach(obj=>{
+    Object.keys(obj).forEach(nome=>{
+      const item=obj[nome]||{}; const n=(item.nome||nome||'').trim(); if(!n)return;
+      eq[n]=eq[n]||{nome:n,numeros:[]};
+      eq[n].numeros=Array.from(new Set([...(eq[n].numeros||[]),...((item.numeros||[]).map(String))])).filter(x=>/^\d+$/.test(x)).sort((a,b)=>parseInt(a)-parseInt(b));
+    });
+  });
+  return {equipes:eq};
+}
+const MEM=juntarMemorias();
+function renderMemoria(){
+  const lista=document.getElementById('listaEquipes'); const box=document.getElementById('equipesDia');
+  const nomes=Object.keys(MEM.equipes||{}).sort((a,b)=>a.localeCompare(b));
+  lista.innerHTML=nomes.map(n=>`<option value="${n.replace(/"/g,'&quot;')}"></option>`).join('');
+  box.innerHTML=nomes.length?nomes.map(n=>`<button class="eq-chip" type="button" data-eq="${n.replace(/"/g,'&quot;')}">${n}</button>`).join(''):'<div class="hint">Nenhuma equipe salva ainda neste PIN hoje.</div>';
+  document.querySelectorAll('.eq-chip').forEach(btn=>btn.onclick=()=>{const alvo=!document.getElementById('equipeA').value?'equipeA':(!document.getElementById('equipeB').value?'equipeB':'equipeA');document.getElementById(alvo).value=btn.dataset.eq; atualizarNums();});
+}
+function chipsNums(nome){const item=(MEM.equipes||{})[String(nome||'').trim()]||{}; const nums=item.numeros||[]; return nums.length?nums.map(n=>`<span class="num-chip">#${n}</span>`).join(''):'<span class="hint">Sem números salvos ainda.</span>';}
+function atualizarNums(){document.getElementById('numsA').innerHTML=chipsNums(document.getElementById('equipeA').value);document.getElementById('numsB').innerHTML=chipsNums(document.getElementById('equipeB').value);}
+document.getElementById('equipeA').addEventListener('input',atualizarNums);document.getElementById('equipeB').addEventListener('input',atualizarNums);renderMemoria();atualizarNums();
+</script>
 {% endblock %}

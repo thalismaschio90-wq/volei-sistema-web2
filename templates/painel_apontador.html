@@ -495,11 +495,18 @@
     }
 }
 
+.ap-jogo-rapido-card { border:1px solid #facc15; background:linear-gradient(135deg,#fff7ed,#ffffff 58%,#ecfeff); }
+.ap-jogo-rapido-icon { width:46px; height:46px; border-radius:16px; display:inline-flex; align-items:center; justify-content:center; background:#fef3c7; color:#92400e; font-size:24px; box-shadow:0 10px 24px rgba(217,119,6,.14); }
+.ap-jogo-rapido-row { background:linear-gradient(90deg,#fff7ed,#ffffff); }
+.ap-jogo-rapido-row td:first-child strong { display:inline-flex; align-items:center; gap:8px; color:#92400e; }
+.ap-jogo-rapido-row .ap-badge { background:#dcfce7; color:#166534; }
+
 </style>
 
 {% set nome_usuario_offline = session.get('nome') or session.get('usuario_nome') or session.get('usuario') or 'Apontador' %}
 {% set usuario_login_offline = session.get('usuario') or '' %}
 {% set offline_habilitado_tpl = offline_habilitado if offline_habilitado is defined else false %}
+{% set pode_jogo_rapido_tpl = pode_jogo_avulso if pode_jogo_avulso is defined else false %}
 
 
 <div id="modal-resultado-manual" class="ap-modal-resultado" aria-hidden="true">
@@ -1274,6 +1281,20 @@ document.addEventListener("keydown", function(e) {
         {% endif %}
     </div>
 {% elif competicao_unica %}
+    {% if pode_jogo_rapido_tpl %}
+    <div class="card-painel ap-jogo-rapido-card" style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;">
+            <div style="display:flex;gap:12px;align-items:center;min-width:0;">
+                <div class="ap-jogo-rapido-icon">⚡</div>
+                <div>
+                    <div class="ap-section-title">Jogo Rápido</div>
+                    <div class="ap-section-hint">Liberado pelo Master • sem vínculo com competição</div>
+                </div>
+            </div>
+            <a class="btn-padrao ap-btn-gold" href="{{ url_for('jogo_avulso.entrada_jogo_avulso') }}">Entrar</a>
+        </div>
+    </div>
+    {% endif %}
     <div class="card-painel" data-competicao-unica="{{ competicao_unica.competicao }}">
         <div class="ap-section-title">{{ competicao_unica.competicao }}</div>
         <div class="ap-section-hint" style="margin:6px 0 14px;">Você está vinculado a uma competição ativa.</div>
@@ -1290,6 +1311,18 @@ document.addEventListener("keydown", function(e) {
                     <tr><th>Competição</th><th>Data</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody>
+                {% if pode_jogo_rapido_tpl %}
+                    <tr class="ap-jogo-rapido-row">
+                        <td><strong>⚡ Jogo Rápido</strong></td>
+                        <td data-label="Data"><span class="ap-competicao-mobile-label">Data</span><span>—</span></td>
+                        <td data-label="Status"><span class="ap-competicao-mobile-label">Status</span><span class="ap-badge ap-live">Liberado</span></td>
+                        <td>
+                            <div class="ap-competicao-acoes">
+                                <a class="btn-padrao ap-btn-gold" href="{{ url_for('jogo_avulso.entrada_jogo_avulso') }}">Entrar</a>
+                            </div>
+                        </td>
+                    </tr>
+                {% endif %}
                 {% for c in competicoes %}
                     <tr>
                         <td><strong>{{ c.competicao }}</strong></td>
@@ -1308,7 +1341,22 @@ document.addEventListener("keydown", function(e) {
         </div>
     </div>
 {% else %}
+    {% if pode_jogo_rapido_tpl %}
+    <div class="card-painel ap-jogo-rapido-card">
+        <div style="display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;">
+            <div style="display:flex;gap:12px;align-items:center;min-width:0;">
+                <div class="ap-jogo-rapido-icon">⚡</div>
+                <div>
+                    <div class="ap-section-title">Jogo Rápido</div>
+                    <div class="ap-section-hint">Liberado pelo Master • sem vínculo com competição</div>
+                </div>
+            </div>
+            <a class="btn-padrao ap-btn-gold" href="{{ url_for('jogo_avulso.entrada_jogo_avulso') }}">Entrar</a>
+        </div>
+    </div>
+    {% else %}
     <div class="card-painel">Nenhuma competição disponível no momento.</div>
+    {% endif %}
 {% endif %}
 
 {% if offline_habilitado_tpl %}

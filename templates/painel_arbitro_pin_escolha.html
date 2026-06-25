@@ -56,6 +56,10 @@
                     Competição: {{ vinculo_arbitro.competicao }}<br>
                     Quadra: {{ vinculo_arbitro.quadra_nome or ('Quadra ' ~ vinculo_arbitro.quadra_ordem) }}<br>
                     PIN: <span class="pin">{{ vinculo_arbitro.pin }}</span>
+                {% elif vinculo_arbitro.tipo == 'avulso' %}
+                    Modo: Jogo rápido / avulso<br>
+                    Jogo atual: {{ vinculo_arbitro.equipe_a }} x {{ vinculo_arbitro.equipe_b }}<br>
+                    PIN: <span class="pin">{{ vinculo_arbitro.pin }}</span>
                 {% endif %}
             </div>
             {% endif %}

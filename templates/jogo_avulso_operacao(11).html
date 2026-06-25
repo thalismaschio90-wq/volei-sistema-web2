@@ -465,83 +465,6 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
 .links-mobile-fab,
 .links-mobile-modal{display:none;}
 
-/* FIX LINKS: o modo mobile do jogo avulso pode aparecer em tablet/desktop estreito
-   até 1400px. O CSS antigo só abria o modal até 1000px, então o botão
-   "Links" clicava mas nada aparecia. Este bloco deixa o modal funcional
-   em qualquer tamanho quando o JS adiciona a classe .aberto. */
-.links-mobile-modal.aberto{
-    position:fixed!important;
-    inset:0!important;
-    background:rgba(15,23,42,.72)!important;
-    z-index:1000000!important;
-    display:flex!important;
-    align-items:center!important;
-    justify-content:center!important;
-    padding:12px!important;
-    box-sizing:border-box!important;
-}
-.links-mobile-card{
-    width:min(640px,94vw)!important;
-    max-height:92dvh!important;
-    overflow:auto!important;
-    background:#fff!important;
-    color:#0f172a!important;
-    border-radius:20px!important;
-    box-shadow:0 24px 90px rgba(0,0,0,.38)!important;
-    padding:14px!important;
-}
-.links-mobile-topo{
-    display:flex!important;
-    justify-content:space-between!important;
-    align-items:center!important;
-    gap:8px!important;
-    margin-bottom:10px!important;
-}
-.links-mobile-topo h3{
-    margin:0!important;
-    font-size:20px!important;
-    font-weight:1000!important;
-    color:#0f172a!important;
-}
-.links-mobile-fechar{
-    width:40px!important;
-    height:40px!important;
-    border:0!important;
-    border-radius:12px!important;
-    background:#e2e8f0!important;
-    color:#0f172a!important;
-    font-size:24px!important;
-    font-weight:1000!important;
-    cursor:pointer!important;
-}
-.links-mobile-pin-box{
-    margin:8px 0 12px!important;
-    padding:12px!important;
-    border-radius:16px!important;
-    background:#eef2ff!important;
-    border:1px solid #c7d2fe!important;
-    color:#172554!important;
-    text-align:center!important;
-    font-weight:1000!important;
-}
-.links-mobile-pin-box small{display:block!important;color:#475569!important;font-size:12px!important;margin-bottom:3px!important;}
-.links-mobile-pin-box b{font-size:34px!important;letter-spacing:8px!important;}
-.links-mobile-grid{
-    display:grid!important;
-    grid-template-columns:repeat(2,minmax(0,1fr))!important;
-    gap:8px!important;
-}
-.links-mobile-grid .btn{
-    min-height:48px!important;
-    font-size:13px!important;
-    border-radius:12px!important;
-    display:flex!important;
-    align-items:center!important;
-    justify-content:center!important;
-    text-align:center!important;
-}
-.links-mobile-grid .btn-full{grid-column:1 / -1!important;}
-
 @media (orientation: landscape) and (max-width: 1000px){
     .av-top{
         display:none!important;
@@ -653,7 +576,7 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
  .mobile-orientacao-card{width:min(460px,96vw);border:1px solid rgba(255,255,255,.16);border-radius:26px;padding:26px;background:rgba(15,35,60,.88);box-shadow:0 24px 80px rgba(0,0,0,.35);}
  .mobile-orientacao-icone{font-size:54px;margin-bottom:12px}.mobile-orientacao-card strong{display:block;font-size:24px;font-weight:1000;margin-bottom:8px}.mobile-orientacao-card span{display:block;color:#cbd5e1;font-size:15px;line-height:1.4}
 }
-@media (min-aspect-ratio:1/1){
+@media (max-width:1400px) and (min-aspect-ratio:1/1){
  html,body{height:100%;overflow:hidden!important;background:#061629!important;}
  .conteudo-operacao,.links-mobile-fab,.links-mobile-modal{display:none!important;}
  .mobile-apontador-ui{position:fixed;inset:0;z-index:80000;display:grid;grid-template-rows:auto 1fr auto;gap:6px;padding:calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 8px) calc(env(safe-area-inset-bottom) + 6px) calc(env(safe-area-inset-left) + 8px);background:radial-gradient(circle at 18% 0%,rgba(37,99,235,.24),transparent 34%),radial-gradient(circle at 82% 0%,rgba(220,38,38,.20),transparent 34%),linear-gradient(180deg,#061629 0%,#071b30 100%);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
@@ -681,7 +604,7 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
    - cabe tudo na tela deitada
    - menus laterais ficam sempre visíveis
    ========================================================= */
-@media (min-aspect-ratio:1/1){
+@media (max-width:1400px) and (min-aspect-ratio:1/1){
     html,body{
         width:100vw!important;
         height:100dvh!important;
@@ -874,7 +797,7 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
     }
 }
 
-@media (min-aspect-ratio:1/1) and (max-height:560px){
+@media (max-width:1400px) and (min-aspect-ratio:1/1) and (max-height:560px){
     .mobile-apontador-ui{grid-template-rows:52px minmax(0,1fr) 34px!important;gap:4px!important;padding:4px!important;}
     .mobile-jogo-topo{height:52px!important;grid-template-columns:minmax(105px,1fr) 116px minmax(105px,1fr)!important;gap:4px!important;}
     .mobile-centro-head{width:116px!important;padding:3px 5px!important;}
@@ -899,81 +822,13 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
     .mobile-footer-acoes button{height:28px!important;min-height:28px!important;padding:5px 7px!important;font-size:8.5px!important;}
 }
 
-
-
-/* =========================================================
-   INDICADOR DE SAQUE COM BOLA - CORREÇÃO LIMPA
-   A bola fica colada ao nome do time que está sacando, sem ocupar
-   espaço fixo quando o time não está sacando.
-   ========================================================= */
-.mobile-equipe-head{
-    position:relative!important;
-}
-.mobile-equipe-head::before{
-    content:"";
-    position:absolute;
-    top:50%;
-    width:30px;
-    height:30px;
-    opacity:0;
-    pointer-events:none;
-    transform:translateY(-50%) scale(.85);
-    background:url('/static/img/bola_volei.png') center/contain no-repeat;
-    filter:drop-shadow(0 4px 8px rgba(0,0,0,.35));
-    transition:opacity .15s ease, transform .15s ease;
-    z-index:3;
-}
-#mobile-head-esq::before{ left:10px; }
-#mobile-head-dir::before{ right:10px; }
-.mobile-equipe-head.sacando{
-    border-color:rgba(212,166,42,.95)!important;
-    box-shadow:0 0 0 1px rgba(212,166,42,.35), 0 12px 28px rgba(0,0,0,.18)!important;
-}
-.mobile-equipe-head.sacando::before{
-    opacity:1;
-    transform:translateY(-50%) scale(1);
-}
-#mobile-head-esq.sacando{
-    padding-left:48px!important;
-}
-#mobile-head-dir.sacando{
-    padding-right:48px!important;
-}
-#mobile-head-esq .mobile-equipe-textos{
-    text-align:left!important;
-}
-#mobile-head-dir .mobile-equipe-textos{
-    text-align:right!important;
-}
-#mobile-head-esq .mobile-equipe-nome,
-#mobile-head-dir .mobile-equipe-nome{
-    display:block!important;
-    width:100%!important;
-}
-@media (min-aspect-ratio:1/1) and (max-height:560px){
-    .mobile-equipe-head::before{width:23px;height:23px;}
-    #mobile-head-esq::before{left:7px;}
-    #mobile-head-dir::before{right:7px;}
-    #mobile-head-esq.sacando{padding-left:36px!important;}
-    #mobile-head-dir.sacando{padding-right:36px!important;}
-}
-.saque-bola-inline{
-    display:inline-block;
-    width:24px;
-    height:24px;
-    margin-right:8px;
-    vertical-align:-5px;
-    background:url('/static/img/bola_volei.png') center/contain no-repeat;
-    filter:drop-shadow(0 3px 5px rgba(0,0,0,.25));
-}
-
 </style>
 
 <div class="mobile-orientacao-bloqueio" aria-live="polite"><div class="mobile-orientacao-card"><div class="mobile-orientacao-icone">↻</div><strong>Vire o celular para operar o jogo</strong><span>O modo apontador mobile foi feito para funcionar com o celular ou tablet na horizontal.</span></div></div>
 <div id="mobile-apontador-ui" class="mobile-apontador-ui" aria-label="Modo operação mobile do jogo avulso">
  <div class="mobile-jogo-topo"><button id="mobile-head-esq" class="mobile-equipe-head" type="button"><img class="mobile-equipe-escudo" src="/static/img/escudo_padrao.svg" alt=""><div class="mobile-equipe-textos"><div id="mobile-nome-esq" class="mobile-equipe-nome">Equipe A</div><div id="mobile-sub-esq" class="mobile-equipe-sub">Toque para ponto</div></div><div id="mobile-pontos-esq" class="mobile-placar-numero">0</div></button><div class="mobile-centro-head"><div id="mobile-set-atual" class="mobile-set-atual">1º SET</div><div class="mobile-sets"><span id="mobile-sets-esq">0</span> × <span id="mobile-sets-dir">0</span></div><div id="mobile-saque" class="mobile-saque">Saque atual ainda não definido</div></div><button id="mobile-head-dir" class="mobile-equipe-head" type="button"><div id="mobile-pontos-dir" class="mobile-placar-numero">0</div><div class="mobile-equipe-textos mobile-equipe-textos-dir"><div id="mobile-nome-dir" class="mobile-equipe-nome">Equipe B</div><div id="mobile-sub-dir" class="mobile-equipe-sub">Toque para ponto</div></div><img class="mobile-equipe-escudo" src="/static/img/escudo_padrao.svg" alt=""></button></div>
  <div class="mobile-main"><div class="mobile-aba-lateral esquerda"><button id="mobile-menu-esq-btn" class="mobile-aba-gatilho" type="button">Menu A</button><div id="mobile-menu-esq" class="mobile-menu-lateral"><div class="mobile-menu-topo"><span id="mobile-menu-esq-titulo">Equipe A</span><button class="mobile-menu-fechar" type="button" data-mobile-close>×</button></div><div class="mobile-menu-acoes"><button class="mobile-btn principal" type="button" data-mobile-action="tempo" data-side="esq">⏱️ Pedido de tempo</button><button class="mobile-btn" type="button" data-mobile-action="sub" data-side="esq">🔁 Substituição</button><button class="mobile-btn" type="button" data-mobile-action="subex" data-side="esq">🚑 Subst. excepcional</button><button class="mobile-btn" type="button" data-mobile-action="sancao" data-side="esq">🟨 Sanção</button><button class="mobile-btn" type="button" data-mobile-action="verde" data-side="esq">🟩 Cartão verde</button><button class="mobile-btn" type="button" data-mobile-action="retardamento" data-side="esq">⏳ Retardamento</button><button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="esq">WO</button></div></div></div><div class="mobile-quadra-card"><div class="mobile-quadra-titulo"><span id="mobile-quadra-esq-titulo">Equipe A</span><span class="mobile-badge">toque para substituir</span></div><div id="mobile-quadra-esq" class="mobile-quadra-grid quadra-lado-esquerdo"></div><button id="mobile-ponto-esq" class="mobile-ponto-btn" type="button">+ PONTO</button></div><div class="mobile-quadra-card"><div class="mobile-quadra-titulo"><span id="mobile-quadra-dir-titulo">Equipe B</span><span class="mobile-badge">toque para substituir</span></div><div id="mobile-quadra-dir" class="mobile-quadra-grid quadra-lado-direito"></div><button id="mobile-ponto-dir" class="mobile-ponto-btn" type="button">+ PONTO</button></div><div class="mobile-aba-lateral direita"><button id="mobile-menu-dir-btn" class="mobile-aba-gatilho" type="button">Menu B</button><div id="mobile-menu-dir" class="mobile-menu-lateral"><div class="mobile-menu-topo"><span id="mobile-menu-dir-titulo">Equipe B</span><button class="mobile-menu-fechar" type="button" data-mobile-close>×</button></div><div class="mobile-menu-acoes"><button class="mobile-btn principal" type="button" data-mobile-action="tempo" data-side="dir">⏱️ Pedido de tempo</button><button class="mobile-btn" type="button" data-mobile-action="sub" data-side="dir">🔁 Substituição</button><button class="mobile-btn" type="button" data-mobile-action="subex" data-side="dir">🚑 Subst. excepcional</button><button class="mobile-btn" type="button" data-mobile-action="sancao" data-side="dir">🟨 Sanção</button><button class="mobile-btn" type="button" data-mobile-action="verde" data-side="dir">🟩 Cartão verde</button><button class="mobile-btn" type="button" data-mobile-action="retardamento" data-side="dir">⏳ Retardamento</button><button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="dir">WO</button></div></div></div></div>
- <div class="mobile-footer"><div id="mobile-cronometro" class="mobile-cronometro">⏱️ 30</div><div id="mobile-ultima-acao" class="mobile-ultima-acao">ÚLTIMA AÇÃO: {{ estado.ultima_acao or '-' }}</div><div class="mobile-footer-acoes"><button id="mobile-links" class="links" type="button" onclick="abrirModalLinksMobile()">🔗 Links</button><button id="mobile-desfazer" type="button">↶ Desfazer</button><button id="mobile-fullscreen" type="button">⛶</button><button id="mobile-inverter-lados" type="button">⇄ Inverter</button><button id="mobile-salvar" class="salvar" type="button">💾 Salvar</button><button id="mobile-salvar-sair" class="sair" type="button">Sair</button></div></div>
+ <div class="mobile-footer"><div id="mobile-cronometro" class="mobile-cronometro">⏱️ 30</div><div id="mobile-ultima-acao" class="mobile-ultima-acao">ÚLTIMA AÇÃO: {{ estado.ultima_acao or '-' }}</div><div class="mobile-footer-acoes"><button id="mobile-links" class="links" type="button">🔗 Links</button><button id="mobile-desfazer" type="button">↶ Desfazer</button><button id="mobile-fullscreen" type="button">⛶</button><button id="mobile-inverter-lados" type="button">⇄ Inverter</button><button id="mobile-salvar" class="salvar" type="button">💾 Salvar</button><button id="mobile-salvar-sair" class="sair" type="button">Sair</button></div></div>
 </div>
 
 <div id="avisoHorizontalOperacao" class="aviso-horizontal"><div class="aviso-horizontal-card"><div class="aviso-horizontal-icone">📱↔️</div><strong>Vire o celular</strong><p>Esta tela de operação foi feita para usar com o celular deitado, igual uma mesa de apontamento.</p></div></div>
@@ -985,8 +840,7 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
       <div class="pin-avulso">PIN árbitros: <b id="pinArbitragemAvulso">{{ estado.pin_arbitragem or '----' }}</b></div>
       <button class="btn" onclick="inverterLadoLocal()">Inverter lado do apontador</button>
       <button class="btn btn-blue" onclick="abrirLink('telao')">Abrir telão</button><button class="btn" onclick="copiarLink('telao')">Copiar telão</button>
-      <button class="btn btn-blue" onclick="abrirLink('arb1')">Abrir árbitro</button><button class="btn" onclick="copiarLink('arb1')">Copiar árbitro</button>
-      <button class="btn btn-yellow" onclick="copiarPinAvulso()">Copiar PIN árbitros/telão</button>
+      <button class="btn btn-yellow" onclick="copiarPinAvulso()">Copiar PIN árbitros</button>
       <button class="btn btn-yellow" onclick="copiarTodosLinks()">Copiar links e PIN</button>
     </div>
   </div>
@@ -1006,16 +860,10 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
       <h3>Links do jogo avulso</h3>
       <button class="links-mobile-fechar" type="button" onclick="fecharModalLinksMobile()">×</button>
     </div>
-    <div class="links-mobile-pin-box">
-      <small>PIN para árbitro e telão</small>
-      <b id="pinArbitragemAvulsoMobile">{{ estado.pin_arbitragem or '----' }}</b>
-    </div>
     <div class="links-mobile-grid">
       <button class="btn btn-blue" type="button" onclick="abrirLink('telao')">Abrir telão</button>
       <button class="btn" type="button" onclick="copiarLink('telao')">Copiar telão</button>
-      <button class="btn btn-blue" type="button" onclick="abrirLink('arb1')">Abrir árbitro</button>
-      <button class="btn" type="button" onclick="copiarLink('arb1')">Copiar árbitro</button>
-      <button class="btn btn-yellow btn-full" type="button" onclick="copiarPinAvulso()">Copiar PIN árbitros/telão</button>
+      <button class="btn btn-yellow btn-full" type="button" onclick="copiarPinAvulso()">Copiar PIN dos árbitros</button>
       <button class="btn btn-yellow btn-full" type="button" onclick="copiarTodosLinks()">Copiar links e PIN</button>
     </div>
   </div>
@@ -1042,56 +890,15 @@ function clone(o){return JSON.parse(JSON.stringify(o||{}));} function int(v,p=0)
 function estadoDefault(){return {codigo:CODIGO,equipe_a:'Equipe A',equipe_b:'Equipe B',set_atual:1,sets_a:0,sets_b:0,pontos_a:0,pontos_b:0,saque_atual:'A',rotacao_a:['','','','','',''],rotacao_b:['','','','','',''],banco_a:[],banco_b:[],modo_operacao:'simples',sets_tipo:'set_unico',sets_para_vencer:1,pontos_set:21,pontos_tiebreak:15,diferenca_minima:2,limite_tempos:2,limite_substituicoes:6,tempos_a:0,tempos_b:0,subs_a:0,subs_b:0,vinculos_substituicao:{A:{},B:{}},substituidos_finalizados:{A:[],B:[]},historico:[],eventos:[],scout_eventos:[],historico_sets:[],status_jogo:'em_andamento'};}
 function carregarEstado(){let local={};try{local=JSON.parse(localStorage.getItem(LS_ESTADO)||'{}')}catch(e){} const servidor=ESTADO_SERVIDOR||{}; const temLocal=Object.keys(local).length>0; const tsLocal=Number(local.atualizado_em||0); const tsServidor=Number(servidor.atualizado_em||0); const base=(!temLocal || tsServidor>tsLocal)?servidor:local; return Object.assign(estadoDefault(),clone(base||{}));}
 let estado=carregarEstado(); let pilhaDesfazer=[]; salvarLocal();
-function chaveMemoriaDiaAvulso(){
-  const d=new Date();
-  const dia=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  return `jogo_avulso_memoria_${dia}_${pinAtualAvulso()||'sem_pin'}`;
-}
-function numerosEquipeMemoria(l){
-  const nums=[...(rot(l)||[]),...(banco(l)||[])].map(v=>String(v||'').trim()).filter(Boolean);
-  return Array.from(new Set(nums)).sort((a,b)=>int(a,999)-int(b,999));
-}
-function salvarMemoriaDiaAvulso(){
-  try{
-    const chave=chaveMemoriaDiaAvulso();
-    const memo=JSON.parse(localStorage.getItem(chave)||'{"equipes":{},"jogos":[]}');
-    ['A','B'].forEach(l=>{
-      const nome=equipeNome(l).trim();
-      if(!nome || /^Equipe [AB]$/i.test(nome)) return;
-      const atual=memo.equipes[nome]||{nome, numeros:[], jogos:0};
-      atual.numeros=Array.from(new Set([...(atual.numeros||[]),...numerosEquipeMemoria(l)])).sort((a,b)=>int(a,999)-int(b,999));
-      atual.jogos=int(atual.jogos,0);
-      memo.equipes[nome]=atual;
-    });
-    memo.atualizado_em=Date.now();
-    memo.pin=pinAtualAvulso();
-    localStorage.setItem(chave,JSON.stringify(memo));
-  }catch(e){}
-}
-function registrarJogoMemoriaDiaAvulso(status){
-  try{
-    salvarMemoriaDiaAvulso();
-    const chave=chaveMemoriaDiaAvulso();
-    const memo=JSON.parse(localStorage.getItem(chave)||'{"equipes":{},"jogos":[]}');
-    const ja=(memo.jogos||[]).some(j=>j.codigo===CODIGO);
-    if(!ja){
-      memo.jogos=memo.jogos||[];
-      memo.jogos.unshift({codigo:CODIGO,equipe_a:estado.equipe_a,equipe_b:estado.equipe_b,sets_a:estado.sets_a,sets_b:estado.sets_b,pontos_a:estado.pontos_a,pontos_b:estado.pontos_b,status:status||estado.status_jogo||'',quando:Date.now()});
-      memo.jogos=memo.jogos.slice(0,80);
-      localStorage.setItem(chave,JSON.stringify(memo));
-    }
-  }catch(e){}
-}
-function salvarLocal(){localStorage.setItem(LS_ESTADO,JSON.stringify(estado));salvarMemoriaDiaAvulso();}
+function salvarLocal(){localStorage.setItem(LS_ESTADO,JSON.stringify(estado));}
 async function salvarServidor(){salvarLocal(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
 function toast(t){const el=document.getElementById('avAlert');el.textContent=t;el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',2200)}
 function ladoVisual(pos){const esq=ladoInvertido?'B':'A'; const dir=ladoInvertido?'A':'B'; return pos==='esq'?esq:dir;}
-function pinAtualAvulso(){return String(estado.pin_arbitragem||'').replace(/\D/g,'').slice(0,4);}
 function urlTipo(tipo){
-  const pin=encodeURIComponent(pinAtualAvulso());
-  if(tipo==='telao') return `${location.origin}/telao?pin=${pin}`;
-  if(tipo==='arb1'||tipo==='arb2') return `${location.origin}/arbitro?pin=${pin}`;
-  return `${location.origin}/telao?pin=${pin}`;
+  if(tipo==='telao') return `${location.origin}/telao`;
+  if(tipo==='arb1'||tipo==='arb2') return `${location.origin}/arbitro`;
+  const path=`/telao-avulso-pin/${estado.pin_arbitragem||''}`;
+  return `${location.origin}${path}`;
 }
 function abrirLink(t){window.open(urlTipo(t),'_blank','noopener');}
 async function copiarTextoSeguro(texto,msg){
@@ -1122,9 +929,9 @@ ${urlTipo('telao')}
 ${urlTipo('arb1')}
 
 PIN fixo do jogo rápido hoje:
-${pinAtualAvulso()}
+${estado.pin_arbitragem || ''}
 
-Digite esse PIN uma vez no árbitro e no telão. Os próximos jogos rápidos do mesmo apontador podem usar esse mesmo PIN quando o backend estiver com a sessão fixa ativa.`;
+Digite esse PIN uma vez no árbitro e no telão. Os próximos jogos rápidos do mesmo apontador usarão o mesmo PIN.`;
   await copiarTextoSeguro(texto,'Links e PIN copiados');
 }
 async function copiarPinAvulso(){
@@ -1132,8 +939,6 @@ async function copiarPinAvulso(){
 }
 
 function abrirModalLinksMobile(){
-  const pinEl=document.getElementById('pinArbitragemAvulsoMobile');
-  if(pinEl) pinEl.textContent=pinAtualAvulso()||'----';
   const el=document.getElementById('modalLinksMobile');
   if(el) el.classList.add('aberto');
 }
@@ -1141,47 +946,18 @@ function fecharModalLinksMobile(){
   const el=document.getElementById('modalLinksMobile');
   if(el) el.classList.remove('aberto');
 }
-(function prepararModalLinksAvulso(){
-  const el=document.getElementById('modalLinksMobile');
-  if(el && !el.dataset.bindFundo){
-    el.dataset.bindFundo='1';
-    el.addEventListener('click',function(ev){ if(ev.target===el) fecharModalLinksMobile(); });
-  }
-  if(!document.documentElement.dataset.bindEscLinksAvulso){
-    document.documentElement.dataset.bindEscLinksAvulso='1';
-    document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') fecharModalLinksMobile(); });
-  }
-})();
 
 function addHist(desc,tipo='acao',extra={}){const item={descricao:desc,tipo,set:estado.set_atual,placar:`${estado.pontos_a}x${estado.pontos_b}`,ts:Date.now(),...extra}; estado.historico=[item,...(estado.historico||[])].slice(0,120); estado.eventos=[item,...(estado.eventos||[])]; estado.ultima_acao=desc;}
 function renderQuadra(l){const r=rot(l)||[]; return `<div class='quadra'>${r.map((n,i)=>`<div class='pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}'><span>${n||'-'}</span><small>${posLabel(i)}</small></div>`).join('')}</div>`;}
-function renderTime(l){const bola=(estado.saque_atual===l)?'<span class="saque-bola-inline" aria-label="Sacando"></span>':'';return `<h2>${bola}${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
+function renderTime(l){return `<h2>${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">🏐 Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
 function valorVisual(lado, campoA, campoB, padrao=0){return lado==='A'?(estado[campoA]??padrao):(estado[campoB]??padrao);}
 
 function mobileEl(id){return document.getElementById(id);}
 function mobileFecharMenus(){['mobile-menu-esq','mobile-menu-dir'].forEach(id=>{const el=mobileEl(id); if(el)el.classList.remove('aberto');});}
 function renderMobileQuadra(l){const r=rot(l)||[];return r.map((n,i)=>`<button class="mobile-pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}" type="button" onclick="mobileCliqueNumero('${l}','${String(n||'')}')"><span class="mobile-pos-numero">${n||'-'}</span><span class="mobile-pos-nome">${posLabel(i)}</span></button>`).join('');}
 function mobileCliqueNumero(l,n){if(!n)return toast('Esta posição está vazia'); abrirSubComSai(l,n,false); mobileSubTemp=null;}
-function renderMobile(){
-  if(!mobileEl('mobile-apontador-ui'))return;
-  const esq=ladoVisual('esq'),dir=ladoVisual('dir');
-  [['esq',esq],['dir',dir]].forEach(([pos,l])=>{
-    const nome=equipeNome(l),pontos=(l==='A'?estado.pontos_a:estado.pontos_b),sets=(l==='A'?estado.sets_a:estado.sets_b);
-    const estaSacando=(estado.saque_atual===l);
-    let el=mobileEl(`mobile-nome-${pos}`);if(el)el.textContent=nome;
-    el=mobileEl(`mobile-sub-${pos}`);if(el)el.textContent=(estaSacando?`Sacando • nº ${sacador(l)}`:'Toque no topo para ponto');
-    el=mobileEl(`mobile-pontos-${pos}`);if(el)el.textContent=pontos||0;
-    el=mobileEl(`mobile-quadra-${pos}-titulo`);if(el)el.textContent=nome;
-    el=mobileEl(`mobile-quadra-${pos}`);if(el)el.innerHTML=renderMobileQuadra(l);
-    el=mobileEl(`mobile-menu-${pos}-titulo`);if(el)el.textContent=nome;
-    el=mobileEl(`mobile-sets-${pos}`);if(el)el.textContent=sets||0;
-    el=mobileEl(`mobile-head-${pos}`);if(el)el.classList.toggle('sacando',estaSacando);
-  });
-  let el=mobileEl('mobile-set-atual');if(el)el.textContent=`${estado.set_atual||1}º SET`;
-  el=mobileEl('mobile-saque');if(el)el.textContent=`Saque: ${equipeNome(estado.saque_atual||'A')} • nº ${sacador(estado.saque_atual||'A')}`;
-  el=mobileEl('mobile-ultima-acao');if(el)el.textContent=`ÚLTIMA AÇÃO: ${estado.ultima_acao||'-'}`;
-}
-function initMobileApontadorAvulso(){const bind=(id,fn)=>{const el=mobileEl(id);if(el&&!el.dataset.bind){el.addEventListener('click',fn);el.dataset.bind='1';}};bind('mobile-head-esq',()=>acaoPonto(ladoVisual('esq')));bind('mobile-head-dir',()=>acaoPonto(ladoVisual('dir')));bind('mobile-ponto-esq',()=>acaoPonto(ladoVisual('esq')));bind('mobile-ponto-dir',()=>acaoPonto(ladoVisual('dir')));bind('mobile-menu-esq-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-esq');if(el)el.classList.add('aberto');});bind('mobile-menu-dir-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-dir');if(el)el.classList.add('aberto');});document.querySelectorAll('[data-mobile-close]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',mobileFecharMenus);});document.querySelectorAll('[data-mobile-action]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',()=>{const lado=ladoVisual(btn.dataset.side||'esq'),acao=btn.dataset.mobileAction;mobileFecharMenus();if(acao==='tempo')abrirTempo(lado);else if(acao==='sub')iniciarSubMobile(lado);else if(acao==='subex')abrirSubEx(lado);else if(acao==='sancao')abrirSancao(lado);else if(acao==='verde')abrirVerde(lado);else if(acao==='retardamento')abrirRetardamento(lado);else if(acao==='wo')wo(lado);});});bind('mobile-inverter-lados',inverterLadoLocal);bind('mobile-links',abrirModalLinksMobile);bind('mobile-desfazer',desfazerUltimaAcaoAvulso);bind('mobile-salvar',()=>{salvarServidor();toast('Jogo salvo');});bind('mobile-salvar-sair',()=>{salvarServidor().then(()=>{if(String(estado.status_jogo||'').toLowerCase().includes('finaliz')){location.href='/apontador/jogo-avulso/novo';}else{location.href='/apontador/jogo-avulso';}});});bind('mobile-fullscreen',()=>{try{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}catch(e){}});}
+function renderMobile(){if(!mobileEl('mobile-apontador-ui'))return;const esq=ladoVisual('esq'),dir=ladoVisual('dir');[['esq',esq],['dir',dir]].forEach(([pos,l])=>{const nome=equipeNome(l),pontos=(l==='A'?estado.pontos_a:estado.pontos_b),sets=(l==='A'?estado.sets_a:estado.sets_b);let el=mobileEl(`mobile-nome-${pos}`);if(el)el.textContent=nome;el=mobileEl(`mobile-sub-${pos}`);if(el)el.textContent=(estado.saque_atual===l?`Sacando • nº ${sacador(l)}`:'Toque no topo para ponto');el=mobileEl(`mobile-pontos-${pos}`);if(el)el.textContent=pontos||0;el=mobileEl(`mobile-quadra-${pos}-titulo`);if(el)el.textContent=nome;el=mobileEl(`mobile-quadra-${pos}`);if(el)el.innerHTML=renderMobileQuadra(l);el=mobileEl(`mobile-menu-${pos}-titulo`);if(el)el.textContent=nome;el=mobileEl(`mobile-sets-${pos}`);if(el)el.textContent=sets||0;});let el=mobileEl('mobile-set-atual');if(el)el.textContent=`${estado.set_atual||1}º SET`;el=mobileEl('mobile-saque');if(el)el.textContent=`Saque: ${equipeNome(estado.saque_atual||'A')} • nº ${sacador(estado.saque_atual||'A')}`;el=mobileEl('mobile-ultima-acao');if(el)el.textContent=`ÚLTIMA AÇÃO: ${estado.ultima_acao||'-'}`;}
+function initMobileApontadorAvulso(){const bind=(id,fn)=>{const el=mobileEl(id);if(el&&!el.dataset.bind){el.addEventListener('click',fn);el.dataset.bind='1';}};bind('mobile-head-esq',()=>acaoPonto(ladoVisual('esq')));bind('mobile-head-dir',()=>acaoPonto(ladoVisual('dir')));bind('mobile-ponto-esq',()=>acaoPonto(ladoVisual('esq')));bind('mobile-ponto-dir',()=>acaoPonto(ladoVisual('dir')));bind('mobile-menu-esq-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-esq');if(el)el.classList.add('aberto');});bind('mobile-menu-dir-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-dir');if(el)el.classList.add('aberto');});document.querySelectorAll('[data-mobile-close]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',mobileFecharMenus);});document.querySelectorAll('[data-mobile-action]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',()=>{const lado=ladoVisual(btn.dataset.side||'esq'),acao=btn.dataset.mobileAction;mobileFecharMenus();if(acao==='tempo')abrirTempo(lado);else if(acao==='sub')iniciarSubMobile(lado);else if(acao==='subex')abrirSubEx(lado);else if(acao==='sancao')abrirSancao(lado);else if(acao==='verde')abrirVerde(lado);else if(acao==='retardamento')abrirRetardamento(lado);else if(acao==='wo')wo(lado);});});bind('mobile-inverter-lados',inverterLadoLocal);bind('mobile-links',abrirModalLinksMobile);bind('mobile-desfazer',desfazerUltimaAcaoAvulso);bind('mobile-salvar',()=>{salvarServidor();toast('Jogo salvo');});bind('mobile-salvar-sair',()=>{salvarServidor().then(()=>{location.href='/apontador';});});bind('mobile-fullscreen',()=>{try{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}catch(e){}});}
 
 function render(){const esq=ladoVisual('esq'); const dir=ladoVisual('dir'); const setsEsq=valorVisual(esq,'sets_a','sets_b',0); const setsDir=valorVisual(dir,'sets_a','sets_b',0); const pontosEsq=valorVisual(esq,'pontos_a','pontos_b',0); const pontosDir=valorVisual(dir,'pontos_a','pontos_b',0); document.getElementById('subInfo').textContent=`${estado.modo_operacao==='avancado'?'Avançado com scout':'Simples'} • ${estado.set_atual}º set • Saque: ${equipeNome(estado.saque_atual||'A')}`; document.getElementById('cardEsq').innerHTML=renderTime(esq); document.getElementById('cardDir').innerHTML=renderTime(dir); document.getElementById('setsBox').innerHTML=`<small>SET ATUAL</small><div class='n'>${estado.set_atual}º</div><small>SETS</small><div class='n'>${setsEsq} x ${setsDir}</div><small>${pontosEsq} x ${pontosDir}</small>`; document.getElementById('historicoBox').innerHTML=(estado.historico||[]).slice(0,50).map(h=>`<div class='item'>${h.descricao}<br><small>${h.placar||''}</small></div>`).join('')||'<div class="item">Nenhuma ação.</div>'; renderMobile();}
 function inverterLadoLocal(){ladoInvertido=!ladoInvertido;localStorage.setItem(LS_INV,ladoInvertido?'1':'0');render();}
@@ -1202,9 +978,7 @@ function finalizarSet(vencedor){
         estado.status_jogo='finalizado';
         estado.fase_partida='finalizado';
         addHist(`Jogo finalizado: ${estado.equipe_a} ${estado.sets_a} x ${estado.sets_b} ${estado.equipe_b}`,'fim_jogo');
-        registrarJogoMemoriaDiaAvulso('finalizado');
-        salvarServidor();
-        setTimeout(()=>{ if(confirm('Jogo finalizado. Criar outro jogo rápido usando o mesmo PIN do dia?')) location.href='/apontador/jogo-avulso/novo'; else abrirRelatorio(); }, 350);
+        abrirRelatorio();
         return;
     }
 
@@ -1426,7 +1200,7 @@ function confirmarGenerico(){
     if(!genTemp.valor)return toast('Selecione uma opção'); addHist(`${genTemp.valor} • ${equipeNome(genTemp.equipe)}`,genTemp.tipo,{equipe:genTemp.equipe}); fecharGenerico(); salvarServidor(); render();
 }
 function wo(l){if(!confirm(`Confirmar WO para ${equipeNome(l)}?`))return; const o=oponente(l); estado.pontos_a=l==='A'?21:0;estado.pontos_b=l==='B'?21:0; finalizarSet(l); salvarServidor(); render();}
-function encerrarManual(){if(confirm('Encerrar a partida agora?')){estado.status_jogo='finalizado';estado.fase_partida='finalizado';addHist('Partida encerrada manualmente','fim_jogo');registrarJogoMemoriaDiaAvulso('finalizado');salvarServidor();render();setTimeout(()=>{if(confirm('Partida encerrada. Criar outro jogo rápido com o mesmo PIN do dia?'))location.href='/apontador/jogo-avulso/novo';else abrirRelatorio();},250);}}
+function encerrarManual(){if(confirm('Encerrar a partida agora?')){estado.status_jogo='finalizado';estado.fase_partida='finalizado';addHist('Partida encerrada manualmente','fim_jogo');salvarServidor();abrirRelatorio();render();}}
 function abrirRelatorio(){if(estado.modo_operacao!=='avancado'){return toast('Relatório disponível apenas no modo avançado.');} const box=document.getElementById('relatorioBox'); const scouts=estado.scout_eventos||[]; const porNum={}; scouts.forEach(s=>{const k=`${s.equipe_nome} nº ${s.numero}`; porNum[k]=porNum[k]||{ataque:0,bloqueio:0,ace:0,total:0}; if(s.detalhe==='ataque')porNum[k].ataque++; if(s.detalhe==='bloqueio')porNum[k].bloqueio++; if(s.detalhe==='ace')porNum[k].ace++; if(['ataque','bloqueio','ace'].includes(s.detalhe))porNum[k].total++;}); box.innerHTML=`<h2>Relatório - Jogo Avulso ${CODIGO}</h2><p><b>${estado.equipe_a}</b> ${estado.sets_a} x ${estado.sets_b} <b>${estado.equipe_b}</b></p><p>Placar atual/final: ${estado.pontos_a} x ${estado.pontos_b}</p><h3>Parciais</h3><table class='tabela'><tr><th>Set</th><th>${estado.equipe_a}</th><th>${estado.equipe_b}</th><th>Vencedor</th></tr>${(estado.historico_sets||[]).map(s=>`<tr><td>${s.set}</td><td>${s.pontos_a}</td><td>${s.pontos_b}</td><td>${equipeNome(s.vencedor)}</td></tr>`).join('')}</table><h3>Scout por número</h3><table class='tabela'><tr><th>Atleta</th><th>Ataque</th><th>Bloqueio</th><th>Ace</th><th>Total</th></tr>${Object.entries(porNum).map(([k,v])=>`<tr><td>${k}</td><td>${v.ataque}</td><td>${v.bloqueio}</td><td>${v.ace}</td><td>${v.total}</td></tr>`).join('')||'<tr><td colspan="5">Sem scout registrado.</td></tr>'}</table><h3>Eventos</h3>${(estado.eventos||[]).slice().reverse().map(e=>`<div class='item'>${e.descricao}</div>`).join('')}`; box.classList.add('aberto');}
 function exportarPDF(){if(estado.modo_operacao!=='avancado'){return toast('PDF disponível apenas no modo avançado.');} abrirRelatorio();setTimeout(()=>window.print(),200)} function limparLocal(){if(confirm('Limpar estado local desta partida neste aparelho?')){localStorage.removeItem(LS_ESTADO);location.reload();}}
 setInterval(async()=>{if(document.visibilityState&&document.visibilityState!=='visible')return;try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json(); if(j.estado&&j.estado.atualizado_em&&j.estado.atualizado_em!==estado.atualizado_em){/* não sobrescreve operação local ativa */}}catch(e){}},8000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')salvarServidor();});

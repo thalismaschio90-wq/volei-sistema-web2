@@ -268,7 +268,7 @@ def _limpar_cache_apontador(competicao=None, cpf=None):
 
 def _montar_home_apontador_cache(cpf):
     cpf = str(cpf or "").strip()
-    chave = ("home", cpf, session.get("cliente_id"), "v2")
+    chave = ("home", cpf, session.get("cliente_id"), "v3_jogo_rapido_global")
     cached = _cache_aux_get(_CACHE_HOME_APONTADOR, chave, ttl=30)
     if cached is not None:
         return cached

@@ -112,7 +112,6 @@
         color: #123852;
     }
 
-
     .sa-offline-box {
         margin-top: 18px;
         background: #fff;
@@ -120,6 +119,11 @@
         border-radius: 22px;
         padding: 18px;
         box-shadow: var(--shadow);
+    }
+
+    .sa-offline-box.sa-quick-box {
+        border-color: #fde68a;
+        background: linear-gradient(135deg, #fff7ed, #ffffff 58%, #ecfeff);
     }
 
     .sa-offline-head {
@@ -233,6 +237,12 @@
         line-height: 1.45;
     }
 
+    .sa-quick-box .sa-offline-warning {
+        border-color: #bae6fd;
+        background: #f0f9ff;
+        color: #075985;
+    }
+
     .sa-toast {
         position: fixed;
         left: 50%;
@@ -291,7 +301,6 @@
     </div>
 </div>
 
-
 {% if eh_master %}
 <div class="sa-offline-box">
     <div class="sa-offline-head">
@@ -318,8 +327,32 @@
         Se desativar aqui, o recurso some do painel do apontador e o acesso direto ao offline também é bloqueado.
     </div>
 </div>
-{% endif %}
 
+<div class="sa-offline-box sa-quick-box">
+    <div class="sa-offline-head">
+        <div>
+            <div class="sa-offline-title">⚡ Jogo Rápido do sistema</div>
+            <div class="sa-offline-desc">
+                Controle global para liberar ou bloquear o modo Jogo Rápido.
+                Quando liberado, ele aparece como a primeira opção no painel dos apontadores que também possuem permissão individual.
+            </div>
+        </div>
+
+        <div class="sa-switch-wrap">
+            <span id="jogo-rapido-status-pill" class="sa-status-pill off">Carregando...</span>
+
+            <label class="sa-switch" title="Habilitar ou desabilitar Jogo Rápido global">
+                <input id="jogo-rapido-toggle" type="checkbox" onchange="salvarJogoRapidoGlobalSuperadmin()">
+                <span class="sa-slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <div class="sa-offline-warning">
+        Esta trava não apaga permissões individuais dos apontadores. Ela apenas liga ou desliga o recurso para todo o sistema.
+    </div>
+</div>
+{% endif %}
 
 <div class="card-painel">
     <div style="font-size:20px;font-weight:1000;margin-bottom:6px;">
@@ -370,7 +403,6 @@
             <div class="sa-cta">Gerenciar →</div>
         </a>
 
-        
         {% if eh_master %}
         <a class="sa-module" href="/superadmins">
             <div class="sa-icon">👑</div>
@@ -399,8 +431,10 @@
 {% if eh_master %}
 <script>
 (function () {
-    const toggle = document.getElementById("offline-toggle");
-    const pill = document.getElementById("offline-status-pill");
+    const offlineToggle = document.getElementById("offline-toggle");
+    const offlinePill = document.getElementById("offline-status-pill");
+    const jogoRapidoToggle = document.getElementById("jogo-rapido-toggle");
+    const jogoRapidoPill = document.getElementById("jogo-rapido-status-pill");
     const toast = document.getElementById("sa-toast");
 
     function mostrarToast(texto, tipo) {
@@ -415,15 +449,16 @@
         }, 3500);
     }
 
-    function pintarStatus(ativo) {
+    function pintarStatus(toggle, pill, ativo, textoOn, textoOff) {
         if (!pill || !toggle) return;
 
         toggle.checked = !!ativo;
         pill.className = "sa-status-pill " + (ativo ? "on" : "off");
-        pill.textContent = ativo ? "Offline liberado" : "Offline bloqueado";
+        pill.textContent = ativo ? textoOn : textoOff;
     }
 
     async function carregarOfflineGlobalSuperadmin() {
+        if (!offlineToggle || !offlinePill) return;
         try {
             const resp = await fetch("/superadmin/config/offline", {
                 cache: "no-store",
@@ -435,19 +470,40 @@
             }
 
             const dados = await resp.json();
-            pintarStatus(!!dados.offline_habilitado);
+            pintarStatus(offlineToggle, offlinePill, !!dados.offline_habilitado, "Offline liberado", "Offline bloqueado");
         } catch (e) {
             console.error(e);
-            pintarStatus(false);
+            pintarStatus(offlineToggle, offlinePill, false, "Offline liberado", "Offline bloqueado");
             mostrarToast("Erro ao carregar configuração offline.", "erro");
         }
     }
 
-    window.salvarOfflineGlobalSuperadmin = async function () {
-        if (!toggle) return;
+    async function carregarJogoRapidoGlobalSuperadmin() {
+        if (!jogoRapidoToggle || !jogoRapidoPill) return;
+        try {
+            const resp = await fetch("/superadmin/config/jogo-rapido", {
+                cache: "no-store",
+                credentials: "same-origin"
+            });
 
-        const valor = !!toggle.checked;
-        pintarStatus(valor);
+            if (!resp.ok) {
+                throw new Error("Não foi possível consultar a configuração do Jogo Rápido.");
+            }
+
+            const dados = await resp.json();
+            pintarStatus(jogoRapidoToggle, jogoRapidoPill, !!dados.jogo_rapido_liberado, "Jogo rápido liberado", "Jogo rápido bloqueado");
+        } catch (e) {
+            console.error(e);
+            pintarStatus(jogoRapidoToggle, jogoRapidoPill, false, "Jogo rápido liberado", "Jogo rápido bloqueado");
+            mostrarToast("Erro ao carregar configuração do Jogo Rápido.", "erro");
+        }
+    }
+
+    window.salvarOfflineGlobalSuperadmin = async function () {
+        if (!offlineToggle) return;
+
+        const valor = !!offlineToggle.checked;
+        pintarStatus(offlineToggle, offlinePill, valor, "Offline liberado", "Offline bloqueado");
 
         try {
             const resp = await fetch("/superadmin/config/offline", {
@@ -467,7 +523,7 @@
                 throw new Error(dados.erro || "Erro ao salvar configuração.");
             }
 
-            pintarStatus(!!dados.offline_habilitado);
+            pintarStatus(offlineToggle, offlinePill, !!dados.offline_habilitado, "Offline liberado", "Offline bloqueado");
             mostrarToast(
                 dados.offline_habilitado
                     ? "Modo offline liberado para o sistema."
@@ -481,8 +537,51 @@
         }
     };
 
-    document.addEventListener("DOMContentLoaded", carregarOfflineGlobalSuperadmin);
+    window.salvarJogoRapidoGlobalSuperadmin = async function () {
+        if (!jogoRapidoToggle) return;
+
+        const valor = !!jogoRapidoToggle.checked;
+        pintarStatus(jogoRapidoToggle, jogoRapidoPill, valor, "Jogo rápido liberado", "Jogo rápido bloqueado");
+
+        try {
+            const resp = await fetch("/superadmin/config/jogo-rapido", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    jogo_rapido_liberado: valor
+                })
+            });
+
+            const dados = await resp.json().catch(() => ({}));
+
+            if (!resp.ok || !dados.ok) {
+                throw new Error(dados.erro || "Erro ao salvar configuração.");
+            }
+
+            pintarStatus(jogoRapidoToggle, jogoRapidoPill, !!dados.jogo_rapido_liberado, "Jogo rápido liberado", "Jogo rápido bloqueado");
+            mostrarToast(
+                dados.jogo_rapido_liberado
+                    ? "Jogo Rápido liberado para apontadores autorizados."
+                    : "Jogo Rápido bloqueado para todos os apontadores.",
+                "ok"
+            );
+        } catch (e) {
+            console.error(e);
+            mostrarToast("Erro ao salvar configuração do Jogo Rápido.", "erro");
+            carregarJogoRapidoGlobalSuperadmin();
+        }
+    };
+
+    document.addEventListener("DOMContentLoaded", function () {
+        carregarOfflineGlobalSuperadmin();
+        carregarJogoRapidoGlobalSuperadmin();
+    });
+
     carregarOfflineGlobalSuperadmin();
+    carregarJogoRapidoGlobalSuperadmin();
 })();
 </script>
 {% endif %}

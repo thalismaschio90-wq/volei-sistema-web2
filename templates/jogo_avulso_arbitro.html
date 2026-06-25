@@ -49,7 +49,7 @@ html,body{margin:0;width:100%;min-height:100%;background:#0f172a;color:#fff;font
   <div class="tempo" id="tempo"><div><div class="label">TEMPO</div><div class="big" id="tnum">30</div></div></div>
 </div>
 <script>
-const CODIGO={{ codigo|tojson }}, ESTADO_INICIAL={{ estado|tojson }}, endpoint=`/apontador/jogo-avulso/${CODIGO}/estado`, ARB={{ arbitro|tojson }}, LS_INV=`jogo_avulso_inversao_${ARB}_${CODIGO}`;
+const CODIGO={{ codigo|tojson }}, PIN_AVULSO={{ (pin_avulso if pin_avulso is defined else '')|tojson }}, ESTADO_INICIAL={{ estado|tojson }}, endpoint=`/apontador/jogo-avulso/${CODIGO}/estado`, ARB={{ arbitro|tojson }}, LS_INV=`jogo_avulso_inversao_${ARB}_${CODIGO}`;
 let estado=ESTADO_INICIAL||{}, invertido=localStorage.getItem(LS_INV)==='1', ultimoPopup=0, tempoTs=0, tempoTimer=null;
 function nome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B')}
 function pts(l){return l==='A'?(estado.pontos_a||0):(estado.pontos_b||0)}
@@ -72,7 +72,18 @@ function render(){
 }
 function abrirTempo(s){let n=s;clearInterval(tempoTimer);document.getElementById('tnum').textContent=n;document.getElementById('tempo').classList.add('aberto');tempoTimer=setInterval(()=>{n--;document.getElementById('tnum').textContent=Math.max(0,n);if(n<=0){clearInterval(tempoTimer);setTimeout(()=>document.getElementById('tempo').classList.remove('aberto'),800)}},1000)}
 function inv(){invertido=!invertido;localStorage.setItem(LS_INV,invertido?'1':'0');render()}
-async function sync(){if(document.visibilityState&&document.visibilityState!=='visible')return;try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json();if(j.estado){estado=j.estado;render()}}catch(e){}}
+async function verificarNovoJogoDoPin(){
+  if(!PIN_AVULSO) return;
+  try{
+    const r=await fetch(`/jogo-avulso/pin/${PIN_AVULSO}/atual`,{cache:'no-store'});
+    const j=await r.json();
+    if(j && j.tem_jogo && j.codigo && j.codigo!==CODIGO){
+      const rota=ARB.indexOf('2')>=0?'arbitro2-avulso':'arbitro1-avulso';
+      location.href=`/${rota}/${j.codigo}`;
+    }
+  }catch(e){}
+}
+async function sync(){if(document.visibilityState&&document.visibilityState!=='visible')return;try{await verificarNovoJogoDoPin();const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json();if(j.estado){estado=j.estado;render()}}catch(e){}}
 render();setInterval(sync,2500);sync();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')sync();});
 </script>
 </body>
