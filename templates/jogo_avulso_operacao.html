@@ -1130,6 +1130,28 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
     }
 }
 
+
+/* =========================================================
+   FIX MOBILE: rodapé clicável e sem botão +PONTO embaixo
+   ========================================================= */
+@media (min-aspect-ratio:1/1){
+  .mobile-ponto-btn{display:none!important;}
+  .mobile-quadra-card{grid-template-rows:18px minmax(0,1fr)!important;}
+  .mobile-footer{height:54px!important;min-height:54px!important;z-index:1000002!important;}
+  .mobile-footer-acoes button{height:46px!important;min-height:46px!important;padding:9px 12px!important;font-size:12px!important;}
+  .mobile-ultima-acao{font-size:12px!important;padding:11px 13px!important;}
+}
+@media (min-aspect-ratio:1/1) and (max-height:560px){
+  .mobile-apontador-ui{grid-template-rows:52px minmax(0,1fr) 48px!important;}
+  .mobile-quadra-card{grid-template-rows:15px minmax(0,1fr)!important;}
+  .mobile-footer{height:48px!important;min-height:48px!important;}
+  .mobile-footer-acoes button{height:42px!important;min-height:42px!important;font-size:11px!important;padding:8px 10px!important;}
+  .mobile-ultima-acao{font-size:10.5px!important;padding:9px 11px!important;}
+}
+.mobile-pos.sub-bloqueada,.pos.sub-bloqueada{opacity:.72!important;cursor:not-allowed!important;filter:saturate(.75)!important;}
+#modalSub .sub-sai-fixo{padding:12px 14px;border-radius:14px;background:#eef2ff;color:#172554;font-weight:1000;margin:8px 0 12px;}
+#modalSub .sub-regra-aviso{margin-top:8px;color:#64748b;font-weight:900;font-size:13px;line-height:1.35;}
+
 </style>
 
 <div class="mobile-orientacao-bloqueio" aria-live="polite"><div class="mobile-orientacao-card"><div class="mobile-orientacao-icone">↻</div><strong>Vire o celular para operar o jogo</strong><span>O modo apontador mobile foi feito para funcionar com o celular ou tablet na horizontal.</span></div></div>
@@ -1185,7 +1207,7 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
 </div>
 
 <div class="modal" id="modalScout"><div class="modal-box"><h3>Justificativa do ponto</h3><div id="scoutEquipeTxt" style="font-weight:900;color:#64748b"></div><div><b>1. O que aconteceu?</b><div class="opcoes" id="scoutTipoBox"></div></div><div id="scoutDetalheWrap" style="display:none"><b>2. Qual foi o lance?</b><div class="opcoes" id="scoutDetalheBox"></div></div><div id="scoutAtletaWrap" style="display:none"><b id="scoutAtletaTitulo">3. Quem fez?</b><div class="opcoes" id="scoutAtletaBox"></div></div><div id="scoutResumo" style="font-weight:800;color:#64748b;margin-top:8px">Selecione o tipo do lance.</div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharScout()">Cancelar</button><button class="btn btn-green" onclick="confirmarScout()">Confirmar ponto</button></div></div></div>
-<div class="modal" id="modalSub"><div class="modal-box"><h3>Substituição</h3><div id="subEquipeTxt" style="font-weight:900;color:#64748b"></div><b>Sai da quadra</b><div class="opcoes" id="subSaiBox"></div><div class="field"><label>Entra nº</label><input id="subEntra" inputmode="numeric" pattern="[0-9]*" placeholder="Digite o número que entra"></div><div style="margin-top:6px;color:#64748b;font-weight:800;font-size:13px">Você pode clicar em um número sugerido ou digitar o número manualmente. O vínculo da substituição só é criado ao confirmar.</div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharSub()">Cancelar</button><button class="btn btn-green" onclick="confirmarSub()">Confirmar</button></div></div></div>
+<div class="modal" id="modalSub"><div class="modal-box"><h3>Substituição</h3><div id="subEquipeTxt" style="font-weight:900;color:#64748b"></div><div id="subSaiBox"></div><div class="field"><label id="subEntraLabel">Entra nº</label><input id="subEntra" inputmode="numeric" pattern="[0-9]*" placeholder="Digite o número que entra"></div><div id="subEntradaOpcoes" class="opcoes"></div><div id="subRegraAviso" class="sub-regra-aviso">Clique no atleta da quadra, digite quem entra e confirme.</div><div class="av-actions" style="margin-top:14px"><button class="btn" type="button" onclick="fecharSub()">Cancelar</button><button class="btn btn-green" type="button" onclick="confirmarSub()">Confirmar</button></div></div></div>
 <div class="modal" id="modalGenerico"><div class="modal-box"><h3 id="genTitulo"></h3><div id="genConteudo"></div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharGenerico()">Cancelar</button><button class="btn btn-green" onclick="confirmarGenerico()">Confirmar</button></div></div></div>
 <div class="cronometro" id="cronometro"><div><div style="font-size:34px;font-weight:1000">TEMPO</div><div class="tempo" id="tempoNumero">30</div><button class="btn btn-red" onclick="fecharCronometro()">Fechar</button></div></div>
 <div class="popup-saque" id="popupSaque"><div class="popup-card"><div class="titulo">NOVO SAQUE</div><div class="numero" id="popupNumero">?</div><div class="equipe" id="popupEquipe"></div><button class="btn btn-red" style="margin-top:20px" onclick="fecharPopupSaque()">Fechar</button></div></div>
@@ -1378,7 +1400,7 @@ function renderQuadra(l){
         if(estado.saque_atual===l&&i===5)cls.push('saque-atual');
         if(subStatus==='substituto')cls.push('pos-substituto');
         if(subStatus==='retorno')cls.push('pos-retorno');
-        const acao=numero?` onclick="abrirSubComSai('${l}','${numero}')" title="Substituir nº ${numero}" data-numero="${numero}" data-substatus="${subStatus}"`:'';
+        const bloqueado=numero && !subNumeroClicavel(l,numero); if(bloqueado)cls.push('sub-bloqueada'); const acao=(numero&&!bloqueado)?` onclick="abrirSubComSai('${l}','${numero}')" title="Substituir nº ${numero}" data-numero="${numero}" data-substatus="${subStatus}"`:(numero?` title="Substituição deste vínculo já foi encerrada" data-numero="${numero}" data-substatus="${subStatus}"`:'' );
         return `<div class='${cls.join(' ')}'${acao}><span>${numero||'-'}</span><small>${posLabel(i)}</small></div>`;
     }).join('')}</div>`;
 }
@@ -1387,8 +1409,21 @@ function valorVisual(lado, campoA, campoB, padrao=0){return lado==='A'?(estado[c
 
 function mobileEl(id){return document.getElementById(id);}
 function mobileFecharMenus(){['mobile-menu-esq','mobile-menu-dir'].forEach(id=>{const el=mobileEl(id); if(el)el.classList.remove('aberto');});}
-function renderMobileQuadra(l){const r=rot(l)||[];return r.map((n,i)=>`<button class="mobile-pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}" type="button" onclick="mobileCliqueNumero('${l}','${String(n||'')}')"><span class="mobile-pos-numero">${n||'-'}</span><span class="mobile-pos-nome">${posLabel(i)}</span></button>`).join('');}
-function mobileCliqueNumero(l,n){if(!n)return toast('Esta posição está vazia'); abrirSubComSai(l,n,false); mobileSubTemp=null;}
+function renderMobileQuadra(l){
+  garantirVinculosSub();
+  const r=rot(l)||[];
+  return r.map((n,i)=>{
+    const numero=String(n||'').replace(/\D/g,'');
+    const saqueCls=(estado.saque_atual===l&&i===5)?' saque-atual':'';
+    const status=subStatusNumero(l,numero);
+    const bloqueado=numero && !subNumeroClicavel(l,numero);
+    const cls=`mobile-pos${saqueCls}${bloqueado?' sub-bloqueada':''}`;
+    const click=(numero && !bloqueado)?` onclick="mobileCliqueNumero('${l}','${numero}')"`:'';
+    const title=bloqueado?'Substituição deste vínculo já foi encerrada':'Toque para substituir';
+    return `<button class="${cls}" type="button" ${click} title="${title}" data-numero="${numero}" data-substatus="${status}"><span class="mobile-pos-numero">${numero||'-'}</span><span class="mobile-pos-nome">${posLabel(i)}</span></button>`;
+  }).join('');
+}
+function mobileCliqueNumero(l,n){if(!n)return toast('Esta posição está vazia'); if(!subNumeroClicavel(l,n))return toast('Este vínculo de substituição já foi encerrado.'); abrirSubComSai(l,n,false); mobileSubTemp=null;}
 function renderMobile(){
   if(!mobileEl('mobile-apontador-ui'))return;
   const esq=ladoVisual('esq'),dir=ladoVisual('dir');
@@ -1408,7 +1443,31 @@ function renderMobile(){
   el=mobileEl('mobile-saque');if(el)el.textContent=`Saque: ${equipeNome(estado.saque_atual||'A')} • nº ${sacador(estado.saque_atual||'A')}`;
   el=mobileEl('mobile-ultima-acao');if(el)el.textContent=`ÚLTIMA AÇÃO: ${estado.ultima_acao||'-'}`;
 }
-function initMobileApontadorAvulso(){const bind=(id,fn)=>{const el=mobileEl(id);if(el&&!el.dataset.bind){el.addEventListener('click',fn);el.dataset.bind='1';}};bind('mobile-head-esq',()=>acaoPonto(ladoVisual('esq')));bind('mobile-head-dir',()=>acaoPonto(ladoVisual('dir')));bind('mobile-ponto-esq',()=>acaoPonto(ladoVisual('esq')));bind('mobile-ponto-dir',()=>acaoPonto(ladoVisual('dir')));bind('mobile-menu-esq-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-esq');if(el)el.classList.add('aberto');});bind('mobile-menu-dir-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-dir');if(el)el.classList.add('aberto');});document.querySelectorAll('[data-mobile-close]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',mobileFecharMenus);});document.querySelectorAll('[data-mobile-action]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',()=>{const lado=ladoVisual(btn.dataset.side||'esq'),acao=btn.dataset.mobileAction;mobileFecharMenus();if(acao==='tempo')abrirTempo(lado);else if(acao==='sub')iniciarSubMobile(lado);else if(acao==='subex')abrirSubEx(lado);else if(acao==='sancao')abrirSancao(lado);else if(acao==='verde')abrirVerde(lado);else if(acao==='retardamento')abrirRetardamento(lado);else if(acao==='wo')wo(lado);});});bind('mobile-inverter-lados',inverterLadoLocal);bind('mobile-links',abrirModalLinksMobile);bind('mobile-desfazer',desfazerUltimaAcaoAvulso);bind('mobile-salvar',()=>{salvarServidor();toast('Jogo salvo');});bind('mobile-salvar-sair',()=>{salvarServidor().then(()=>{if(String(estado.status_jogo||'').toLowerCase().includes('finaliz')){location.href='/apontador/jogo-avulso/novo';}else{location.href='/apontador/jogo-avulso';}});});bind('mobile-fullscreen',()=>{try{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}catch(e){}});}
+function executarAcaoRodapeMobile(id, ev){
+    if(ev){ev.preventDefault();ev.stopPropagation();}
+    if(id==='mobile-links') abrirModalLinksMobile();
+    else if(id==='mobile-desfazer') desfazerUltimaAcaoAvulso();
+    else if(id==='mobile-inverter-lados') inverterLadoLocal();
+    else if(id==='mobile-salvar'){salvarServidor();toast('Jogo salvo');}
+    else if(id==='mobile-salvar-sair'){salvarServidor().then(()=>{location.href=String(estado.status_jogo||'').toLowerCase().includes('finaliz')?'/apontador/jogo-avulso/novo':'/apontador/jogo-avulso';});}
+    else if(id==='mobile-fullscreen'){try{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}catch(e){}}
+}
+function initMobileApontadorAvulso(){
+  const bind=(id,fn)=>{const el=mobileEl(id);if(el&&!el.dataset.bind){el.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();fn(ev);});el.dataset.bind='1';}};
+  bind('mobile-head-esq',()=>acaoPonto(ladoVisual('esq')));
+  bind('mobile-head-dir',()=>acaoPonto(ladoVisual('dir')));
+  // Os botões +PONTO de baixo ficam ocultos no mobile para não atrapalhar o rodapé.
+  bind('mobile-menu-esq-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-esq');if(el)el.classList.add('aberto');});
+  bind('mobile-menu-dir-btn',()=>{mobileFecharMenus();const el=mobileEl('mobile-menu-dir');if(el)el.classList.add('aberto');});
+  document.querySelectorAll('[data-mobile-close]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();mobileFecharMenus();});});
+  document.querySelectorAll('[data-mobile-action]').forEach(btn=>{if(btn.dataset.bind)return;btn.dataset.bind='1';btn.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();const lado=ladoVisual(btn.dataset.side||'esq'),acao=btn.dataset.mobileAction;mobileFecharMenus();if(acao==='tempo')abrirTempo(lado);else if(acao==='sub')iniciarSubMobile(lado);else if(acao==='subex')abrirSubEx(lado);else if(acao==='sancao')abrirSancao(lado);else if(acao==='verde')abrirVerde(lado);else if(acao==='retardamento')abrirRetardamento(lado);else if(acao==='wo')wo(lado);});});
+  ['mobile-links','mobile-desfazer','mobile-fullscreen','mobile-inverter-lados','mobile-salvar','mobile-salvar-sair'].forEach(id=>{
+    const el=mobileEl(id); if(!el||el.dataset.rodapeOk==='1')return; el.dataset.rodapeOk='1';
+    let ultimo=0;
+    ['pointerup','touchend','click'].forEach(evt=>el.addEventListener(evt,function(ev){const agora=Date.now(); if(agora-ultimo<260){ev.preventDefault();ev.stopPropagation();return;} ultimo=agora; executarAcaoRodapeMobile(id,ev);},{capture:true,passive:false}));
+  });
+}
+
 
 function render(){const esq=ladoVisual('esq'); const dir=ladoVisual('dir'); const setsEsq=valorVisual(esq,'sets_a','sets_b',0); const setsDir=valorVisual(dir,'sets_a','sets_b',0); const pontosEsq=valorVisual(esq,'pontos_a','pontos_b',0); const pontosDir=valorVisual(dir,'pontos_a','pontos_b',0); document.getElementById('subInfo').textContent=`${estado.modo_operacao==='avancado'?'Avançado com scout':'Simples'} • ${estado.set_atual}º set • Saque: ${equipeNome(estado.saque_atual||'A')}`; document.getElementById('cardEsq').innerHTML=renderTime(esq); document.getElementById('cardDir').innerHTML=renderTime(dir); document.getElementById('setsBox').innerHTML=`<small>SET ATUAL</small><div class='n'>${estado.set_atual}º</div><small>SETS</small><div class='n'>${setsEsq} x ${setsDir}</div><small>${pontosEsq} x ${pontosDir}</small>`; document.getElementById('historicoBox').innerHTML=(estado.historico||[]).slice(0,50).map(h=>`<div class='item'>${h.descricao}<br><small>${h.placar||''}</small></div>`).join('')||'<div class="item">Nenhuma ação.</div>'; renderMobile();}
 function inverterLadoLocal(){ladoInvertido=!ladoInvertido;localStorage.setItem(LS_INV,ladoInvertido?'1':'0');render();}
@@ -1515,22 +1574,38 @@ document.getElementById('scoutResumo').textContent=`Ponto • ${scoutTemp.detalh
 function scoutSetTipo(t){scoutTemp.tipo=t;scoutTemp.detalhe='';scoutTemp.numero='';renderScout();} function scoutSetDetalhe(d){scoutTemp.detalhe=d;scoutTemp.numero=''; if(d==='ace')scoutTemp.numero=numeroPos(scoutTemp.equipe,1); renderScout();} function scoutSetNumero(n){scoutTemp.numero=n;renderScout();} function confirmarScout(){if(!scoutTemp.tipo||!scoutTemp.detalhe)return toast('Complete o scout'); if(scoutTemp.tipo==='ponto'&&!scoutTemp.numero)return toast('Selecione o número que fez o ponto'); fecharScout(); confirmarPonto(scoutTemp.equipe,{tipo:scoutTemp.tipo,detalhe:scoutTemp.detalhe,numero:scoutTemp.numero||''});}
 function garantirVinculosSub(){estado.vinculos_substituicao=estado.vinculos_substituicao||{A:{},B:{}};estado.vinculos_substituicao.A=estado.vinculos_substituicao.A||{};estado.vinculos_substituicao.B=estado.vinculos_substituicao.B||{};estado.substituidos_finalizados=estado.substituidos_finalizados||{A:[],B:[]};estado.substituidos_finalizados.A=estado.substituidos_finalizados.A||[];estado.substituidos_finalizados.B=estado.substituidos_finalizados.B||[];}
 function numerosDoBanco(l){garantirVinculosSub();const emQuadra=new Set((rot(l)||[]).filter(Boolean).map(String));const todos=new Set([...(estado[`numeros_${l.toLowerCase()}`]||[]),...(estado[`banco_${l.toLowerCase()}`]||[])].filter(Boolean).map(String));Object.keys((estado.vinculos_substituicao||{})[l]||{}).forEach(n=>todos.add(String(n)));(estado.substituidos_finalizados?.[l]||[]).forEach(n=>todos.add(String(n)));return [...todos].filter(n=>!emQuadra.has(n));}
+
+function subNumeroFinalizado(l,n){
+    garantirVinculosSub();
+    n=String(n||'').replace(/\D/g,'');
+    return !!(n && (estado.substituidos_finalizados[l]||[]).map(String).includes(n));
+}
+function subNumeroClicavel(l,n){
+    n=String(n||'').replace(/\D/g,'');
+    if(!n) return false;
+    if(subNumeroFinalizado(l,n)) return false;
+    return true;
+}
+function subStatusNumero(l,n){
+    garantirVinculosSub();
+    n=String(n||'').replace(/\D/g,'');
+    if(!n) return '';
+    if(subNumeroFinalizado(l,n)) return 'finalizado';
+    if((estado.vinculos_substituicao[l]||{})[n]) return 'substituto';
+    return '';
+}
+
 function entradasPermitidas(l,sai){
     garantirVinculosSub();
+    sai=String(sai||'').replace(/\D/g,'');
     const vinc=estado.vinculos_substituicao[l]||{};
-    const finalizados=new Set((estado.substituidos_finalizados[l]||[]).map(String));
-    const bancoAtual=numerosDoBanco(l).map(String);
-    const historicos=(l==='A'?(estado.numeros_a||[]):(estado.numeros_b||[])).map(String);
-    const emQuadra=new Set((rot(l)||[]).filter(Boolean).map(String));
-    const sugestoes=[];
-    function add(n){n=String(n||'').replace(/\D/g,''); if(n && !sugestoes.includes(n) && !emQuadra.has(n) && !finalizados.has(n)) sugestoes.push(n);}
-    if(vinc[sai]){
-        add(vinc[sai]);
-        return sugestoes;
+    const original=vinc[sai] ? String(vinc[sai]) : '';
+    if(original){
+        // Se o atleta em quadra é substituto, só o titular original pode voltar.
+        return [original];
     }
-    [...bancoAtual,...historicos].forEach(add);
-    Object.keys(vinc).forEach(n=>{ if(!vinc[n]) add(n); });
-    return sugestoes;
+    // Jogo avulso não tem banco: para novo par, o apontador digita o número que entra.
+    return [];
 }
 function entradaRegularPermitida(l,sai,entra){
     garantirVinculosSub();
@@ -1553,9 +1628,45 @@ function entradaRegularPermitida(l,sai,entra){
 }
 function iniciarSubMobile(l){mobileSubTemp={equipe:l};toast('Toque no número que vai sair da quadra');}
 function abrirSubComSai(l,n,porExpulsao=false){abrirSub(l,porExpulsao);setTimeout(()=>subSetSai(n),0);}
-function abrirSub(l,porExpulsao=false){garantirVinculosSub();mobileSubTemp=null;subTemp={equipe:l,sai:'',entra:'',porExpulsao:!!porExpulsao}; document.getElementById('subEquipeTxt').textContent=equipeNome(l)+(porExpulsao?' • substituição por expulsão':''); document.getElementById('subSaiBox').innerHTML=(rot(l)||[]).filter(Boolean).map(n=>chip('Nº '+n,false,`subSetSai('${n}')`)).join(''); const input=document.getElementById('subEntra'); if(input)input.value=''; let lista=document.getElementById('subEntradaOpcoes'); if(lista)lista.innerHTML=''; document.getElementById('modalSub').classList.add('aberto');}
+function abrirSub(l,porExpulsao=false){
+    garantirVinculosSub();
+    mobileSubTemp=null;
+    subTemp={equipe:l,sai:'',entra:'',porExpulsao:!!porExpulsao};
+    document.getElementById('subEquipeTxt').textContent=equipeNome(l)+(porExpulsao?' • substituição por expulsão':'');
+    document.getElementById('subSaiBox').innerHTML='<div class="sub-sai-fixo">Toque em um número da quadra para escolher quem sai.</div>';
+    const input=document.getElementById('subEntra');
+    if(input){input.value='';input.disabled=true;input.placeholder='Primeiro toque no número que vai sair';}
+    const lab=document.getElementById('subEntraLabel'); if(lab)lab.textContent='Entra nº';
+    const lista=document.getElementById('subEntradaOpcoes'); if(lista)lista.innerHTML='';
+    const aviso=document.getElementById('subRegraAviso'); if(aviso)aviso.textContent='No jogo avulso, toque no atleta em quadra. Depois digite o número que entra.';
+    document.getElementById('modalSub').classList.add('aberto');
+}
 function fecharSub(){document.getElementById('modalSub').classList.remove('aberto');mobileSubTemp=null;}
-function subSetSai(n){subTemp.sai=String(n); document.querySelectorAll('#subSaiBox .chip').forEach(b=>b.classList.toggle('ativo',b.textContent.includes(String(n)))); const opcoes=entradasPermitidas(subTemp.equipe,String(n)); const input=document.getElementById('subEntra'); if(input){input.value='';input.placeholder='Digite o nº que entra no lugar do '+String(n);setTimeout(()=>input.focus(),80);} const box=input?input.parentElement:null; let lista=document.getElementById('subEntradaOpcoes'); if(!lista&&box){lista=document.createElement('div');lista.id='subEntradaOpcoes';lista.className='opcoes';box.after(lista);} if(lista)lista.innerHTML=opcoes.map(x=>chip('Nº '+x,false,`subSetEntra('${x}')`)).join('') || '<span style="font-weight:900;color:#64748b">Digite o número que irá entrar.</span>'; }
+function subSetSai(n){
+    garantirVinculosSub();
+    n=String(n||'').replace(/\D/g,'');
+    if(!n)return;
+    if(!subNumeroClicavel(subTemp.equipe,n)){toast('Este vínculo de substituição já foi encerrado.'); fecharSub(); return;}
+    subTemp.sai=n;
+    const vinc=estado.vinculos_substituicao[subTemp.equipe]||{};
+    const retorno=vinc[n]?String(vinc[n]):'';
+    document.getElementById('subSaiBox').innerHTML=`<div class="sub-sai-fixo">Sai nº ${n}</div>`;
+    const input=document.getElementById('subEntra');
+    const lab=document.getElementById('subEntraLabel');
+    const lista=document.getElementById('subEntradaOpcoes');
+    const aviso=document.getElementById('subRegraAviso');
+    if(retorno){
+        if(lab)lab.textContent='Retorna nº';
+        if(input){input.value=retorno;input.disabled=true;input.placeholder='Só o titular original pode voltar';}
+        if(lista)lista.innerHTML=chip('Volta nº '+retorno,true,`subSetEntra('${retorno}')`);
+        if(aviso)aviso.textContent=`Retorno obrigatório: o nº ${n} só pode sair para voltar o nº ${retorno}. Depois disso esse vínculo fica encerrado.`;
+    }else{
+        if(lab)lab.textContent='Entra nº';
+        if(input){input.disabled=false;input.value='';input.placeholder='Digite o número que entra no lugar do '+n;setTimeout(()=>input.focus(),80);}
+        if(lista)lista.innerHTML='';
+        if(aviso)aviso.textContent='Digite o número do atleta que entra. Esse número ficará vinculado ao titular que saiu.';
+    }
+}
 function subSetEntra(n){subTemp.entra=String(n);document.getElementById('subEntra').value=String(n);document.querySelectorAll('#subEntradaOpcoes .chip').forEach(b=>b.classList.toggle('ativo',b.textContent.includes(String(n))));}
 function confirmarSub(){
     garantirVinculosSub();
@@ -1587,7 +1698,7 @@ function confirmarSub(){
     addHist(`Substituição ${equipeNome(subTemp.equipe)}: sai nº ${subTemp.sai}, entra nº ${entra}`,'substituicao',{equipe:subTemp.equipe,sai:subTemp.sai,entra,por_expulsao:!!subTemp.porExpulsao});
     fecharSub(); salvarServidor(); render();
 }
-function abrirTempo(l){salvarSnapshotDesfazer();if(l==='A')estado.tempos_a++;else estado.tempos_b++; estado.tempo_ativo={equipe:l,equipe_nome:equipeNome(l),inicio:Date.now(),segundos:30}; addHist(`Tempo ${equipeNome(l)}`,'tempo'); salvarServidor(); abrirCronometro(30); render();}
+function abrirTempo(l){const limite=int(estado.limite_tempos??1);const usados=l==='A'?int(estado.tempos_a||0):int(estado.tempos_b||0);if(limite>=0&&usados>=limite)return toast('Limite de tempos atingido neste set.');salvarSnapshotDesfazer();if(l==='A')estado.tempos_a++;else estado.tempos_b++; estado.tempo_ativo={equipe:l,equipe_nome:equipeNome(l),inicio:Date.now(),segundos:30}; addHist(`Tempo ${equipeNome(l)}`,'tempo'); salvarServidor(); abrirCronometro(30); render();}
 function abrirCronometro(s){let t=s; const cr=document.getElementById('cronometro'), num=document.getElementById('tempoNumero'); cr.classList.add('aberto'); clearInterval(timerTempo); num.textContent=t; timerTempo=setInterval(()=>{t--;num.textContent=Math.max(0,t);estado.tempo_ativo={...(estado.tempo_ativo||{}),restante:Math.max(0,t)};salvarLocal(); if(t<=0){clearInterval(timerTempo);}},1000);} function fecharCronometro(){document.getElementById('cronometro').classList.remove('aberto');clearInterval(timerTempo);estado.tempo_ativo=null;salvarServidor();}
 function mostrarPopupSaqueLocal(l){document.getElementById('popupNumero').textContent=sacador(l);document.getElementById('popupEquipe').textContent=equipeNome(l);document.getElementById('popupSaque').classList.add('aberto');clearTimeout(popupTimer);popupTimer=setTimeout(fecharPopupSaque,4300)} function fecharPopupSaque(){document.getElementById('popupSaque').classList.remove('aberto');}
 function abrirSancao(l){abrirAcaoDisciplinar('Sanção',l,'sancao',['Advertência','Penalidade','Expulsão','Desqualificação']);}
@@ -1686,6 +1797,26 @@ render();
     if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ativar);
     else ativar();
     setTimeout(ativar,300);
+})();
+</script>
+
+<script>
+(function ajustesFinaisMobileAvulso(){
+  function ativar(){
+    const modal=document.getElementById('modalSub');
+    if(modal && !modal.dataset.fechaFundo){
+      modal.dataset.fechaFundo='1';
+      modal.addEventListener('click',function(ev){ if(ev.target===modal) fecharSub(); });
+    }
+    const input=document.getElementById('subEntra');
+    if(input && !input.dataset.enterSubOk2){
+      input.dataset.enterSubOk2='1';
+      input.addEventListener('keydown',function(ev){ if(ev.key==='Enter'){ev.preventDefault();confirmarSub();} });
+    }
+    if(typeof initMobileApontadorAvulso==='function') initMobileApontadorAvulso();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ativar);else ativar();
+  setTimeout(ativar,500);
 })();
 </script>
 {% endblock %}
