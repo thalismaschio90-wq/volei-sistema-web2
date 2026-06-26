@@ -122,7 +122,7 @@ def aplicar_headers_cache(response):
         response.headers["Cache-Control"] = "public, max-age=2592000"
         response.headers.pop("Pragma", None)
         response.headers.pop("Expires", None)
-    elif path in ("/sw.js", "/manifest.json", "/app-login", "/app"):
+    elif path in ("/sw.js", "/manifest.json", "/manifest-arbitro.json", "/app-login", "/app", "/arbitro"):
         response.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -353,6 +353,23 @@ def manifest_pwa():
         send_from_directory(
             "static",
             "manifest.json"
+        )
+    )
+
+    resposta.headers["Content-Type"] = "application/manifest+json"
+    resposta.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+    resposta.headers["Pragma"] = "no-cache"
+    resposta.headers["Expires"] = "0"
+
+    return resposta
+
+
+@app.route("/manifest-arbitro.json")
+def manifest_arbitro_pwa():
+    resposta = make_response(
+        send_from_directory(
+            "static",
+            "manifest-arbitro.json"
         )
     )
 

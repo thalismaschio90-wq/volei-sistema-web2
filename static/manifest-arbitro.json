@@ -1,0 +1,25 @@
+{
+  "name": "PRO Árbitro",
+  "short_name": "PRO Árbitro",
+  "description": "Acesso direto dos árbitros ao PIN da partida no VolleyTable Pro.",
+  "start_url": "/pro-arbitro",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#061a2d",
+  "theme_color": "#ff7a00",
+  "icons": [
+    {
+      "src": "/static/img/icon-arbitro-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/img/icon-arbitro-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
