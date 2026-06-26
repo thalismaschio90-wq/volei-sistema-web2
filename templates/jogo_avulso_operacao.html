@@ -2,7 +2,7 @@
 {% block titulo %}Jogo avulso{% endblock %}
 {% block conteudo %}
 <style>
-header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;margin:0 auto}.av-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}.av-title{font-size:24px;font-weight:1000;color:#0f172a}.av-sub{color:#64748b;font-weight:800}.av-actions{display:flex;gap:8px;flex-wrap:wrap}.pin-avulso{display:inline-flex;align-items:center;gap:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#172554;border-radius:14px;padding:9px 12px;font-weight:1000}.pin-avulso b{font-size:22px;letter-spacing:4px}.btn{border:1px solid #dbe3ef;border-radius:12px;padding:10px 13px;background:#fff;color:#0f172a;font-weight:1000;cursor:pointer;text-decoration:none}.btn:hover{background:#f8fafc}.btn-green{background:#16a34a;color:#fff;border:0}.btn-blue{background:#2563eb;color:#fff;border:0}.btn-red{background:#ef4444;color:#fff;border:0}.btn-yellow{background:#f59e0b;color:#111827;border:0}.placar{display:grid;grid-template-columns:1fr 180px 1fr;gap:12px;align-items:stretch}.time{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px}.time h2{margin:0;font-size:28px;font-weight:1000}.pontos{font-size:92px;line-height:.9;font-weight:1000;color:#0f172a;text-align:center}.sets{background:#0f172a;color:#fff;border-radius:22px;padding:18px;text-align:center;display:flex;flex-direction:column;justify-content:center}.sets .n{font-size:42px;font-weight:1000}.sets small{color:#cbd5e1;font-weight:900}.saque{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:1000}.quadra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pos{border:2px solid #dbe3ef;background:#f8fafc;border-radius:16px;min-height:72px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-weight:1000;font-size:24px}.pos small{font-size:12px;color:#64748b}.pos.saque-atual{background:#fef3c7;border-color:#f59e0b}.team-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.painel{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow)}.lista{max-height:310px;overflow:auto}.item{padding:9px 0;border-bottom:1px solid #eef2f7;font-weight:800;color:#334155}.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:14px}.modal.aberto{display:flex}.modal-box{background:#fff;border-radius:22px;padding:18px;max-width:620px;width:100%;box-shadow:0 18px 60px rgba(0,0,0,.35)}.modal-box h3{margin:0 0 10px}.opcoes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.chip{border:1px solid #dbe3ef;border-radius:14px;background:#f8fafc;padding:11px 13px;font-weight:1000;cursor:pointer;min-width:92px;text-align:center}.chip.ativo{background:#dcfce7;border-color:#86efac;color:#166534}.chip.bloqueado{opacity:.42;cursor:not-allowed}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;font-weight:900;margin-bottom:5px}.field input,.field select{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:11px;font-weight:900}.cronometro,.popup-saque{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:9998;display:none;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}.cronometro.aberto,.popup-saque.aberto{display:flex}.cronometro .tempo{font-size:150px;font-weight:1000;line-height:1}.popup-card{background:radial-gradient(circle at top,#fff,#dbeafe);color:#10283d;border-radius:34px;box-shadow:0 28px 90px rgba(0,0,0,.42);width:min(900px,96vw);min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:28px}.popup-card .titulo{font-size:clamp(30px,5vw,62px);font-weight:1000;letter-spacing:.08em}.popup-card .numero{font-size:clamp(110px,18vw,190px);font-weight:1000;line-height:.9}.popup-card .equipe{font-size:clamp(22px,4vw,42px);font-weight:1000}.relatorio{display:none}.relatorio.aberto{display:block}.rel-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.tabela{width:100%;border-collapse:collapse}.tabela th,.tabela td{border:1px solid #e5e7eb;padding:8px;text-align:left}.tabela th{background:#f8fafc}.av-alert{position:fixed;top:18px;right:18px;background:#111827;color:#fff;padding:12px 14px;border-radius:14px;z-index:10000;font-weight:900;display:none}@media(max-width:900px){.placar{grid-template-columns:1fr}.painel{grid-template-columns:1fr}.pontos{font-size:76px}.sets{order:-1}.rel-grid{grid-template-columns:1fr}}@media print{body *{visibility:hidden}.relatorio,.relatorio *{visibility:visible}.relatorio{position:absolute;left:0;top:0;width:100%;display:block!important}.no-print{display:none!important}}
+header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;margin:0 auto}.av-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}.av-title{font-size:24px;font-weight:1000;color:#0f172a}.av-sub{color:#64748b;font-weight:800}.av-actions{display:flex;gap:8px;flex-wrap:wrap}.pin-avulso{display:inline-flex;align-items:center;gap:8px;background:#eef2ff;border:1px solid #c7d2fe;color:#172554;border-radius:14px;padding:9px 12px;font-weight:1000}.pin-avulso b{font-size:22px;letter-spacing:4px}.btn{border:1px solid #dbe3ef;border-radius:12px;padding:10px 13px;background:#fff;color:#0f172a;font-weight:1000;cursor:pointer;text-decoration:none}.btn:hover{background:#f8fafc}.btn-green{background:#16a34a;color:#fff;border:0}.btn-blue{background:#2563eb;color:#fff;border:0}.btn-red{background:#ef4444;color:#fff;border:0}.btn-yellow{background:#f59e0b;color:#111827;border:0}.placar{display:grid;grid-template-columns:1fr 180px 1fr;gap:12px;align-items:stretch}.time{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px}.time h2{margin:0;font-size:28px;font-weight:1000}.pontos{font-size:92px;line-height:.9;font-weight:1000;color:#0f172a;text-align:center}.sets{background:#0f172a;color:#fff;border-radius:22px;padding:18px;text-align:center;display:flex;flex-direction:column;justify-content:center}.sets .n{font-size:42px;font-weight:1000}.sets small{color:#cbd5e1;font-weight:900}.saque{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:1000}.quadra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pos{border:2px solid #dbe3ef;background:#f8fafc;border-radius:16px;min-height:72px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-weight:1000;font-size:24px}.pos small{font-size:12px;color:#64748b}.pos.saque-atual{background:#fef3c7;border-color:#f59e0b}.pos[data-numero]{cursor:pointer;user-select:none}.pos[data-numero]:hover{border-color:#2563eb;background:#eff6ff}.pos[data-substatus='substituto']{background:#fee2e2!important;border-color:#fca5a5!important;color:#991b1b!important}.pos[data-substatus='retorno']{background:#dcfce7!important;border-color:#86efac!important;color:#166534!important}.team-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.painel{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px;box-shadow:var(--shadow)}.lista{max-height:310px;overflow:auto}.item{padding:9px 0;border-bottom:1px solid #eef2f7;font-weight:800;color:#334155}.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:14px}.modal.aberto{display:flex}.modal-box{background:#fff;border-radius:22px;padding:18px;max-width:620px;width:100%;box-shadow:0 18px 60px rgba(0,0,0,.35)}.modal-box h3{margin:0 0 10px}.opcoes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.chip{border:1px solid #dbe3ef;border-radius:14px;background:#f8fafc;padding:11px 13px;font-weight:1000;cursor:pointer;min-width:92px;text-align:center}.chip.ativo{background:#dcfce7;border-color:#86efac;color:#166534}.chip.bloqueado{opacity:.42;cursor:not-allowed}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;font-weight:900;margin-bottom:5px}.field input,.field select{width:100%;border:1px solid #dbe3ef;border-radius:12px;padding:11px;font-weight:900}.cronometro,.popup-saque{position:fixed;inset:0;background:rgba(15,23,42,.92);z-index:9998;display:none;align-items:center;justify-content:center;color:#fff;text-align:center;padding:20px}.cronometro.aberto,.popup-saque.aberto{display:flex}.cronometro .tempo{font-size:150px;font-weight:1000;line-height:1}.popup-card{background:radial-gradient(circle at top,#fff,#dbeafe);color:#10283d;border-radius:34px;box-shadow:0 28px 90px rgba(0,0,0,.42);width:min(900px,96vw);min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:28px}.popup-card .titulo{font-size:clamp(30px,5vw,62px);font-weight:1000;letter-spacing:.08em}.popup-card .numero{font-size:clamp(110px,18vw,190px);font-weight:1000;line-height:.9}.popup-card .equipe{font-size:clamp(22px,4vw,42px);font-weight:1000}.relatorio{display:none}.relatorio.aberto{display:block}.rel-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.tabela{width:100%;border-collapse:collapse}.tabela th,.tabela td{border:1px solid #e5e7eb;padding:8px;text-align:left}.tabela th{background:#f8fafc}.av-alert{position:fixed;top:18px;right:18px;background:#111827;color:#fff;padding:12px 14px;border-radius:14px;z-index:10000;font-weight:900;display:none}@media(max-width:900px){.placar{grid-template-columns:1fr}.painel{grid-template-columns:1fr}.pontos{font-size:76px}.sets{order:-1}.rel-grid{grid-template-columns:1fr}}@media print{body *{visibility:hidden}.relatorio,.relatorio *{visibility:visible}.relatorio{position:absolute;left:0;top:0;width:100%;display:block!important}.no-print{display:none!important}}
 
 
 /* =========================================================
@@ -970,16 +970,44 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
 
 
 /* =========================================================
-   FIX TOUCH MOBILE - RODAPÉ/BTNS NÃO PODEM VIRAR PONTO
+   CORREÇÃO DEFINITIVA DOS BOTÕES DO RODAPÉ MOBILE/PC
+   Garante que Links/Desfazer/Inverter/Salvar/Sair recebam clique
+   mesmo quando o layout mobile cobre a tela inteira.
    ========================================================= */
-@media (max-width:1400px) and (min-aspect-ratio:1/1){
-  .mobile-apontador-ui{ isolation:isolate!important; }
-  .mobile-jogo-topo{ position:relative!important; z-index:2!important; }
-  .mobile-main{ position:relative!important; z-index:1!important; }
-  .mobile-footer{ position:relative!important; z-index:99999!important; pointer-events:auto!important; }
-  .mobile-footer *, .mobile-footer-acoes, .mobile-footer-acoes button{ pointer-events:auto!important; touch-action:manipulation!important; }
-  .mobile-footer-acoes button{ position:relative!important; z-index:100000!important; }
-  .links-mobile-modal, .modal, .cronometro, .popup-saque{ z-index:100500!important; }
+.mobile-footer{
+    position:relative!important;
+    z-index:100300!important;
+    pointer-events:auto!important;
+    isolation:isolate!important;
+}
+.mobile-footer *,
+.mobile-footer-acoes,
+.mobile-footer-acoes button{
+    pointer-events:auto!important;
+    touch-action:manipulation!important;
+    -webkit-tap-highlight-color:rgba(255,255,255,.18)!important;
+}
+.mobile-footer-acoes button{
+    position:relative!important;
+    z-index:100301!important;
+}
+.mobile-main{
+    position:relative!important;
+    z-index:1!important;
+}
+.mobile-menu-lateral{
+    pointer-events:none!important;
+}
+.mobile-menu-lateral.aberto{
+    pointer-events:auto!important;
+    z-index:100250!important;
+}
+.links-mobile-modal:not(.aberto){
+    display:none!important;
+    pointer-events:none!important;
+}
+.links-mobile-modal.aberto{
+    pointer-events:auto!important;
 }
 
 </style>
@@ -1041,9 +1069,50 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
 <div class="modal" id="modalGenerico"><div class="modal-box"><h3 id="genTitulo"></h3><div id="genConteudo"></div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharGenerico()">Cancelar</button><button class="btn btn-green" onclick="confirmarGenerico()">Confirmar</button></div></div></div>
 <div class="cronometro" id="cronometro"><div><div style="font-size:34px;font-weight:1000">TEMPO</div><div class="tempo" id="tempoNumero">30</div><button class="btn btn-red" onclick="fecharCronometro()">Fechar</button></div></div>
 <div class="popup-saque" id="popupSaque"><div class="popup-card"><div class="titulo">NOVO SAQUE</div><div class="numero" id="popupNumero">?</div><div class="equipe" id="popupEquipe"></div><button class="btn btn-red" style="margin-top:20px" onclick="fecharPopupSaque()">Fechar</button></div></div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
+(function ativarEnterSubstituicaoAvulsa(){
+    const input=document.getElementById('subEntra');
+    if(input && !input.dataset.enterSubOk){
+        input.dataset.enterSubOk='1';
+        input.addEventListener('keydown',function(ev){
+            if(ev.key==='Enter'){
+                ev.preventDefault();
+                confirmarSub();
+            }
+        });
+    }
+})();
+
+</script>
 <script>
 const CODIGO={{ codigo|tojson }}; const ESTADO_SERVIDOR={{ estado|tojson }}; const endpoint=`/apontador/jogo-avulso/${CODIGO}/estado`;
 const LS_ESTADO=`jogo_avulso_estado_${CODIGO}`; const LS_INV=`jogo_avulso_inversao_apontador_${CODIGO}`; const LS_INV_SET=`jogo_avulso_inversao_apontador_set_${CODIGO}`;
+const PARTIDA_ID_AVULSO=`avulso:${CODIGO}`;
+let socketAvulso=null;
+function conectarSocketAvulso(){
+  if(typeof io==='undefined') return null;
+  if(socketAvulso) return socketAvulso;
+  socketAvulso=io({transports:['websocket','polling'],reconnection:true,reconnectionAttempts:Infinity,reconnectionDelay:500});
+  socketAvulso.on('connect',()=>{
+    const payload={partida_id:PARTIDA_ID_AVULSO,competicao:'JOGO AVULSO',modo_avulso:true,tela:'apontador_avulso'};
+    socketAvulso.emit('entrar_partida',payload);
+    socketAvulso.emit('entrar_partida_tempo_real',payload);
+    socketAvulso.emit('join_partida',payload);
+    socketAvulso.emit('join',{...payload,room:PARTIDA_ID_AVULSO});
+    socketAvulso.emit('join',{...payload,room:`partida:${PARTIDA_ID_AVULSO}`});
+    socketAvulso.emit('join',{...payload,room:`arbitros:${PARTIDA_ID_AVULSO}`});
+  });
+  return socketAvulso;
+}
+function emitirSocketAvulso(){
+  try{
+    const s=conectarSocketAvulso();
+    if(!s || !s.connected) return;
+    s.emit('estado_avulso_local',{...estado,partida_id:PARTIDA_ID_AVULSO,competicao:'JOGO AVULSO',modo_avulso:true});
+    s.emit('estado_partida_local',{...estado,partida_id:PARTIDA_ID_AVULSO,competicao:'JOGO AVULSO',modo_avulso:true});
+  }catch(e){}
+}
+setTimeout(conectarSocketAvulso,120);
 const SET_SERVIDOR_ATUAL=int((ESTADO_SERVIDOR||{}).set_atual,1);
 if(localStorage.getItem(LS_INV_SET)!==String(SET_SERVIDOR_ATUAL)){
   const ladoTb=(ESTADO_SERVIDOR||{}).lado_esquerdo_tiebreak;
@@ -1098,7 +1167,7 @@ function registrarJogoMemoriaDiaAvulso(status){
   }catch(e){}
 }
 function salvarLocal(){localStorage.setItem(LS_ESTADO,JSON.stringify(estado));salvarMemoriaDiaAvulso();}
-async function salvarServidor(){salvarLocal(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
+async function salvarServidor(){salvarLocal(); emitirSocketAvulso(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
 function toast(t){const el=document.getElementById('avAlert');el.textContent=t;el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',2200)}
 function ladoVisual(pos){const esq=ladoInvertido?'B':'A'; const dir=ladoInvertido?'A':'B'; return pos==='esq'?esq:dir;}
 function pinAtualAvulso(){return String(estado.pin_arbitragem||'').replace(/\D/g,'').slice(0,4);}
@@ -1169,7 +1238,29 @@ function fecharModalLinksMobile(){
 })();
 
 function addHist(desc,tipo='acao',extra={}){const item={descricao:desc,tipo,set:estado.set_atual,placar:`${estado.pontos_a}x${estado.pontos_b}`,ts:Date.now(),...extra}; estado.historico=[item,...(estado.historico||[])].slice(0,120); estado.eventos=[item,...(estado.eventos||[])]; estado.ultima_acao=desc;}
-function renderQuadra(l){const r=rot(l)||[]; return `<div class='quadra'>${r.map((n,i)=>`<div class='pos ${(estado.saque_atual===l&&i===5)?'saque-atual':''}'><span>${n||'-'}</span><small>${posLabel(i)}</small></div>`).join('')}</div>`;}
+function statusSubNumero(l,n){
+    garantirVinculosSub();
+    n=String(n||'').replace(/\D/g,'');
+    if(!n)return '';
+    const vinc=estado.vinculos_substituicao?.[l]||{};
+    if(vinc[n])return 'substituto';
+    const valores=Object.values(vinc).map(x=>String(x));
+    if(valores.includes(n))return 'retorno';
+    return '';
+}
+function renderQuadra(l){
+    const r=rot(l)||[];
+    return `<div class='quadra'>${r.map((n,i)=>{
+        const numero=String(n||'').replace(/\D/g,'');
+        const subStatus=statusSubNumero(l,numero);
+        const cls=['pos'];
+        if(estado.saque_atual===l&&i===5)cls.push('saque-atual');
+        if(subStatus==='substituto')cls.push('pos-substituto');
+        if(subStatus==='retorno')cls.push('pos-retorno');
+        const acao=numero?` onclick="abrirSubComSai('${l}','${numero}')" title="Substituir nº ${numero}" data-numero="${numero}" data-substatus="${subStatus}"`:'';
+        return `<div class='${cls.join(' ')}'${acao}><span>${numero||'-'}</span><small>${posLabel(i)}</small></div>`;
+    }).join('')}</div>`;
+}
 function renderTime(l){const bola=(estado.saque_atual===l)?'<span class="saque-bola-inline" aria-label="Sacando"></span>':'';return `<h2>${bola}${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
 function valorVisual(lado, campoA, campoB, padrao=0){return lado==='A'?(estado[campoA]??padrao):(estado[campoB]??padrao);}
 
@@ -1325,16 +1416,18 @@ function entradaRegularPermitida(l,sai,entra){
     sai=String(sai||'').replace(/\D/g,'');
     entra=String(entra||'').replace(/\D/g,'');
     if(!sai || !entra || sai===entra) return false;
-    const r=(rot(l)||[]).map(String);
+    const r=(rot(l)||[]).map(x=>String(x||'').replace(/\D/g,''));
     if(r.includes(entra)) return false;
-    const vinc=estado.vinculos_substituicao[l]||{};
+    const vinc=estado.vinculos_substituicao[l]||{}; // substituto -> titular original
     const finalizados=new Set((estado.substituidos_finalizados[l]||[]).map(String));
-    if(finalizados.has(entra)) return false;
-    // Se o titular que saiu já tem vínculo, só o substituto dele pode devolver.
-    if(vinc[sai]) return String(vinc[sai])===entra;
-    // Se o número digitado já é substituto vinculado a outro titular, não pode entrar regular.
+
+    // Retorno: se quem está saindo é substituto, somente o titular original dele pode voltar.
+    if(vinc[sai]) return String(vinc[sai])===entra && !finalizados.has(sai) && !finalizados.has(entra);
+
+    // Novo par regular: o número digitado entra como substituto local desse titular.
+    // Ele não pode estar em quadra, nem já ter sido usado em par finalizado, nem ser substituto ativo de outro titular.
+    if(finalizados.has(entra) || finalizados.has(sai)) return false;
     if(vinc[entra]) return false;
-    // No jogo avulso, número digitado manualmente é permitido como nova entrada regular.
     return true;
 }
 function iniciarSubMobile(l){mobileSubTemp={equipe:l};toast('Toque no número que vai sair da quadra');}
@@ -1344,26 +1437,30 @@ function fecharSub(){document.getElementById('modalSub').classList.remove('abert
 function subSetSai(n){subTemp.sai=String(n); document.querySelectorAll('#subSaiBox .chip').forEach(b=>b.classList.toggle('ativo',b.textContent.includes(String(n)))); const opcoes=entradasPermitidas(subTemp.equipe,String(n)); const input=document.getElementById('subEntra'); if(input){input.value='';input.placeholder='Digite o nº que entra no lugar do '+String(n);setTimeout(()=>input.focus(),80);} const box=input?input.parentElement:null; let lista=document.getElementById('subEntradaOpcoes'); if(!lista&&box){lista=document.createElement('div');lista.id='subEntradaOpcoes';lista.className='opcoes';box.after(lista);} if(lista)lista.innerHTML=opcoes.map(x=>chip('Nº '+x,false,`subSetEntra('${x}')`)).join('') || '<span style="font-weight:900;color:#64748b">Digite o número que irá entrar.</span>'; }
 function subSetEntra(n){subTemp.entra=String(n);document.getElementById('subEntra').value=String(n);document.querySelectorAll('#subEntradaOpcoes .chip').forEach(b=>b.classList.toggle('ativo',b.textContent.includes(String(n))));}
 function confirmarSub(){
-    salvarSnapshotDesfazer();
     garantirVinculosSub();
+    subTemp.sai=String(subTemp.sai||'').replace(/\D/g,'');
     const entra=(document.getElementById('subEntra').value||subTemp.entra||'').replace(/\D/g,'');
     if(!subTemp.sai||!entra)return toast('Informe quem sai e quem entra');
-    if(!subTemp.porExpulsao && !entradaRegularPermitida(subTemp.equipe,subTemp.sai,entra))return toast('Entrada não permitida pela regra de vínculo. Use substituição excepcional quando necessário.');
-    const r=rot(subTemp.equipe)||[];
+    if(!subTemp.porExpulsao && !entradaRegularPermitida(subTemp.equipe,subTemp.sai,entra))return toast('Entrada não permitida pela regra de substituição: o titular só pode voltar no lugar do substituto dele.');
+    const limite=int(estado.limite_substituicoes||6);
+    const usadas=subTemp.equipe==='A'?int(estado.subs_a||0):int(estado.subs_b||0);
+    if(!subTemp.porExpulsao && limite>=0 && usadas>=limite)return toast('Limite de substituições atingido neste set.');
+    salvarSnapshotDesfazer();
+    const r=(rot(subTemp.equipe)||[]).map(x=>String(x||'').replace(/\D/g,''));
     const idx=r.indexOf(subTemp.sai);
-    if(idx>=0)r[idx]=entra;
+    if(idx<0)return toast('Número que sai não está mais em quadra.');
+    r[idx]=entra;
     setRot(subTemp.equipe,r);
     const vinc=estado.vinculos_substituicao[subTemp.equipe];
     if(!subTemp.porExpulsao){
         if(vinc[subTemp.sai]&&String(vinc[subTemp.sai])===String(entra)){
-            estado.substituidos_finalizados[subTemp.equipe].push(String(subTemp.sai));
-            estado.substituidos_finalizados[subTemp.equipe].push(String(entra));
+            estado.substituidos_finalizados[subTemp.equipe]=Array.from(new Set([...(estado.substituidos_finalizados[subTemp.equipe]||[]).map(String),String(subTemp.sai),String(entra)]));
             delete vinc[subTemp.sai];
         }else{
             vinc[entra]=String(subTemp.sai);
         }
     }
-    if(subTemp.equipe==='A')estado.subs_a++; else estado.subs_b++;
+    if(subTemp.equipe==='A')estado.subs_a=int(estado.subs_a||0)+1; else estado.subs_b=int(estado.subs_b||0)+1;
     const numsKey=subTemp.equipe==='A'?'numeros_a':'numeros_b';
     estado[numsKey]=Array.from(new Set([...(estado[numsKey]||[]).map(String),String(subTemp.sai),String(entra)])).sort((a,b)=>int(a)-int(b));
     addHist(`Substituição ${equipeNome(subTemp.equipe)}: sai nº ${subTemp.sai}, entra nº ${entra}`,'substituicao',{equipe:subTemp.equipe,sai:subTemp.sai,entra,por_expulsao:!!subTemp.porExpulsao});
@@ -1447,56 +1544,5 @@ function exportarPDF(){if(estado.modo_operacao!=='avancado'){return toast('PDF d
 setInterval(async()=>{if(document.visibilityState&&document.visibilityState!=='visible')return;try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json(); if(j.estado&&j.estado.atualizado_em&&j.estado.atualizado_em!==estado.atualizado_em){/* não sobrescreve operação local ativa */}}catch(e){}},8000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')salvarServidor();});
 initMobileApontadorAvulso();
 render();
-
-
-// =========================================================
-// FIX TOUCH MOBILE - botões do rodapé não podem propagar para ponto
-// =========================================================
-(function(){
-  function parar(ev){
-    try { ev.stopPropagation(); } catch(e) {}
-  }
-  function pararTudo(ev){
-    try { ev.preventDefault(); ev.stopPropagation(); } catch(e) {}
-  }
-  function acaoSegura(id, fn){
-    const el = document.getElementById(id);
-    if(!el || el.dataset.touchFixAvulso === '1') return;
-    el.dataset.touchFixAvulso = '1';
-    ['touchstart','touchend','pointerdown','pointerup','mousedown','mouseup'].forEach(t => {
-      el.addEventListener(t, parar, {passive:false});
-    });
-    el.addEventListener('click', function(ev){
-      pararTudo(ev);
-      fn(ev);
-    }, true);
-  }
-  function instalarFixRodape(){
-    const footer = document.querySelector('.mobile-footer');
-    if(footer && footer.dataset.touchFixAvulso !== '1'){
-      footer.dataset.touchFixAvulso = '1';
-      ['touchstart','touchend','pointerdown','pointerup','mousedown','mouseup','click'].forEach(t => {
-        footer.addEventListener(t, parar, {passive:false, capture:true});
-      });
-    }
-    acaoSegura('mobile-links', function(){ if(typeof abrirModalLinksMobile === 'function') abrirModalLinksMobile(); });
-    acaoSegura('mobile-desfazer', function(){ if(typeof desfazerUltimaAcaoAvulso === 'function') desfazerUltimaAcaoAvulso(); });
-    acaoSegura('mobile-fullscreen', function(){ try{ if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }catch(e){} });
-    acaoSegura('mobile-inverter-lados', function(){ if(typeof inverterLadoLocal === 'function') inverterLadoLocal(); });
-    acaoSegura('mobile-salvar', function(){ if(typeof salvarServidor === 'function') salvarServidor(); if(typeof toast === 'function') toast('Jogo salvo'); });
-    acaoSegura('mobile-salvar-sair', function(){
-      if(typeof salvarServidor === 'function'){
-        salvarServidor().then(function(){ location.href='/apontador/jogo-avulso/novo'; }).catch(function(){ location.href='/apontador/jogo-avulso/novo'; });
-      } else {
-        location.href='/apontador/jogo-avulso/novo';
-      }
-    });
-  }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', instalarFixRodape);
-  else instalarFixRodape();
-  setTimeout(instalarFixRodape, 500);
-  setTimeout(instalarFixRodape, 1500);
-})();
-
 </script>
 {% endblock %}

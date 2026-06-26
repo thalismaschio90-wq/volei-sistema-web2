@@ -265,7 +265,18 @@ def _login_socket_payload(data):
 
 
 def _validar_operador_socket(partida_id, competicao, data):
-    """Impede que outro socket/apontador sobrescreva o cache da partida."""
+    """Impede que outro socket/apontador sobrescreva o cache da partida.
+
+    Jogo avulso é operado por PIN/sessão própria e usa partida_id avulso:<codigo>.
+    Ele não existe na tabela de partidas da competição, então não pode passar
+    pela trava operacional normal. Sem este bypass o socket do jogo rápido
+    conecta, mas o servidor rejeita o estado e árbitros/telão ficam atrasados.
+    """
+    data = data or {}
+    partida_txt = str(partida_id or "").strip().lower()
+    if partida_txt.startswith("avulso:") or data.get("modo_avulso") or str(data.get("competicao") or "").strip().upper() == "JOGO AVULSO":
+        return True, "Jogo avulso liberado."
+
     login = _login_socket_payload(data)
     if not login:
         return False, "Sessão do apontador não identificada."
@@ -992,6 +1003,50 @@ def emitir_cronometro_arbitros(partida_id, dados=None):
     _emitir_salas("cronometro_tempo", payload, partida_id)
 
 
+
+
+@socketio.on("estado_avulso_local")
+def estado_avulso_local_socket(data):
+    """Canal leve específico do Jogo Rápido/Avulso.
+
+    Recebe o estado calculado no navegador do apontador e retransmite
+    imediatamente para árbitros e telão, sem depender do polling HTTP.
+    """
+    data = dict(data or {})
+    partida_id = str(data.get("partida_id") or "").strip()
+    if not partida_id:
+        return
+
+    data["modo_avulso"] = True
+    data["competicao"] = data.get("competicao") or "JOGO AVULSO"
+    payload = _normalizar_payload(partida_id, data)
+    _ESTADO_PARTIDAS[_room(partida_id)] = payload
+
+    eventos = (
+        "placar_rapido",
+        "estado_partida",
+        "estado_jogo_atualizado",
+        "estado_arbitros",
+        "estado_partida_tempo_real",
+        "estado_avulso",
+        "placar_avulso",
+        "jogo_avulso_estado",
+        "placar_atualizado",
+        "ponto_registrado",
+    )
+    for evento in eventos:
+        _emitir_salas(evento, payload, partida_id, include_self=False)
+
+    ultima_acao = str(payload.get("ultima_acao") or "").strip()
+    if ultima_acao and ultima_acao != "-":
+        _emitir_salas("ultima_acao_arbitros", {
+            "partida_id": str(partida_id),
+            "texto": ultima_acao,
+            "descricao": ultima_acao,
+            "ultima_acao": ultima_acao,
+        }, partida_id, include_self=False)
+
+    socketio.emit("estado_avulso_local_ok", {"ok": True, "partida_id": partida_id}, room=request.sid)
 
 
 @socketio.on("estado_partida_local")
