@@ -523,6 +523,258 @@
             .placar-centro-grande { font-size: clamp(32px, 6.5vw, 52px) !important; }
             .sets-partida-linha { padding: 5px 8px; font-size: clamp(13px, 2.2vw, 18px) !important; }
         }
+
+        /* =========================================================
+           FIX MOBILE SAFARI - ÁRBITROS JOGO AVULSO
+           Ajusta a tela no celular deitado para caber sem cortar.
+           ========================================================= */
+        @media (orientation: landscape) and (max-width: 980px) {
+            html, body {
+                width: 100vw !important;
+                height: 100dvh !important;
+                min-height: 100dvh !important;
+                overflow: hidden !important;
+                overscroll-behavior: none;
+            }
+
+            .app {
+                position: fixed !important;
+                inset: 0 !important;
+                width: 100vw !important;
+                height: 100dvh !important;
+                max-height: 100dvh !important;
+                display: grid !important;
+                grid-template-rows: 42px minmax(0, 1fr) !important;
+                gap: 4px !important;
+                padding: 4px !important;
+                overflow: hidden !important;
+            }
+
+            .topbar {
+                min-height: 0 !important;
+                height: 42px !important;
+                border-radius: 12px !important;
+                padding: 4px 6px !important;
+                gap: 5px !important;
+            }
+
+            .titulo {
+                font-size: 12px !important;
+                line-height: 1 !important;
+            }
+
+            .status {
+                padding: 5px 9px !important;
+                font-size: 11px !important;
+                line-height: 1 !important;
+                white-space: nowrap !important;
+            }
+
+            .acoes-topo {
+                gap: 4px !important;
+            }
+
+            button {
+                min-height: 30px !important;
+                padding: 6px 8px !important;
+                border-radius: 10px !important;
+                font-size: 11px !important;
+                line-height: 1 !important;
+                box-shadow: none !important;
+            }
+
+            .main {
+                min-height: 0 !important;
+                height: 100% !important;
+                overflow: hidden !important;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr) !important;
+                gap: 4px !important;
+            }
+
+            .equipe-card,
+            .centro-card {
+                min-width: 0 !important;
+                min-height: 0 !important;
+                height: 100% !important;
+                border-radius: 13px !important;
+                overflow: hidden !important;
+            }
+
+            .cabecalho-equipe {
+                height: 31px !important;
+                padding: 3px 6px !important;
+                gap: 5px !important;
+            }
+
+            .nome-equipe {
+                font-size: 11px !important;
+                line-height: 1 !important;
+            }
+
+            .placar-equipe {
+                font-size: clamp(24px, 5vw, 38px) !important;
+                min-width: 34px !important;
+                line-height: .85 !important;
+            }
+
+            .quadra {
+                height: calc(100% - 31px) !important;
+                margin: 4px !important;
+                padding: 4px !important;
+                gap: 3px !important;
+                border-width: 3px !important;
+                border-radius: 13px !important;
+                overflow: visible !important;
+            }
+
+            .quadra::after {
+                font-size: 7px !important;
+                padding: 2px 6px !important;
+            }
+
+            .quadra-lado-esquerdo::after { right: -21px !important; }
+            .quadra-lado-direito::after { left: -21px !important; }
+
+            .jogador {
+                border-radius: 9px !important;
+                padding: 2px !important;
+                border-width: 2px !important;
+            }
+
+            .jogador.sacador::before {
+                top: 4px !important;
+                right: 4px !important;
+                width: 9px !important;
+                height: 9px !important;
+                border-width: 1px !important;
+                box-shadow: 0 0 0 2px rgba(34,197,94,.20) !important;
+            }
+
+            .num {
+                font-size: clamp(20px, 5vw, 34px) !important;
+                line-height: .9 !important;
+            }
+
+            .nome {
+                margin-top: 2px !important;
+                font-size: 8px !important;
+                line-height: 1 !important;
+            }
+
+            .centro-card {
+                grid-template-rows: .95fr 1fr .95fr !important;
+                gap: 4px !important;
+                padding: 4px !important;
+            }
+
+            .mini-card {
+                min-height: 0 !important;
+                border-radius: 10px !important;
+                padding: 5px !important;
+            }
+
+            .label {
+                font-size: 8px !important;
+                letter-spacing: .05em !important;
+                line-height: 1 !important;
+            }
+
+            .valor {
+                margin-top: 3px !important;
+                font-size: 13px !important;
+                line-height: 1 !important;
+            }
+
+            .valor.grande {
+                font-size: 24px !important;
+            }
+
+            .valor.medio {
+                font-size: 13px !important;
+            }
+
+            .placar-centro-grande {
+                font-size: clamp(28px, 6vw, 44px) !important;
+                line-height: .9 !important;
+            }
+
+            .set-info-centro {
+                margin-top: 5px !important;
+                gap: 3px !important;
+            }
+
+            .set-atual-linha {
+                font-size: 13px !important;
+            }
+
+            .sets-partida-linha {
+                padding: 4px 6px !important;
+                font-size: 12px !important;
+            }
+
+            .alerta-point-arbitro {
+                top: 48px !important;
+                padding: 7px 10px !important;
+                font-size: 16px !important;
+                border-radius: 12px !important;
+            }
+        }
+
+        @media (orientation: landscape) and (max-width: 760px),
+               (orientation: landscape) and (max-height: 390px) {
+            .app {
+                grid-template-rows: 36px minmax(0, 1fr) !important;
+                gap: 3px !important;
+                padding: 3px !important;
+            }
+
+            .topbar {
+                height: 36px !important;
+                padding: 3px 5px !important;
+                border-radius: 10px !important;
+            }
+
+            .titulo { font-size: 10px !important; }
+            .status { font-size: 9px !important; padding: 4px 7px !important; }
+            button { min-height: 26px !important; padding: 5px 7px !important; font-size: 9px !important; }
+
+            .main {
+                grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr) !important;
+                gap: 3px !important;
+            }
+
+            .cabecalho-equipe { height: 26px !important; padding: 2px 5px !important; }
+            .nome-equipe { font-size: 9px !important; }
+            .placar-equipe { font-size: 26px !important; min-width: 28px !important; }
+
+            .quadra {
+                height: calc(100% - 26px) !important;
+                margin: 3px !important;
+                padding: 3px !important;
+                gap: 2px !important;
+                border-width: 2px !important;
+                border-radius: 10px !important;
+            }
+
+            .quadra::after { font-size: 6px !important; padding: 2px 5px !important; }
+            .quadra-lado-esquerdo::after { right: -18px !important; }
+            .quadra-lado-direito::after { left: -18px !important; }
+
+            .jogador { border-radius: 7px !important; padding: 1px !important; }
+            .num { font-size: 22px !important; }
+            .nome { font-size: 7px !important; }
+
+            .centro-card { gap: 3px !important; padding: 3px !important; }
+            .mini-card { padding: 4px !important; border-radius: 8px !important; }
+            .label { font-size: 7px !important; }
+            .valor.grande { font-size: 18px !important; }
+            .valor.medio { font-size: 10px !important; }
+            .placar-centro-grande { font-size: 28px !important; }
+            .set-atual-linha { font-size: 10px !important; }
+            .sets-partida-linha { padding: 3px 5px !important; font-size: 10px !important; }
+        }
+
     </style>
 </head>
 <body>
