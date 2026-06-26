@@ -2,7 +2,7 @@
   "name": "PRO Árbitro",
   "short_name": "PRO Árbitro",
   "description": "Acesso direto dos árbitros ao PIN da partida no VolleyTable Pro.",
-  "start_url": "/pro-arbitro",
+  "start_url": "/arbitro",
   "scope": "/",
   "display": "standalone",
   "orientation": "landscape",

@@ -462,7 +462,6 @@ def inicio():
     )
 
 
-@painel_bp.route("/arbitro", methods=["GET", "POST"])
 @painel_bp.route("/painel-arbitros", methods=["GET", "POST"])
 def painel_arbitros():
 
