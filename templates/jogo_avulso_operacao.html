@@ -967,6 +967,21 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
     filter:drop-shadow(0 3px 5px rgba(0,0,0,.25));
 }
 
+
+
+/* =========================================================
+   FIX TOUCH MOBILE - RODAPÉ/BTNS NÃO PODEM VIRAR PONTO
+   ========================================================= */
+@media (max-width:1400px) and (min-aspect-ratio:1/1){
+  .mobile-apontador-ui{ isolation:isolate!important; }
+  .mobile-jogo-topo{ position:relative!important; z-index:2!important; }
+  .mobile-main{ position:relative!important; z-index:1!important; }
+  .mobile-footer{ position:relative!important; z-index:99999!important; pointer-events:auto!important; }
+  .mobile-footer *, .mobile-footer-acoes, .mobile-footer-acoes button{ pointer-events:auto!important; touch-action:manipulation!important; }
+  .mobile-footer-acoes button{ position:relative!important; z-index:100000!important; }
+  .links-mobile-modal, .modal, .cronometro, .popup-saque{ z-index:100500!important; }
+}
+
 </style>
 
 <div class="mobile-orientacao-bloqueio" aria-live="polite"><div class="mobile-orientacao-card"><div class="mobile-orientacao-icone">↻</div><strong>Vire o celular para operar o jogo</strong><span>O modo apontador mobile foi feito para funcionar com o celular ou tablet na horizontal.</span></div></div>
@@ -1432,5 +1447,56 @@ function exportarPDF(){if(estado.modo_operacao!=='avancado'){return toast('PDF d
 setInterval(async()=>{if(document.visibilityState&&document.visibilityState!=='visible')return;try{const r=await fetch(endpoint,{cache:'no-store'});const j=await r.json(); if(j.estado&&j.estado.atualizado_em&&j.estado.atualizado_em!==estado.atualizado_em){/* não sobrescreve operação local ativa */}}catch(e){}},8000);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')salvarServidor();});
 initMobileApontadorAvulso();
 render();
+
+
+// =========================================================
+// FIX TOUCH MOBILE - botões do rodapé não podem propagar para ponto
+// =========================================================
+(function(){
+  function parar(ev){
+    try { ev.stopPropagation(); } catch(e) {}
+  }
+  function pararTudo(ev){
+    try { ev.preventDefault(); ev.stopPropagation(); } catch(e) {}
+  }
+  function acaoSegura(id, fn){
+    const el = document.getElementById(id);
+    if(!el || el.dataset.touchFixAvulso === '1') return;
+    el.dataset.touchFixAvulso = '1';
+    ['touchstart','touchend','pointerdown','pointerup','mousedown','mouseup'].forEach(t => {
+      el.addEventListener(t, parar, {passive:false});
+    });
+    el.addEventListener('click', function(ev){
+      pararTudo(ev);
+      fn(ev);
+    }, true);
+  }
+  function instalarFixRodape(){
+    const footer = document.querySelector('.mobile-footer');
+    if(footer && footer.dataset.touchFixAvulso !== '1'){
+      footer.dataset.touchFixAvulso = '1';
+      ['touchstart','touchend','pointerdown','pointerup','mousedown','mouseup','click'].forEach(t => {
+        footer.addEventListener(t, parar, {passive:false, capture:true});
+      });
+    }
+    acaoSegura('mobile-links', function(){ if(typeof abrirModalLinksMobile === 'function') abrirModalLinksMobile(); });
+    acaoSegura('mobile-desfazer', function(){ if(typeof desfazerUltimaAcaoAvulso === 'function') desfazerUltimaAcaoAvulso(); });
+    acaoSegura('mobile-fullscreen', function(){ try{ if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }catch(e){} });
+    acaoSegura('mobile-inverter-lados', function(){ if(typeof inverterLadoLocal === 'function') inverterLadoLocal(); });
+    acaoSegura('mobile-salvar', function(){ if(typeof salvarServidor === 'function') salvarServidor(); if(typeof toast === 'function') toast('Jogo salvo'); });
+    acaoSegura('mobile-salvar-sair', function(){
+      if(typeof salvarServidor === 'function'){
+        salvarServidor().then(function(){ location.href='/apontador/jogo-avulso/novo'; }).catch(function(){ location.href='/apontador/jogo-avulso/novo'; });
+      } else {
+        location.href='/apontador/jogo-avulso/novo';
+      }
+    });
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', instalarFixRodape);
+  else instalarFixRodape();
+  setTimeout(instalarFixRodape, 500);
+  setTimeout(instalarFixRodape, 1500);
+})();
+
 </script>
 {% endblock %}
