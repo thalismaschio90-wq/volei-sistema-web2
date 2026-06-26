@@ -716,6 +716,29 @@
             .sets-partida-linha { padding: 3px 5px !important; font-size: 10px !important; }
         }
 
+    
+
+        /* Destaque fixo da equipe sacando + popups por função de arbitragem */
+        .cabecalho-equipe.sacando{
+            background:linear-gradient(90deg,rgba(22,163,74,.98),rgba(21,128,61,.86))!important;
+            border-bottom-color:rgba(187,247,208,.9)!important;
+            box-shadow:0 0 0 4px rgba(34,197,94,.22),0 12px 30px rgba(34,197,94,.18);
+        }
+        .cabecalho-equipe.sacando .nome-equipe::after{
+            content:' SACANDO';
+            display:inline-flex;
+            margin-left:8px;
+            padding:3px 8px;
+            border-radius:999px;
+            background:#dcfce7;
+            color:#166534;
+            font-size:10px;
+            font-weight:1000;
+            vertical-align:middle;
+        }
+        .popup-conteudo.perigo{background:radial-gradient(circle at top,#fee2e2,#fecaca)!important;color:#7f1d1d!important;}
+        .popup-conteudo.alerta{background:radial-gradient(circle at top,#fef3c7,#fde68a)!important;color:#78350f!important;}
+
     </style>
 </head>
 <body>
@@ -1022,7 +1045,37 @@
             if (chave === ultimoAvisoPointChave) return;
 
             ultimoAvisoPointChave = chave;
-            mostrarPopup(aviso.titulo, aviso.equipe, "Próximo ponto pode encerrar", 3200);
+            mostrarPopup(aviso.titulo, aviso.equipe, "Próximo ponto pode encerrar", 3200, 'perigo');
+        }
+
+        
+        function statusJogadoresDoLado(lado){
+            const pronto = lado === "A" ? (estadoAtual.status_jogadores_a || {}) : (estadoAtual.status_jogadores_b || {});
+            if (pronto && Object.keys(pronto).length) return pronto;
+            const vinculos = (estadoAtual.vinculos_substituicao || {})[lado] || {};
+            const finalizados = ((estadoAtual.substituidos_finalizados || {})[lado] || []).map(String);
+            const mapa = {};
+            Object.entries(vinculos).forEach(([sub,tit]) => {
+                mapa[String(sub)] = {tipo:'substituto', titular:String(tit), vinculo:`${tit}-${sub}`};
+                mapa[String(tit)] = {tipo:'retorno', substituto:String(sub), vinculo:`${tit}-${sub}`};
+            });
+            finalizados.forEach(n => { mapa[String(n)] = {tipo:'retorno_finalizado', vinculo:'finalizado'}; });
+            return mapa;
+        }
+
+        let ultimoAvisoArbitragemId = "";
+        function deveMostrarAvisoArbitragem(aviso){
+            if(!aviso || typeof aviso !== 'object') return false;
+            if(aviso.partida_id && String(aviso.partida_id) !== String(PARTIDA_ID)) return false;
+            const destinos = Array.isArray(aviso.destinos) ? aviso.destinos.map(x => String(x).toLowerCase()) : [];
+            return destinos.length === 0 || destinos.includes('todos') || destinos.includes('primeiro');
+        }
+        function tratarAvisoArbitragem(aviso){
+            if(!deveMostrarAvisoArbitragem(aviso)) return;
+            const id = String(aviso.id || aviso.ts || JSON.stringify(aviso));
+            if(id && id === ultimoAvisoArbitragemId) return;
+            ultimoAvisoArbitragemId = id;
+            mostrarPopup(aviso.titulo || 'AVISO', aviso.texto || aviso.equipe_nome || '', aviso.sub || aviso.mensagem || '', 4200, aviso.nivel || 'normal');
         }
 
         function renderQuadra(containerId, lado, posicaoVisual) {
@@ -1044,7 +1097,7 @@
                 const posicao = posicoesOficiais[idx] || (idx + 1);
                 const numero = j.numero || '-';
                 const nome = j.nome || `P${posicao}`;
-                const statusMapa = lado === "A" ? (estadoAtual.status_jogadores_a || {}) : (estadoAtual.status_jogadores_b || {});
+                const statusMapa = statusJogadoresDoLado(lado);
                 const st = statusMapa[String(numero)] || {};
                 const tipoStatus = String(st.tipo || "").toLowerCase();
                 const classeSub = tipoStatus.includes("substituto") ? "substituto" : (tipoStatus.includes("retorno") ? "titular-retorno" : "");
@@ -1066,6 +1119,10 @@
             document.getElementById("nomeB").textContent = nomeEquipe(ladoDir);
             document.getElementById("placarA").textContent = ladoEsq === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
             document.getElementById("placarB").textContent = ladoDir === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
+            const headA=document.getElementById('nomeA')?.closest('.cabecalho-equipe');
+            const headB=document.getElementById('nomeB')?.closest('.cabecalho-equipe');
+            if(headA)headA.classList.toggle('sacando',estadoAtual.saque_atual===ladoEsq);
+            if(headB)headB.classList.toggle('sacando',estadoAtual.saque_atual===ladoDir);
             document.getElementById("centroPlacarA").textContent = estadoAtual.pontos_a || 0;
             document.getElementById("centroPlacarB").textContent = estadoAtual.pontos_b || 0;
             document.getElementById("setAtual").textContent = estadoAtual.set_atual || 1;
@@ -1080,11 +1137,13 @@
             renderQuadra("quadraB", ladoDir, "direita");
         }
 
-        function mostrarPopup(titulo, texto, sub, ms = 3000) {
+        function mostrarPopup(titulo, texto, sub, ms = 3000, nivel = 'normal') {
             const popup = document.getElementById("popup");
+            const card = popup ? popup.querySelector('.popup-conteudo') : null;
             document.getElementById("popupTitulo").textContent = titulo || "";
             document.getElementById("popupTexto").textContent = texto || "";
             document.getElementById("popupSub").textContent = sub || "";
+            if (card) { card.classList.toggle('perigo', nivel === 'perigo'); card.classList.toggle('alerta', nivel === 'alerta'); }
             popup.classList.add("mostrar");
             if (popupTimer) clearTimeout(popupTimer);
             popupTimer = setTimeout(() => popup.classList.remove("mostrar"), ms);
@@ -1119,6 +1178,7 @@
             estadoAtual.diferenca_minima = numeroInteiro(estadoAtual.diferenca_minima || 2, 2);
             estadoAtual.sets_para_vencer = numeroInteiro(estadoAtual.sets_para_vencer || setsParaVencerPelasRegras(estadoAtual), 2);
             render();
+            if (seguro.aviso_arbitragem) tratarAvisoArbitragem(seguro.aviso_arbitragem);
 
             // Mantém o aviso fixo igual ao apontador e abre popup quando o estado entra em SET/MATCH POINT.
             atualizarAlertaPoint(estadoAtual);
@@ -1313,6 +1373,10 @@
                 // Evento específico de saque: atualiza e mostra o aviso grande quando trocar.
                 aplicarEstado(dados, false);
             });
+
+            socket.on("aviso_arbitragem", tratarAvisoArbitragem);
+            socket.on("avisos_arbitragem", tratarAvisoArbitragem);
+            socket.on("arbitragem_aviso", tratarAvisoArbitragem);
 
             socket.on("ultima_acao_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;

@@ -1152,6 +1152,49 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
 #modalSub .sub-sai-fixo{padding:12px 14px;border-radius:14px;background:#eef2ff;color:#172554;font-weight:1000;margin:8px 0 12px;}
 #modalSub .sub-regra-aviso{margin-top:8px;color:#64748b;font-weight:900;font-size:13px;line-height:1.35;}
 
+
+
+/* =========================================================
+   AVISOS CENTRALIZADOS - JOGO RÁPIDO / ARBITRAGEM
+   ========================================================= */
+.time.sacando, .mobile-equipe-head.sacando{
+    outline:4px solid #22c55e!important;
+    box-shadow:0 0 0 6px rgba(34,197,94,.18), var(--shadow)!important;
+}
+.time.sacando h2::after, .mobile-equipe-head.sacando .mobile-equipe-nome::after{
+    content:' SACANDO';
+    display:inline-flex;
+    margin-left:8px;
+    padding:4px 8px;
+    border-radius:999px;
+    background:#dcfce7;
+    color:#166534;
+    font-size:12px;
+    font-weight:1000;
+    vertical-align:middle;
+}
+.sub-contador{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:7px 10px;border-radius:999px;background:#eef2ff;color:#172554;
+    border:1px solid #c7d2fe;font-size:12px;font-weight:1000;
+}
+.aviso-point-fixo{
+    display:none;position:fixed;left:50%;top:12px;transform:translateX(-50%);
+    z-index:100400;background:#b91c1c;color:#fff;border:3px solid rgba(255,255,255,.85);
+    border-radius:18px;padding:12px 22px;font-size:clamp(18px,3vw,34px);font-weight:1000;
+    letter-spacing:.05em;text-align:center;box-shadow:0 20px 60px rgba(185,28,28,.42);
+}
+.aviso-point-fixo.mostrar{display:flex;}
+.popup-arbitragem{position:fixed;inset:0;z-index:100300;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.86);padding:18px;text-align:center;}
+.popup-arbitragem.mostrar{display:flex;}
+.popup-arbitragem-card{width:min(860px,96vw);min-height:290px;border-radius:32px;background:radial-gradient(circle at top,#fff,#dbeafe);color:#10283d;box-shadow:0 28px 90px rgba(0,0,0,.42);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;}
+.popup-arbitragem-card.perigo{background:radial-gradient(circle at top,#fee2e2,#fecaca);color:#7f1d1d;}
+.popup-arbitragem-card.alerta{background:radial-gradient(circle at top,#fef3c7,#fde68a);color:#78350f;}
+.popup-arbitragem-titulo{font-size:clamp(28px,5vw,62px);font-weight:1000;letter-spacing:.08em;text-transform:uppercase;}
+.popup-arbitragem-texto{margin-top:14px;font-size:clamp(38px,8vw,96px);font-weight:1000;line-height:.95;}
+.popup-arbitragem-sub{margin-top:14px;font-size:clamp(18px,3vw,34px);font-weight:950;color:inherit;}
+@media (orientation: landscape) and (max-width:1000px){.aviso-point-fixo{top:5px;padding:7px 14px;font-size:16px}.sub-contador{font-size:10px;padding:5px 7px}.time.sacando h2::after,.mobile-equipe-head.sacando .mobile-equipe-nome::after{font-size:9px;padding:2px 5px}.popup-arbitragem-card{min-height:210px}.popup-arbitragem-texto{font-size:54px}}
+
 </style>
 
 <div class="mobile-orientacao-bloqueio" aria-live="polite"><div class="mobile-orientacao-card"><div class="mobile-orientacao-icone">↻</div><strong>Vire o celular para operar o jogo</strong><span>O modo apontador mobile foi feito para funcionar com o celular ou tablet na horizontal.</span></div></div>
@@ -1211,6 +1254,8 @@ header,nav,.topbar,.navbar{display:none!important}.av-wrap{max-width:1320px;marg
 <div class="modal" id="modalGenerico"><div class="modal-box"><h3 id="genTitulo"></h3><div id="genConteudo"></div><div class="av-actions" style="margin-top:14px"><button class="btn" onclick="fecharGenerico()">Cancelar</button><button class="btn btn-green" onclick="confirmarGenerico()">Confirmar</button></div></div></div>
 <div class="cronometro" id="cronometro"><div><div style="font-size:34px;font-weight:1000">TEMPO</div><div class="tempo" id="tempoNumero">30</div><button class="btn btn-red" onclick="fecharCronometro()">Fechar</button></div></div>
 <div class="popup-saque" id="popupSaque"><div class="popup-card"><div class="titulo">NOVO SAQUE</div><div class="numero" id="popupNumero">?</div><div class="equipe" id="popupEquipe"></div><button class="btn btn-red" style="margin-top:20px" onclick="fecharPopupSaque()">Fechar</button></div></div>
+<div id="avisoPointFixo" class="aviso-point-fixo" aria-live="assertive"></div>
+<div id="popupArbitragem" class="popup-arbitragem" aria-live="assertive"><div id="popupArbitragemCard" class="popup-arbitragem-card"><div id="popupArbTitulo" class="popup-arbitragem-titulo"></div><div id="popupArbTexto" class="popup-arbitragem-texto"></div><div id="popupArbSub" class="popup-arbitragem-sub"></div><button class="btn btn-red" style="margin-top:20px" onclick="fecharPopupArbitragem()">Fechar</button></div></div>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 (function ativarEnterSubstituicaoAvulsa(){
@@ -1266,7 +1311,7 @@ if(localStorage.getItem(LS_INV_SET)!==String(SET_SERVIDOR_ATUAL)){
 }
 let ladoInvertido=localStorage.getItem(LS_INV)==='1'; let timerTempo=null; let popupTimer=null; let scoutTemp={}, subTemp={}, genTemp={}, mobileSubTemp=null;
 function clone(o){return JSON.parse(JSON.stringify(o||{}));} function int(v,p=0){const n=parseInt(v,10);return Number.isFinite(n)?n:p;} function equipeNome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B');} function rot(l){return l==='A'?estado.rotacao_a:estado.rotacao_b;} function banco(l){return l==='A'?estado.banco_a:estado.banco_b;} function setRot(l,r){if(l==='A')estado.rotacao_a=r;else estado.rotacao_b=r;} function posLabel(i){return ['IV','III','II','V','VI','I'][i]||'';} function numeroPos(l,posReal){const r=rot(l)||[]; const map={4:0,3:1,2:2,5:3,6:4,1:5}; return r[map[posReal]]||'';} function sacador(l){return numeroPos(l,1)||'?';}
-function estadoDefault(){return {codigo:CODIGO,equipe_a:'Equipe A',equipe_b:'Equipe B',set_atual:1,sets_a:0,sets_b:0,pontos_a:0,pontos_b:0,saque_atual:'A',rotacao_a:['','','','','',''],rotacao_b:['','','','','',''],banco_a:[],banco_b:[],modo_operacao:'simples',sets_tipo:'set_unico',sets_para_vencer:1,pontos_set:21,pontos_tiebreak:15,diferenca_minima:2,limite_tempos:2,limite_substituicoes:6,tempos_a:0,tempos_b:0,subs_a:0,subs_b:0,vinculos_substituicao:{A:{},B:{}},substituidos_finalizados:{A:[],B:[]},historico:[],eventos:[],scout_eventos:[],historico_sets:[],status_jogo:'em_andamento'};}
+function estadoDefault(){return {codigo:CODIGO,equipe_a:'Equipe A',equipe_b:'Equipe B',set_atual:1,sets_a:0,sets_b:0,pontos_a:0,pontos_b:0,saque_atual:'A',rotacao_a:['','','','','',''],rotacao_b:['','','','','',''],banco_a:[],banco_b:[],modo_operacao:'simples',sets_tipo:'set_unico',sets_para_vencer:1,pontos_set:21,pontos_tiebreak:15,diferenca_minima:2,limite_tempos:2,limite_substituicoes:6,tempos_a:0,tempos_b:0,subs_a:0,subs_b:0,vinculos_substituicao:{A:{},B:{}},substituidos_finalizados:{A:[],B:[]},historico:[],eventos:[],scout_eventos:[],historico_sets:[],status_jogo:'em_andamento',status_jogadores_a:{},status_jogadores_b:{},aviso_arbitragem:null};}
 function carregarEstado(){let local={};try{local=JSON.parse(localStorage.getItem(LS_ESTADO)||'{}')}catch(e){} const servidor=ESTADO_SERVIDOR||{}; const temLocal=Object.keys(local).length>0; const tsLocal=Number(local.atualizado_em||0); const tsServidor=Number(servidor.atualizado_em||0); const base=(!temLocal || tsServidor>tsLocal)?servidor:local; return Object.assign(estadoDefault(),clone(base||{}));}
 let estado=carregarEstado(); let pilhaDesfazer=[]; salvarLocal();
 function chaveMemoriaDiaAvulso(){
@@ -1310,7 +1355,7 @@ function registrarJogoMemoriaDiaAvulso(status){
   }catch(e){}
 }
 function salvarLocal(){localStorage.setItem(LS_ESTADO,JSON.stringify(estado));salvarMemoriaDiaAvulso();}
-async function salvarServidor(){salvarLocal(); emitirSocketAvulso(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
+async function salvarServidor(){atualizarStatusJogadoresSubstituicao();salvarLocal(); emitirSocketAvulso(); try{await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({estado})});}catch(e){}}
 function toast(t){const el=document.getElementById('avAlert');el.textContent=t;el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',2200)}
 function ladoVisual(pos){const esq=ladoInvertido?'B':'A'; const dir=ladoInvertido?'A':'B'; return pos==='esq'?esq:dir;}
 function pinAtualAvulso(){return String(estado.pin_arbitragem||'').replace(/\D/g,'').slice(0,4);}
@@ -1381,6 +1426,67 @@ function fecharModalLinksMobile(){
 })();
 
 function addHist(desc,tipo='acao',extra={}){const item={descricao:desc,tipo,set:estado.set_atual,placar:`${estado.pontos_a}x${estado.pontos_b}`,ts:Date.now(),...extra}; estado.historico=[item,...(estado.historico||[])].slice(0,120); estado.eventos=[item,...(estado.eventos||[])]; estado.ultima_acao=desc;}
+function criarAvisoArbitragem(tipo,titulo,texto,sub,destinos=['apontador','primeiro','segundo'],nivel='normal',extra={}){
+    estado.aviso_arbitragem={
+        id:`${tipo}_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        tipo,titulo,texto,sub,destinos,nivel,
+        partida_id:PARTIDA_ID_AVULSO,competicao:'JOGO AVULSO',modo_avulso:true,
+        ts:Date.now(),...extra
+    };
+}
+function mostrarPopupArbitragem(titulo,texto,sub,nivel='normal',ms=3600){
+    const p=document.getElementById('popupArbitragem'),c=document.getElementById('popupArbitragemCard');
+    if(!p||!c)return;
+    document.getElementById('popupArbTitulo').textContent=titulo||'';
+    document.getElementById('popupArbTexto').textContent=texto||'';
+    document.getElementById('popupArbSub').textContent=sub||'';
+    c.classList.toggle('perigo',nivel==='perigo');
+    c.classList.toggle('alerta',nivel==='alerta');
+    p.classList.add('mostrar');
+    clearTimeout(p._t);
+    p._t=setTimeout(fecharPopupArbitragem,ms);
+}
+function fecharPopupArbitragem(){const p=document.getElementById('popupArbitragem');if(p)p.classList.remove('mostrar');}
+function setsParaVencerLocal(){const tipo=String(estado.sets_tipo||'set_unico').toLowerCase();if(tipo.includes('5'))return 3;if(tipo.includes('3'))return 2;return int(estado.sets_para_vencer||1,1);}
+function pontoAlvoAtual(){const tipo=String(estado.sets_tipo||'set_unico').toLowerCase();const setAtual=int(estado.set_atual||1,1);const ehTb=(tipo.includes('melhor_de_3')&&setAtual===3)||(tipo.includes('melhor_de_5')&&setAtual===5);return ehTb?int(estado.pontos_tiebreak||15,15):int(estado.pontos_set||estado.ponto_alvo_set||21,21);}
+function avisoPointAtualLocal(){
+    const alvo=pontoAlvoAtual(),dif=int(estado.diferenca_minima||2,2),a=int(estado.pontos_a||0),b=int(estado.pontos_b||0);
+    let lado='';
+    if((a+1)>=alvo&&((a+1)-b)>=dif&&a>=b)lado='A';
+    if((b+1)>=alvo&&((b+1)-a)>=dif&&b>=a)lado='B';
+    if(!lado)return null;
+    const sets=lado==='A'?int(estado.sets_a||0):int(estado.sets_b||0);
+    const titulo=(sets+1)>=setsParaVencerLocal()?'MATCH POINT':'SET POINT';
+    return {lado,titulo,equipe:equipeNome(lado)};
+}
+let ultimoPointLocal='';
+function atualizarAvisoPointLocal(){
+    const el=document.getElementById('avisoPointFixo');
+    const aviso=avisoPointAtualLocal();
+    if(!el)return;
+    if(!aviso){el.classList.remove('mostrar');el.textContent='';return;}
+    el.textContent=`${aviso.titulo} - ${aviso.equipe}`;
+    el.classList.add('mostrar');
+    const chave=`${aviso.titulo}|${aviso.lado}|${estado.pontos_a}|${estado.pontos_b}|${estado.sets_a}|${estado.sets_b}|${estado.set_atual}`;
+    if(chave!==ultimoPointLocal){
+        ultimoPointLocal=chave;
+        criarAvisoArbitragem('point',aviso.titulo,aviso.equipe,'Próximo ponto pode encerrar',['apontador','primeiro','segundo'],'perigo');
+        mostrarPopupArbitragem(aviso.titulo,aviso.equipe,'Próximo ponto pode encerrar','perigo',3200);
+    }
+}
+function atualizarStatusJogadoresSubstituicao(){
+    garantirVinculosSub();
+    ['A','B'].forEach(l=>{
+        const mapa={};
+        const vinc=estado.vinculos_substituicao?.[l]||{};
+        Object.entries(vinc).forEach(([sub,tit])=>{mapa[String(sub)]={tipo:'substituto',titular:String(tit),vinculo:`${tit}-${sub}`};mapa[String(tit)]={tipo:'retorno',substituto:String(sub),vinculo:`${tit}-${sub}`};});
+        (estado.substituidos_finalizados?.[l]||[]).forEach(n=>{mapa[String(n)]={tipo:'retorno_finalizado',vinculo:'finalizado'};});
+        if(l==='A')estado.status_jogadores_a=mapa;else estado.status_jogadores_b=mapa;
+    });
+}
+function substituicoesRestantes(l){const limite=int(estado.limite_substituicoes||6);const usadas=l==='A'?int(estado.subs_a||0):int(estado.subs_b||0);return Math.max(0,limite-usadas);}
+function temposRestantes(l){const limite=int(estado.limite_tempos??1);const usados=l==='A'?int(estado.tempos_a||0):int(estado.tempos_b||0);return Math.max(0,limite-usados);}
+
 function statusSubNumero(l,n){
     garantirVinculosSub();
     n=String(n||'').replace(/\D/g,'');
@@ -1404,7 +1510,7 @@ function renderQuadra(l){
         return `<div class='${cls.join(' ')}'${acao}><span>${numero||'-'}</span><small>${posLabel(i)}</small></div>`;
     }).join('')}</div>`;
 }
-function renderTime(l){const bola=(estado.saque_atual===l)?'<span class="saque-bola-inline" aria-label="Sacando"></span>':'';return `<h2>${bola}${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
+function renderTime(l){const bola=(estado.saque_atual===l)?'<span class="saque-bola-inline" aria-label="Sacando"></span>':'';const sacandoCls=(estado.saque_atual===l)?' sacando':'';return `<div class='time-inner${sacandoCls}'></div><h2>${bola}${equipeNome(l)}</h2><div class='pontos'>${l==='A'?estado.pontos_a:estado.pontos_b}</div><div>${estado.saque_atual===l?'<span class="saque">Sacando • nº '+sacador(l)+'</span>':'&nbsp;'}</div><div class='sub-contador'>Substituições: ${l==='A'?int(estado.subs_a||0):int(estado.subs_b||0)} / ${int(estado.limite_substituicoes||6)}</div>${renderQuadra(l)}<div class='team-actions'><button class='btn btn-green' onclick="acaoPonto('${l}')">+ ponto</button><button class='btn' onclick="abrirTempo('${l}')">Tempo</button><button class='btn' onclick="abrirSub('${l}')">Substituição</button><button class='btn' onclick="abrirSancao('${l}')">Sanção</button><button class='btn' onclick="abrirVerde('${l}')">Cartão verde</button><button class='btn' onclick="abrirRetardamento('${l}')">Retardamento</button><button class='btn' onclick="abrirSubEx('${l}')">Subst. excepcional</button><button class='btn btn-red' onclick="wo('${l}')">WO</button></div>`;}
 function valorVisual(lado, campoA, campoB, padrao=0){return lado==='A'?(estado[campoA]??padrao):(estado[campoB]??padrao);}
 
 function mobileEl(id){return document.getElementById(id);}
@@ -1417,7 +1523,7 @@ function renderMobileQuadra(l){
     const saqueCls=(estado.saque_atual===l&&i===5)?' saque-atual':'';
     const status=subStatusNumero(l,numero);
     const bloqueado=numero && !subNumeroClicavel(l,numero);
-    const cls=`mobile-pos${saqueCls}${bloqueado?' sub-bloqueada':''}`;
+    const cls=`mobile-pos${saqueCls}${status==='substituto'?' pos-substituto':''}${status==='finalizado'?' pos-retorno':''}${bloqueado?' sub-bloqueada':''}`;
     const click=(numero && !bloqueado)?` onclick="mobileCliqueNumero('${l}','${numero}')"`:'';
     const title=bloqueado?'Substituição deste vínculo já foi encerrada':'Toque para substituir';
     return `<button class="${cls}" type="button" ${click} title="${title}" data-numero="${numero}" data-substatus="${status}"><span class="mobile-pos-numero">${numero||'-'}</span><span class="mobile-pos-nome">${posLabel(i)}</span></button>`;
@@ -1469,7 +1575,7 @@ function initMobileApontadorAvulso(){
 }
 
 
-function render(){const esq=ladoVisual('esq'); const dir=ladoVisual('dir'); const setsEsq=valorVisual(esq,'sets_a','sets_b',0); const setsDir=valorVisual(dir,'sets_a','sets_b',0); const pontosEsq=valorVisual(esq,'pontos_a','pontos_b',0); const pontosDir=valorVisual(dir,'pontos_a','pontos_b',0); document.getElementById('subInfo').textContent=`${estado.modo_operacao==='avancado'?'Avançado com scout':'Simples'} • ${estado.set_atual}º set • Saque: ${equipeNome(estado.saque_atual||'A')}`; document.getElementById('cardEsq').innerHTML=renderTime(esq); document.getElementById('cardDir').innerHTML=renderTime(dir); document.getElementById('setsBox').innerHTML=`<small>SET ATUAL</small><div class='n'>${estado.set_atual}º</div><small>SETS</small><div class='n'>${setsEsq} x ${setsDir}</div><small>${pontosEsq} x ${pontosDir}</small>`; document.getElementById('historicoBox').innerHTML=(estado.historico||[]).slice(0,50).map(h=>`<div class='item'>${h.descricao}<br><small>${h.placar||''}</small></div>`).join('')||'<div class="item">Nenhuma ação.</div>'; renderMobile();}
+function render(){const esq=ladoVisual('esq'); const dir=ladoVisual('dir'); const setsEsq=valorVisual(esq,'sets_a','sets_b',0); const setsDir=valorVisual(dir,'sets_a','sets_b',0); const pontosEsq=valorVisual(esq,'pontos_a','pontos_b',0); const pontosDir=valorVisual(dir,'pontos_a','pontos_b',0); document.getElementById('subInfo').textContent=`${estado.modo_operacao==='avancado'?'Avançado com scout':'Simples'} • ${estado.set_atual}º set • Saque: ${equipeNome(estado.saque_atual||'A')}`; document.getElementById('cardEsq').innerHTML=renderTime(esq); document.getElementById('cardDir').innerHTML=renderTime(dir); document.getElementById('cardEsq').classList.toggle('sacando',estado.saque_atual===esq); document.getElementById('cardDir').classList.toggle('sacando',estado.saque_atual===dir); document.getElementById('setsBox').innerHTML=`<small>SET ATUAL</small><div class='n'>${estado.set_atual}º</div><small>SETS</small><div class='n'>${setsEsq} x ${setsDir}</div><small>${pontosEsq} x ${pontosDir}</small>`; document.getElementById('historicoBox').innerHTML=(estado.historico||[]).slice(0,50).map(h=>`<div class='item'>${h.descricao}<br><small>${h.placar||''}</small></div>`).join('')||'<div class="item">Nenhuma ação.</div>'; renderMobile();atualizarStatusJogadoresSubstituicao();atualizarAvisoPointLocal();}
 function inverterLadoLocal(){ladoInvertido=!ladoInvertido;localStorage.setItem(LS_INV,ladoInvertido?'1':'0');render();}
 function salvarSnapshotDesfazer(){pilhaDesfazer.push(clone(estado)); if(pilhaDesfazer.length>10)pilhaDesfazer.shift();}
 function desfazerUltimaAcaoAvulso(){if(!pilhaDesfazer.length)return toast('Nada para desfazer nesta tela.'); estado=pilhaDesfazer.pop(); salvarServidor(); render(); toast('Última ação desfeita.');}
@@ -1696,10 +1802,12 @@ function confirmarSub(){
     const numsKey=subTemp.equipe==='A'?'numeros_a':'numeros_b';
     estado[numsKey]=Array.from(new Set([...(estado[numsKey]||[]).map(String),String(subTemp.sai),String(entra)])).sort((a,b)=>int(a)-int(b));
     addHist(`Substituição ${equipeNome(subTemp.equipe)}: sai nº ${subTemp.sai}, entra nº ${entra}`,'substituicao',{equipe:subTemp.equipe,sai:subTemp.sai,entra,por_expulsao:!!subTemp.porExpulsao});
+    const restantesSub=substituicoesRestantes(subTemp.equipe);
+    criarAvisoArbitragem('substituicao','SUBSTITUIÇÃO',equipeNome(subTemp.equipe),restantesSub>0?`Restam ${restantesSub} substituição(ões)`:'NÃO HÁ MAIS SUBSTITUIÇÕES',['segundo'],restantesSub===0?'perigo':(restantesSub===1?'alerta':'normal'),{equipe:subTemp.equipe,restantes_substituicoes:restantesSub,sai:subTemp.sai,entra});
     fecharSub(); salvarServidor(); render();
 }
-function abrirTempo(l){const limite=int(estado.limite_tempos??1);const usados=l==='A'?int(estado.tempos_a||0):int(estado.tempos_b||0);if(limite>=0&&usados>=limite)return toast('Limite de tempos atingido neste set.');salvarSnapshotDesfazer();if(l==='A')estado.tempos_a++;else estado.tempos_b++; estado.tempo_ativo={equipe:l,equipe_nome:equipeNome(l),inicio:Date.now(),segundos:30}; addHist(`Tempo ${equipeNome(l)}`,'tempo'); salvarServidor(); abrirCronometro(30); render();}
-function abrirCronometro(s){let t=s; const cr=document.getElementById('cronometro'), num=document.getElementById('tempoNumero'); cr.classList.add('aberto'); clearInterval(timerTempo); num.textContent=t; timerTempo=setInterval(()=>{t--;num.textContent=Math.max(0,t);estado.tempo_ativo={...(estado.tempo_ativo||{}),restante:Math.max(0,t)};salvarLocal(); if(t<=0){clearInterval(timerTempo);}},1000);} function fecharCronometro(){document.getElementById('cronometro').classList.remove('aberto');clearInterval(timerTempo);estado.tempo_ativo=null;salvarServidor();}
+function abrirTempo(l){const limite=int(estado.limite_tempos??1);const usados=l==='A'?int(estado.tempos_a||0):int(estado.tempos_b||0);if(limite>=0&&usados>=limite)return toast('Limite de tempos atingido neste set.');salvarSnapshotDesfazer();if(l==='A')estado.tempos_a++;else estado.tempos_b++; const restantesTempo=temposRestantes(l); estado.tempo_ativo={equipe:l,equipe_nome:equipeNome(l),inicio:Date.now(),segundos:30,restante:30,status:'iniciado',origem:'apontador',tipo:'tempo_executado'}; criarAvisoArbitragem('tempo','TEMPO',equipeNome(l),restantesTempo>0?`Resta ${restantesTempo} pedido de tempo`:'NÃO POSSUI MAIS PEDIDOS DE TEMPO',['segundo'],restantesTempo===0?'perigo':(restantesTempo===1?'alerta':'normal'),{equipe:l,restantes_tempos:restantesTempo,segundos:30,status:'iniciado',origem:'apontador'}); addHist(`Tempo ${equipeNome(l)}`,'tempo',{equipe:l,segundos:30,restantes_tempos:restantesTempo}); salvarServidor(); abrirCronometro(30); render();}
+function abrirCronometro(s){let t=s; const cr=document.getElementById('cronometro'), num=document.getElementById('tempoNumero'); cr.classList.add('aberto'); clearInterval(timerTempo); num.textContent=t; timerTempo=setInterval(()=>{t--;num.textContent=Math.max(0,t);estado.tempo_ativo={...(estado.tempo_ativo||{}),restante:Math.max(0,t)};salvarLocal(); if(t<=0){clearInterval(timerTempo); if(estado.tempo_ativo&&estado.tempo_ativo.equipe){const l=estado.tempo_ativo.equipe;const rest=temposRestantes(l);estado.tempo_ativo={...estado.tempo_ativo,restante:0,status:'finalizado'};criarAvisoArbitragem('tempo_fim','FIM DO TEMPO',equipeNome(l),rest>0?`Resta ${rest} pedido de tempo`:'NÃO POSSUI MAIS PEDIDOS DE TEMPO',['segundo'],rest===0?'perigo':'alerta',{equipe:l,restantes_tempos:rest,status:'finalizado',origem:'apontador'});salvarServidor();}}},1000);} function fecharCronometro(){document.getElementById('cronometro').classList.remove('aberto');clearInterval(timerTempo);estado.tempo_ativo=null;salvarServidor();}
 function mostrarPopupSaqueLocal(l){document.getElementById('popupNumero').textContent=sacador(l);document.getElementById('popupEquipe').textContent=equipeNome(l);document.getElementById('popupSaque').classList.add('aberto');clearTimeout(popupTimer);popupTimer=setTimeout(fecharPopupSaque,4300)} function fecharPopupSaque(){document.getElementById('popupSaque').classList.remove('aberto');}
 function abrirSancao(l){abrirAcaoDisciplinar('Sanção',l,'sancao',['Advertência','Penalidade','Expulsão','Desqualificação']);}
 function abrirVerde(l){abrirAcaoDisciplinar('Cartão verde',l,'cartao_verde',['Cartão verde']);}
@@ -1746,6 +1854,8 @@ function confirmarGenerico(){
         const alvoTxt=genTemp.tipoPessoa==='atleta'?`nº ${genTemp.alvo}`:genTemp.alvo;
         const titulo=genTemp.titulo||genTemp.tipo;
         addHist(`${titulo}: ${genTemp.valor} • ${equipeNome(genTemp.equipe)} • ${alvoTxt}`,genTemp.tipo,{equipe:genTemp.equipe,tipo_pessoa:genTemp.tipoPessoa,alvo:genTemp.alvo,valor:genTemp.valor});
+        const tituloAviso=genTemp.tipo==='cartao_verde'?'CARTÃO VERDE':String(genTemp.valor||titulo).toUpperCase();
+        criarAvisoArbitragem(genTemp.tipo,tituloAviso,alvoTxt,equipeNome(genTemp.equipe),['primeiro'],genTemp.tipo==='cartao_verde'?'normal':(String(genTemp.valor||'').toLowerCase().includes('penalidade')?'perigo':'alerta'),{equipe:genTemp.equipe,alvo:genTemp.alvo,valor:genTemp.valor,tipo_pessoa:genTemp.tipoPessoa});
         const valorLower=String(genTemp.valor||'').toLowerCase();
         const ehPenalidade=valorLower.includes('penalidade');
         const ehExpulsao=valorLower.includes('expuls');
@@ -1762,6 +1872,7 @@ function confirmarGenerico(){
         const titulo='Retardamento';
         const equipe=genTemp.equipe;
         addHist(`${titulo}: ${genTemp.valor} • ${equipeNome(equipe)}`,genTemp.tipo,{equipe:equipe,valor:genTemp.valor});
+        criarAvisoArbitragem('retardamento','RETARDAMENTO',equipeNome(equipe),genTemp.valor,['primeiro'],valorLower.includes('penalidade')?'perigo':'alerta',{equipe,valor:genTemp.valor});
         fecharGenerico();
         if(valorLower.includes('penalidade')){aplicarPenalidadeContra(equipe,titulo,genTemp.valor);return;}
         salvarServidor(); render();

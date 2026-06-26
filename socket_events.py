@@ -1046,6 +1046,44 @@ def estado_avulso_local_socket(data):
             "ultima_acao": ultima_acao,
         }, partida_id, include_self=False)
 
+    # Avisos centralizados do jogo rápido.
+    # O apontador envia `aviso_arbitragem` no estado; cada tela decide se deve exibir
+    # conforme `destinos`: apontador, primeiro, segundo ou todos.
+    aviso = payload.get("aviso_arbitragem")
+    if isinstance(aviso, dict):
+        aviso = dict(aviso)
+        aviso.setdefault("partida_id", str(partida_id))
+        aviso.setdefault("competicao", payload.get("competicao") or "JOGO AVULSO")
+        for evento_aviso in ("aviso_arbitragem", "avisos_arbitragem", "arbitragem_aviso"):
+            _emitir_salas(evento_aviso, aviso, partida_id, include_self=False)
+
+        tipo_aviso = str(aviso.get("tipo") or "").strip().lower()
+        if tipo_aviso in {"tempo", "tempo_fim"}:
+            dados_tempo = {
+                "partida_id": str(partida_id),
+                "competicao": payload.get("competicao") or "JOGO AVULSO",
+                "equipe": aviso.get("equipe"),
+                "equipe_nome": aviso.get("texto") or aviso.get("equipe_nome"),
+                "segundos": aviso.get("segundos") or 30,
+                "restante": 0 if tipo_aviso == "tempo_fim" else (aviso.get("segundos") or 30),
+                "status": "finalizado" if tipo_aviso == "tempo_fim" else "iniciado",
+                "origem": "apontador",
+                "tipo": "tempo_executado",
+                "restantes_tempos": aviso.get("restantes_tempos"),
+            }
+            for evento_tempo in ("cronometro_arbitros", "cronometro_tempo", "tempo_executado", "tempo_apontador", "tempo_oficial"):
+                _emitir_salas(evento_tempo, dados_tempo, partida_id, include_self=False)
+
+    tempo_ativo = payload.get("tempo_ativo")
+    if isinstance(tempo_ativo, dict) and str(tempo_ativo.get("origem") or "apontador").lower() == "apontador":
+        dados_tempo = dict(tempo_ativo)
+        dados_tempo.setdefault("partida_id", str(partida_id))
+        dados_tempo.setdefault("competicao", payload.get("competicao") or "JOGO AVULSO")
+        dados_tempo.setdefault("tipo", "tempo_executado")
+        dados_tempo.setdefault("origem", "apontador")
+        for evento_tempo in ("cronometro_arbitros", "cronometro_tempo", "tempo_executado", "tempo_apontador", "tempo_oficial"):
+            _emitir_salas(evento_tempo, dados_tempo, partida_id, include_self=False)
+
     socketio.emit("estado_avulso_local_ok", {"ok": True, "partida_id": partida_id}, room=request.sid)
 
 
