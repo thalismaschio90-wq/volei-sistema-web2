@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>2º Árbitro - {{ competicao }}</title>
+    <title>Árbitro Único avulso - {{ codigo }}</title>
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#07111f">
     <meta name="mobile-web-app-capable" content="yes">
@@ -526,6 +526,281 @@
             .sets-partida-linha { padding: 5px 8px; font-size: clamp(13px, 2.2vw, 18px) !important; }
         }
 
+        /* =========================================================
+           FIX MOBILE SAFARI - ÁRBITROS JOGO AVULSO
+           Ajusta a tela no celular deitado para caber sem cortar.
+           ========================================================= */
+        @media (orientation: landscape) and (max-width: 980px) {
+            html, body {
+                width: 100vw !important;
+                height: 100dvh !important;
+                min-height: 100dvh !important;
+                overflow: hidden !important;
+                overscroll-behavior: none;
+            }
+
+            .app {
+                position: fixed !important;
+                inset: 0 !important;
+                width: 100vw !important;
+                height: 100dvh !important;
+                max-height: 100dvh !important;
+                display: grid !important;
+                grid-template-rows: 42px minmax(0, 1fr) !important;
+                gap: 4px !important;
+                padding: 4px !important;
+                overflow: hidden !important;
+            }
+
+            .topbar {
+                min-height: 0 !important;
+                height: 42px !important;
+                border-radius: 12px !important;
+                padding: 4px 6px !important;
+                gap: 5px !important;
+            }
+
+            .titulo {
+                font-size: 12px !important;
+                line-height: 1 !important;
+            }
+
+            .status {
+                padding: 5px 9px !important;
+                font-size: 11px !important;
+                line-height: 1 !important;
+                white-space: nowrap !important;
+            }
+
+            .acoes-topo {
+                gap: 4px !important;
+            }
+
+            button {
+                min-height: 30px !important;
+                padding: 6px 8px !important;
+                border-radius: 10px !important;
+                font-size: 11px !important;
+                line-height: 1 !important;
+                box-shadow: none !important;
+            }
+
+            .main {
+                min-height: 0 !important;
+                height: 100% !important;
+                overflow: hidden !important;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr) !important;
+                gap: 4px !important;
+            }
+
+            .equipe-card,
+            .centro-card {
+                min-width: 0 !important;
+                min-height: 0 !important;
+                height: 100% !important;
+                border-radius: 13px !important;
+                overflow: hidden !important;
+            }
+
+            .cabecalho-equipe {
+                height: 31px !important;
+                padding: 3px 6px !important;
+                gap: 5px !important;
+            }
+
+            .nome-equipe {
+                font-size: 11px !important;
+                line-height: 1 !important;
+            }
+
+            .placar-equipe {
+                font-size: clamp(24px, 5vw, 38px) !important;
+                min-width: 34px !important;
+                line-height: .85 !important;
+            }
+
+            .quadra {
+                height: calc(100% - 31px) !important;
+                margin: 4px !important;
+                padding: 4px !important;
+                gap: 3px !important;
+                border-width: 3px !important;
+                border-radius: 13px !important;
+                overflow: visible !important;
+            }
+
+            .quadra::after {
+                font-size: 7px !important;
+                padding: 2px 6px !important;
+            }
+
+            .quadra-lado-esquerdo::after { right: -21px !important; }
+            .quadra-lado-direito::after { left: -21px !important; }
+
+            .jogador {
+                border-radius: 9px !important;
+                padding: 2px !important;
+                border-width: 2px !important;
+            }
+
+            .jogador.sacador::before {
+                top: 4px !important;
+                right: 4px !important;
+                width: 9px !important;
+                height: 9px !important;
+                border-width: 1px !important;
+                box-shadow: 0 0 0 2px rgba(34,197,94,.20) !important;
+            }
+
+            .num {
+                font-size: clamp(20px, 5vw, 34px) !important;
+                line-height: .9 !important;
+            }
+
+            .nome {
+                margin-top: 2px !important;
+                font-size: 8px !important;
+                line-height: 1 !important;
+            }
+
+            .centro-card {
+                grid-template-rows: .95fr 1fr .95fr !important;
+                gap: 4px !important;
+                padding: 4px !important;
+            }
+
+            .mini-card {
+                min-height: 0 !important;
+                border-radius: 10px !important;
+                padding: 5px !important;
+            }
+
+            .label {
+                font-size: 8px !important;
+                letter-spacing: .05em !important;
+                line-height: 1 !important;
+            }
+
+            .valor {
+                margin-top: 3px !important;
+                font-size: 13px !important;
+                line-height: 1 !important;
+            }
+
+            .valor.grande {
+                font-size: 24px !important;
+            }
+
+            .valor.medio {
+                font-size: 13px !important;
+            }
+
+            .placar-centro-grande {
+                font-size: clamp(28px, 6vw, 44px) !important;
+                line-height: .9 !important;
+            }
+
+            .set-info-centro {
+                margin-top: 5px !important;
+                gap: 3px !important;
+            }
+
+            .set-atual-linha {
+                font-size: 13px !important;
+            }
+
+            .sets-partida-linha {
+                padding: 4px 6px !important;
+                font-size: 12px !important;
+            }
+
+            .alerta-point-arbitro {
+                top: 48px !important;
+                padding: 7px 10px !important;
+                font-size: 16px !important;
+                border-radius: 12px !important;
+            }
+        }
+
+        @media (orientation: landscape) and (max-width: 760px),
+               (orientation: landscape) and (max-height: 390px) {
+            .app {
+                grid-template-rows: 36px minmax(0, 1fr) !important;
+                gap: 3px !important;
+                padding: 3px !important;
+            }
+
+            .topbar {
+                height: 36px !important;
+                padding: 3px 5px !important;
+                border-radius: 10px !important;
+            }
+
+            .titulo { font-size: 10px !important; }
+            .status { font-size: 9px !important; padding: 4px 7px !important; }
+            button { min-height: 26px !important; padding: 5px 7px !important; font-size: 9px !important; }
+
+            .main {
+                grid-template-columns: minmax(0, 1fr) 118px minmax(0, 1fr) !important;
+                gap: 3px !important;
+            }
+
+            .cabecalho-equipe { height: 26px !important; padding: 2px 5px !important; }
+            .nome-equipe { font-size: 9px !important; }
+            .placar-equipe { font-size: 26px !important; min-width: 28px !important; }
+
+            .quadra {
+                height: calc(100% - 26px) !important;
+                margin: 3px !important;
+                padding: 3px !important;
+                gap: 2px !important;
+                border-width: 2px !important;
+                border-radius: 10px !important;
+            }
+
+            .quadra::after { font-size: 6px !important; padding: 2px 5px !important; }
+            .quadra-lado-esquerdo::after { right: -18px !important; }
+            .quadra-lado-direito::after { left: -18px !important; }
+
+            .jogador { border-radius: 7px !important; padding: 1px !important; }
+            .num { font-size: 22px !important; }
+            .nome { font-size: 7px !important; }
+
+            .centro-card { gap: 3px !important; padding: 3px !important; }
+            .mini-card { padding: 4px !important; border-radius: 8px !important; }
+            .label { font-size: 7px !important; }
+            .valor.grande { font-size: 18px !important; }
+            .valor.medio { font-size: 10px !important; }
+            .placar-centro-grande { font-size: 28px !important; }
+            .set-atual-linha { font-size: 10px !important; }
+            .sets-partida-linha { padding: 3px 5px !important; font-size: 10px !important; }
+        }
+
+    
+
+        /* Destaque fixo da equipe sacando + popups por função de arbitragem */
+        .cabecalho-equipe.sacando{
+            background:linear-gradient(90deg,rgba(22,163,74,.98),rgba(21,128,61,.86))!important;
+            border-bottom-color:rgba(187,247,208,.9)!important;
+            box-shadow:0 0 0 4px rgba(34,197,94,.22),0 12px 30px rgba(34,197,94,.18);
+        }
+        .cabecalho-equipe.sacando .nome-equipe::after{
+            content:' SACANDO';
+            display:inline-flex;
+            margin-left:8px;
+            padding:3px 8px;
+            border-radius:999px;
+            background:#dcfce7;
+            color:#166534;
+            font-size:10px;
+            font-weight:1000;
+            vertical-align:middle;
+        }
+        .popup-conteudo.perigo{background:radial-gradient(circle at top,#fee2e2,#fecaca)!important;color:#7f1d1d!important;}
+        .popup-conteudo.alerta{background:radial-gradient(circle at top,#fef3c7,#fde68a)!important;color:#78350f!important;}
+
+
 
         /* =========================================================
            STANDBY VOLLEYTABLE PRO - ARBITRAGEM
@@ -753,7 +1028,7 @@
     </style>
 </head>
 <body>
-    <div class="orientacao">📱 Vire o celular para a horizontal<br><span style="font-size:16px;color:#94a3b8;margin-top:10px;display:block;">Tela do 2º árbitro</span></div>
+    <div class="orientacao">📱 Vire o celular para a horizontal<br><span style="font-size:16px;color:#94a3b8;margin-top:10px;display:block;">Tela do árbitro único</span></div>
 
     
 
@@ -783,7 +1058,7 @@
     </section>
 <div class="app">
         <header class="topbar">
-            <div class="titulo">2º Árbitro • {{ competicao }}</div>
+            <div class="titulo">2º Árbitro • Avulso {{ codigo }}</div>
             <div id="statusSocket" class="status off">● Conectando</div>
             <div class="acoes-topo">
                 <button type="button" onclick="inverterQuadra()">🔄 Inverter</button>
@@ -853,11 +1128,12 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        const PARTIDA_ID = {{ partida_id }};
-        const COMPETICAO = {{ competicao|tojson }};
+        const CODIGO_AVULSO = {{ codigo|tojson }};
+        const PARTIDA_ID = {{ ('avulso:' ~ codigo)|tojson }};
+        const COMPETICAO = {{ ('JOGO AVULSO ' ~ codigo)|tojson }};
         const ESTADO_INICIAL = {{ estado|tojson }};
-        const URL_ESTADO = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
-        const STANDBY_PROXIMA_URL = "{{ url_for('acessos_pin.proxima_partida_arbitro_segundo') }}";
+        const URL_ESTADO = {{ ('/apontador/jogo-avulso/' ~ codigo ~ '/estado')|tojson }};
+        const STANDBY_PROXIMA_URL = "{{ url_for('acessos_pin.proxima_partida_arbitro_unico') }}";
 
         let estadoAtual = ESTADO_INICIAL || {};
         const CHAVE_INVERSAO_VISUAL = `arbitro_segundo_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
@@ -1143,6 +1419,40 @@
             mostrarPopup(aviso.titulo, aviso.equipe, "Próximo ponto pode encerrar", 3200);
         }
 
+        
+        function statusJogadoresDoLado(lado){
+            const pronto = lado === "A" ? (estadoAtual.status_jogadores_a || {}) : (estadoAtual.status_jogadores_b || {});
+            if (pronto && Object.keys(pronto).length) return pronto;
+            const vinculos = (estadoAtual.vinculos_substituicao || {})[lado] || {};
+            const finalizados = ((estadoAtual.substituidos_finalizados || {})[lado] || []).map(String);
+            const mapa = {};
+            Object.entries(vinculos).forEach(([sub,tit]) => {
+                mapa[String(sub)] = {tipo:'substituto', titular:String(tit), vinculo:`${tit}-${sub}`};
+                mapa[String(tit)] = {tipo:'retorno', substituto:String(sub), vinculo:`${tit}-${sub}`};
+            });
+            finalizados.forEach(n => { mapa[String(n)] = {tipo:'retorno_finalizado', vinculo:'finalizado'}; });
+            return mapa;
+        }
+
+        let ultimoAvisoArbitragemId = "";
+        function deveMostrarAvisoArbitragem(aviso){
+            if(!aviso || typeof aviso !== 'object') return false;
+            if(aviso.partida_id && String(aviso.partida_id) !== String(PARTIDA_ID)) return false;
+            const destinos = Array.isArray(aviso.destinos) ? aviso.destinos.map(x => String(x).toLowerCase()) : [];
+            return destinos.length === 0 || destinos.includes('todos') || destinos.includes('segundo');
+        }
+        function tratarAvisoArbitragem(aviso){
+            if(!deveMostrarAvisoArbitragem(aviso)) return;
+            const id = String(aviso.id || aviso.ts || JSON.stringify(aviso));
+            if(id && id === ultimoAvisoArbitragemId) return;
+            ultimoAvisoArbitragemId = id;
+            mostrarPopup(aviso.titulo || 'AVISO', aviso.texto || aviso.equipe_nome || '', aviso.sub || aviso.mensagem || '', 4200, aviso.nivel || 'normal');
+            const tipo=String(aviso.tipo||'').toLowerCase();
+            if(tipo==='tempo' || tipo==='tempo_fim'){
+                receberCronometroOficial({...aviso, tipo:'tempo_executado', origem:'apontador', status: tipo==='tempo_fim'?'finalizado':'iniciado', segundos: aviso.segundos || 30});
+            }
+        }
+
         function renderQuadra(containerId, lado, posicaoVisual) {
             const el = document.getElementById(containerId);
             if (!el) return;
@@ -1162,7 +1472,7 @@
                 const posicao = posicoesOficiais[idx] || (idx + 1);
                 const numero = j.numero || '-';
                 const nome = j.nome || `P${posicao}`;
-                const statusMapa = lado === "A" ? (estadoAtual.status_jogadores_a || {}) : (estadoAtual.status_jogadores_b || {});
+                const statusMapa = statusJogadoresDoLado(lado);
                 const st = statusMapa[String(numero)] || {};
                 const tipoStatus = String(st.tipo || "").toLowerCase();
                 const classeSub = tipoStatus.includes("substituto") ? "substituto" : (tipoStatus.includes("retorno") ? "titular-retorno" : "");
@@ -1184,6 +1494,10 @@
             document.getElementById("nomeB").textContent = nomeEquipe(ladoDir);
             document.getElementById("placarA").textContent = ladoEsq === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
             document.getElementById("placarB").textContent = ladoDir === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
+            const headA=document.getElementById('nomeA')?.closest('.cabecalho-equipe');
+            const headB=document.getElementById('nomeB')?.closest('.cabecalho-equipe');
+            if(headA)headA.classList.toggle('sacando',estadoAtual.saque_atual===ladoEsq);
+            if(headB)headB.classList.toggle('sacando',estadoAtual.saque_atual===ladoDir);
             document.getElementById("centroPlacarA").textContent = estadoAtual.pontos_a || 0;
             document.getElementById("centroPlacarB").textContent = estadoAtual.pontos_b || 0;
             document.getElementById("setAtual").textContent = estadoAtual.set_atual || 1;
@@ -1198,11 +1512,13 @@
             renderQuadra("quadraB", ladoDir, "direita");
         }
 
-        function mostrarPopup(titulo, texto, sub, ms = 3000) {
+        function mostrarPopup(titulo, texto, sub, ms = 3000, nivel = 'normal') {
             const popup = document.getElementById("popup");
+            const card = popup ? popup.querySelector('.popup-conteudo') : null;
             document.getElementById("popupTitulo").textContent = titulo || "";
             document.getElementById("popupTexto").textContent = texto || "";
             document.getElementById("popupSub").textContent = sub || "";
+            if (card) { card.classList.toggle('perigo', nivel === 'perigo'); card.classList.toggle('alerta', nivel === 'alerta'); }
             popup.classList.add("mostrar");
             if (popupTimer) clearTimeout(popupTimer);
             popupTimer = setTimeout(() => popup.classList.remove("mostrar"), ms);
@@ -1212,6 +1528,13 @@
             invertido = !invertido;
             localStorage.setItem(CHAVE_INVERSAO_VISUAL, invertido ? "1" : "0");
             render();
+
+            if (estadoPartidaFinalizada(estadoAtual)) {
+                mostrarStandbyArbitragem();
+                return;
+            } else {
+                esconderStandbyArbitragem();
+            }
         }
 
         function aplicarEstado(dados, silencioso = false) {
@@ -1245,13 +1568,8 @@
 
             esconderStandbyArbitragem();
             render();
-
-            if (estadoPartidaFinalizada(estadoAtual)) {
-                mostrarStandbyArbitragem();
-                return;
-            } else {
-                esconderStandbyArbitragem();
-            }
+            if (seguro.tempo_ativo && isEventoTempoOficial(seguro.tempo_ativo)) receberCronometroOficial({...seguro.tempo_ativo, partida_id: PARTIDA_ID});
+            if (seguro.aviso_arbitragem) tratarAvisoArbitragem(seguro.aviso_arbitragem);
 
             // Mantém o aviso fixo igual ao apontador e abre popup quando o estado entra em SET/MATCH POINT.
             atualizarAlertaPoint(estadoAtual);
@@ -1283,7 +1601,7 @@
                         ultimoPopupSaqueChave = chavePopupSaque;
                         ultimoPopupSaqueEm = agoraSaque;
                         popupSaqueBloqueadoAte = agoraSaque + 1200;
-                        mostrarPopup("SAQUE", `#${s.numero}`, `${s.nome ? s.nome + ' • ' : ''}${s.equipe}`, 2600);
+                        /* 2º árbitro não recebe popup de sacador; apenas cabeçalho/quadra ficam destacados. */
                     }
                 }
             }
@@ -1318,9 +1636,10 @@
 
                 if (!dados) return;
 
-                aplicarEstado(dados, silencioso);
+                const payload = (dados.estado && typeof dados.estado === "object") ? dados.estado : dados;
+                aplicarEstado(payload, silencioso);
 
-                return dados;
+                return payload;
 
             } catch (erro) {
                 console.error("Erro carregando estado árbitro:", erro);
@@ -1554,7 +1873,10 @@
                 "placar_atualizado",
                 "placar_apontador",
                 "atualizar_placar",
-                "ponto_registrado"
+                "ponto_registrado",
+                "jogo_avulso_estado",
+                "estado_avulso",
+                "placar_avulso"
             ].forEach(evt => {
                 socket.on(evt, dados => {
                     // SOCKET-FIRST: não busca /estado a cada ponto.
@@ -1569,6 +1891,10 @@
                 // Evento específico de saque: atualiza e mostra o aviso grande quando trocar.
                 aplicarEstado(dados, false);
             });
+
+            socket.on("aviso_arbitragem", tratarAvisoArbitragem);
+            socket.on("avisos_arbitragem", tratarAvisoArbitragem);
+            socket.on("arbitragem_aviso", tratarAvisoArbitragem);
 
             socket.on("ultima_acao_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;

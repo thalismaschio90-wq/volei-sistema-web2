@@ -12599,6 +12599,7 @@ def _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_nome, lado, 
 
 def listar_dados_finalizacao_partida(partida_id, competicao):
     criar_tabela_destaques_partida()
+    criar_tabelas_premiacao_destaques_competicao()
     partida = buscar_partida_operacional(partida_id, competicao)
     if not partida:
         return {}
@@ -12773,6 +12774,485 @@ def salvar_destaque_partida(partida_id, competicao, lado, atleta_id=None, numero
         conn.commit()
 
     return True, 'Destaque salvo com sucesso.'
+
+
+
+# =========================================================
+# PREMIAÇÃO / DESTAQUES DA COMPETIÇÃO
+# =========================================================
+def criar_tabelas_premiacao_destaques_competicao():
+    """Configurações do organizador e respostas dos apontadores/árbitros."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS destaques_config_competicao (
+                    competicao TEXT PRIMARY KEY,
+                    ativo_destaque_partida BOOLEAN DEFAULT FALSE,
+                    ativo_destaque_competicao BOOLEAN DEFAULT FALSE,
+                    preencher_por TEXT DEFAULT 'apontador',
+                    fases TEXT,
+                    series TEXT,
+                    campos TEXT,
+                    atualizado_em TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS ativo_destaque_partida BOOLEAN DEFAULT FALSE")
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS ativo_destaque_competicao BOOLEAN DEFAULT FALSE")
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS preencher_por TEXT DEFAULT 'apontador'")
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS fases TEXT")
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS series TEXT")
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS campos TEXT")
+            cur.execute("ALTER TABLE destaques_config_competicao ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()")
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS destaques_competicao (
+                    id SERIAL PRIMARY KEY,
+                    competicao TEXT NOT NULL,
+                    campo_id TEXT NOT NULL,
+                    campo_titulo TEXT NOT NULL,
+                    fase TEXT,
+                    serie TEXT,
+                    equipe TEXT,
+                    atleta_id INTEGER,
+                    numero INTEGER,
+                    nome TEXT,
+                    observacao TEXT,
+                    preenchido_por TEXT,
+                    partida_origem_id INTEGER,
+                    criado_em TIMESTAMP DEFAULT NOW(),
+                    atualizado_em TIMESTAMP DEFAULT NOW(),
+                    UNIQUE (competicao, campo_id)
+                )
+            """)
+            for ddl in [
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS fase TEXT",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS serie TEXT",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS equipe TEXT",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS atleta_id INTEGER",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS numero INTEGER",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS nome TEXT",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS observacao TEXT",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS preenchido_por TEXT",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS partida_origem_id INTEGER",
+                "ALTER TABLE destaques_competicao ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()",
+            ]:
+                cur.execute(ddl)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_destaques_comp_cfg ON destaques_config_competicao (competicao)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_destaques_comp_respostas ON destaques_competicao (competicao)")
+        conn.commit()
+
+
+def _json_destaques_carregar(valor, padrao=None):
+    import json
+    if padrao is None:
+        padrao = []
+    if valor in (None, ''):
+        return padrao
+    if isinstance(valor, (list, dict)):
+        return valor
+    try:
+        return json.loads(valor)
+    except Exception:
+        return padrao
+
+
+def _json_destaques_dump(valor):
+    import json
+    return json.dumps(valor if valor is not None else [], ensure_ascii=False)
+
+
+def _normalizar_lista_texto_destaques(lista):
+    saida = []
+    for item in lista or []:
+        txt = str(item or '').strip()
+        if txt and txt not in saida:
+            saida.append(txt)
+    return saida
+
+
+def _slug_destaque(texto, indice=0):
+    import re
+    base = re.sub(r'[^a-zA-Z0-9]+', '_', str(texto or '').strip().lower()).strip('_')
+    return base or f'destaque_{indice + 1}'
+
+
+def salvar_config_destaques_competicao(competicao, dados):
+    criar_tabelas_premiacao_destaques_competicao()
+    competicao = str(competicao or '').strip()
+    if not competicao:
+        return False, 'Competição inválida.'
+
+    ativo_partida = bool(dados.get('ativo_destaque_partida'))
+    ativo_competicao = bool(dados.get('ativo_destaque_competicao'))
+    preencher_por = str(dados.get('preencher_por') or 'apontador').strip().lower()
+    if preencher_por not in {'apontador', 'arbitro', 'organizador'}:
+        preencher_por = 'apontador'
+
+    fases = _normalizar_lista_texto_destaques(dados.get('fases') or [])
+    series = _normalizar_lista_texto_destaques(dados.get('series') or [])
+
+    campos = []
+    usados = set()
+    for idx, bruto in enumerate(dados.get('campos') or []):
+        if isinstance(bruto, dict):
+            titulo = str(bruto.get('titulo') or '').strip()
+            tipo = str(bruto.get('tipo') or 'geral').strip().lower()
+            fase = str(bruto.get('fase') or '').strip()
+            serie = str(bruto.get('serie') or '').strip()
+        else:
+            titulo = str(bruto or '').strip()
+            tipo = 'geral'
+            fase = ''
+            serie = ''
+        if not titulo:
+            continue
+        cid_base = _slug_destaque(titulo, idx)
+        cid = cid_base
+        n = 2
+        while cid in usados:
+            cid = f'{cid_base}_{n}'
+            n += 1
+        usados.add(cid)
+        campos.append({
+            'id': cid,
+            'titulo': titulo,
+            'tipo': tipo if tipo in {'geral', 'fase', 'serie', 'partida'} else 'geral',
+            'fase': fase,
+            'serie': serie,
+            'aptos': str(bruto.get('aptos') or 'top3').strip().lower() if isinstance(bruto, dict) else 'top3',
+        })
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO destaques_config_competicao (
+                    competicao, ativo_destaque_partida, ativo_destaque_competicao,
+                    preencher_por, fases, series, campos, atualizado_em
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (competicao) DO UPDATE SET
+                    ativo_destaque_partida = EXCLUDED.ativo_destaque_partida,
+                    ativo_destaque_competicao = EXCLUDED.ativo_destaque_competicao,
+                    preencher_por = EXCLUDED.preencher_por,
+                    fases = EXCLUDED.fases,
+                    series = EXCLUDED.series,
+                    campos = EXCLUDED.campos,
+                    atualizado_em = NOW()
+            """, (
+                competicao, ativo_partida, ativo_competicao, preencher_por,
+                _json_destaques_dump(fases), _json_destaques_dump(series), _json_destaques_dump(campos)
+            ))
+        conn.commit()
+    return True, 'Configuração de destaques salva com sucesso.'
+
+
+def buscar_config_destaques_competicao(competicao):
+    criar_tabelas_premiacao_destaques_competicao()
+    competicao = str(competicao or '').strip()
+    padrao = {
+        'competicao': competicao,
+        'ativo_destaque_partida': False,
+        'ativo_destaque_competicao': False,
+        'preencher_por': 'apontador',
+        'fases': [],
+        'series': [],
+        'campos': [],
+    }
+    if not competicao:
+        return padrao
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM destaques_config_competicao WHERE competicao = %s LIMIT 1", (competicao,))
+            row = cur.fetchone()
+    if not row:
+        return padrao
+    return {
+        'competicao': competicao,
+        'ativo_destaque_partida': bool(row.get('ativo_destaque_partida')),
+        'ativo_destaque_competicao': bool(row.get('ativo_destaque_competicao')),
+        'preencher_por': row.get('preencher_por') or 'apontador',
+        'fases': _json_destaques_carregar(row.get('fases'), []),
+        'series': _json_destaques_carregar(row.get('series'), []),
+        'campos': _json_destaques_carregar(row.get('campos'), []),
+    }
+
+
+def listar_respostas_destaques_competicao(competicao):
+    criar_tabelas_premiacao_destaques_competicao()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM destaques_competicao
+                WHERE competicao = %s
+                ORDER BY criado_em ASC, id ASC
+            """, (competicao,))
+            return cur.fetchall() or []
+
+
+def _partida_finalizada_para_destaques(partida):
+    status = str((partida or {}).get('status_jogo') or (partida or {}).get('status') or (partida or {}).get('fase_partida') or '').strip().lower()
+    if status in {'finalizada', 'finalizado', 'encerrada', 'encerrado'}:
+        return True
+    return bool((partida or {}).get('finalizada') or (partida or {}).get('encerrada') or (partida or {}).get('partida_finalizada'))
+
+
+def _partida_e_final_destaques(partida):
+    textos = []
+    for campo in ('fase', 'fase_partida', 'rodada', 'nome_fase', 'serie', 'nome_serie', 'grupo'):
+        valor = str((partida or {}).get(campo) or '').strip().lower()
+        if valor:
+            textos.append(valor)
+    unido = ' '.join(textos)
+    return 'final' in unido and 'semifinal' not in unido and 'semi-final' not in unido
+
+
+def _serie_partida_destaques(partida):
+    texto = ' '.join(str((partida or {}).get(c) or '') for c in ('serie', 'nome_serie', 'fase', 'fase_partida', 'grupo')).lower()
+    if 'ouro' in texto:
+        return 'Ouro'
+    if 'prata' in texto:
+        return 'Prata'
+    if 'bronze' in texto:
+        return 'Bronze'
+    return ''
+
+
+def _fase_partida_destaques(partida):
+    texto = ' '.join(str((partida or {}).get(c) or '') for c in ('fase', 'fase_partida', 'rodada', 'nome_fase')).lower()
+    if 'classificat' in texto or 'grupo' in texto:
+        return 'Classificatórias'
+    if 'oitava' in texto:
+        return 'Oitavas'
+    if 'quarta' in texto:
+        return 'Quartas'
+    if 'semi' in texto:
+        return 'Semifinal'
+    if 'final' in texto:
+        return 'Final'
+    return ''
+
+
+def verificar_destaques_competicao_pendentes(competicao, partida_id=None):
+    """Retorna se o apontador deve abrir a tela final de premiação.
+
+    Regra prática: o organizador ativou destaques da competição, a partida
+    finalizada é uma final (ou todos os jogos já terminaram), e ainda existe
+    algum campo configurado sem preenchimento.
+    """
+    cfg = buscar_config_destaques_competicao(competicao)
+    if not cfg.get('ativo_destaque_competicao') or not cfg.get('campos'):
+        return {'abrir': False, 'motivo': 'sem_configuracao'}
+
+    partidas = listar_partidas(competicao) or []
+    partida_ref = None
+    if partida_id:
+        for p in partidas:
+            try:
+                if int(p.get('id') or 0) == int(partida_id):
+                    partida_ref = p
+                    break
+            except Exception:
+                pass
+
+    finais = [p for p in partidas if _partida_e_final_destaques(p)]
+    finais_pendentes = [p for p in finais if not _partida_finalizada_para_destaques(p)]
+    todas_finalizadas = bool(partidas) and all(_partida_finalizada_para_destaques(p) for p in partidas)
+    partida_ref_final = bool(partida_ref and _partida_e_final_destaques(partida_ref) and _partida_finalizada_para_destaques(partida_ref))
+
+    if not (todas_finalizadas or (partida_ref_final and not finais_pendentes)):
+        return {'abrir': False, 'motivo': 'ainda_nao_terminou'}
+
+    respostas = listar_respostas_destaques_competicao(competicao)
+    preenchidos = {str(r.get('campo_id') or '') for r in respostas if str(r.get('nome') or '').strip() or str(r.get('observacao') or '').strip()}
+    pendentes = [c for c in cfg.get('campos') or [] if str(c.get('id') or '') not in preenchidos]
+
+    return {
+        'abrir': bool(pendentes),
+        'motivo': 'pendentes' if pendentes else 'tudo_preenchido',
+        'pendentes': pendentes,
+        'serie': _serie_partida_destaques(partida_ref) if partida_ref else '',
+        'fase': _fase_partida_destaques(partida_ref) if partida_ref else '',
+    }
+
+
+def _vencedor_perdedor_partida_destaques(partida):
+    a = str((partida or {}).get('equipe_a') or '').strip()
+    b = str((partida or {}).get('equipe_b') or '').strip()
+    if not a or not b:
+        return '', ''
+    sets_a = int((partida or {}).get('sets_a') or 0)
+    sets_b = int((partida or {}).get('sets_b') or 0)
+    pts_a = int((partida or {}).get('pontos_a') or 0)
+    pts_b = int((partida or {}).get('pontos_b') or 0)
+    if sets_a == sets_b:
+        sets_a = sum(int((partida or {}).get(c) or 0) > int((partida or {}).get(c.replace('_a', '_b')) or 0) for c in ('set1_a','set2_a','set3_a','set4_a','set5_a'))
+        sets_b = sum(int((partida or {}).get(c) or 0) < int((partida or {}).get(c.replace('_a', '_b')) or 0) for c in ('set1_a','set2_a','set3_a','set4_a','set5_a'))
+    if sets_a > sets_b or (sets_a == sets_b and pts_a > pts_b):
+        return a, b
+    if sets_b > sets_a or (sets_a == sets_b and pts_b > pts_a):
+        return b, a
+    return '', ''
+
+
+def _ranking_equipes_serie_destaques(competicao, serie=''):
+    """Tenta montar campeão/vice/3º por série usando as finais já encerradas.
+
+    Se não conseguir identificar todos, retorna pelo menos as equipes envolvidas
+    na final/série para não travar o preenchimento.
+    """
+    serie_txt = str(serie or '').strip().lower()
+    partidas = listar_partidas(competicao) or []
+    filtradas = []
+    for p in partidas:
+        texto = ' '.join(str((p or {}).get(c) or '') for c in ('serie','nome_serie','fase','fase_partida','rodada','grupo')).lower()
+        if serie_txt and serie_txt not in texto:
+            continue
+        filtradas.append(p)
+
+    finais = [p for p in filtradas if _partida_e_final_destaques(p) and _partida_finalizada_para_destaques(p)]
+    finais_3 = []
+    finais_principais = []
+    for p in finais:
+        texto = ' '.join(str((p or {}).get(c) or '') for c in ('fase','fase_partida','rodada','nome_fase','grupo')).lower()
+        if any(t in texto for t in ('3', 'terceiro', 'terceira', 'bronze')):
+            finais_3.append(p)
+        else:
+            finais_principais.append(p)
+
+    ranking = []
+    if finais_principais:
+        p = sorted(finais_principais, key=lambda x: x.get('id') or 0, reverse=True)[0]
+        v, d = _vencedor_perdedor_partida_destaques(p)
+        for e in (v, d):
+            if e and e not in ranking:
+                ranking.append(e)
+    if finais_3:
+        p = sorted(finais_3, key=lambda x: x.get('id') or 0, reverse=True)[0]
+        v, _d = _vencedor_perdedor_partida_destaques(p)
+        if v and v not in ranking:
+            ranking.append(v)
+
+    if not ranking:
+        for p in filtradas:
+            for campo in ('equipe_a','equipe_b'):
+                e = str((p or {}).get(campo) or '').strip()
+                if e and e not in ranking:
+                    ranking.append(e)
+    return ranking
+
+
+def equipes_aptas_destaque_competicao(competicao, campo_cfg=None):
+    campo_cfg = campo_cfg or {}
+    aptos = str(campo_cfg.get('aptos') or 'top3').strip().lower()
+    serie = str(campo_cfg.get('serie') or '').strip()
+    ranking = _ranking_equipes_serie_destaques(competicao, serie)
+    if aptos in {'campeao', 'campeão', 'top1', '1'}:
+        return ranking[:1]
+    if aptos in {'finalistas', 'top2', '2'}:
+        return ranking[:2]
+    if aptos in {'top4', '4', 'semifinalistas'}:
+        return ranking[:4]
+    if aptos in {'todos', 'all'}:
+        return ranking
+    return ranking[:3] if ranking else []
+
+
+def listar_atletas_para_destaques_competicao(competicao):
+    """Monta atletas por campo de premiação, respeitando equipes aptas configuradas."""
+    cfg = buscar_config_destaques_competicao(competicao)
+    campos = cfg.get('campos') or []
+    por_campo = {}
+    todos = []
+    vistos_global = set()
+
+    for campo in campos:
+        cid = str(campo.get('id') or '')
+        equipes = equipes_aptas_destaque_competicao(competicao, campo)
+        saida = []
+        vistos = set()
+        for equipe in equipes:
+            try:
+                atletas = listar_atletas_aprovados_da_equipe(equipe, competicao) or []
+            except Exception:
+                atletas = []
+            for a in atletas:
+                chave = (equipe, str(a.get('id') or ''), str(a.get('numero') or ''), str(a.get('nome') or '').lower())
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                item = {
+                    'equipe': equipe,
+                    'atleta_id': a.get('id') or a.get('atleta_id'),
+                    'numero': a.get('numero'),
+                    'nome': a.get('nome') or '',
+                }
+                saida.append(item)
+                if chave not in vistos_global:
+                    vistos_global.add(chave)
+                    todos.append(item)
+        por_campo[cid] = {'equipes': equipes, 'atletas': saida}
+    return {'por_campo': por_campo, 'todos': todos}
+
+
+def salvar_respostas_destaques_competicao(competicao, respostas, preenchido_por='', partida_origem_id=None):
+    criar_tabelas_premiacao_destaques_competicao()
+    cfg = buscar_config_destaques_competicao(competicao)
+    campos_cfg = {str(c.get('id') or ''): c for c in cfg.get('campos') or []}
+    if not campos_cfg:
+        return False, 'Nenhum campo de destaque configurado pelo organizador.'
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            for resp in respostas or []:
+                campo_id = str(resp.get('campo_id') or '').strip()
+                if campo_id not in campos_cfg:
+                    continue
+                cfg_campo = campos_cfg[campo_id]
+                nome = str(resp.get('nome') or '').strip()
+                observacao = str(resp.get('observacao') or '').strip()
+                equipe = str(resp.get('equipe') or '').strip()
+                atleta_id = None
+                numero = None
+                try:
+                    if resp.get('atleta_id') not in (None, ''):
+                        atleta_id = int(resp.get('atleta_id'))
+                except Exception:
+                    atleta_id = None
+                try:
+                    if resp.get('numero') not in (None, ''):
+                        numero = int(str(resp.get('numero')).strip())
+                except Exception:
+                    numero = None
+
+                # Permite salvar observação, mas ignora linha totalmente vazia.
+                if not nome and not observacao:
+                    continue
+
+                cur.execute("""
+                    INSERT INTO destaques_competicao (
+                        competicao, campo_id, campo_titulo, fase, serie, equipe,
+                        atleta_id, numero, nome, observacao, preenchido_por,
+                        partida_origem_id, atualizado_em
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (competicao, campo_id) DO UPDATE SET
+                        campo_titulo = EXCLUDED.campo_titulo,
+                        fase = EXCLUDED.fase,
+                        serie = EXCLUDED.serie,
+                        equipe = EXCLUDED.equipe,
+                        atleta_id = EXCLUDED.atleta_id,
+                        numero = EXCLUDED.numero,
+                        nome = EXCLUDED.nome,
+                        observacao = EXCLUDED.observacao,
+                        preenchido_por = EXCLUDED.preenchido_por,
+                        partida_origem_id = EXCLUDED.partida_origem_id,
+                        atualizado_em = NOW()
+                """, (
+                    competicao, campo_id, cfg_campo.get('titulo') or campo_id,
+                    cfg_campo.get('fase') or '', cfg_campo.get('serie') or '', equipe,
+                    atleta_id, numero, nome, observacao, preenchido_por or '', partida_origem_id
+                ))
+        conn.commit()
+    return True, 'Destaques da competição salvos com sucesso.'
 
 
 # ================= GARANTIR ESTADO =================

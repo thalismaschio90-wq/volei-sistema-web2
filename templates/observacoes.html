@@ -306,6 +306,7 @@
 
 {% set equipes = equipes_finalizacao if equipes_finalizacao is defined else [] %}
 {% set destaque_atual = (destaques_partida[0] if destaques_partida is defined and destaques_partida else none) %}
+{% set destaque_partida_ativo = (destaques_config.ativo_destaque_partida if destaques_config is defined and destaques_config else true) %}
 
 <div class="finalizacao-wrap">
     <div class="finalizacao-card">
@@ -382,6 +383,7 @@
 
             <div id="finalizacao-aviso" class="finalizacao-aviso"></div>
 
+            {% if destaque_partida_ativo %}
             <div class="finalizacao-grid">
                 {% for equipe in equipes %}
                     {% set classe_resultado = equipe.resultado if equipe.resultado else 'neutra' %}
@@ -435,8 +437,13 @@
                     </div>
                 {% endfor %}
             </div>
+            {% else %}
+            <div class="finalizacao-aviso ativo" style="display:block;">
+                O organizador não ativou destaque da partida para esta competição. Salve apenas as observações gerais.
+            </div>
+            {% endif %}
 
-            <div id="finalizacao-selecionado" class="finalizacao-selecionado {% if destaque_atual %}ativo{% endif %}">
+            <div id="finalizacao-selecionado" class="finalizacao-selecionado {% if destaque_partida_ativo and destaque_atual %}ativo{% endif %}" {% if not destaque_partida_ativo %}style="display:none;"{% endif %}>
                 <div>
                     <strong>Destaque selecionado:</strong>
                     <span id="destaque_resumo">

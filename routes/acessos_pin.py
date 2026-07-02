@@ -486,7 +486,7 @@ def arbitro_publico_pin():
             session["arbitro_jogo_avulso_pin"] = pin
             session["arbitro_jogo_avulso_equipe_a"] = vinculo_avulso.get("equipe_a") or "Equipe A"
             session["arbitro_jogo_avulso_equipe_b"] = vinculo_avulso.get("equipe_b") or "Equipe B"
-            flash("PIN do jogo rápido validado. Escolha se este tablet será o 1º ou o 2º árbitro.", "sucesso")
+            flash("PIN do jogo rápido validado. Escolha se este tablet será o 1º árbitro, 2º árbitro ou árbitro único.", "sucesso")
             return redirect(url_for("acessos_pin.arbitro_publico_pin"))
 
         vinculo_operacional = buscar_vinculo_operacional_por_pin(pin)
@@ -497,7 +497,7 @@ def arbitro_publico_pin():
             session["arbitro_competicao"] = vinculo_operacional.get("competicao") or ""
             session["arbitro_apontador_cpf"] = vinculo_operacional.get("apontador_cpf") or ""
             session["arbitro_apontador_nome"] = vinculo_operacional.get("apontador_nome") or ""
-            flash("PIN validado. Escolha se este tablet será o 1º ou o 2º árbitro.", "sucesso")
+            flash("PIN validado. Escolha se este tablet será o 1º árbitro, 2º árbitro ou árbitro único.", "sucesso")
             return redirect(url_for("acessos_pin.arbitro_publico_pin"))
 
         try:
@@ -514,7 +514,7 @@ def arbitro_publico_pin():
             session["arbitro_quadra_nome"] = vinculo_quadra.get("nome") or ""
             session["arbitro_quadra_local"] = vinculo_quadra.get("local") or ""
             session["arbitro_quadra_ordem"] = vinculo_quadra.get("ordem")
-            flash("PIN validado. Escolha se este tablet será o 1º ou o 2º árbitro.", "sucesso")
+            flash("PIN validado. Escolha se este tablet será o 1º árbitro, 2º árbitro ou árbitro único.", "sucesso")
             return redirect(url_for("acessos_pin.arbitro_publico_pin"))
 
         flash("PIN não encontrado ou inativo.", "erro")
@@ -530,6 +530,67 @@ def arbitro_publico_pin():
 
 
 
+def _status_texto_partida(partida):
+    if not partida:
+        return ""
+    partes = [
+        partida.get("status_jogo"),
+        partida.get("status_operacao"),
+        partida.get("fase_partida"),
+        partida.get("status"),
+    ]
+    return " ".join(str(p or "").strip().lower() for p in partes if p is not None)
+
+
+def _partida_em_modo_operacao(partida):
+    """Só libera a tela do árbitro quando o apontador entrou na operação do jogo."""
+    texto = _status_texto_partida(partida)
+    if not texto:
+        return False
+    bloqueados = {
+        "pre_jogo", "pré_jogo", "pre jogo", "pré jogo",
+        "papeleta", "papeleta_pronta", "sorteio", "tiebreak_sorteio",
+        "aguardando", "aberta", "aberto", "pendente",
+        "finalizada", "finalizado", "encerrada", "encerrado",
+    }
+    for termo in bloqueados:
+        if termo in texto:
+            return False
+    liberados = {
+        "em_andamento", "andamento", "ao_vivo", "ao vivo",
+        "jogo", "operacao", "operação", "iniciada", "iniciado",
+    }
+    return any(termo in texto for termo in liberados)
+
+
+def _vinculo_avulso_em_modo_operacao(vinculo):
+    pin = (vinculo or {}).get("pin") or session.get("arbitro_jogo_avulso_pin") or session.get("arbitro_pin") or ""
+    atual = buscar_jogo_avulso_por_pin(pin) if buscar_jogo_avulso_por_pin else None
+    if not atual:
+        return None, False
+    status = " ".join([
+        str(atual.get("status_jogo") or "").strip().lower(),
+        str(atual.get("fase_partida") or "").strip().lower(),
+        str(atual.get("status") or "").strip().lower(),
+    ])
+    bloqueados = {"papeleta", "pre_jogo", "pré_jogo", "sorteio", "aguardando", "finalizada", "finalizado", "encerrada", "encerrado"}
+    if any(t in status for t in bloqueados):
+        return atual, False
+    liberados = {"em_andamento", "andamento", "ao_vivo", "ao vivo", "jogo", "operacao", "operação", "iniciada", "iniciado"}
+    return atual, any(t in status for t in liberados)
+
+
+def _render_standby_arbitro(tipo, titulo, subtitulo, endpoint_status, voltar_url):
+    return render_template(
+        "standby_arbitragem.html",
+        tipo=tipo,
+        titulo=titulo,
+        subtitulo=subtitulo,
+        endpoint_status=endpoint_status,
+        voltar_url=voltar_url,
+    )
+
+
 @acessos_pin_bp.route("/arbitro/1")
 def arbitro_automatico_primeiro():
     vinculo = _vinculo_arbitro_sessao()
@@ -538,30 +599,34 @@ def arbitro_automatico_primeiro():
         return redirect(url_for("acessos_pin.arbitro_publico_pin"))
 
     if vinculo.get("tipo") == "avulso":
-        pin = vinculo.get("pin") or session.get("arbitro_jogo_avulso_pin") or ""
-        atual = buscar_jogo_avulso_por_pin(pin) if buscar_jogo_avulso_por_pin else None
+        atual, liberado = _vinculo_avulso_em_modo_operacao(vinculo)
         codigo = (atual or {}).get("codigo") or vinculo.get("codigo")
         if codigo:
             session["arbitro_jogo_avulso_codigo"] = codigo
+        if codigo and liberado:
             return redirect(url_for("jogo_avulso.arbitro1_jogo_avulso", codigo=codigo))
+        return _render_standby_arbitro(
+            "primeiro",
+            "Painel do 1º Árbitro",
+            "Tela em standby. A partida abrirá automaticamente quando o apontador entrar no modo operação.",
+            url_for("acessos_pin.proxima_partida_arbitro_primeiro"),
+            url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+        )
 
-    # CORREÇÃO: se já existe partida ativa, não fica preso na tela intermediária.
-    # Vai direto para a tela final do 1º árbitro.
     partida = _resolver_partida_para_arbitro(vinculo)
-    if partida:
+    if partida and _partida_em_modo_operacao(partida):
         return redirect(url_for(
             "oficiais.primeiro_arbitro_view",
             competicao=partida["competicao"],
             partida_id=partida["id"],
         ))
 
-    return render_template(
-        "painel_arbitro_automatico.html",
-        tipo="primeiro",
-        titulo="Painel do 1º Árbitro",
-        subtitulo="Tablet do árbitro principal. Aguarde o apontador abrir ou iniciar uma partida.",
-        endpoint_status=url_for("acessos_pin.proxima_partida_arbitro_primeiro"),
-        voltar_url=url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+    return _render_standby_arbitro(
+        "primeiro",
+        "Painel do 1º Árbitro",
+        "Tela em standby. A partida abrirá automaticamente quando o apontador entrar no modo operação.",
+        url_for("acessos_pin.proxima_partida_arbitro_primeiro"),
+        url_for("acessos_pin.arbitro_publico_pin", trocar=1),
     )
 
 
@@ -573,30 +638,73 @@ def arbitro_automatico_segundo():
         return redirect(url_for("acessos_pin.arbitro_publico_pin"))
 
     if vinculo.get("tipo") == "avulso":
-        pin = vinculo.get("pin") or session.get("arbitro_jogo_avulso_pin") or ""
-        atual = buscar_jogo_avulso_por_pin(pin) if buscar_jogo_avulso_por_pin else None
+        atual, liberado = _vinculo_avulso_em_modo_operacao(vinculo)
         codigo = (atual or {}).get("codigo") or vinculo.get("codigo")
         if codigo:
             session["arbitro_jogo_avulso_codigo"] = codigo
+        if codigo and liberado:
             return redirect(url_for("jogo_avulso.arbitro2_jogo_avulso", codigo=codigo))
+        return _render_standby_arbitro(
+            "segundo",
+            "Painel do 2º Árbitro",
+            "Tela em standby. A partida abrirá automaticamente quando o apontador entrar no modo operação.",
+            url_for("acessos_pin.proxima_partida_arbitro_segundo"),
+            url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+        )
 
-    # CORREÇÃO: se já existe partida ativa, não fica preso na tela intermediária.
-    # Vai direto para a tela final do 2º árbitro.
     partida = _resolver_partida_para_arbitro(vinculo)
-    if partida:
+    if partida and _partida_em_modo_operacao(partida):
         return redirect(url_for(
             "oficiais.segundo_arbitro_view",
             competicao=partida["competicao"],
             partida_id=partida["id"],
         ))
 
-    return render_template(
-        "painel_arbitro_automatico.html",
-        tipo="segundo",
-        titulo="Painel do 2º Árbitro",
-        subtitulo="Tablet do segundo árbitro. Aguarde o apontador abrir ou iniciar uma partida.",
-        endpoint_status=url_for("acessos_pin.proxima_partida_arbitro_segundo"),
-        voltar_url=url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+    return _render_standby_arbitro(
+        "segundo",
+        "Painel do 2º Árbitro",
+        "Tela em standby. A partida abrirá automaticamente quando o apontador entrar no modo operação.",
+        url_for("acessos_pin.proxima_partida_arbitro_segundo"),
+        url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+    )
+
+
+@acessos_pin_bp.route("/arbitro/unico")
+def arbitro_automatico_unico():
+    vinculo = _vinculo_arbitro_sessao()
+    if not vinculo:
+        flash("Digite o PIN antes de abrir o painel do árbitro.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+
+    if vinculo.get("tipo") == "avulso":
+        atual, liberado = _vinculo_avulso_em_modo_operacao(vinculo)
+        codigo = (atual or {}).get("codigo") or vinculo.get("codigo")
+        if codigo:
+            session["arbitro_jogo_avulso_codigo"] = codigo
+        if codigo and liberado:
+            return redirect(url_for("jogo_avulso.arbitro_unico_jogo_avulso", codigo=codigo))
+        return _render_standby_arbitro(
+            "unico",
+            "Painel do Árbitro Único",
+            "Tela em standby. A partida abrirá automaticamente quando o apontador entrar no modo operação.",
+            url_for("acessos_pin.proxima_partida_arbitro_unico"),
+            url_for("acessos_pin.arbitro_publico_pin", trocar=1),
+        )
+
+    partida = _resolver_partida_para_arbitro(vinculo)
+    if partida and _partida_em_modo_operacao(partida):
+        return redirect(url_for(
+            "oficiais.arbitro_unico_view",
+            competicao=partida["competicao"],
+            partida_id=partida["id"],
+        ))
+
+    return _render_standby_arbitro(
+        "unico",
+        "Painel do Árbitro Único",
+        "Tela em standby. A partida abrirá automaticamente quando o apontador entrar no modo operação.",
+        url_for("acessos_pin.proxima_partida_arbitro_unico"),
+        url_for("acessos_pin.arbitro_publico_pin", trocar=1),
     )
 
 
@@ -611,7 +719,27 @@ def _resposta_proxima_partida(tipo):
         if not atual:
             return jsonify({"ok": True, "tem_partida": False, "competicao": "JOGO AVULSO", "mensagem": "Aguardando o apontador criar um jogo rápido neste PIN."})
         session["arbitro_jogo_avulso_codigo"] = atual.get("codigo") or ""
-        rota = "jogo_avulso.arbitro1_jogo_avulso" if tipo == "primeiro" else "jogo_avulso.arbitro2_jogo_avulso"
+        status_avulso = " ".join([
+            str(atual.get("status_jogo") or "").strip().lower(),
+            str(atual.get("fase_partida") or "").strip().lower(),
+            str(atual.get("status") or "").strip().lower(),
+        ])
+        bloqueados = {"papeleta", "pre_jogo", "pré_jogo", "sorteio", "aguardando", "finalizada", "finalizado", "encerrada", "encerrado"}
+        liberados = {"em_andamento", "andamento", "ao_vivo", "ao vivo", "jogo", "operacao", "operação", "iniciada", "iniciado"}
+        if any(t in status_avulso for t in bloqueados) or not any(t in status_avulso for t in liberados):
+            return jsonify({
+                "ok": True,
+                "tem_partida": False,
+                "competicao": "JOGO AVULSO",
+                "status": atual.get("status_jogo") or atual.get("fase_partida") or "",
+                "mensagem": "Jogo encontrado, aguardando o apontador entrar no modo operação."
+            })
+        if tipo == "primeiro":
+            rota = "jogo_avulso.arbitro1_jogo_avulso"
+        elif tipo == "unico":
+            rota = "jogo_avulso.arbitro_unico_jogo_avulso"
+        else:
+            rota = "jogo_avulso.arbitro2_jogo_avulso"
         return jsonify({
             "ok": True,
             "tem_partida": True,
@@ -621,22 +749,28 @@ def _resposta_proxima_partida(tipo):
                 "competicao": "JOGO AVULSO",
                 "equipe_a": atual.get("equipe_a"),
                 "equipe_b": atual.get("equipe_b"),
-                "status": atual.get("status_jogo") or "jogo rápido",
+                "status": atual.get("status_jogo") or atual.get("fase_partida") or "jogo rápido",
                 "operador": atual.get("apontador") or "",
             }
         })
 
     partida = _resolver_partida_para_arbitro(vinculo)
 
-    if not partida:
+    if not partida or not _partida_em_modo_operacao(partida):
         return jsonify({
             "ok": True,
             "tem_partida": False,
             "competicao": vinculo.get("competicao") or "",
-            "mensagem": "Aguardando o apontador abrir/iniciar uma partida neste PIN."
+            "status": _status_texto_partida(partida),
+            "mensagem": "Aguardando o apontador entrar no modo operação."
         })
 
-    rota = "oficiais.primeiro_arbitro_view" if tipo == "primeiro" else "oficiais.segundo_arbitro_view"
+    if tipo == "primeiro":
+        rota = "oficiais.primeiro_arbitro_view"
+    elif tipo == "unico":
+        rota = "oficiais.arbitro_unico_view"
+    else:
+        rota = "oficiais.segundo_arbitro_view"
     url = url_for(rota, competicao=partida["competicao"], partida_id=partida["id"])
 
     return jsonify({
@@ -666,6 +800,11 @@ def proxima_partida_arbitro_primeiro():
 @acessos_pin_bp.route("/arbitro/2/proxima")
 def proxima_partida_arbitro_segundo():
     return _resposta_proxima_partida("segundo")
+
+
+@acessos_pin_bp.route("/arbitro/unico/proxima")
+def proxima_partida_arbitro_unico():
+    return _resposta_proxima_partida("unico")
 
 
 @acessos_pin_bp.route("/telao", methods=["GET", "POST"])

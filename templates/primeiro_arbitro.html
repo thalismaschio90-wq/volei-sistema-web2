@@ -107,7 +107,9 @@
             gap: 7px;
         }
 
-        button {
+        .btn-sair-arbitro { text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+
+        button, .btn-sair-arbitro {
             border: 0;
             border-radius: 14px;
             padding: 10px 12px;
@@ -464,18 +466,270 @@
             .placar-centro-grande { font-size: clamp(32px, 6.5vw, 52px) !important; }
             .sets-partida-linha { padding: 5px 8px; font-size: clamp(13px, 2.2vw, 18px) !important; }
         }
+
+
+        /* =========================================================
+           STANDBY VOLLEYTABLE PRO - ARBITRAGEM
+           Aparece quando a partida encerra e some quando novo jogo abre.
+        ========================================================= */
+        .standby-arbitragem {
+            position: fixed;
+            inset: 0;
+            z-index: 2147483000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            color: #f8fafc;
+            background: #020617;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .45s ease;
+        }
+        .standby-arbitragem.ativo {
+            display: flex;
+            opacity: 1;
+            pointer-events: auto;
+        }
+        body.standby-arbitragem-ativa {
+            overflow: hidden !important;
+            background: #020617 !important;
+        }
+        body.standby-arbitragem-ativa > .app,
+        body.standby-arbitragem-ativa > .orientacao,
+        body.standby-arbitragem-ativa > .popup,
+        body.standby-arbitragem-ativa > .popup-overlay,
+        body.standby-arbitragem-ativa > .cronometro-overlay {
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        body.standby-arbitragem-ativa #standbyArbitragem {
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+        .standby-bg {
+            position: absolute;
+            inset: -4%;
+            background:
+                linear-gradient(90deg, rgba(2, 6, 23, .88) 0%, rgba(2, 6, 23, .56) 48%, rgba(2, 6, 23, .84) 100%),
+                url('/static/img/hero_bg.png') center center / cover no-repeat;
+            filter: saturate(1.08) contrast(1.08);
+            animation: standbyKenBurns 24s ease-in-out infinite alternate;
+            transform-origin: center;
+        }
+        .standby-luz {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 54% 18%, rgba(59, 130, 246, .34), transparent 24%),
+                radial-gradient(circle at 15% 80%, rgba(249, 115, 22, .18), transparent 34%);
+            mix-blend-mode: screen;
+            animation: standbyLuz 6s ease-in-out infinite alternate;
+        }
+        .standby-card {
+            position: relative;
+            width: min(860px, 92vw);
+            min-height: 74vh;
+            padding: clamp(18px, 3vw, 34px);
+            border-radius: 34px;
+            border: 1px solid rgba(148, 163, 184, .30);
+            background: linear-gradient(180deg, rgba(15, 23, 42, .72), rgba(2, 6, 23, .54));
+            box-shadow: 0 28px 90px rgba(0, 0, 0, .45);
+            backdrop-filter: blur(10px);
+            display: grid;
+            grid-template-rows: 1fr auto;
+            gap: 18px;
+        }
+        .standby-centro {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 10px;
+        }
+        .standby-logo-wrap {
+            position: relative;
+            width: min(230px, 24vw);
+            height: min(230px, 24vw);
+            min-width: 116px;
+            min-height: 116px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2px;
+        }
+        .standby-logo {
+            width: min(190px, 20vw);
+            max-width: 190px;
+            min-width: 96px;
+            filter: drop-shadow(0 18px 35px rgba(0,0,0,.55));
+            animation: standbyRespirar 4.5s ease-in-out infinite;
+        }
+        .standby-bola {
+            position: absolute;
+            width: min(64px, 7vw);
+            min-width: 38px;
+            right: 2px;
+            bottom: 14px;
+            filter: drop-shadow(0 14px 16px rgba(0,0,0,.45));
+            animation: standbyBola 10s linear infinite, standbyBolaFloat 3.4s ease-in-out infinite;
+        }
+        .standby-produto {
+            font-size: clamp(32px, 6vw, 78px);
+            line-height: .92;
+            font-weight: 1000;
+            letter-spacing: -2px;
+            text-transform: uppercase;
+            text-shadow: 0 16px 42px rgba(0,0,0,.45);
+        }
+        .standby-produto span { color: #f97316; }
+        .standby-modulo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(249, 115, 22, .15);
+            border: 1px solid rgba(249, 115, 22, .34);
+            color: #fed7aa;
+            font-size: clamp(12px, 1.5vw, 15px);
+            font-weight: 1000;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+        .standby-mensagem {
+            margin-top: 8px;
+            font-size: clamp(22px, 4vw, 44px);
+            font-weight: 1000;
+            color: #ffffff;
+        }
+        .standby-sub {
+            max-width: 720px;
+            color: rgba(226, 232, 240, .88);
+            font-size: clamp(14px, 2vw, 20px);
+            line-height: 1.45;
+            font-weight: 750;
+        }
+        .standby-status-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .standby-status-item {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 16px;
+            padding: 12px 10px;
+            background: rgba(15, 23, 42, .76);
+            border: 1px solid rgba(148, 163, 184, .22);
+            color: #dbeafe;
+            font-size: 12px;
+            font-weight: 950;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .standby-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 999px;
+            background: #22c55e;
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, .15);
+            flex: 0 0 auto;
+            animation: standbyPulse 1.8s ease-in-out infinite;
+        }
+        .standby-dot.warn { background:#f59e0b; box-shadow:0 0 0 4px rgba(245, 158, 11, .15); }
+        .standby-sair {
+            position: absolute;
+            right: 18px;
+            top: 18px;
+            z-index: 2;
+            text-decoration: none;
+            border-radius: 999px;
+            padding: 10px 14px;
+            background: rgba(248, 250, 252, .10);
+            border: 1px solid rgba(248, 250, 252, .20);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 1000;
+        }
+        .standby-wakelock {
+            position: absolute;
+            left: 18px;
+            top: 18px;
+            z-index: 2;
+            border-radius: 999px;
+            padding: 10px 14px;
+            background: rgba(34, 197, 94, .12);
+            border: 1px solid rgba(34, 197, 94, .24);
+            color: #bbf7d0;
+            font-size: 12px;
+            font-weight: 1000;
+        }
+        @keyframes standbyKenBurns { from { transform: scale(1.02) translate3d(-1.2%, -.8%, 0); } to { transform: scale(1.10) translate3d(1.2%, .8%, 0); } }
+        @keyframes standbyLuz { from { opacity: .55; } to { opacity: .95; } }
+        @keyframes standbyRespirar { 0%,100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+        @keyframes standbyBola { from { rotate: 0deg; } to { rotate: 360deg; } }
+        @keyframes standbyBolaFloat { 0%,100% { translate: 0 0; } 50% { translate: 0 -8px; } }
+        @keyframes standbyPulse { 0%,100% { opacity: .55; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.08); } }
+        @media (max-width: 900px) and (orientation: landscape) {
+            .standby-card { min-height: calc(100vh - 24px); width: calc(100vw - 24px); border-radius: 24px; padding: 14px 18px; }
+            .standby-logo-wrap { width: 132px; height: 132px; min-width: 132px; min-height: 132px; }
+            .standby-logo { width: 118px; min-width: 118px; }
+            .standby-bola { width: 42px; min-width: 42px; }
+            .standby-produto { font-size: 38px; }
+            .standby-mensagem { font-size: 24px; margin-top: 2px; }
+            .standby-sub { font-size: 13px; }
+            .standby-status-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+            .standby-status-item { padding: 8px 7px; font-size: 10px; }
+        }
+
     </style>
 </head>
 <body>
     <div class="orientacao">📱 Vire o celular para a horizontal<br><span style="font-size:16px;color:#94a3b8;margin-top:10px;display:block;">Tela do 1º árbitro</span></div>
 
-    <div class="app">
+    
+
+    <section id="standbyArbitragem" class="standby-arbitragem" aria-live="polite">
+        <div class="standby-bg"></div>
+        <div class="standby-luz"></div>
+        <div class="standby-card">
+            <button type="button" id="standbyWakeBtn" class="standby-wakelock">🔒 Manter tela ativa</button>
+            <a class="standby-sair" href="{{ url_for('acessos_pin.arbitro_publico_pin', trocar=1) }}">Sair</a>
+            <div class="standby-centro">
+                <div class="standby-logo-wrap">
+                    <img class="standby-logo" src="/static/img/logo_arbitro.png" alt="Pro Árbitro">
+                    <img class="standby-bola" src="/static/img/bola_volei.png" alt="Vôlei">
+                </div>
+                <div class="standby-produto">VOLLEYTABLE <span>PRO</span></div>
+                <div class="standby-modulo">🏐 Módulo de Arbitragem</div>
+                <div id="standbyMensagem" class="standby-mensagem">Aguardando próxima partida</div>
+                <div class="standby-sub">A tela será liberada automaticamente assim que o apontador abrir ou iniciar o próximo jogo.</div>
+            </div>
+            <div class="standby-status-grid">
+                <div class="standby-status-item"><span class="standby-dot"></span> Sistema online</div>
+                <div class="standby-status-item"><span id="standbySocketDot" class="standby-dot"></span> Socket conectado</div>
+                <div class="standby-status-item"><span class="standby-dot"></span> Tablet sincronizado</div>
+                <div class="standby-status-item"><span class="standby-dot"></span> Próxima partida</div>
+            </div>
+        </div>
+    </section>
+<div class="app">
         <header class="topbar">
             <div class="titulo">1º Árbitro • {{ competicao }}</div>
             <div id="statusSocket" class="status off">● Conectando</div>
             <div class="acoes-topo">
                 <button type="button" onclick="inverterQuadra()">🔄 Inverter</button>
                 <button type="button" onclick="carregarEstado(true, true)">↻</button>
+                <a class="btn-sair-arbitro" href="{{ url_for('acessos_pin.arbitro_publico_pin', trocar=1) }}">Sair</a>
             </div>
         </header>
 
@@ -535,6 +789,7 @@
         const COMPETICAO = {{ competicao|tojson }};
         const ESTADO_INICIAL = {{ estado|tojson }};
         const URL_ESTADO = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
+        const STANDBY_PROXIMA_URL = "{{ url_for('acessos_pin.proxima_partida_arbitro_primeiro') }}";
 
         let estadoAtual = ESTADO_INICIAL || {};
         const CHAVE_INVERSAO_VISUAL = `arbitro_primeiro_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
@@ -865,7 +1120,22 @@
             estadoAtual.pontos_tiebreak = numeroInteiro(estadoAtual.pontos_tiebreak || 15, 15);
             estadoAtual.diferenca_minima = numeroInteiro(estadoAtual.diferenca_minima || 2, 2);
             estadoAtual.sets_para_vencer = numeroInteiro(estadoAtual.sets_para_vencer || setsParaVencerPelasRegras(estadoAtual), 2);
+
+            if (deveMostrarStandbyArbitragem(estadoAtual)) {
+                render();
+                mostrarStandbyArbitragem();
+                return;
+            }
+
+            esconderStandbyArbitragem();
             render();
+
+            if (estadoPartidaFinalizada(estadoAtual)) {
+                mostrarStandbyArbitragem();
+                return;
+            } else {
+                esconderStandbyArbitragem();
+            }
 
             // Mantém o aviso fixo igual ao apontador e abre popup quando o estado entra em SET/MATCH POINT.
             atualizarAlertaPoint(estadoAtual);
@@ -946,6 +1216,7 @@
             const el = document.getElementById("statusSocket");
             el.classList.toggle("off", !ok);
             el.textContent = ok ? "● Ao vivo" : "● Reconectando";
+            atualizarStandbySocket(ok);
         }
 
         function entrarNaSala() {
@@ -1105,6 +1376,154 @@
         window.addEventListener("focus", acordarTelaMobile);
         window.addEventListener("online", acordarTelaMobile);
         window.addEventListener("pageshow", acordarTelaMobile);
+
+
+
+        /* =========================================================
+           STANDBY VOLLEYTABLE PRO - ARBITRAGEM
+        ========================================================= */
+        let standbyAtivo = false;
+        let standbyTimer = null;
+        let standbyMensagemTimer = null;
+        let wakeLockArbitragem = null;
+        const STANDBY_MENSAGENS = [
+            "Aguardando próxima partida",
+            "Sistema sincronizado",
+            "Conectado ao apontador",
+            "Preparando próximo jogo",
+            "VolleyTable Pro em tempo real"
+        ];
+        let standbyMsgIndex = 0;
+
+        function estadoPartidaFinalizada(dados) {
+            if (!dados || typeof dados !== "object") return false;
+            const status = String(dados.status_jogo || dados.status_operacao || dados.status || dados.fase_partida || "").toLowerCase();
+            return Boolean(
+                dados.partida_finalizada ||
+                dados.finalizada ||
+                dados.encerrada ||
+                dados.jogo_encerrado ||
+                ["finalizada", "finalizado", "encerrada", "encerrado"].includes(status)
+            );
+        }
+
+        function estadoEmModoOperacaoArbitragem(dados) {
+            if (!dados || typeof dados !== "object") return false;
+            const campos = [
+                dados.status_operacao,
+                dados.status_jogo,
+                dados.status,
+                dados.fase_partida,
+                dados.modo_tela,
+                dados.modo_operacao_atual
+            ].map(v => String(v || "").trim().toLowerCase());
+
+            return campos.some(v => [
+                "em_andamento",
+                "andamento",
+                "ao_vivo",
+                "ao vivo",
+                "jogo",
+                "operacao",
+                "operação",
+                "modo_operacao",
+                "modo operação",
+                "iniciada",
+                "iniciado"
+            ].includes(v));
+        }
+
+        function deveMostrarStandbyArbitragem(dados) {
+            if (!dados || typeof dados !== "object") return true;
+            if (estadoPartidaFinalizada(dados)) return true;
+            return !estadoEmModoOperacaoArbitragem(dados);
+        }
+
+        async function ativarWakeLockArbitragem() {
+            try {
+                if ("wakeLock" in navigator) {
+                    wakeLockArbitragem = await navigator.wakeLock.request("screen");
+                    const btn = document.getElementById("standbyWakeBtn");
+                    if (btn) btn.textContent = "✅ Tela ativa";
+                }
+            } catch (e) {
+                const btn = document.getElementById("standbyWakeBtn");
+                if (btn) btn.textContent = "🔒 Manter tela ativa";
+            }
+        }
+
+        function atualizarStandbySocket(ok) {
+            const dot = document.getElementById("standbySocketDot");
+            if (dot) dot.classList.toggle("warn", !ok);
+        }
+
+        function alternarMensagemStandby() {
+            const el = document.getElementById("standbyMensagem");
+            if (!el) return;
+            standbyMsgIndex = (standbyMsgIndex + 1) % STANDBY_MENSAGENS.length;
+            el.textContent = STANDBY_MENSAGENS[standbyMsgIndex];
+        }
+
+        function mostrarStandbyArbitragem() {
+            const el = document.getElementById("standbyArbitragem");
+            if (!el) return;
+            standbyAtivo = true;
+            document.body.classList.add("standby-arbitragem-ativa");
+            el.classList.add("ativo");
+            ativarWakeLockArbitragem();
+            if (!standbyMensagemTimer) standbyMensagemTimer = setInterval(alternarMensagemStandby, 5000);
+            iniciarPollingStandbyProxima();
+        }
+
+        function esconderStandbyArbitragem() {
+            const el = document.getElementById("standbyArbitragem");
+            standbyAtivo = false;
+            document.body.classList.remove("standby-arbitragem-ativa");
+            if (el) el.classList.remove("ativo");
+            if (standbyTimer) {
+                clearInterval(standbyTimer);
+                standbyTimer = null;
+            }
+        }
+
+        async function checarProximaPartidaStandby() {
+            if (!standbyAtivo || !STANDBY_PROXIMA_URL) return;
+            try {
+                const resp = await fetch(STANDBY_PROXIMA_URL, { cache: "no-store", credentials: "same-origin" });
+                if (!resp.ok) return;
+                const dados = await resp.json();
+                if (dados && dados.ok && dados.tem_partida && dados.url) {
+                    const urlNova = String(dados.url);
+                    if (urlNova && urlNova !== window.location.pathname && !urlNova.endsWith(window.location.pathname)) {
+                        window.location.href = urlNova;
+                    } else {
+                        // Mesma tela: força buscar o estado. Assim, ao sair da papeleta
+                        // para o modo operação, o standby some sem precisar apertar F5.
+                        carregarEstado(true, true);
+                    }
+                } else {
+                    carregarEstado(true, true);
+                }
+            } catch (e) {}
+        }
+
+        function iniciarPollingStandbyProxima() {
+            if (standbyTimer) clearInterval(standbyTimer);
+            standbyTimer = setInterval(checarProximaPartidaStandby, 4500);
+            setTimeout(checarProximaPartidaStandby, 900);
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") ativarWakeLockArbitragem();
+        });
+        window.addEventListener("click", ativarWakeLockArbitragem, { once: false });
+        window.addEventListener("touchstart", ativarWakeLockArbitragem, { once: false });
+        window.addEventListener("load", ativarWakeLockArbitragem);
+        document.addEventListener("DOMContentLoaded", () => {
+            const btn = document.getElementById("standbyWakeBtn");
+            if (btn) btn.addEventListener("click", ativarWakeLockArbitragem);
+        });
+
 
         aplicarEstado(ESTADO_INICIAL, true);
         // Busca inicial única; depois, quem manda é o Socket.IO.

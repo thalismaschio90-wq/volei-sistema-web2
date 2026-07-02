@@ -76,6 +76,11 @@ from banco import (
     atualizar_atleta_conferencia_apontador,
     listar_dados_finalizacao_partida,
     salvar_destaque_partida,
+    buscar_config_destaques_competicao,
+    verificar_destaques_competicao_pendentes,
+    listar_respostas_destaques_competicao,
+    listar_atletas_para_destaques_competicao,
+    salvar_respostas_destaques_competicao,
     gerar_partidas_avanco_competicao,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
@@ -2587,6 +2592,11 @@ def entrar_competicao_apontador(competicao):
     except Exception:
         offline_habilitado = False
 
+    try:
+        pendencia_destaques_competicao = verificar_destaques_competicao_pendentes(competicao)
+    except Exception:
+        pendencia_destaques_competicao = {"abrir": False}
+
     return render_template(
         "painel_apontador.html",
         modo_partidas=True,
@@ -2597,6 +2607,7 @@ def entrar_competicao_apontador(competicao):
         offline_habilitado=offline_habilitado,
         sets_max_manual=dados.get("sets_max_manual") or 3,
         sets_para_vencer_manual=dados.get("sets_para_vencer_manual") or 2,
+        pendencia_destaques_competicao=pendencia_destaques_competicao,
     )
 
 
@@ -5266,6 +5277,8 @@ def encerrar_partida_view(competicao, partida_id):
         estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_PARTIDA_FINAL_OFFLINE")
         _limpar_cache_apontador(competicao)
 
+        pendencia_destaques = verificar_destaques_competicao_pendentes(competicao, partida_id)
+
         return _json_no_cache({
             "ok": True,
             "mensagem": "Partida salva no banco e encerrada com sucesso.",
@@ -5274,6 +5287,8 @@ def encerrar_partida_view(competicao, partida_id):
             "partida_finalizada": True,
             "abrir_observacoes": True,
             "url_observacoes": url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id),
+            "abrir_destaques_competicao": bool(pendencia_destaques.get("abrir")),
+            "url_destaques_competicao": url_for("apontadores.destaques_competicao_view", competicao=competicao, partida_id=partida_id) if pendencia_destaques.get("abrir") else "",
             "eventos_processados": processados,
             **estado
         })
@@ -5294,6 +5309,7 @@ def observacoes_view(competicao, partida_id):
         dados_finalizacao=dados_finalizacao,
         equipes_finalizacao=dados_finalizacao.get("equipes", []),
         destaques_partida=dados_finalizacao.get("destaques_partida", []),
+        destaques_config=buscar_config_destaques_competicao(competicao),
     )
 
 
@@ -5336,7 +5352,84 @@ def salvar_observacoes_view(competicao, partida_id):
     _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_FINALIZACAO")
     _limpar_cache_apontador(competicao)
 
+    pendencia_destaques = verificar_destaques_competicao_pendentes(competicao, partida_id)
+    if pendencia_destaques.get("abrir"):
+        return redirect(url_for("apontadores.destaques_competicao_view", competicao=competicao, partida_id=partida_id))
+
     return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+@apontadores_bp.route("/apontador/destaques-competicao/<competicao>")
+@exigir_perfil("apontador")
+def destaques_competicao_view(competicao):
+    partida_id = request.args.get("partida_id", type=int)
+    cfg = buscar_config_destaques_competicao(competicao) or {}
+    if not cfg.get("ativo_destaque_competicao") or not cfg.get("campos"):
+        flash("O organizador ainda não ativou os destaques finais desta competição.", "erro")
+        return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
+    pendencia = verificar_destaques_competicao_pendentes(competicao, partida_id)
+    respostas = listar_respostas_destaques_competicao(competicao) or []
+    respostas_por_campo = {str(r.get("campo_id") or ""): r for r in respostas}
+    atletas_info = listar_atletas_para_destaques_competicao(competicao) or {}
+
+    return render_template(
+        "destaques_competicao_apontador.html",
+        competicao_nome=competicao,
+        partida_id=partida_id,
+        config=cfg,
+        pendencia=pendencia,
+        respostas=respostas,
+        respostas_por_campo=respostas_por_campo,
+        atletas_info=atletas_info,
+    )
+
+
+@apontadores_bp.route("/apontador/destaques-competicao/<competicao>/salvar", methods=["POST"])
+@exigir_perfil("apontador")
+def salvar_destaques_competicao_view(competicao):
+    partida_id = request.form.get("partida_id", type=int)
+    cfg = buscar_config_destaques_competicao(competicao) or {}
+    respostas = []
+
+    for campo in cfg.get("campos") or []:
+        campo_id = str(campo.get("id") or "").strip()
+        if not campo_id:
+            continue
+        selecionado = request.form.get(f"destaque_atleta_{campo_id}", "").strip()
+        equipe = ""
+        atleta_id = ""
+        numero = ""
+        nome = ""
+        if selecionado:
+            partes = selecionado.split("|||", 3)
+            while len(partes) < 4:
+                partes.append("")
+            equipe, atleta_id, numero, nome = partes[:4]
+        nome_manual = request.form.get(f"destaque_nome_{campo_id}", "").strip()
+        equipe_manual = request.form.get(f"destaque_equipe_{campo_id}", "").strip()
+        observacao = request.form.get(f"destaque_obs_{campo_id}", "").strip()
+        if nome_manual:
+            nome = nome_manual
+        if equipe_manual:
+            equipe = equipe_manual
+        respostas.append({
+            "campo_id": campo_id,
+            "equipe": equipe,
+            "atleta_id": atleta_id,
+            "numero": numero,
+            "nome": nome,
+            "observacao": observacao,
+        })
+
+    ok, msg = salvar_respostas_destaques_competicao(
+        competicao,
+        respostas,
+        preenchido_por=_login_apontador_sessao() or session.get("usuario") or "apontador",
+        partida_origem_id=partida_id,
+    )
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+
 
 # FIX: garantir fundamento/resultado corretos para falta e erro_saque
 

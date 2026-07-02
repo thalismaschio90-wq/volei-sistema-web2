@@ -19,7 +19,7 @@
         .hint { color:var(--muted); font-weight:800; line-height:1.5; }
         .vinculo { background:#ecfdf5; border:1px solid #bbf7d0; color:#064e3b; border-radius:18px; padding:16px; font-weight:900; line-height:1.55; margin-top:18px; }
         .pin { display:inline-flex; align-items:center; justify-content:center; background:#123852; color:#fff; border-radius:999px; padding:5px 12px; letter-spacing:2px; font-weight:1000; }
-        .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+        .grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
         .opcao { background:#fff; border:1px solid var(--border); border-radius:24px; box-shadow:var(--shadow); padding:24px; position:relative; overflow:hidden; }
         .opcao::before { content:""; position:absolute; inset:0 0 auto 0; height:6px; background:linear-gradient(90deg,#123852,#d4a62a); }
         .icone { width:58px; height:58px; border-radius:18px; background:#eef4fb; display:flex; align-items:center; justify-content:center; font-size:30px; margin-bottom:18px; }
@@ -44,7 +44,7 @@
     <main class="wrap">
         <section class="card">
             <h1 class="title">Escolha o tipo de árbitro deste tablet</h1>
-            <div class="hint">O PIN já foi validado. Agora selecione se esta tela ficará como 1º árbitro ou 2º árbitro. Depois disso, ela ficará aguardando o apontador abrir/iniciar a partida.</div>
+            <div class="hint">O PIN já foi validado. Agora selecione se esta tela ficará como 1º árbitro, 2º árbitro ou árbitro único. Depois disso, ela ficará aguardando o apontador abrir/iniciar a partida.</div>
 
             {% if vinculo_arbitro %}
             <div class="vinculo">
@@ -77,6 +77,12 @@
                 <h2>2º Árbitro</h2>
                 <p>Tela do segundo árbitro. Acompanha rotação, solicitações, tempos e avisos enviados pelo apontador.</p>
                 <a class="btn" href="{{ url_for('acessos_pin.arbitro_automatico_segundo') }}">Entrar como 2º árbitro</a>
+            </div>
+            <div class="opcao">
+                <div class="icone">🧑‍⚖️</div>
+                <h2>Árbitro Único</h2>
+                <p>Tela completa para quando uma única pessoa apita. Junta os avisos e funções do 1º e do 2º árbitro.</p>
+                <a class="btn" href="{{ url_for('acessos_pin.arbitro_automatico_unico') }}">Entrar como árbitro único</a>
             </div>
         </section>
 

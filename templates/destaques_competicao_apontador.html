@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<style>
+.destaques-wrap{max-width:1080px;margin:30px auto;padding:0 14px;}
+.destaques-card{background:#fff;border:1px solid var(--border);border-radius:22px;box-shadow:var(--shadow);padding:24px;}
+.destaques-title{text-align:center;font-size:30px;font-weight:1000;color:#183247;margin-bottom:6px;}
+.destaques-sub{text-align:center;color:#64748b;font-weight:800;margin-bottom:18px;line-height:1.45;}
+.destaques-alert{background:#ecfdf5;border:1px solid #86efac;color:#166534;border-radius:16px;padding:14px 16px;font-weight:900;margin-bottom:18px;}
+.destaques-grid{display:grid;grid-template-columns:1fr;gap:16px;}
+.destaque-item{border:1px solid #d7e1ee;border-radius:18px;background:#fbfdff;padding:16px;}
+.destaque-head{display:flex;justify-content:space-between;gap:12px;align-items:center;cursor:pointer;}
+.destaque-item h3{margin:0;color:#183247;font-size:20px;font-weight:1000;}
+.destaque-meta{font-size:12px;font-weight:1000;color:#64748b;margin-top:4px;}
+.destaque-body{display:none;margin-top:14px;}
+.destaque-item.aberto .destaque-body{display:block;}
+.destaque-row{display:grid;grid-template-columns:1.4fr .8fr;gap:12px;margin-top:10px;}
+.destaque-row.full{grid-template-columns:1fr;}
+.destaque-item label{font-weight:1000;color:#334155;display:block;margin-bottom:6px;}
+.destaque-item select,.destaque-item input,.destaque-item textarea{width:100%;border:1px solid #cfd9e3;border-radius:12px;padding:11px 12px;background:#fff;font-weight:700;}
+.destaque-item textarea{min-height:74px;resize:vertical;line-height:1.4;}
+.destaques-actions{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:18px;}
+.destaque-previo{background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:12px;padding:9px 11px;font-weight:800;margin-bottom:10px;}
+.equipes-aptas{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:9px 11px;font-weight:900;color:#475569;margin-bottom:10px;}
+.toggle-chip{background:#0f3d5b;color:#fff;border:0;border-radius:999px;padding:8px 12px;font-weight:1000;}
+@media(max-width:760px){.destaque-row{grid-template-columns:1fr}.destaques-title{font-size:24px}.destaques-card{padding:18px}.destaque-head{align-items:flex-start}.toggle-chip{font-size:12px}}
+</style>
+
+<div class="destaques-wrap">
+    <div class="destaques-card">
+        <div class="destaques-title">Destaques da Competição</div>
+        <div class="destaques-sub">
+            {{ competicao_nome }}<br>
+            Abra um destaque por vez e selecione o atleta liberado conforme a configuração do organizador.
+        </div>
+
+        <div class="destaques-alert">
+            Final identificada pelo sistema. Agora registre os destaques finais configurados pelo organizador.
+        </div>
+
+        <form method="post" action="{{ url_for('apontadores.salvar_destaques_competicao_view', competicao=competicao_nome) }}">
+            <input type="hidden" name="partida_id" value="{{ partida_id or '' }}">
+            <div class="destaques-grid">
+                {% for campo in config.campos %}
+                    {% set cid = campo.id %}
+                    {% set resp = respostas_por_campo.get(cid) if respostas_por_campo is defined else none %}
+                    {% set info = atletas_info.por_campo.get(cid) if atletas_info and atletas_info.por_campo is defined else none %}
+                    {% set atletas = info.atletas if info and info.atletas is defined else [] %}
+                    {% set equipes = info.equipes if info and info.equipes is defined else [] %}
+                    <div class="destaque-item {% if loop.first and not resp %}aberto{% endif %}">
+                        <div class="destaque-head" onclick="this.closest('.destaque-item').classList.toggle('aberto')">
+                            <div>
+                                <h3>{{ loop.index }}. {{ campo.titulo }}</h3>
+                                <div class="destaque-meta">
+                                    {% if campo.serie %}Série {{ campo.serie }} • {% endif %}
+                                    {{ campo.fase or 'Final da competição' }} •
+                                    {% if campo.aptos == 'top2' %}finalistas{% elif campo.aptos == 'top1' %}campeão{% elif campo.aptos == 'top4' %}4 primeiros{% elif campo.aptos == 'todos' %}todos da série{% else %}3 primeiros colocados{% endif %}
+                                </div>
+                            </div>
+                            <button type="button" class="toggle-chip">Abrir / fechar</button>
+                        </div>
+
+                        <div class="destaque-body">
+                            {% if equipes %}
+                                <div class="equipes-aptas">Equipes aptas: {{ equipes|join(', ') }}</div>
+                            {% else %}
+                                <div class="equipes-aptas">Ainda não foi possível identificar os colocados desta série. O sistema vai listar quando as finais estiverem encerradas.</div>
+                            {% endif %}
+
+                            {% if resp %}
+                                <div class="destaque-previo">
+                                    Salvo: {{ resp.nome or 'Sem nome' }}{% if resp.numero %} #{{ resp.numero }}{% endif %}{% if resp.equipe %} — {{ resp.equipe }}{% endif %}
+                                </div>
+                            {% endif %}
+
+                            <div class="destaque-row full">
+                                <div>
+                                    <label>Selecionar atleta</label>
+                                    <select name="destaque_atleta_{{ cid }}">
+                                        <option value="">Selecionar atleta apto</option>
+                                        {% for atleta in atletas %}
+                                            {% set valor = (atleta.equipe ~ '|||' ~ (atleta.atleta_id or '') ~ '|||' ~ (atleta.numero or '') ~ '|||' ~ atleta.nome) %}
+                                            <option value="{{ valor }}" {% if resp and resp.nome == atleta.nome and resp.equipe == atleta.equipe %}selected{% endif %}>
+                                                {{ atleta.equipe }} — #{{ atleta.numero or '-' }} {{ atleta.nome }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="destaque-row">
+                                <div>
+                                    <label>Nome manual / ajuste</label>
+                                    <input name="destaque_nome_{{ cid }}" value="{{ resp.nome if resp else '' }}" placeholder="Use só se precisar corrigir ou digitar manualmente">
+                                </div>
+                                <div>
+                                    <label>Equipe manual</label>
+                                    <input name="destaque_equipe_{{ cid }}" value="{{ resp.equipe if resp else '' }}" placeholder="Opcional">
+                                </div>
+                            </div>
+
+                            <div class="destaque-row full">
+                                <div>
+                                    <label>Observação</label>
+                                    <textarea name="destaque_obs_{{ cid }}" placeholder="Opcional: motivo, fundamento, estatística ou observação.">{{ resp.observacao if resp else '' }}</textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="destaques-actions">
+                <button class="btn-padrao" type="submit">Salvar destaques finais</button>
+                <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">Voltar para partidas</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

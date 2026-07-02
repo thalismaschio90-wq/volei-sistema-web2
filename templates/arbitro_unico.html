@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>2º Árbitro - {{ competicao }}</title>
+    <title>Árbitro Único - {{ competicao }}</title>
     <link rel="manifest" href="/static/manifest.json">
     <meta name="theme-color" content="#07111f">
     <meta name="mobile-web-app-capable" content="yes">
@@ -753,7 +753,7 @@
     </style>
 </head>
 <body>
-    <div class="orientacao">📱 Vire o celular para a horizontal<br><span style="font-size:16px;color:#94a3b8;margin-top:10px;display:block;">Tela do 2º árbitro</span></div>
+    <div class="orientacao">📱 Vire o celular para a horizontal<br><span style="font-size:16px;color:#94a3b8;margin-top:10px;display:block;">Tela do árbitro único</span></div>
 
     
 
@@ -783,7 +783,7 @@
     </section>
 <div class="app">
         <header class="topbar">
-            <div class="titulo">2º Árbitro • {{ competicao }}</div>
+            <div class="titulo">Árbitro Único • {{ competicao }}</div>
             <div id="statusSocket" class="status off">● Conectando</div>
             <div class="acoes-topo">
                 <button type="button" onclick="inverterQuadra()">🔄 Inverter</button>
@@ -857,10 +857,10 @@
         const COMPETICAO = {{ competicao|tojson }};
         const ESTADO_INICIAL = {{ estado|tojson }};
         const URL_ESTADO = {{ url_for('oficiais.estado_arbitro_view', competicao=competicao, partida_id=partida_id)|tojson }};
-        const STANDBY_PROXIMA_URL = "{{ url_for('acessos_pin.proxima_partida_arbitro_segundo') }}";
+        const STANDBY_PROXIMA_URL = "{{ url_for('acessos_pin.proxima_partida_arbitro_unico') }}";
 
         let estadoAtual = ESTADO_INICIAL || {};
-        const CHAVE_INVERSAO_VISUAL = `arbitro_segundo_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
+        const CHAVE_INVERSAO_VISUAL = `arbitro_unico_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
         let invertido = localStorage.getItem(CHAVE_INVERSAO_VISUAL) === "1";
         let ultimoSaqueChave = "";
         let ultimoPopupSaqueChave = "";

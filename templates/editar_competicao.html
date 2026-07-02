@@ -739,6 +739,7 @@
         <button type="button" class="competicao-tab-btn {% if cfg.regras %}salva{% endif %}" data-etapa="regras" data-tab="tab-regras">Regras do jogo</button>
         <button type="button" class="competicao-tab-btn {% if cfg.classificacao %}salva{% endif %}" data-etapa="pontuacao" data-tab="tab-pontuacao">Classificação</button>
         <button type="button" class="competicao-tab-btn {% if cfg.avanco %}salva{% endif %}" data-etapa="avanco" data-tab="tab-avanco-chaveamento">Avanço / Chaveamento</button>
+        <button type="button" class="competicao-tab-btn {% if destaques_config and (destaques_config.ativo_destaque_partida or destaques_config.ativo_destaque_competicao) %}salva{% endif %}" data-etapa="destaques" data-tab="tab-destaques">Premiação e Destaques</button>
     </div>
 
     <!-- ABA: DADOS -->
@@ -1397,6 +1398,163 @@
     </div>
 
 
+    <!-- ABA: PREMIAÇÃO E DESTAQUES -->
+    <div id="tab-destaques" class="competicao-tab-pane" data-etapa="destaques" data-salva="{{ 1 if destaques_config and (destaques_config.ativo_destaque_partida or destaques_config.ativo_destaque_competicao) else 0 }}">
+        {% set dc = destaques_config if destaques_config is defined and destaques_config else {} %}
+        {% set campos_dc = dc.campos if dc.campos is defined else [] %}
+        <div class="competicao-pane-title">Premiação e Destaques</div>
+        <div class="competicao-pane-subtitle">
+            Aqui o organizador define o que o apontador/árbitro vai preencher no fim das partidas e quando a final da competição terminar.
+        </div>
+
+        <form method="post" action="{{ url_for('competicoes.salvar_destaques_competicao_view') }}">
+            <div class="competicao-form-grid">
+                <div class="competicao-form-field full">
+                    <label class="competicao-check-inline">
+                        <input type="checkbox" name="ativo_destaque_partida" style="width:auto;" {% if dc.ativo_destaque_partida %}checked{% endif %}>
+                        Ativar destaque da partida ao finalizar jogos
+                    </label>
+                    <div class="helper-text">Quando ativo, a tela de finalização continua permitindo escolher o destaque da partida, conforme a regra atual.</div>
+                </div>
+
+                <div class="competicao-form-field full">
+                    <label class="competicao-check-inline">
+                        <input type="checkbox" name="ativo_destaque_competicao" style="width:auto;" {% if dc.ativo_destaque_competicao %}checked{% endif %}>
+                        Ativar destaques finais da competição
+                    </label>
+                    <div class="helper-text">Quando a última final for encerrada, o painel do apontador abre automaticamente a tela de premiação.</div>
+                </div>
+
+                <div class="competicao-form-field">
+                    <label>Quem preenche no fim</label>
+                    <select name="destaques_preencher_por">
+                        <option value="apontador" {% if (dc.preencher_por or 'apontador') == 'apontador' %}selected{% endif %}>Apontador</option>
+                        <option value="arbitro" {% if dc.preencher_por == 'arbitro' %}selected{% endif %}>Árbitro</option>
+                        <option value="organizador" {% if dc.preencher_por == 'organizador' %}selected{% endif %}>Organizador</option>
+                    </select>
+                </div>
+
+                <div class="competicao-form-field">
+                    <label>Séries onde pode aparecer</label>
+                    {% set series_sel = dc.series if dc.series is defined else [] %}
+                    <label class="competicao-check-inline"><input type="checkbox" name="destaques_series" value="Ouro" style="width:auto;" {% if 'Ouro' in series_sel %}checked{% endif %}> Série Ouro</label>
+                    <label class="competicao-check-inline"><input type="checkbox" name="destaques_series" value="Prata" style="width:auto;" {% if 'Prata' in series_sel %}checked{% endif %}> Série Prata</label>
+                    <label class="competicao-check-inline"><input type="checkbox" name="destaques_series" value="Bronze" style="width:auto;" {% if 'Bronze' in series_sel %}checked{% endif %}> Série Bronze</label>
+                    <input type="text" name="destaques_serie_outra" placeholder="Outra série, se existir">
+                </div>
+
+                <div class="competicao-form-field full">
+                    <label>Fases onde pode ter destaque da partida</label>
+                    {% set fases_sel = dc.fases if dc.fases is defined else [] %}
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; font-weight:800;">
+                        {% for fase_nome in ['Classificatórias', 'Oitavas', 'Quartas', 'Semifinal', 'Final'] %}
+                            <label class="competicao-check-inline"><input type="checkbox" name="destaques_fases" value="{{ fase_nome }}" style="width:auto;" {% if fase_nome in fases_sel %}checked{% endif %}> {{ fase_nome }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="competicao-form-field full">
+                    <label>Locais únicos de premiação final</label>
+                    <div class="helper-text" style="margin-bottom:10px;">
+                        Cada linha abaixo vira um card separado no painel do apontador. Ex.: MVP da competição, Melhor levantador, Destaque Série Ouro.
+                    </div>
+
+                    <div id="listaCamposDestaques" style="display:grid;gap:12px;">
+                        {% if campos_dc %}
+                            {% for campo in campos_dc %}
+                                <div class="destaque-campo-row" style="border:1px solid #d7e1ee;border-radius:14px;padding:12px;background:#fbfdff;display:grid;grid-template-columns:1.4fr .7fr .7fr .9fr auto;gap:10px;align-items:end;">
+                                    <div>
+                                        <label>Nome do destaque</label>
+                                        <input name="destaque_campo_titulo[]" value="{{ campo.titulo }}" placeholder="Ex.: MVP da competição">
+                                    </div>
+                                    <div>
+                                        <label>Série</label>
+                                        <select name="destaque_campo_serie[]">
+                                            <option value="" {% if not campo.serie %}selected{% endif %}>Todas</option>
+                                            <option value="Ouro" {% if campo.serie == 'Ouro' %}selected{% endif %}>Ouro</option>
+                                            <option value="Prata" {% if campo.serie == 'Prata' %}selected{% endif %}>Prata</option>
+                                            <option value="Bronze" {% if campo.serie == 'Bronze' %}selected{% endif %}>Bronze</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label>Momento</label>
+                                        <select name="destaque_campo_fase[]">
+                                            {% for fase_op in ['', 'Final', 'Semifinal', 'Quartas', 'Oitavas', 'Classificatórias'] %}
+                                                <option value="{{ fase_op }}" {% if (campo.fase or '') == fase_op %}selected{% endif %}>{{ fase_op or 'Final da competição' }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label>Equipes aptas</label>
+                                        {% set aptos = campo.aptos or 'top3' %}
+                                        <select name="destaque_campo_aptos[]">
+                                            <option value="top3" {% if aptos == 'top3' %}selected{% endif %}>3 primeiros</option>
+                                            <option value="top2" {% if aptos == 'top2' %}selected{% endif %}>Finalistas</option>
+                                            <option value="top1" {% if aptos in ['top1','campeao','campeão'] %}selected{% endif %}>Campeão</option>
+                                            <option value="top4" {% if aptos == 'top4' %}selected{% endif %}>4 primeiros</option>
+                                            <option value="todos" {% if aptos == 'todos' %}selected{% endif %}>Todos da série</option>
+                                        </select>
+                                    </div>
+                                    <button type="button" class="btn-secundario" onclick="removerCampoDestaque(this)">Remover</button>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            {% for nome_padrao in ['MVP da competição', 'Melhor levantador', 'Melhor atacante', 'Revelação'] %}
+                                <div class="destaque-campo-row" style="border:1px solid #d7e1ee;border-radius:14px;padding:12px;background:#fbfdff;display:grid;grid-template-columns:1.4fr .7fr .7fr .9fr auto;gap:10px;align-items:end;">
+                                    <div>
+                                        <label>Nome do destaque</label>
+                                        <input name="destaque_campo_titulo[]" value="{{ nome_padrao }}" placeholder="Ex.: MVP da competição">
+                                    </div>
+                                    <div>
+                                        <label>Série</label>
+                                        <select name="destaque_campo_serie[]"><option value="">Todas</option><option value="Ouro">Ouro</option><option value="Prata">Prata</option><option value="Bronze">Bronze</option></select>
+                                    </div>
+                                    <div>
+                                        <label>Momento</label>
+                                        <select name="destaque_campo_fase[]"><option value="">Final da competição</option><option value="Final">Final</option><option value="Semifinal">Semifinal</option><option value="Quartas">Quartas</option><option value="Oitavas">Oitavas</option><option value="Classificatórias">Classificatórias</option></select>
+                                    </div>
+                                    <div>
+                                        <label>Equipes aptas</label>
+                                        <select name="destaque_campo_aptos[]"><option value="top3">3 primeiros</option><option value="top2">Finalistas</option><option value="top1">Campeão</option><option value="top4">4 primeiros</option><option value="todos">Todos da série</option></select>
+                                    </div>
+                                    <button type="button" class="btn-secundario" onclick="removerCampoDestaque(this)">Remover</button>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+
+                    <button type="button" class="btn-secundario" style="margin-top:12px;" onclick="adicionarCampoDestaque()">+ Adicionar destaque</button>
+                    <div class="helper-text">No apontador, cada destaque abre separado e mostra somente atletas das equipes aptas, como os 3 primeiros colocados da série.</div>
+                </div>
+            </div>
+
+            <div class="competicao-actions" style="justify-content:flex-start; margin-top:18px;">
+                <button class="btn-padrao" type="submit" {% if competicao_travada %}disabled{% endif %}>Salvar premiação e destaques</button>
+            </div>
+        </form>
+    </div>
+
+
+<script>
+function removerCampoDestaque(btn){
+    const row = btn.closest('.destaque-campo-row');
+    if(row) row.remove();
+}
+function adicionarCampoDestaque(){
+    const lista = document.getElementById('listaCamposDestaques');
+    if(!lista) return;
+    const div = document.createElement('div');
+    div.className = 'destaque-campo-row';
+    div.style.cssText = 'border:1px solid #d7e1ee;border-radius:14px;padding:12px;background:#fbfdff;display:grid;grid-template-columns:1.4fr .7fr .7fr .9fr auto;gap:10px;align-items:end;';
+    div.innerHTML = `
+        <div><label>Nome do destaque</label><input name="destaque_campo_titulo[]" placeholder="Ex.: Melhor defesa"></div>
+        <div><label>Série</label><select name="destaque_campo_serie[]"><option value="">Todas</option><option value="Ouro">Ouro</option><option value="Prata">Prata</option><option value="Bronze">Bronze</option></select></div>
+        <div><label>Momento</label><select name="destaque_campo_fase[]"><option value="">Final da competição</option><option value="Final">Final</option><option value="Semifinal">Semifinal</option><option value="Quartas">Quartas</option><option value="Oitavas">Oitavas</option><option value="Classificatórias">Classificatórias</option></select></div>
+        <div><label>Equipes aptas</label><select name="destaque_campo_aptos[]"><option value="top3">3 primeiros</option><option value="top2">Finalistas</option><option value="top1">Campeão</option><option value="top4">4 primeiros</option><option value="todos">Todos da série</option></select></div>
+        <button type="button" class="btn-secundario" onclick="removerCampoDestaque(this)">Remover</button>`;
+    lista.appendChild(div);
+}
+</script>
 
 
 <div class="avanco-modal-bg" id="modalAvancoVisual">
@@ -1919,6 +2077,7 @@
             pontuacao: 'tab-pontuacao',
             classificacao: 'tab-pontuacao',
             avanco: 'tab-avanco-chaveamento',
+            destaques: 'tab-destaques',
             fases: 'tab-avanco-chaveamento',
         };
 

@@ -1290,6 +1290,16 @@ function conectarSocketAvulso(){
     socketAvulso.emit('join',{...payload,room:`partida:${PARTIDA_ID_AVULSO}`});
     socketAvulso.emit('join',{...payload,room:`arbitros:${PARTIDA_ID_AVULSO}`});
   });
+  ['estado_partida','estado_jogo_atualizado','estado_partida_tempo_real','estado_avulso','jogo_avulso_estado','placar_avulso'].forEach(ev=>{
+    socketAvulso.on(ev,(payload)=>{
+      try{
+        const recebido=(payload&&payload.estado)?payload.estado:payload;
+        if(!recebido || String(recebido.partida_id||'')!==PARTIDA_ID_AVULSO) return;
+        if(Number(recebido.atualizado_em||0) <= Number(estado.atualizado_em||0)) return;
+        mesclarEstadoRemotoAvulso(recebido);
+      }catch(e){}
+    });
+  });
   return socketAvulso;
 }
 function emitirSocketAvulso(){
@@ -1313,15 +1323,53 @@ let ladoInvertido=localStorage.getItem(LS_INV)==='1'; let timerTempo=null; let p
 function clone(o){return JSON.parse(JSON.stringify(o||{}));} function int(v,p=0){const n=parseInt(v,10);return Number.isFinite(n)?n:p;} function equipeNome(l){return l==='A'?(estado.equipe_a||'Equipe A'):(estado.equipe_b||'Equipe B');} function rot(l){return l==='A'?estado.rotacao_a:estado.rotacao_b;} function banco(l){return l==='A'?estado.banco_a:estado.banco_b;} function setRot(l,r){if(l==='A')estado.rotacao_a=r;else estado.rotacao_b=r;} function posLabel(i){return ['IV','III','II','V','VI','I'][i]||'';} function numeroPos(l,posReal){const r=rot(l)||[]; const map={4:0,3:1,2:2,5:3,6:4,1:5}; return r[map[posReal]]||'';} function sacador(l){return numeroPos(l,1)||'?';}
 function estadoDefault(){return {codigo:CODIGO,equipe_a:'Equipe A',equipe_b:'Equipe B',set_atual:1,sets_a:0,sets_b:0,pontos_a:0,pontos_b:0,saque_atual:'A',rotacao_a:['','','','','',''],rotacao_b:['','','','','',''],banco_a:[],banco_b:[],modo_operacao:'simples',sets_tipo:'set_unico',sets_para_vencer:1,pontos_set:21,pontos_tiebreak:15,diferenca_minima:2,limite_tempos:2,limite_substituicoes:6,tempos_a:0,tempos_b:0,subs_a:0,subs_b:0,vinculos_substituicao:{A:{},B:{}},substituidos_finalizados:{A:[],B:[]},historico:[],eventos:[],scout_eventos:[],historico_sets:[],status_jogo:'em_andamento',status_jogadores_a:{},status_jogadores_b:{},aviso_arbitragem:null};}
 function carregarEstado(){let local={};try{local=JSON.parse(localStorage.getItem(LS_ESTADO)||'{}')}catch(e){} const servidor=ESTADO_SERVIDOR||{}; const temLocal=Object.keys(local).length>0; const tsLocal=Number(local.atualizado_em||0); const tsServidor=Number(servidor.atualizado_em||0); const base=(!temLocal || tsServidor>tsLocal)?servidor:local; return Object.assign(estadoDefault(),clone(base||{}));}
-let estado=carregarEstado(); let pilhaDesfazer=[]; salvarLocal();
+let estado=carregarEstado(); let pilhaDesfazer=[]; garantirMemoriaAtletasAvulso(); salvarLocal();
 function chaveMemoriaDiaAvulso(){
   const d=new Date();
   const dia=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   return `jogo_avulso_memoria_${dia}_${pinAtualAvulso()||'sem_pin'}`;
 }
+function numeroLimpoAvulso(v){return String(v||'').replace(/\D/g,'').slice(0,3);}
+function ordenarNumerosAvulso(lista){return Array.from(new Set((lista||[]).map(numeroLimpoAvulso).filter(Boolean))).sort((a,b)=>int(a,999)-int(b,999));}
+function chaveNumerosLado(l){return l==='A'?'numeros_a':'numeros_b';}
+function garantirMemoriaAtletasAvulso(){
+  estado.memoria_atletas=estado.memoria_atletas||{};
+  ['A','B'].forEach(l=>{
+    estado.memoria_atletas[l]=estado.memoria_atletas[l]||{numeros:[],detalhes:{}};
+    estado.memoria_atletas[l].numeros=ordenarNumerosAvulso([...(estado.memoria_atletas[l].numeros||[]),...(estado[chaveNumerosLado(l)]||[])]);
+    estado.memoria_atletas[l].detalhes=estado.memoria_atletas[l].detalhes||{};
+    estado[chaveNumerosLado(l)]=ordenarNumerosAvulso([...(estado[chaveNumerosLado(l)]||[]),...(estado.memoria_atletas[l].numeros||[])]);
+  });
+}
+function registrarNumeroLocalAvulso(l,numero,origem='manual',salvar=false){
+  l=(String(l||'A').toUpperCase()==='B')?'B':'A';
+  const n=numeroLimpoAvulso(numero);
+  if(!n) return false;
+  garantirMemoriaAtletasAvulso();
+  const key=chaveNumerosLado(l);
+  const antes=new Set((estado[key]||[]).map(String));
+  estado[key]=ordenarNumerosAvulso([...(estado[key]||[]),n]);
+  estado.memoria_atletas[l].numeros=ordenarNumerosAvulso([...(estado.memoria_atletas[l].numeros||[]),n]);
+  const det=estado.memoria_atletas[l].detalhes[n]||{numero:n,origens:[],criado_em:Date.now()};
+  det.origens=Array.from(new Set([...(det.origens||[]),String(origem||'manual')]));
+  det.ultima_origem=String(origem||'manual');
+  det.atualizado_em=Date.now();
+  estado.memoria_atletas[l].detalhes[n]=det;
+  if(salvar){salvarServidor();}
+  return !antes.has(n);
+}
 function numerosEquipeMemoria(l){
-  const nums=[...(rot(l)||[]),...(banco(l)||[])].map(v=>String(v||'').trim()).filter(Boolean);
-  return Array.from(new Set(nums)).sort((a,b)=>int(a,999)-int(b,999));
+  garantirMemoriaAtletasAvulso();
+  const nums=[...(rot(l)||[]),...(banco(l)||[]),...(estado[chaveNumerosLado(l)]||[]),...(estado.memoria_atletas?.[l]?.numeros||[])];
+  return ordenarNumerosAvulso(nums);
+}
+function mesclarEstadoRemotoAvulso(remoto){
+  const localAtualizadoEm=estado.atualizado_em;
+  estado=Object.assign(estadoDefault(),clone(estado),clone(remoto||{}));
+  garantirMemoriaAtletasAvulso();
+  estado.atualizado_em=remoto.atualizado_em||localAtualizadoEm||Date.now();
+  salvarLocal();
+  render();
 }
 function salvarMemoriaDiaAvulso(){
   try{
@@ -1799,8 +1847,10 @@ function confirmarSub(){
         }
     }
     if(subTemp.equipe==='A')estado.subs_a=int(estado.subs_a||0)+1; else estado.subs_b=int(estado.subs_b||0)+1;
+    registrarNumeroLocalAvulso(subTemp.equipe,subTemp.sai,'substituicao',false);
+    registrarNumeroLocalAvulso(subTemp.equipe,entra,'substituicao',false);
     const numsKey=subTemp.equipe==='A'?'numeros_a':'numeros_b';
-    estado[numsKey]=Array.from(new Set([...(estado[numsKey]||[]).map(String),String(subTemp.sai),String(entra)])).sort((a,b)=>int(a)-int(b));
+    estado[numsKey]=ordenarNumerosAvulso([...(estado[numsKey]||[]),String(subTemp.sai),String(entra)]);
     addHist(`Substituição ${equipeNome(subTemp.equipe)}: sai nº ${subTemp.sai}, entra nº ${entra}`,'substituicao',{equipe:subTemp.equipe,sai:subTemp.sai,entra,por_expulsao:!!subTemp.porExpulsao});
     const restantesSub=substituicoesRestantes(subTemp.equipe);
     criarAvisoArbitragem('substituicao','SUBSTITUIÇÃO',equipeNome(subTemp.equipe),restantesSub>0?`Restam ${restantesSub} substituição(ões)`:'NÃO HÁ MAIS SUBSTITUIÇÕES',['segundo'],restantesSub===0?'perigo':(restantesSub===1?'alerta':'normal'),{equipe:subTemp.equipe,restantes_substituicoes:restantesSub,sai:subTemp.sai,entra});
@@ -1814,7 +1864,7 @@ function abrirVerde(l){abrirAcaoDisciplinar('Cartão verde',l,'cartao_verde',['C
 function abrirRetardamento(l){abrirGenerico('Retardamento',l,['Advertência por retardamento','Penalidade por retardamento'],'retardamento')}
 function abrirSubEx(l){abrirGenerico('Substituição excepcional',l,['Lesão','Sangramento','Indisposição','Outro'],'sub_excepcional')}
 function alvosAcaoEquipe(l,tipoPessoa){
-    if(tipoPessoa==='atleta') return (rot(l)||[]).filter(Boolean).map(n=>({valor:n,label:'Nº '+n}));
+    if(tipoPessoa==='atleta') return numerosEquipeMemoria(l).map(n=>({valor:n,label:'Nº '+n}));
     return [{valor:'tecnico',label:'Técnico'},{valor:'auxiliar',label:'Auxiliar'},{valor:'comissao',label:'Comissão técnica'}];
 }
 function abrirAcaoDisciplinar(titulo,l,tipo,opcoes){
@@ -1827,12 +1877,14 @@ function renderAcaoDisciplinar(){
     const alvos=alvosAcaoEquipe(genTemp.equipe,genTemp.tipoPessoa);
     const html=`
         <div><b>1. Tipo de pessoa</b><div class='opcoes'>
-            ${chip('Atleta em quadra',genTemp.tipoPessoa==='atleta',`genSetTipoPessoa('atleta')`)}
+            ${chip('Jogador da relação',genTemp.tipoPessoa==='atleta',`genSetTipoPessoa('atleta')`)}
             ${chip('Comissão técnica',genTemp.tipoPessoa==='comissao',`genSetTipoPessoa('comissao')`)}
         </div></div>
         <div><b>2. Alvo</b><div class='opcoes'>
-            ${alvos.map(a=>chip(a.label,genTemp.alvo===a.valor,`genSetAlvo('${a.valor}')`)).join('') || '<span style="color:#64748b;font-weight:900">Sem números em quadra.</span>'}
-        </div></div>
+            ${alvos.map(a=>chip(a.label,genTemp.alvo===a.valor,`genSetAlvo('${a.valor}')`)).join('') || '<span style="color:#64748b;font-weight:900">Sem números cadastrados ainda.</span>'}
+        </div>
+        ${genTemp.tipoPessoa==='atleta'?`<div class='field' style='margin-top:8px'><label>Ou digite outro número</label><input id='genAlvoManual' inputmode='numeric' pattern='[0-9]*' maxlength='3' placeholder='Ex.: 18' value='${genTemp.alvo && /^\d+$/.test(String(genTemp.alvo)) && !alvos.some(a=>String(a.valor)===String(genTemp.alvo)) ? genTemp.alvo : ''}' oninput='genSetAlvoManual(this.value)'></div>`:''}
+        </div>
         <div><b>3. Tipo</b><div class='opcoes'>
             ${(genTemp.opcoes||[]).map(o=>chip(o,genTemp.valor===o,`genSet('${o}')`)).join('')}
         </div></div>
@@ -1845,12 +1897,14 @@ function resumoAcaoDisciplinar(){
 }
 function genSetTipoPessoa(v){genTemp.tipoPessoa=v;genTemp.alvo='';renderAcaoDisciplinar();}
 function genSetAlvo(v){genTemp.alvo=v;renderAcaoDisciplinar();}
+function genSetAlvoManual(v){genTemp.alvo=numeroLimpoAvulso(v);const input=document.getElementById('genAlvoManual');if(input&&input.value!==genTemp.alvo)input.value=genTemp.alvo;}
 function abrirGenerico(t,l,ops,tipo){genTemp={tipo,equipe:l,valor:''};document.getElementById('genTitulo').textContent=`${t} • ${equipeNome(l)}`;document.getElementById('genConteudo').innerHTML=`<div class='opcoes'>${ops.map(o=>chip(o,false,`genSet('${o}')`)).join('')}</div>`;document.getElementById('modalGenerico').classList.add('aberto');}
 function genSet(v){genTemp.valor=v;if(['sancao','cartao_verde'].includes(genTemp.tipo)){renderAcaoDisciplinar();return;}document.querySelectorAll('#genConteudo .chip').forEach(b=>b.classList.toggle('ativo',b.textContent===v));}
 function fecharGenerico(){document.getElementById('modalGenerico').classList.remove('aberto');}
 function confirmarGenerico(){
     if(['sancao','cartao_verde'].includes(genTemp.tipo)){
         if(!genTemp.alvo||!genTemp.valor)return toast('Selecione alvo e tipo');
+        if(genTemp.tipoPessoa==='atleta') registrarNumeroLocalAvulso(genTemp.equipe,genTemp.alvo,genTemp.tipo==='cartao_verde'?'cartao_verde':'sancao',false);
         const alvoTxt=genTemp.tipoPessoa==='atleta'?`nº ${genTemp.alvo}`:genTemp.alvo;
         const titulo=genTemp.titulo||genTemp.tipo;
         addHist(`${titulo}: ${genTemp.valor} • ${equipeNome(genTemp.equipe)} • ${alvoTxt}`,genTemp.tipo,{equipe:genTemp.equipe,tipo_pessoa:genTemp.tipoPessoa,alvo:genTemp.alvo,valor:genTemp.valor});

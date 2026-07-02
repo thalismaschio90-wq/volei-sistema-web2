@@ -1,72 +1,32 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ titulo }}</title>
+    <link rel="manifest" href="/manifest-arbitro.json">
+    <meta name="theme-color" content="#07111f">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Pro Árbitro">
+    <style>
+        html, body { width:100%; height:100%; margin:0; background:#020617; overflow:hidden; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        .orientacao { display:none; position:fixed; inset:0; z-index:9999; background:#020617; color:white; align-items:center; justify-content:center; text-align:center; padding:28px; font-size:26px; font-weight:950; line-height:1.25; }
+        @media (orientation: portrait) { .orientacao { display:flex; } }
+    </style>
+</head>
+<body>
+    <div class="orientacao">📱 Vire o celular para a horizontal<br><span style="font-size:16px;color:#94a3b8;margin-top:10px;display:block;">Painel dos árbitros</span></div>
 
-{% block titulo %}{{ titulo }}{% endblock %}
+    {% set standby_proxima_url = endpoint_status %}
+    {% set standby_inicial_ativo = true %}
+    {% include "standby_arbitragem.html" %}
 
-{% block conteudo %}
-<style>
-    .arbitro-auto-wrap { min-height: 62vh; display: flex; align-items: center; justify-content: center; }
-    .arbitro-auto-card { width: min(820px, 100%); background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); border: 1px solid var(--border); border-radius: 28px; box-shadow: 0 22px 60px rgba(17, 41, 65, .12); padding: 34px; text-align: center; }
-    .arbitro-auto-tag { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: #eef4fb; color: #123852; font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 18px; }
-    .arbitro-auto-titulo { font-size: clamp(30px, 5vw, 54px); line-height: .98; font-weight: 1000; color: var(--text); margin-bottom: 12px; }
-    .arbitro-auto-subtitulo { color: var(--muted); font-size: 17px; line-height: 1.55; font-weight: 700; max-width: 620px; margin: 0 auto 26px; }
-    .arbitro-loader { width: 82px; height: 82px; border-radius: 999px; border: 8px solid #e2e8f0; border-top-color: #123852; animation: girarArbitro 1s linear infinite; margin: 0 auto 22px; }
-    .arbitro-status-box { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; border-radius: 18px; padding: 14px 16px; font-weight: 800; margin-bottom: 18px; }
-    .arbitro-online-box { background:#ecfdf5; color:#166534; border:1px solid #bbf7d0; border-radius:18px; padding:12px 14px; font-weight:900; margin-bottom:14px; display:inline-flex; align-items:center; gap:8px; }
-    .arbitro-online-dot { width:10px; height:10px; border-radius:999px; background:#22c55e; }
-    .arbitro-partida-preview { display: none; margin-top: 18px; padding: 18px; border-radius: 20px; background: #ecfdf5; border: 1px solid #bbf7d0; color: #14532d; font-weight: 900; }
-    .arbitro-acoes { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
-    @keyframes girarArbitro { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-</style>
-
-<div class="topo-secao">
-    <div>
-        <div class="titulo-secao" style="margin-bottom: 6px;">{{ titulo }}</div>
-        <div style="color: var(--muted); font-weight: 700;">{{ subtitulo }}</div>
-    </div>
-</div>
-
-<div class="arbitro-auto-wrap">
-    <div class="arbitro-auto-card">
-        <div class="arbitro-auto-tag">{% if tipo == 'primeiro' %}1º Árbitro{% else %}2º Árbitro{% endif %}</div>
-        <div class="arbitro-online-box"><span class="arbitro-online-dot"></span> Tablet conectado</div>
-        <div class="arbitro-loader" id="arbitro-loader"></div>
-        <div class="arbitro-auto-titulo">Aguardando partida</div>
-        <div class="arbitro-auto-subtitulo">Deixe este tablet aberto. Assim que o apontador salvar o pré-jogo/sorteio, a tela será direcionada automaticamente para a partida.</div>
-        <div class="arbitro-status-box" id="arbitro-status">Verificando partidas vinculadas...</div>
-        <div class="arbitro-partida-preview" id="arbitro-partida-preview"></div>
-        <div class="arbitro-acoes"><button class="btn-padrao" type="button" onclick="verificarPartidaArbitro(true)">Verificar agora</button><a class="btn-secundario" href="{{ voltar_url }}">Voltar</a></div>
-    </div>
-</div>
-
-<script>
-let verificandoPartidaArbitro = false;
-let redirecionandoArbitro = false;
-
-async function verificarPartidaArbitro(manual = false) {
-    if (verificandoPartidaArbitro || redirecionandoArbitro) return;
-    verificandoPartidaArbitro = true;
-    const statusBox = document.getElementById("arbitro-status");
-    const preview = document.getElementById("arbitro-partida-preview");
-    if (manual && statusBox) statusBox.textContent = "Verificando agora...";
-    try {
-        const resp = await fetch("{{ endpoint_status }}", { method: "GET", headers: {"Accept": "application/json"}, cache: "no-store", credentials: "same-origin" });
-        const json = await resp.json();
-        if (!json.ok) { if (statusBox) statusBox.textContent = json.erro || "Não foi possível verificar a próxima partida."; return; }
-        if (!json.tem_partida) { if (statusBox) statusBox.textContent = json.mensagem || "Nenhuma partida ativa no momento."; if (preview) { preview.style.display = "none"; preview.textContent = ""; } return; }
-        redirecionandoArbitro = true;
-        if (statusBox) statusBox.textContent = "Partida encontrada. Abrindo painel...";
-        if (preview && json.partida) { const p = json.partida; preview.style.display = "block"; preview.innerHTML = `Jogo ${p.ordem || "-"}${p.quadra ? " • Quadra " + p.quadra : ""}<br>${p.equipe_a || "Equipe A"} x ${p.equipe_b || "Equipe B"}`; }
-        window.location.replace(json.url);
-    } catch (e) {
-        if (statusBox) statusBox.textContent = "Falha de conexão. Tentando novamente automaticamente...";
-    } finally {
-        verificandoPartidaArbitro = false;
-    }
-}
-verificarPartidaArbitro(false);
-setInterval(function() {
-    if (document.visibilityState !== "visible") return;
-    verificarPartidaArbitro(false);
-}, 4000);
-</script>
-{% endblock %}
+    <script>
+        window.STANDBY_PROXIMA_URL = {{ endpoint_status|tojson }};
+        window.addEventListener("load", () => {
+            if (typeof mostrarStandbyArbitragem === "function") mostrarStandbyArbitragem();
+        });
+    </script>
+</body>
+</html>

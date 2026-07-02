@@ -32,6 +32,8 @@ from banco import (
     garantir_schema_fluxo_configuracao_competicoes,
     status_configuracao_inicial_competicao,
     marcar_etapa_configuracao_competicao,
+    buscar_config_destaques_competicao,
+    salvar_config_destaques_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -330,6 +332,7 @@ def listar_competicoes_view():
             avanco_bloqueado=avanco_bloqueado,
             competicao_travada=competicao_esta_travada(competicao["nome"]),
             config_inicial_status=config_inicial_status,
+            destaques_config=buscar_config_destaques_competicao(competicao["nome"]),
         )
         # A trava visual agora é feita diretamente pelo template, por jogo.
         # Não injetamos JavaScript por fora porque isso confundia J1/J5/J7
@@ -514,6 +517,70 @@ def salvar_regras_jogo_view():
     flash("Regras do jogo salvas. Próxima etapa: classificação.", "sucesso")
     return redirect(url_for("competicoes.listar_competicoes_view", tab="pontuacao"))
 
+
+
+@competicoes_bp.route("/competicoes/destaques", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_destaques_competicao_view():
+    comp = _competicao_do_organizador_logado()
+
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if competicao_esta_travada(comp["nome"]):
+        flash("A competição está travada. A premiação não pode mais ser alterada.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view", tab="destaques"))
+
+    campos = []
+    titulos = request.form.getlist("destaque_campo_titulo[]")
+    series_campos = request.form.getlist("destaque_campo_serie[]")
+    fases_campos = request.form.getlist("destaque_campo_fase[]")
+    aptos_campos = request.form.getlist("destaque_campo_aptos[]")
+
+    # Cada linha da tela do organizador vira UM local único de preenchimento
+    # no painel do apontador. Assim o apontador abre prêmio por prêmio,
+    # escolhendo atleta apenas das equipes aptas daquele prêmio.
+    for idx, titulo in enumerate(titulos):
+        titulo = (titulo or "").strip()
+        if not titulo:
+            continue
+        serie = (series_campos[idx] if idx < len(series_campos) else "").strip()
+        fase = (fases_campos[idx] if idx < len(fases_campos) else "").strip()
+        aptos = (aptos_campos[idx] if idx < len(aptos_campos) else "top3").strip() or "top3"
+        campos.append({
+            "titulo": titulo,
+            "tipo": "geral",
+            "fase": fase,
+            "serie": serie,
+            "aptos": aptos,
+        })
+
+    # Compatibilidade: se alguma tela antiga ainda mandar textarea, mantém funcionando.
+    if not campos:
+        campos_txt = request.form.get("destaques_campos", "")
+        for linha in campos_txt.replace(";", "\n").splitlines():
+            titulo = linha.strip()
+            if titulo:
+                campos.append({"titulo": titulo, "tipo": "geral", "fase": "", "serie": "", "aptos": "top3"})
+
+    fases = request.form.getlist("destaques_fases")
+    series = request.form.getlist("destaques_series")
+    if request.form.get("destaques_serie_outra"):
+        series.append(request.form.get("destaques_serie_outra"))
+
+    dados = {
+        "ativo_destaque_partida": request.form.get("ativo_destaque_partida") == "on",
+        "ativo_destaque_competicao": request.form.get("ativo_destaque_competicao") == "on",
+        "preencher_por": request.form.get("destaques_preencher_por") or "apontador",
+        "fases": fases,
+        "series": series,
+        "campos": campos,
+    }
+
+    ok, msg = salvar_config_destaques_competicao(comp["nome"], dados)
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="destaques"))
 
 
 def _salvar_exigencias_inscricao_atletas(nome_competicao, exigir_foto_atleta=False, exigir_instagram_atleta=False):

@@ -440,6 +440,29 @@ def segundo_arbitro_view(competicao, partida_id):
     )
 
 
+@oficiais_bp.route("/oficiais/arbitro-unico/<competicao>/<int:partida_id>")
+def arbitro_unico_view(competicao, partida_id):
+    if not _arbitro_tem_pin_competicao(competicao):
+        flash("Digite o PIN antes de abrir a tela do árbitro.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+    try:
+        estado = _montar_estado_arbitro(competicao, partida_id)
+        try:
+            emitir_estado_partida(partida_id, estado)
+        except Exception as e:
+            print("AVISO emitir estado inicial árbitro único:", e, flush=True)
+    except Exception as e:
+        print("ERRO arbitro_unico_view:", e, flush=True)
+        estado = _estado_arbitro_vazio(competicao, partida_id, f"Erro ao carregar estado: {e}")
+    return render_template(
+        "arbitro_unico.html",
+        competicao=competicao,
+        partida_id=partida_id,
+        estado=estado,
+        tipo_arbitro="unico",
+    )
+
+
 @oficiais_bp.route("/oficiais/arbitro/estado/<competicao>/<int:partida_id>")
 def estado_arbitro_view(competicao, partida_id):
     try:

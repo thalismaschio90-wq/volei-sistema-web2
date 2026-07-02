@@ -569,6 +569,12 @@
 </div>
 
 
+{% if pendencia_destaques_competicao is defined and pendencia_destaques_competicao.abrir and competicao_nome is defined %}
+<div style="background:#ecfdf5;border:1px solid #86efac;color:#166534;border-radius:18px;padding:14px 16px;margin:0 0 18px;font-weight:900;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div>🏆 A final já foi encerrada. Existem destaques da competição pendentes para preencher.</div>
+    <a class="btn-padrao ap-btn-green" href="{{ url_for('apontadores.destaques_competicao_view', competicao=competicao_nome) }}">Preencher destaques</a>
+</div>
+{% endif %}
 
 
 <script>

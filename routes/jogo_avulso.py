@@ -187,6 +187,8 @@ def _registrar_memoria_sessao_avulsa(estado):
     if not cpf:
         return
     sess = _sessao_avulsa(cpf, criar=True)
+    sess.setdefault("equipes", {})
+    sess.setdefault("jogos", [])
     pin = str(estado.get("pin_arbitragem") or sess.get("pin") or "").strip()
     if pin:
         sess["pin"] = pin
@@ -195,9 +197,19 @@ def _registrar_memoria_sessao_avulsa(estado):
         nome = _normalizar_nome_memoria(estado.get("equipe_a") if lado == "A" else estado.get("equipe_b"))
         if not nome or nome.lower() in {"equipe a", "equipe b"}:
             continue
-        atual = sess["equipes"].get(nome) or {"nome": nome, "numeros": [], "jogos": 0, "atualizado_em": time.time()}
+        atual = sess["equipes"].get(nome) or {"nome": nome, "numeros": [], "detalhes": {}, "jogos": 0, "atualizado_em": time.time()}
         nums = _numeros_do_estado_lado(estado, lado)
+        memoria_estado = (estado.get("memoria_atletas") or {}).get(lado) or {}
+        nums = _ordenar_numeros(list(nums) + list(memoria_estado.get("numeros") or []))
         atual["numeros"] = sorted(set([str(n) for n in atual.get("numeros", []) if str(n).isdigit()] + nums), key=lambda x: int(x))
+        detalhes = atual.get("detalhes") if isinstance(atual.get("detalhes"), dict) else {}
+        detalhes_estado = memoria_estado.get("detalhes") if isinstance(memoria_estado.get("detalhes"), dict) else {}
+        for n in atual["numeros"]:
+            if str(n) in detalhes_estado and isinstance(detalhes_estado.get(str(n)), dict):
+                detalhes[str(n)] = detalhes_estado.get(str(n))
+            else:
+                detalhes.setdefault(str(n), {"numero": str(n), "origens": ["estado"], "atualizado_em": time.time()})
+        atual["detalhes"] = detalhes
         atual["atualizado_em"] = time.time()
         sess["equipes"][nome] = atual
 
@@ -287,13 +299,22 @@ def buscar_jogo_avulso_por_pin(pin):
         try:
             achado = buscar_partida_jogo_avulso_por_pin(pin)
             if achado:
+                codigo_achado = str(achado.get("codigo") or "").upper()
+                estado_atual = {}
+                try:
+                    jogo_atual = _buscar_jogo(codigo_achado) if codigo_achado else None
+                    estado_atual = dict((jogo_atual or {}).get("estado") or {})
+                except Exception:
+                    estado_atual = {}
                 return {
-                    "codigo": str(achado.get("codigo") or "").upper(),
+                    "codigo": codigo_achado,
                     "pin": pin,
                     "tipo": "avulso",
-                    "equipe_a": achado.get("equipe_a") or "Equipe A",
-                    "equipe_b": achado.get("equipe_b") or "Equipe B",
-                    "status_jogo": achado.get("status_jogo") or "aguardando",
+                    "equipe_a": estado_atual.get("equipe_a") or achado.get("equipe_a") or "Equipe A",
+                    "equipe_b": estado_atual.get("equipe_b") or achado.get("equipe_b") or "Equipe B",
+                    "status_jogo": estado_atual.get("status_jogo") or achado.get("status_jogo") or "aguardando",
+                    "fase_partida": estado_atual.get("fase_partida") or achado.get("fase_partida") or "",
+                    "atualizado_em": estado_atual.get("atualizado_em") or achado.get("atualizado_em"),
                 }
         except Exception as e:
             print("AVISO buscar jogo avulso por pin no banco:", repr(e), flush=True)
@@ -317,6 +338,8 @@ def buscar_jogo_avulso_por_pin(pin):
             "equipe_a": estado.get("equipe_a") or "Equipe A",
             "equipe_b": estado.get("equipe_b") or "Equipe B",
             "status_jogo": estado.get("status_jogo") or estado.get("fase_partida") or "",
+            "fase_partida": estado.get("fase_partida") or "",
+            "atualizado_em": estado.get("atualizado_em"),
         }
 
     return None
@@ -379,6 +402,7 @@ def _salvar_estado(codigo, estado):
     estado["partida_id"] = partida_id
     estado["competicao"] = "JOGO AVULSO"
     estado["modo_avulso"] = True
+    _garantir_memoria_atletas_estado(estado)
     estado["atualizado_em"] = time.time()
     apontador_estado = estado.get("apontador") or _cpf_apontador()
     _JOGOS_AVULSOS.setdefault(codigo, {
@@ -449,6 +473,63 @@ def _ordenar_numeros(lista):
     return sorted(unicos, key=lambda x: int(x))
 
 
+def _normalizar_origem_numero_avulso(origem):
+    origem = str(origem or "manual").strip().lower()
+    permitidas = {"papeleta", "substituicao", "substituição", "sancao", "sanção", "cartao_verde", "cartão_verde", "manual", "estado"}
+    if origem not in permitidas:
+        origem = "manual"
+    return origem.replace("ç", "c").replace("ã", "a")
+
+
+def _garantir_memoria_atletas_estado(estado):
+    estado = estado or {}
+    memoria = estado.get("memoria_atletas")
+    if not isinstance(memoria, dict):
+        memoria = {}
+    for lado in ("A", "B"):
+        memoria.setdefault(lado, {})
+        memoria[lado].setdefault("numeros", [])
+        memoria[lado].setdefault("detalhes", {})
+        chave_nums = "numeros_a" if lado == "A" else "numeros_b"
+        atuais = _ordenar_numeros(list(memoria[lado].get("numeros") or []) + list(estado.get(chave_nums) or []))
+        memoria[lado]["numeros"] = atuais
+        detalhes = memoria[lado].get("detalhes") or {}
+        for n in atuais:
+            detalhes.setdefault(str(n), {"numero": str(n), "origens": ["estado"], "atualizado_em": time.time()})
+        memoria[lado]["detalhes"] = detalhes
+        estado[chave_nums] = atuais
+    estado["memoria_atletas"] = memoria
+    return memoria
+
+
+def _registrar_numero_estado_avulso(estado, lado, numero, origem="manual"):
+    estado = estado or {}
+    lado = "A" if str(lado).upper() == "A" else "B"
+    numero = "".join(ch for ch in str(numero or "") if ch.isdigit())[:3]
+    if not numero:
+        return False
+    origem = _normalizar_origem_numero_avulso(origem)
+    memoria = _garantir_memoria_atletas_estado(estado)
+    chave_nums = "numeros_a" if lado == "A" else "numeros_b"
+    antes = set(str(n) for n in estado.get(chave_nums) or [])
+    estado[chave_nums] = _ordenar_numeros(list(antes) + [numero])
+    memoria[lado]["numeros"] = _ordenar_numeros(list(memoria[lado].get("numeros") or []) + [numero])
+    detalhes = memoria[lado].setdefault("detalhes", {})
+    det = detalhes.get(numero) or {"numero": numero, "origens": [], "criado_em": time.time()}
+    origens = [str(o) for o in det.get("origens") or []]
+    if origem not in origens:
+        origens.append(origem)
+    det.update({"numero": numero, "origens": origens, "ultima_origem": origem, "atualizado_em": time.time()})
+    detalhes[numero] = det
+    estado["memoria_atletas"] = memoria
+    return numero not in antes
+
+
+def _registrar_numeros_lado_estado_avulso(estado, lado, numeros, origem="manual"):
+    mudou = False
+    for numero in numeros or []:
+        mudou = _registrar_numero_estado_avulso(estado, lado, numero, origem) or mudou
+    return mudou
 
 
 
@@ -723,6 +804,9 @@ def iniciar_jogo_avulso(codigo):
     titulares_a, banco_a = numeros_lado("A")
     titulares_b, banco_b = numeros_lado("B")
 
+    _registrar_numeros_lado_estado_avulso(estado, "A", titulares_a + banco_a, "papeleta")
+    _registrar_numeros_lado_estado_avulso(estado, "B", titulares_b + banco_b, "papeleta")
+
     if len(titulares_a) != 6 or len(titulares_b) != 6:
         flash("Preencha as 6 posições das duas equipes com números.", "erro")
         return redirect(url_for("jogo_avulso.papeleta_jogo_avulso", codigo=codigo))
@@ -808,6 +892,9 @@ def jogo_avulso_atual_por_pin(pin):
         "equipe_a": atual.get("equipe_a"),
         "equipe_b": atual.get("equipe_b"),
         "status_jogo": atual.get("status_jogo"),
+        "fase_partida": atual.get("fase_partida"),
+        "status": atual.get("status_jogo") or atual.get("fase_partida") or "",
+        "atualizado_em": atual.get("atualizado_em"),
     })
 
 
@@ -859,6 +946,23 @@ def arbitro2_jogo_avulso(codigo):
     return resposta
 
 
+@jogo_avulso_bp.route("/arbitro-unico-avulso/<codigo>")
+def arbitro_unico_jogo_avulso(codigo):
+    codigo = str(codigo or "").strip().upper()
+    if not _arbitro_pode_abrir_jogo_avulso(codigo):
+        flash("Digite o PIN do jogo rápido no painel dos árbitros antes de abrir esta tela.", "erro")
+        return redirect(url_for("acessos_pin.arbitro_publico_pin"))
+    jogo = _buscar_jogo(codigo)
+    estado = dict((jogo or {}).get("estado") or {})
+    estado.setdefault("codigo", codigo)
+    estado.setdefault("partida_id", _partida_id(codigo))
+    estado.setdefault("competicao", "JOGO AVULSO")
+    estado.setdefault("modo_avulso", True)
+    resposta = make_response(render_template("jogo_avulso_arbitro_unico.html", codigo=codigo, estado=estado, tipo_arbitro="unico"))
+    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return resposta
+
+
 @jogo_avulso_bp.route("/apontador/jogo-avulso/<codigo>/estado", methods=["GET", "POST"])
 def estado_jogo_avulso(codigo):
     codigo = str(codigo or "").strip().upper()
@@ -871,6 +975,35 @@ def estado_jogo_avulso(codigo):
     estado = dados.get("estado") or dados
     estado = _salvar_estado(codigo, estado)
     return _json_no_cache({"ok": True, "estado": estado})
+
+
+@jogo_avulso_bp.route("/apontador/jogo-avulso/<codigo>/registrar-numero", methods=["POST"])
+def registrar_numero_jogo_avulso(codigo):
+    codigo = str(codigo or "").strip().upper()
+    jogo = _buscar_jogo(codigo)
+    if not jogo:
+        return _json_no_cache({"ok": False, "erro": "jogo_nao_encontrado"}, 404)
+
+    dados = request.get_json(silent=True) or request.form or {}
+    lado = _normalizar_lado_avulso(dados.get("lado") or dados.get("equipe") or "A")
+    numero = "".join(ch for ch in str(dados.get("numero") or "") if ch.isdigit())[:3]
+    origem = dados.get("origem") or "manual"
+    if not numero:
+        return _json_no_cache({"ok": False, "erro": "numero_invalido"}, 400)
+
+    estado = dict(jogo.get("estado") or {})
+    novo = _registrar_numero_estado_avulso(estado, lado, numero, origem)
+    estado = _salvar_estado(codigo, estado)
+    return _json_no_cache({
+        "ok": True,
+        "novo": bool(novo),
+        "lado": lado,
+        "numero": numero,
+        "numeros_a": estado.get("numeros_a") or [],
+        "numeros_b": estado.get("numeros_b") or [],
+        "memoria_atletas": estado.get("memoria_atletas") or {},
+        "estado": estado,
+    })
 
 
 @jogo_avulso_bp.route("/apontador/jogo-avulso/memoria-dia")
