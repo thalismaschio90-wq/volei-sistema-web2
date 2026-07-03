@@ -537,7 +537,7 @@
                     {% endif %}
 
                     <div style="font-size:12px; color:var(--muted); margin-top:3px;">
-                        Jogo #{{ p.ordem or p.id }}
+                        Jogo #{{ p.ordem or p.id }}{% if p.rodada %} • Rodada {{ p.rodada }}{% endif %}{% if p.data_hora %} • {{ p.data_hora|replace('T',' ') }}{% endif %}
                     </div>
                 </div>
 
@@ -589,6 +589,8 @@
 
             <div class="partidas-equipe-info">
                 <div><strong>Grupo:</strong> {{ p.grupo or '-' }}</div>
+                {% if p.rodada %}<div><strong>Rodada:</strong> {{ p.rodada }}</div>{% endif %}
+                {% if p.data_hora %}<div><strong>Horário:</strong> {{ p.data_hora|replace('T',' ') }}</div>{% endif %}
 
                 <div>
                     <strong>Sets:</strong>

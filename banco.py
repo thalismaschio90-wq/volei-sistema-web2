@@ -42,6 +42,7 @@ _SCHEMA_FLAGS = {
     "tabela_atletas": False,
     "tabela_competicao_quadras": False,
     "tabela_competicao_agenda_config": False,
+    "tabela_competicao_rodadas": False,
     "campos_trava_operacional_partida": False,
 }
 _SCHEMA_LOCK = Lock()
@@ -1646,62 +1647,59 @@ def atualizar_dados_competicao(nome_original, dados):
 
 
 def atualizar_estrutura_competicao(nome_competicao, dados):
+    """Atualiza SOMENTE os campos enviados da estrutura.
+
+    Correção importante:
+    Algumas rotas salvam apenas uma parte da competição, por exemplo:
+        atualizar_estrutura_competicao(nome, {"qtd_quadras": 1})
+
+    A versão anterior preenchia todos os campos ausentes com valores padrão
+    (qtd_equipes=0, qtd_grupos=0, tem_grupos=False etc.). Isso fazia a
+    competição "esquecer" configurações já salvas sempre que o organizador
+    salvava quadras, inscrições ou outra parte isolada da estrutura.
+
+    Agora o UPDATE é parcial: campo ausente não é alterado.
+    """
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
     if not ok_edicao:
+        return False
+
+    dados = dados or {}
+    if not isinstance(dados, dict):
         return False
 
     colunas = _buscar_colunas_tabela("competicoes")
     sets = []
     valores = []
 
-    if "qtd_equipes" in colunas:
-        sets.append("qtd_equipes = %s")
-        valores.append(dados.get("qtd_equipes", 0))
-    if "formato" in colunas:
-        sets.append("formato = %s")
-        valores.append(dados.get("formato", ""))
-    if "tem_grupos" in colunas:
-        sets.append("tem_grupos = %s")
-        valores.append(dados.get("tem_grupos", False))
-    if "qtd_grupos" in colunas:
-        sets.append("qtd_grupos = %s")
-        valores.append(dados.get("qtd_grupos", 0))
-    if "qtd_quadras" in colunas:
-        sets.append("qtd_quadras = %s")
-        valores.append(dados.get("qtd_quadras", 1))
-    if "modo_operacao" in colunas:
-        sets.append("modo_operacao = %s")
-        valores.append(dados.get("modo_operacao", "simples"))
-    if "tipo_confronto" in colunas:
-        sets.append("tipo_confronto = %s")
-        valores.append(dados.get("tipo_confronto", "grupo_interno"))
-    if "tipo_classificacao" in colunas:
-        sets.append("tipo_classificacao = %s")
-        valores.append(dados.get("tipo_classificacao", "grupo"))
-    if "cruzamentos_grupos" in colunas:
-        sets.append("cruzamentos_grupos = %s")
-        valores.append(dados.get("cruzamentos_grupos", ""))
-    if "data_limite_inscricao" in colunas:
-        sets.append("data_limite_inscricao = %s")
-        valores.append(dados.get("data_limite_inscricao") or None)
-    if "hora_limite_inscricao" in colunas:
-        sets.append("hora_limite_inscricao = %s")
-        valores.append(dados.get("hora_limite_inscricao") or None)
-    if "bloquear_apos_inicio" in colunas:
-        sets.append("bloquear_apos_inicio = %s")
-        valores.append(dados.get("bloquear_apos_inicio", False))
-    if "limite_atletas" in colunas:
-        sets.append("limite_atletas = %s")
-        valores.append(dados.get("limite_atletas", 0))
-    if "permitir_edicao_pos_prazo" in colunas:
-        sets.append("permitir_edicao_pos_prazo = %s")
-        valores.append(dados.get("permitir_edicao_pos_prazo", False))
-    if "exigir_foto_atleta" in colunas:
-        sets.append("exigir_foto_atleta = %s")
-        valores.append(dados.get("exigir_foto_atleta", False))
-    if "exigir_instagram_atleta" in colunas:
-        sets.append("exigir_instagram_atleta = %s")
-        valores.append(dados.get("exigir_instagram_atleta", False))
+    campos_permitidos = [
+        "qtd_equipes",
+        "formato",
+        "tem_grupos",
+        "qtd_grupos",
+        "qtd_quadras",
+        "modo_operacao",
+        "tipo_confronto",
+        "tipo_classificacao",
+        "cruzamentos_grupos",
+        "data_limite_inscricao",
+        "hora_limite_inscricao",
+        "bloquear_apos_inicio",
+        "limite_atletas",
+        "permitir_edicao_pos_prazo",
+        "exigir_foto_atleta",
+        "exigir_instagram_atleta",
+    ]
+
+    for campo in campos_permitidos:
+        if campo not in colunas or campo not in dados:
+            continue
+
+        sets.append(f"{campo} = %s")
+        if campo in {"data_limite_inscricao", "hora_limite_inscricao"}:
+            valores.append(dados.get(campo) or None)
+        else:
+            valores.append(dados.get(campo))
 
     if not sets:
         return True
@@ -1721,7 +1719,6 @@ def atualizar_estrutura_competicao(nome_competicao, dados):
         conn.commit()
 
     return True
-
 
 def atualizar_regras_jogo(nome_competicao, dados):
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração de regras")
@@ -4471,7 +4468,9 @@ def criar_tabela_atletas(force=False):
                     data_nascimento TEXT,
                     foto_atleta TEXT,
                     instagram TEXT,
-                    atualizado_em TIMESTAMP DEFAULT NOW()
+                    atualizado_em TIMESTAMP DEFAULT NOW(),
+                    usar_rodadas_programadas BOOLEAN DEFAULT FALSE,
+                    uma_partida_por_equipe_rodada BOOLEAN DEFAULT TRUE
                 )
             """)
             cur.execute("ALTER TABLE atletas_globais ADD COLUMN IF NOT EXISTS cpf TEXT")
@@ -5211,13 +5210,28 @@ def adicionar_equipe_no_grupo(grupo_id, equipe, competicao):
     if fase_grupos_esta_travada_por_jogo(competicao):
         return False
 
+    equipe = str(equipe or "").strip()
+    if not grupo_id or not equipe or not competicao:
+        return False
+
     with conectar() as conn:
         with conn.cursor() as cur:
+            # Regra firme: dentro da mesma competição uma equipe só pode estar
+            # em UM grupo. Ao salvar manualmente ou por sorteio, removemos o
+            # vínculo antigo antes de inserir o novo. Isso evita duplicidade e
+            # impede a classificação de contar o mesmo time em grupos diferentes.
+            cur.execute("""
+                DELETE FROM grupos_equipes
+                WHERE competicao = %s
+                  AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
+                  AND grupo_id <> %s
+            """, (competicao, equipe, grupo_id))
+
             cur.execute("""
                 SELECT id
                 FROM grupos_equipes
                 WHERE grupo_id = %s
-                  AND equipe = %s
+                  AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
                   AND competicao = %s
                 LIMIT 1
             """, (grupo_id, equipe, competicao))
@@ -6725,7 +6739,9 @@ def criar_tabela_competicao_agenda_config(force=False):
                 ADD COLUMN IF NOT EXISTS permitir_relaxar_descanso BOOLEAN DEFAULT TRUE,
                 ADD COLUMN IF NOT EXISTS grupos_compartilhados_json JSONB DEFAULT '{}'::jsonb,
                 ADD COLUMN IF NOT EXISTS quadras_compartilhadas_json JSONB DEFAULT '[]'::jsonb,
-                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()
+                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS usar_rodadas_programadas BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS uma_partida_por_equipe_rodada BOOLEAN DEFAULT TRUE
             """)
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_competicao_agenda_config_competicao
@@ -6748,6 +6764,8 @@ def _agenda_config_padrao():
         "permitir_relaxar_descanso": True,
         "grupos_compartilhados": {},
         "quadras_compartilhadas": [],
+        "usar_rodadas_programadas": False,
+        "uma_partida_por_equipe_rodada": True,
     }
 
 
@@ -6777,7 +6795,9 @@ def buscar_configuracao_agenda_competicao(nome_competicao):
                     rodizio_grupos,
                     permitir_relaxar_descanso,
                     grupos_compartilhados_json,
-                    quadras_compartilhadas_json
+                    quadras_compartilhadas_json,
+                    usar_rodadas_programadas,
+                    uma_partida_por_equipe_rodada
                 FROM competicao_agenda_config
                 WHERE competicao = %s
                 LIMIT 1
@@ -6809,6 +6829,8 @@ def buscar_configuracao_agenda_competicao(nome_competicao):
         "permitir_relaxar_descanso": bool(row.get("permitir_relaxar_descanso")),
         "grupos_compartilhados": _normalizar_json_config_agenda(row.get("grupos_compartilhados_json"), {}),
         "quadras_compartilhadas": _normalizar_json_config_agenda(row.get("quadras_compartilhadas_json"), []),
+        "usar_rodadas_programadas": bool(row.get("usar_rodadas_programadas")),
+        "uma_partida_por_equipe_rodada": bool(row.get("uma_partida_por_equipe_rodada", True)),
     })
     return config
 
@@ -6821,6 +6843,8 @@ def atualizar_configuracao_agenda_competicao(
     permitir_relaxar_descanso=True,
     grupos_compartilhados=None,
     quadras_compartilhadas=None,
+    usar_rodadas_programadas=False,
+    uma_partida_por_equipe_rodada=True,
 ):
     ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração da agenda automática")
     if not ok_edicao:
@@ -6844,6 +6868,8 @@ def atualizar_configuracao_agenda_competicao(
 
     grupos_json = json.dumps(grupos_compartilhados or {}, ensure_ascii=False)
     quadras_json = json.dumps(quadras_compartilhadas or [], ensure_ascii=False)
+    usar_rodadas_programadas = bool(usar_rodadas_programadas)
+    uma_partida_por_equipe_rodada = bool(uma_partida_por_equipe_rodada)
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -6856,9 +6882,11 @@ def atualizar_configuracao_agenda_competicao(
                     permitir_relaxar_descanso,
                     grupos_compartilhados_json,
                     quadras_compartilhadas_json,
+                    usar_rodadas_programadas,
+                    uma_partida_por_equipe_rodada,
                     atualizado_em
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, NOW())
                 ON CONFLICT (competicao)
                 DO UPDATE SET
                     modo_distribuicao = EXCLUDED.modo_distribuicao,
@@ -6867,6 +6895,8 @@ def atualizar_configuracao_agenda_competicao(
                     permitir_relaxar_descanso = EXCLUDED.permitir_relaxar_descanso,
                     grupos_compartilhados_json = EXCLUDED.grupos_compartilhados_json,
                     quadras_compartilhadas_json = EXCLUDED.quadras_compartilhadas_json,
+                    usar_rodadas_programadas = EXCLUDED.usar_rodadas_programadas,
+                    uma_partida_por_equipe_rodada = EXCLUDED.uma_partida_por_equipe_rodada,
                     atualizado_em = NOW()
             """, (
                 nome_competicao,
@@ -6876,6 +6906,8 @@ def atualizar_configuracao_agenda_competicao(
                 bool(permitir_relaxar_descanso),
                 grupos_json,
                 quadras_json,
+                usar_rodadas_programadas,
+                uma_partida_por_equipe_rodada,
             ))
         conn.commit()
 
@@ -6890,6 +6922,170 @@ def inicializar_configuracao_agenda_competicao(nome_competicao):
         return atualizar_configuracao_agenda_competicao(nome_competicao, **cfg)
     return False
 
+
+
+
+# =========================================================
+# RODADAS PROGRAMADAS DA COMPETIÇÃO
+# =========================================================
+def criar_tabela_competicao_rodadas(force=False):
+    try:
+        if _schema_ja_pronto("tabela_competicao_rodadas", force=force):
+            return
+    except Exception:
+        pass
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS competicao_rodadas (
+                    id SERIAL PRIMARY KEY,
+                    competicao TEXT NOT NULL,
+                    tipo_fase TEXT NOT NULL DEFAULT 'classificatoria',
+                    fase TEXT NOT NULL DEFAULT 'grupos',
+                    serie TEXT DEFAULT '',
+                    numero_rodada INTEGER NOT NULL DEFAULT 1,
+                    nome TEXT DEFAULT '',
+                    data TEXT DEFAULT '',
+                    hora TEXT DEFAULT '',
+                    data_hora TEXT DEFAULT '',
+                    ativo BOOLEAN DEFAULT TRUE,
+                    atualizado_em TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                ALTER TABLE competicao_rodadas
+                ADD COLUMN IF NOT EXISTS competicao TEXT,
+                ADD COLUMN IF NOT EXISTS tipo_fase TEXT DEFAULT 'classificatoria',
+                ADD COLUMN IF NOT EXISTS fase TEXT DEFAULT 'grupos',
+                ADD COLUMN IF NOT EXISTS serie TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS numero_rodada INTEGER DEFAULT 1,
+                ADD COLUMN IF NOT EXISTS nome TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS data TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS hora TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS data_hora TEXT DEFAULT '',
+                ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()
+            """)
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_competicao_rodadas_chave
+                ON competicao_rodadas (competicao, tipo_fase, fase, COALESCE(serie, ''), numero_rodada)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_competicao_rodadas_competicao
+                ON competicao_rodadas (competicao, tipo_fase, fase, serie, numero_rodada)
+            """)
+        conn.commit()
+
+    _CACHE_COLUNAS.pop("competicao_rodadas", None)
+    try:
+        _marcar_schema_pronto("tabela_competicao_rodadas")
+    except Exception:
+        pass
+
+
+def _combinar_data_hora_rodada(data, hora):
+    data = str(data or "").strip()
+    hora = str(hora or "").strip()
+    if not data:
+        return ""
+    if hora:
+        return f"{data}T{hora}"
+    return data
+
+
+def listar_rodadas_competicao(nome_competicao):
+    criar_tabela_competicao_rodadas()
+    nome_competicao = str(nome_competicao or "").strip()
+    if not nome_competicao:
+        return []
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM competicao_rodadas
+                WHERE competicao = %s
+                ORDER BY
+                    CASE WHEN tipo_fase = 'classificatoria' THEN 0 ELSE 1 END,
+                    fase, serie, numero_rodada, id
+            """, (nome_competicao,))
+            return cur.fetchall() or []
+
+
+def salvar_rodadas_competicao(nome_competicao, rodadas):
+    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração das rodadas programadas")
+    if not ok_edicao:
+        return False
+    criar_tabela_competicao_rodadas()
+    nome_competicao = str(nome_competicao or "").strip()
+    if not nome_competicao:
+        return False
+
+    linhas = []
+    for r in rodadas or []:
+        if not isinstance(r, dict):
+            continue
+        try:
+            numero = int(r.get("numero_rodada") or r.get("numero") or 1)
+        except Exception:
+            numero = 1
+        numero = max(1, numero)
+        tipo_fase = str(r.get("tipo_fase") or "classificatoria").strip().lower()
+        if tipo_fase not in {"classificatoria", "avanco"}:
+            tipo_fase = "classificatoria"
+        fase = str(r.get("fase") or ("grupos" if tipo_fase == "classificatoria" else "avanco")).strip().lower()
+        serie = str(r.get("serie") or "").strip().lower()
+        nome = str(r.get("nome") or (f"Rodada {numero}" if tipo_fase == "classificatoria" else fase.title())).strip()
+        data = str(r.get("data") or "").strip()
+        hora = str(r.get("hora") or "").strip()
+        linhas.append((nome_competicao, tipo_fase, fase, serie, numero, nome, data, hora, _combinar_data_hora_rodada(data, hora), bool(r.get("ativo", True))))
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM competicao_rodadas WHERE competicao = %s", (nome_competicao,))
+            if linhas:
+                cur.executemany("""
+                    INSERT INTO competicao_rodadas
+                        (competicao, tipo_fase, fase, serie, numero_rodada, nome, data, hora, data_hora, ativo, atualizado_em)
+                    VALUES
+                        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                """, linhas)
+        conn.commit()
+    return True
+
+
+def mapa_rodadas_competicao(nome_competicao):
+    mapa = {}
+    for r in listar_rodadas_competicao(nome_competicao):
+        chave = (
+            str(r.get("tipo_fase") or "").strip().lower(),
+            str(r.get("fase") or "").strip().lower(),
+            str(r.get("serie") or "").strip().lower(),
+            int(r.get("numero_rodada") or 1),
+        )
+        mapa[chave] = r
+    return mapa
+
+
+def buscar_data_hora_rodada_programada(nome_competicao, tipo_fase="classificatoria", fase="grupos", serie="", numero_rodada=1):
+    try:
+        numero = int(numero_rodada or 1)
+    except Exception:
+        numero = 1
+    tipo_fase = str(tipo_fase or "classificatoria").strip().lower()
+    fase = str(fase or "grupos").strip().lower()
+    serie = str(serie or "").strip().lower()
+    for r in listar_rodadas_competicao(nome_competicao):
+        if str(r.get("tipo_fase") or "").strip().lower() != tipo_fase:
+            continue
+        if str(r.get("fase") or "").strip().lower() != fase:
+            continue
+        if str(r.get("serie") or "").strip().lower() != serie:
+            continue
+        if int(r.get("numero_rodada") or 1) != numero:
+            continue
+        return str(r.get("data_hora") or "").strip() or None
+    return None
 
 # =========================================================
 # ATLETAS - NUMERAÇÃO E PRAZO
@@ -9154,6 +9350,13 @@ def criar_campos_jogo_partida(force=False):
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_heartbeat TIMESTAMP")
             cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_socket_id TEXT")
+            # Controle real de tempo da partida para relatório.
+            # Início: primeiro ponto. Fim de set/partida: fechamento real.
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS inicio_partida_real TIMESTAMP")
+            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fim_partida_real TIMESTAMP")
+            for _n in range(1, 6):
+                cur.execute(f"ALTER TABLE partidas ADD COLUMN IF NOT EXISTS inicio_set{_n} TIMESTAMP")
+                cur.execute(f"ALTER TABLE partidas ADD COLUMN IF NOT EXISTS fim_set{_n} TIMESTAMP")
         conn.commit()
 
     _marcar_schema_pronto("campos_jogo_partida")
@@ -10778,6 +10981,10 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                             fase_partida = 'encerrado',
                             status_operacao = 'finalizada',
                             vencedor = %s,
+                            inicio_partida_real = COALESCE(inicio_partida_real, NOW()),
+                            inicio_set{set_coluna} = COALESCE(inicio_set{set_coluna}, NOW()),
+                            fim_set{set_coluna} = COALESCE(fim_set{set_coluna}, NOW()),
+                            fim_partida_real = COALESCE(fim_partida_real, NOW()),
                             data_fim = NOW(),
                             tipo_encerramento = 'normal'
                         WHERE id = %s
@@ -10864,7 +11071,10 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                             sorteio_tiebreak_vencedor = CASE WHEN %s THEN NULL ELSE sorteio_tiebreak_vencedor END,
                             sorteio_tiebreak_escolha = CASE WHEN %s THEN NULL ELSE sorteio_tiebreak_escolha END,
                             saque_tiebreak = CASE WHEN %s THEN NULL ELSE saque_tiebreak END,
-                            lado_esquerdo_tiebreak = CASE WHEN %s THEN NULL ELSE lado_esquerdo_tiebreak END
+                            lado_esquerdo_tiebreak = CASE WHEN %s THEN NULL ELSE lado_esquerdo_tiebreak END,
+                            inicio_partida_real = COALESCE(inicio_partida_real, NOW()),
+                            inicio_set{set_coluna} = COALESCE(inicio_set{set_coluna}, NOW()),
+                            fim_set{set_coluna} = COALESCE(fim_set{set_coluna}, NOW())
                         WHERE id = %s
                           AND competicao = %s
                     """, (
@@ -10896,10 +11106,12 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     set_atual = proximo_set
                     saque_depois = ""
             else:
-                cur.execute("""
+                cur.execute(f"""
                     UPDATE partidas
                     SET pontos_a = %s,
                         pontos_b = %s,
+                        inicio_partida_real = COALESCE(inicio_partida_real, NOW()),
+                        inicio_set{set_coluna} = COALESCE(inicio_set{set_coluna}, NOW()),
                         saque_atual = %s,
                         rotacao_a = %s,
                         rotacao_b = %s,
@@ -11034,6 +11246,9 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "saque_anterior": saque_antes,
         "ultima_acao": "Jogo finalizado" if fim_jogo else ("Set finalizado" if fim_set else "Ponto registrado"),
         "historico": historico,
+        "inicio_partida_real": (partida.get("inicio_partida_real").isoformat() if hasattr(partida.get("inicio_partida_real"), "isoformat") else partida.get("inicio_partida_real")),
+        "fim_partida_real": (partida.get("fim_partida_real").isoformat() if hasattr(partida.get("fim_partida_real"), "isoformat") else partida.get("fim_partida_real")),
+        "controle_tempo_atualizado": True,
     }
 
 def registrar_wo_partida(partida_id, competicao, vencedor_lado):
@@ -11118,6 +11333,9 @@ def registrar_wo_partida(partida_id, competicao, vencedor_lado):
                     status_operacao = 'finalizada',
 
                     vencedor = %s,
+                    inicio_partida_real = COALESCE(inicio_partida_real, NOW()),
+                    fim_partida_real = COALESCE(fim_partida_real, NOW()),
+                    fim_set1 = COALESCE(fim_set1, NOW()),
                     data_fim = NOW(),
                     tipo_encerramento = 'WO'
                 WHERE id = %s
@@ -12398,9 +12616,10 @@ def encerrar_partida(partida_id, competicao, observacoes):
                     observacoes = %s,
                     vencedor = COALESCE(%s, vencedor),
                     tipo_encerramento = COALESCE(tipo_encerramento, 'normal'),
+                    fim_partida_real = COALESCE(fim_partida_real, %s),
                     data_fim = %s
                 WHERE id = %s AND competicao = %s
-            """, (observacoes, vencedor, datetime.now(), partida_id, competicao))
+            """, (observacoes, vencedor, datetime.now(), datetime.now(), partida_id, competicao))
         conn.commit()
 
     return True, "Partida finalizada com sucesso."
@@ -14787,8 +15006,9 @@ def listar_quadras_competicao(nome_competicao, somente_ativas=False):
 
 def garantir_quadras_competicao(nome_competicao, qtd_quadras=1):
     """
-    Garante que a competição tenha pelo menos qtd_quadras cadastradas.
-    Não apaga quadras existentes; apenas completa as que faltarem.
+    Garante que a competição tenha pelo menos qtd_quadras ATIVAS cadastradas.
+    Quadras desativadas/removidas pelo organizador não voltam a aparecer na tela
+    só porque ainda existem no histórico do banco.
     """
     criar_tabela_competicao_quadras()
 
@@ -14802,20 +15022,20 @@ def garantir_quadras_competicao(nome_competicao, qtd_quadras=1):
         qtd_quadras = 1
     qtd_quadras = max(1, qtd_quadras)
 
-    existentes = listar_quadras_competicao(nome_competicao)
-    if len(existentes) >= qtd_quadras:
-        return existentes
+    existentes_ativas = listar_quadras_competicao(nome_competicao, somente_ativas=True)
+    if len(existentes_ativas) >= qtd_quadras:
+        return existentes_ativas
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            for ordem in range(len(existentes) + 1, qtd_quadras + 1):
+            for ordem in range(len(existentes_ativas) + 1, qtd_quadras + 1):
                 cur.execute("""
                     INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
                     VALUES (%s, %s, %s, %s, TRUE)
                 """, (nome_competicao, f"Quadra {ordem}", "", ordem))
         conn.commit()
 
-    return listar_quadras_competicao(nome_competicao)
+    return listar_quadras_competicao(nome_competicao, somente_ativas=True)
 
 
 def salvar_quadras_competicao(nome_competicao, quadras):
@@ -14850,6 +15070,11 @@ def salvar_quadras_competicao(nome_competicao, quadras):
 
     if not quadras_normalizadas:
         quadras_normalizadas = [{"id": None, "nome": "Quadra 1", "local": "", "ordem": 1, "ativa": True}]
+
+    # Segurança: a competição precisa manter pelo menos uma quadra ativa.
+    # Mesmo se o organizador desmarcar todas sem querer, a primeira fica ativa.
+    if not any(bool(q.get("ativa", True)) for q in quadras_normalizadas):
+        quadras_normalizadas[0]["ativa"] = True
 
     ids_recebidos = []
 
@@ -14907,11 +15132,12 @@ def salvar_quadras_competicao(nome_competicao, quadras):
 
             colunas_comp = _buscar_colunas_tabela("competicoes")
             if "qtd_quadras" in colunas_comp:
+                qtd_ativas = len([q for q in quadras_normalizadas if bool(q.get("ativa", True))])
                 cur.execute("""
                     UPDATE competicoes
                     SET qtd_quadras = %s
                     WHERE nome = %s
-                """, (len(quadras_normalizadas), nome_competicao))
+                """, (max(1, qtd_ativas), nome_competicao))
 
         conn.commit()
 
@@ -14920,7 +15146,7 @@ def salvar_quadras_competicao(nome_competicao, quadras):
     except Exception as e:
         print("AVISO normalizar_vinculos_quadras_competicao:", repr(e))
 
-    return listar_quadras_competicao(nome_competicao)
+    return listar_quadras_competicao(nome_competicao, somente_ativas=True)
 
 
 def buscar_quadra_competicao_por_id(nome_competicao, quadra_id):
@@ -17178,6 +17404,14 @@ def _resolver_agenda_jogo_avanco(nome_competicao, jogo):
     """
     jogo = jogo if isinstance(jogo, dict) else {}
     data_hora = str(jogo.get("data_hora") or "").strip() or None
+    if not data_hora:
+        fase_tmp = _normalizar_fase_avanco_para_partida(jogo.get("fase"))
+        serie_tmp = str(jogo.get("serie") or "ouro").strip().lower()
+        try:
+            numero_tmp = int(str(jogo.get("id") or "1").strip().lstrip("Jj") or 1)
+        except Exception:
+            numero_tmp = 1
+        data_hora = buscar_data_hora_rodada_programada(nome_competicao, "avanco", fase_tmp, serie_tmp, numero_tmp)
 
     quadra_id = None
     quadra_nome = str(jogo.get("quadra_nome") or "").strip()

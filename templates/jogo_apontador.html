@@ -62,6 +62,7 @@
             <div id="mobile-set-atual" class="mobile-set-atual">1º SET</div>
             <div class="mobile-sets"><span id="mobile-sets-esq">0</span> × <span id="mobile-sets-dir">0</span></div>
             <div id="mobile-saque" class="mobile-saque">Saque atual ainda não definido</div>
+            <div id="mobile-relogio-jogo-real" class="mobile-saque">⏱ 00:00</div>
         </div>
 
         <button id="mobile-head-dir" class="mobile-equipe-head" type="button">
@@ -149,6 +150,27 @@
         margin-top: 4px;
         font-size: 14px;
         color: #6b7c8c;
+    }
+
+    .relogio-jogo-real {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: #eef6ff;
+        border: 1px solid #d6e2f0;
+        color: #183247;
+        font-size: 13px;
+        font-weight: 900;
+    }
+
+    .relogio-jogo-real span {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
     }
 
     .topo-jogo-mini .linha-principal {
@@ -2377,6 +2399,11 @@ body {
             <span id="pontos-b">{{ estado.pontos_b or 0 }}</span>
         </div>
         <div class="pc-sets-mini">Sets: <span id="sets-a">{{ estado.sets_a or 0 }}</span> x <span id="sets-b">{{ estado.sets_b or 0 }}</span></div>
+        <div id="relogio-jogo-real" class="relogio-jogo-real" aria-live="polite">
+            <span id="relogio-data-real">--/--/----</span>
+            <span id="relogio-hora-real">--:--:--</span>
+            <span id="relogio-duracao-real">⏱ 00:00</span>
+        </div>
         <div id="alerta-point" class="alerta-point"></div>
         <div id="saque-info" class="pc-saque-info" aria-live="polite">
             {% if estado.saque_atual %}Saque atual: {{ estado.saque_atual }}{% else %}Saque atual ainda não definido{% endif %}
@@ -3465,6 +3492,91 @@ function montarPayloadTempoReal(extra = {}) {
     saqueAtual = ladoPorEquipeOuNome(saqueAtual) || ladoPorEquipeOuNome(estadoAtual.saque_atual) || "";
     estadoAtual.saque_atual = saqueAtual;
 
+    const CHAVE_TEMPO_JOGO_REAL = `vt_tempo_real_${COMPETICAO}_${PARTIDA_ID}`;
+    const relogioDataRealEl = document.getElementById("relogio-data-real");
+    const relogioHoraRealEl = document.getElementById("relogio-hora-real");
+    const relogioDuracaoRealEl = document.getElementById("relogio-duracao-real");
+    const mobileRelogioJogoRealEl = document.getElementById("mobile-relogio-jogo-real");
+    let inicioPartidaRealMs = normalizarDataTempoMs(estadoAtual.inicio_partida_real || {{ (partida.get('inicio_partida_real') if partida is mapping else partida.inicio_partida_real|default('', true)) | tojson }});
+    let fimPartidaRealMs = normalizarDataTempoMs(estadoAtual.fim_partida_real || {{ (partida.get('fim_partida_real') if partida is mapping else partida.fim_partida_real|default('', true)) | tojson }});
+
+    function normalizarDataTempoMs(valor) {
+        if (!valor) return 0;
+        if (valor instanceof Date) return valor.getTime() || 0;
+        let texto = String(valor || "").trim();
+        if (!texto) return 0;
+        // Postgres às vezes vem "2026-07-02 14:30:00"; o JS entende melhor com T.
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(texto)) texto = texto.replace(" ", "T");
+        const ms = Date.parse(texto);
+        return Number.isFinite(ms) ? ms : 0;
+    }
+
+    function formatarDoisDigitos(n) { return String(n).padStart(2, "0"); }
+
+    function formatarDataHora(ms, tipo) {
+        const d = new Date(ms || Date.now());
+        if (tipo === "data") return `${formatarDoisDigitos(d.getDate())}/${formatarDoisDigitos(d.getMonth() + 1)}/${d.getFullYear()}`;
+        return `${formatarDoisDigitos(d.getHours())}:${formatarDoisDigitos(d.getMinutes())}:${formatarDoisDigitos(d.getSeconds())}`;
+    }
+
+    function formatarDuracao(ms) {
+        const totalSeg = Math.max(0, Math.floor((ms || 0) / 1000));
+        const h = Math.floor(totalSeg / 3600);
+        const m = Math.floor((totalSeg % 3600) / 60);
+        const s = totalSeg % 60;
+        return h > 0 ? `${formatarDoisDigitos(h)}:${formatarDoisDigitos(m)}:${formatarDoisDigitos(s)}` : `${formatarDoisDigitos(m)}:${formatarDoisDigitos(s)}`;
+    }
+
+    function carregarTempoRealLocal() {
+        try {
+            const salvo = JSON.parse(localStorage.getItem(CHAVE_TEMPO_JOGO_REAL) || "{}");
+            if (!inicioPartidaRealMs && salvo.inicioPartidaRealMs) inicioPartidaRealMs = Number(salvo.inicioPartidaRealMs) || 0;
+            if (!fimPartidaRealMs && salvo.fimPartidaRealMs) fimPartidaRealMs = Number(salvo.fimPartidaRealMs) || 0;
+        } catch (e) {}
+    }
+
+    function salvarTempoRealLocal() {
+        try {
+            localStorage.setItem(CHAVE_TEMPO_JOGO_REAL, JSON.stringify({
+                inicioPartidaRealMs: inicioPartidaRealMs || 0,
+                fimPartidaRealMs: fimPartidaRealMs || 0
+            }));
+        } catch (e) {}
+    }
+
+    function garantirInicioTempoRealLocal() {
+        if (!inicioPartidaRealMs) {
+            inicioPartidaRealMs = Date.now();
+            estadoAtual.inicio_partida_real = new Date(inicioPartidaRealMs).toISOString();
+            salvarTempoRealLocal();
+        }
+        atualizarRelogioJogoReal();
+    }
+
+    function aplicarTempoRealDoBackend(dados) {
+        if (!dados || typeof dados !== "object") return;
+        const inicioMs = normalizarDataTempoMs(dados.inicio_partida_real || dados.inicio_partida || dados.data_hora_inicio_real);
+        const fimMs = normalizarDataTempoMs(dados.fim_partida_real || dados.fim_partida || dados.data_hora_fim_real);
+        if (inicioMs) inicioPartidaRealMs = inicioMs;
+        if (fimMs) fimPartidaRealMs = fimMs;
+        if (inicioMs || fimMs) salvarTempoRealLocal();
+    }
+
+    function atualizarRelogioJogoReal() {
+        const agoraMs = Date.now();
+        const baseMs = inicioPartidaRealMs || agoraMs;
+        const fimOuAgora = fimPartidaRealMs || agoraMs;
+        if (relogioDataRealEl) relogioDataRealEl.textContent = formatarDataHora(agoraMs, "data");
+        if (relogioHoraRealEl) relogioHoraRealEl.textContent = formatarDataHora(agoraMs, "hora");
+        const dur = inicioPartidaRealMs ? formatarDuracao(fimOuAgora - baseMs) : "00:00";
+        if (relogioDuracaoRealEl) relogioDuracaoRealEl.textContent = `⏱ ${dur}`;
+        if (mobileRelogioJogoRealEl) mobileRelogioJogoRealEl.textContent = inicioPartidaRealMs ? `⏱ ${dur}` : "⏱ 00:00";
+    }
+
+    carregarTempoRealLocal();
+    atualizarRelogioJogoReal();
+    setInterval(atualizarRelogioJogoReal, 1000);
+
     function equipeVisual(posicaoVisual) {
         const pos = String(posicaoVisual || "").toLowerCase();
         if (pos === "esquerda") return ladosInvertidos ? "B" : "A";
@@ -4333,6 +4445,7 @@ function inverterLadosVisual() {
     function aplicarEstado(dados, opcoes = {}) {
         if (!dados) return;
         dados = normalizarRespostaJogo(dados);
+        aplicarTempoRealDoBackend(dados);
         const agora = Date.now();
         const fonteEstado = String(opcoes.fonte || dados.fonte || dados.origem || "").toLowerCase();
         const ehRespostaOficialPonto = fonteEstado.includes("resposta_ponto_fetch") || fonteEstado.includes("fetch_ponto");
@@ -6255,7 +6368,10 @@ async function registrarPonto(equipe, scout) {
     const scoutSeguro = scout || {};
 
     try {
-        // 1) Atualiza a tela imediatamente, mas sem decidir fim de set no navegador.
+        // 1) No primeiro ponto, inicia o relógio real local imediatamente.
+        garantirInicioTempoRealLocal();
+
+        // 2) Atualiza a tela imediatamente, mas sem decidir fim de set no navegador.
         aplicarScoutLocal(equipe, scoutSeguro);
         aplicarPontoOtimista(equipe, scoutSeguro);
         fecharModalPonto();

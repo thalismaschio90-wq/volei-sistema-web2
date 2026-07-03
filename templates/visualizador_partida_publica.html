@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ partida.equipe_a }} x {{ partida.equipe_b }} - {{ competicao_nome }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:radial-gradient(circle at top,#1d4ed8 0,#0f172a 36%,#020617 100%);color:#f8fafc;padding:16px}.wrap{max-width:1180px;margin:0 auto}.topbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.back{color:#bfdbfe;text-decoration:none;font-weight:900}.pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 12px;font-weight:1000;border:1px solid rgba(255,255,255,.14)}.live{background:rgba(34,197,94,.16);color:#86efac}.done{background:rgba(148,163,184,.18);color:#e2e8f0}.mode{background:rgba(59,130,246,.18);color:#bfdbfe}.hero,.card{border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.88);border-radius:24px;box-shadow:0 22px 60px rgba(0,0,0,.30);padding:18px}.hero{margin-bottom:16px}.teams{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}.team{display:flex;align-items:center;gap:12px;min-width:0}.team.right{justify-content:flex-end;text-align:right}.team img{width:68px;height:68px;border-radius:50%;object-fit:contain;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);padding:3px}.name{font-size:clamp(18px,3vw,30px);font-weight:1000;line-height:1.05}.score{display:flex;align-items:center;gap:10px;font-size:clamp(34px,7vw,72px);font-weight:1000;font-variant-numeric:tabular-nums}.score span.num{min-width:82px;text-align:center;padding:8px 12px;border-radius:18px;background:rgba(2,6,23,.78);border:1px solid rgba(148,163,184,.26)}.meta{text-align:center;color:#cbd5e1;font-weight:900;margin-top:12px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}.grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:16px;align-items:start}.card{margin-bottom:16px}h1,h2,h3{margin-top:0}h1{font-size:22px}h2{font-size:22px;margin-bottom:10px}.hint{color:#cbd5e1;font-weight:700;line-height:1.45}.timeline{display:grid;gap:10px}.event{display:grid;grid-template-columns:92px 1fr;gap:10px;padding:12px;border-radius:16px;background:rgba(30,41,59,.72);border:1px solid rgba(148,163,184,.18)}.placar-evento{font-size:20px;font-weight:1000;color:#fff;font-variant-numeric:tabular-nums}.setlabel{font-size:11px;color:#93c5fd;font-weight:1000;text-transform:uppercase;margin-bottom:4px}.desc{font-weight:900;line-height:1.35}.fund{font-size:12px;color:#cbd5e1;font-weight:900;margin-top:5px}.evo-set{margin-top:12px}.pontos{display:flex;gap:8px;flex-wrap:wrap}.ponto{padding:7px 9px;border-radius:999px;background:rgba(2,6,23,.62);border:1px solid rgba(148,163,184,.18);font-weight:900;font-size:13px}.stats-grid{display:grid;gap:8px}.statrow{display:flex;justify-content:space-between;gap:12px;padding:10px;border-radius:14px;background:rgba(30,41,59,.66);font-weight:900}.mvp{display:flex;gap:14px;align-items:center}.avatar{width:82px;height:82px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(250,204,21,.16);border:1px solid rgba(250,204,21,.32);font-size:34px}.mvp-name{font-size:24px;font-weight:1000}.empty{color:#cbd5e1;padding:14px;border:1px dashed rgba(148,163,184,.30);border-radius:16px;background:rgba(2,6,23,.25)}@media(max-width:850px){body{padding:10px}.teams{grid-template-columns:1fr}.team,.team.right{justify-content:center;text-align:center;flex-direction:column}.score{justify-content:center}.grid{grid-template-columns:1fr}.event{grid-template-columns:78px 1fr}.topbar{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <a class="back" href="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao_nome) }}">← Voltar ao visualizador</a>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <span id="statusPill" class="pill {% if partida.finalizada %}done{% elif partida.ao_vivo %}live{% else %}mode{% endif %}">{% if partida.finalizada %}FINALIZADA{% elif partida.ao_vivo %}● AO VIVO{% else %}{{ partida.status_exibicao or 'AGUARDANDO' }}{% endif %}</span>
+      <span class="pill mode">{{ 'COM SCOUT' if scout_ativo else 'SEM SCOUT' }}</span>
+    </div>
+  </div>
+
+  <section class="hero">
+    <div class="teams">
+      <div class="team"><img id="escudoA" src="{{ partida.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ partida.equipe_a }}"><div class="name" id="equipeA">{{ partida.equipe_a }}</div></div>
+      <div class="score"><span class="num" id="pontosA">{{ estado.pontos_a or estado.placar_a or partida.placar_exibicao_a or 0 }}</span><span>×</span><span class="num" id="pontosB">{{ estado.pontos_b or estado.placar_b or partida.placar_exibicao_b or 0 }}</span></div>
+      <div class="team right"><div class="name" id="equipeB">{{ partida.equipe_b }}</div><img id="escudoB" src="{{ partida.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ partida.equipe_b }}"></div>
+    </div>
+    <div class="meta">
+      {% if not partida.set_unico %}<span id="setsInfo">Sets: {{ estado.sets_a or partida.sets_a or 0 }} × {{ estado.sets_b or partida.sets_b or 0 }}</span><span id="setAtualInfo">Set atual: {{ estado.set_atual or partida.set_atual or 1 }}</span>{% endif %}
+      {% if partida.parciais_formatadas %}<span id="parciaisInfo">Parciais: {{ partida.parciais_formatadas }}</span>{% endif %}
+    </div>
+  </section>
+
+  <div class="grid">
+    <main>
+      <section class="card">
+        <h2>{% if scout_ativo %}Ponto a ponto da partida{% else %}Evolução dos pontos{% endif %}</h2>
+        <div class="hint">A referência aqui é sempre a pontuação, não o tempo.</div>
+        <div class="timeline" id="timeline"></div>
+      </section>
+
+      <section class="card">
+        <h2>Evolução por set</h2>
+        <div id="evolucao"></div>
+      </section>
+    </main>
+
+    <aside>
+      {% if scout_ativo %}
+      <section class="card">
+        <h2>Resumo do scout</h2>
+        <div class="hint">Aparece somente quando a partida/competição está em modo avançado.</div>
+        <div id="stats" class="stats-grid"></div>
+      </section>
+      {% endif %}
+
+      <section class="card">
+        <h2>Destaque da partida</h2>
+        <div id="mvp"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+const DADOS_URL = {{ url_for('tabela.visualizador_publico_partida_dados', competicao_nome=competicao_nome, partida_id=partida.id)|tojson }};
+const SCOUT_ATIVO = {{ scout_ativo|tojson }};
+let ultimoHash = '';
+
+function texto(v){ return (v === null || v === undefined) ? '' : String(v); }
+function renderTimeline(lista){
+  const el = document.getElementById('timeline');
+  if(!el) return;
+  if(!lista || !lista.length){ el.innerHTML = '<div class="empty">Ainda não há pontos registrados para esta partida.</div>'; return; }
+  el.innerHTML = lista.map(item => `
+    <div class="event">
+      <div><div class="setlabel">${item.set}º set</div><div class="placar-evento">${item.placar}</div></div>
+      <div><div class="desc">${texto(item.descricao)}</div>${SCOUT_ATIVO ? `<div class="fund">${texto(item.fundamento)}</div>` : ''}</div>
+    </div>
+  `).join('');
+}
+function renderEvolucao(sets){
+  const el = document.getElementById('evolucao');
+  if(!el) return;
+  if(!sets || !sets.length){ el.innerHTML = '<div class="empty">A evolução aparece assim que os pontos forem registrados.</div>'; return; }
+  el.innerHTML = sets.map(s => `<div class="evo-set"><h3>${s.set}º set</h3><div class="pontos">${(s.pontos||[]).map(p=>`<span class="ponto">${p.placar}</span>`).join('')}</div></div>`).join('');
+}
+function renderStats(stats){
+  const el = document.getElementById('stats');
+  if(!el) return;
+  const rows = [];
+  Object.entries(stats || {}).forEach(([equipe, dados]) => {
+    Object.entries(dados || {}).forEach(([fund, qtd]) => rows.push({equipe, fund, qtd}));
+  });
+  rows.sort((a,b)=>b.qtd-a.qtd || a.equipe.localeCompare(b.equipe));
+  el.innerHTML = rows.length ? rows.map(r=>`<div class="statrow"><span>${r.fund} • ${r.equipe}</span><strong>${r.qtd}</strong></div>`).join('') : '<div class="empty">Sem dados de scout ainda.</div>';
+}
+function renderMvp(destaque){
+  const el = document.getElementById('mvp');
+  if(!el) return;
+  if(!destaque || !(destaque.nome || destaque.numero)){ el.innerHTML = '<div class="empty">O destaque só aparece depois que a arbitragem selecionar oficialmente.</div>'; return; }
+  const nome = destaque.nome || 'Atleta destaque';
+  const numero = destaque.numero ? `#${destaque.numero}` : '';
+  const equipe = destaque.equipe || '';
+  el.innerHTML = `<div class="mvp"><div class="avatar">🏆</div><div><div class="mvp-name">${numero} ${nome}</div><div class="hint">${equipe}</div>${destaque.observacao ? `<div class="hint">${destaque.observacao}</div>` : ''}</div></div>`;
+}
+function atualizarTopo(p){
+  if(!p) return;
+  document.getElementById('equipeA').textContent = p.equipe_a || '';
+  document.getElementById('equipeB').textContent = p.equipe_b || '';
+  document.getElementById('escudoA').src = p.escudo_a || '/static/img/escudo_padrao.svg';
+  document.getElementById('escudoB').src = p.escudo_b || '/static/img/escudo_padrao.svg';
+  document.getElementById('pontosA').textContent = p.pontos_a ?? 0;
+  document.getElementById('pontosB').textContent = p.pontos_b ?? 0;
+  const pill = document.getElementById('statusPill');
+  if(pill){
+    pill.className = 'pill ' + (p.finalizada ? 'done' : (p.ao_vivo ? 'live' : 'mode'));
+    pill.textContent = p.finalizada ? 'FINALIZADA' : (p.ao_vivo ? '● AO VIVO' : (p.status_exibicao || 'AGUARDANDO'));
+  }
+  const setsInfo = document.getElementById('setsInfo');
+  if(setsInfo) setsInfo.textContent = `Sets: ${p.sets_a || 0} × ${p.sets_b || 0}`;
+  const setAtualInfo = document.getElementById('setAtualInfo');
+  if(setAtualInfo) setAtualInfo.textContent = `Set atual: ${p.set_atual || 1}`;
+  const parciaisInfo = document.getElementById('parciaisInfo');
+  if(parciaisInfo && p.parciais_formatadas) parciaisInfo.textContent = `Parciais: ${p.parciais_formatadas}`;
+}
+async function carregar(){
+  try{
+    const resp = await fetch(DADOS_URL, {cache:'no-store'});
+    const data = await resp.json();
+    if(!data.ok) return;
+    const hash = JSON.stringify(data);
+    if(hash === ultimoHash) return;
+    ultimoHash = hash;
+    atualizarTopo(data.partida);
+    renderTimeline(data.timeline);
+    renderEvolucao(data.evolucao_sets);
+    renderStats(data.stats);
+    renderMvp(data.destaque);
+  }catch(e){}
+}
+carregar();
+setInterval(carregar, 2500);
+</script>
+</body>
+</html>

@@ -1,0 +1,1357 @@
+<div class="topo-secao">
+    <div class="titulo-secao">Tabela</div>
+</div>
+
+<style>
+.tabela-tabs {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:18px;
+}
+.tabela-tab {
+    padding:10px 16px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    text-decoration:none;
+    font-weight:900;
+    transition:.18s ease;
+    background: var(--card-bg, transparent);
+    color: inherit;
+}
+.tabela-tab:hover { transform: translateY(-1px); }
+.tabela-tab.ativa {
+    background: linear-gradient(135deg, rgba(37,99,235,.18), rgba(34,197,94,.12));
+    box-shadow: 0 10px 24px rgba(0,0,0,.10);
+    border-color: rgba(37,99,235,.35);
+}
+.tabela-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+}
+.tabela-danger-button,
+.tabela-danger-outline,
+.btn-padrao,
+.btn-secundario { white-space: nowrap; }
+.tabela-danger-button {
+    background:#8b1e1e;
+    color:white;
+    border:none;
+    border-radius:10px;
+    padding:10px 14px;
+    font-weight:800;
+    cursor:pointer;
+}
+.tabela-danger-outline {
+    background:transparent;
+    color:#b91c1c;
+    border:1px solid #b91c1c;
+    border-radius:10px;
+    padding:7px 10px;
+    font-weight:800;
+    cursor:pointer;
+}
+.tabela-danger-button:disabled,
+.tabela-danger-outline:disabled,
+.btn-padrao:disabled,
+.btn-secundario:disabled {
+    opacity:.45;
+    cursor:not-allowed;
+}
+.tabela-link-box {
+    width:100%;
+    padding:12px 14px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background: var(--card-bg, transparent);
+    color: inherit;
+    font-weight:800;
+}
+.visualizador-preview {
+    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    min-height: 620px;
+    box-shadow: 0 14px 34px rgba(0,0,0,.14);
+}
+.visualizador-preview iframe {
+    width: 100%;
+    min-height: 620px;
+    border: none;
+    background: #0f172a;
+}
+.classificacao-hint {
+    color: var(--muted);
+    margin-bottom: 14px;
+}
+.tabela-scroll {
+    width:100%;
+    overflow-x:auto;
+    border:1px solid var(--border);
+    border-radius:14px;
+}
+.tabela-pro {
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    min-width:860px;
+}
+.tabela-pro th,
+.tabela-pro td {
+    padding:11px 10px;
+    text-align:center;
+    vertical-align:middle;
+    border-bottom:1px solid var(--border);
+}
+.tabela-pro th {
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--muted);
+    background:rgba(148,163,184,.12);
+    font-weight:900;
+}
+.tabela-pro tr:last-child td { border-bottom:0; }
+.tabela-pro tbody tr:hover { background:rgba(148,163,184,.08); }
+.tabela-pro .col-equipe {
+    text-align:left;
+    font-weight:900;
+    min-width:210px;
+}
+.tabela-pro .posicao {
+    width:38px;
+    height:30px;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:900;
+    background:rgba(37,99,235,.14);
+}
+.badge-status {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:5px 9px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:900;
+    white-space:nowrap;
+}
+.badge-ao-vivo { color:#16a34a; background:rgba(34,197,94,.12); }
+.badge-finalizado { color:#64748b; background:rgba(148,163,184,.16); }
+.badge-agendada { color:#2563eb; background:rgba(37,99,235,.12); }
+.jogo-nome { font-weight:900; }
+.acoes-partida form { margin:0; }
+.acoes-partida .edicao-mata-mata {
+    display:grid;
+    grid-template-columns:minmax(150px,1fr) minmax(150px,1fr) minmax(130px,.8fr) auto;
+    gap:6px;
+    align-items:center;
+    margin-bottom:6px;
+}
+.card-grupo-equipe {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    margin-bottom:8px;
+    padding:8px 10px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:rgba(148,163,184,.06);
+}
+.equipe-inline {
+    display:inline-flex;
+    align-items:center;
+    gap:9px;
+    min-width:0;
+}
+.equipe-inline .escudo-mini {
+    width:32px;
+    height:32px;
+    border-radius:50%;
+    object-fit:contain;
+    background:rgba(148,163,184,.12);
+    border:1px solid rgba(148,163,184,.26);
+    padding:2px;
+    flex:0 0 auto;
+}
+.confronto-com-escudos {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+}
+.confronto-time {
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+}
+.confronto-time img {
+    width:30px;
+    height:30px;
+    border-radius:50%;
+    object-fit:contain;
+    background:rgba(148,163,184,.12);
+    border:1px solid rgba(148,163,184,.26);
+    padding:2px;
+    flex:0 0 auto;
+}
+
+.btn-add-equipe-grupo {
+    margin: 10px 0 12px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:9px;
+    border:1px solid rgba(37,99,235,.35);
+    background:rgba(37,99,235,.08);
+    color:#1d4ed8;
+    border-radius:12px;
+    padding:10px 14px;
+    font-weight:900;
+    cursor:pointer;
+    transition:.18s ease;
+}
+.btn-add-equipe-grupo:hover {
+    transform:translateY(-1px);
+    background:rgba(37,99,235,.13);
+}
+.btn-add-equipe-grupo:disabled {
+    opacity:.45;
+    cursor:not-allowed;
+    transform:none;
+}
+.btn-add-equipe-grupo .icone {
+    width:24px;
+    height:24px;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    background:rgba(37,99,235,.16);
+    font-size:19px;
+    line-height:1;
+    font-weight:900;
+}
+.modal-equipes-backdrop {
+    position:fixed;
+    inset:0;
+    background:rgba(15,23,42,.58);
+    backdrop-filter:blur(4px);
+    z-index:9998;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    padding:18px;
+}
+.modal-equipes-backdrop.ativo { display:flex; }
+.modal-equipes {
+    width:min(720px, 100%);
+    max-height:min(82vh, 760px);
+    background:var(--card-bg, #fff);
+    color:inherit;
+    border:1px solid var(--border);
+    border-radius:18px;
+    box-shadow:0 28px 80px rgba(15,23,42,.34);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+}
+.modal-equipes-topo {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:14px;
+    padding:18px 20px 12px;
+    border-bottom:1px solid var(--border);
+}
+.modal-equipes-topo h3 {
+    margin:0;
+    font-size:22px;
+    font-weight:950;
+}
+.modal-equipes-sub {
+    margin-top:5px;
+    color:var(--muted);
+    font-weight:700;
+    font-size:13px;
+    line-height:1.4;
+}
+.modal-fechar {
+    border:0;
+    background:transparent;
+    color:inherit;
+    font-size:28px;
+    line-height:1;
+    cursor:pointer;
+    width:38px;
+    height:38px;
+    border-radius:999px;
+}
+.modal-fechar:hover { background:rgba(148,163,184,.16); }
+.modal-equipes-corpo {
+    padding:14px 20px 18px;
+    overflow:auto;
+}
+.modal-equipes-info {
+    border:1px solid rgba(37,99,235,.25);
+    background:rgba(37,99,235,.08);
+    color:#1e3a8a;
+    border-radius:12px;
+    padding:10px 12px;
+    font-size:13px;
+    font-weight:800;
+    margin-bottom:14px;
+}
+.busca-equipe-modal {
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:12px 13px;
+    font-weight:800;
+    margin-bottom:12px;
+    background:var(--card-bg, #fff);
+    color:inherit;
+}
+.lista-equipes-modal {
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+.item-equipe-modal {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:10px 11px;
+    border:1px solid var(--border);
+    border-radius:13px;
+    background:rgba(148,163,184,.055);
+}
+.item-equipe-modal:hover { background:rgba(37,99,235,.075); }
+.item-equipe-modal .dados-equipe {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+    font-weight:900;
+}
+.item-equipe-modal .dados-equipe img {
+    width:34px;
+    height:34px;
+    border-radius:50%;
+    object-fit:contain;
+    background:rgba(148,163,184,.14);
+    border:1px solid rgba(148,163,184,.28);
+    padding:2px;
+    flex:0 0 auto;
+}
+.item-equipe-modal .nome-equipe-modal {
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.item-equipe-modal form { margin:0; flex:0 0 auto; }
+.vazio-equipes-modal {
+    color:var(--muted);
+    border:1px dashed var(--border);
+    border-radius:13px;
+    padding:18px;
+    text-align:center;
+    font-weight:800;
+}
+
+.config-geracao-bloco {
+    margin-bottom:18px;
+    padding:14px;
+    border:1px solid var(--border);
+    border-radius:14px;
+    background:rgba(148,163,184,.055);
+}
+.config-geracao-bloco h4 {
+    margin:0 0 10px;
+    font-size:15px;
+    font-weight:950;
+}
+.config-radio-lista {
+    display:grid;
+    gap:10px;
+}
+.config-radio-lista label,
+.config-check-quadra {
+    display:flex;
+    align-items:center;
+    gap:9px;
+    font-weight:850;
+}
+.config-grupo-quadras {
+    display:grid;
+    gap:12px;
+}
+.config-grupo-card {
+    padding:12px;
+    border:1px solid var(--border);
+    border-radius:13px;
+    background:var(--card-bg, #fff);
+}
+.config-grupo-titulo {
+    font-weight:950;
+    margin-bottom:9px;
+}
+.config-quadras-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+    gap:8px;
+}
+.config-check-quadra {
+    padding:8px 9px;
+    border:1px solid var(--border);
+    border-radius:11px;
+    background:rgba(148,163,184,.06);
+}
+
+.quadra-filtro-tabs {
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin:12px 0 14px;
+}
+.quadra-filtro-tab {
+    border:1px solid var(--border);
+    background:var(--card-bg, #fff);
+    color:inherit;
+    border-radius:999px;
+    padding:8px 12px;
+    font-weight:900;
+    cursor:pointer;
+    transition:.18s ease;
+}
+.quadra-filtro-tab:hover {
+    transform:translateY(-1px);
+    background:rgba(37,99,235,.08);
+}
+.quadra-filtro-tab.ativa {
+    background:linear-gradient(135deg, rgba(37,99,235,.18), rgba(34,197,94,.12));
+    border-color:rgba(37,99,235,.36);
+    color:#0f3d7a;
+}
+.quadra-filtro-vazio {
+    display:none;
+    color:var(--muted);
+    border:1px dashed var(--border);
+    border-radius:14px;
+    padding:16px;
+    font-weight:800;
+    text-align:center;
+}
+
+.rodada-filtro-tabs {
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin:-4px 0 14px;
+}
+.rodada-filtro-tab {
+    padding:8px 13px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:rgba(148,163,184,.08);
+    color:inherit;
+    font-weight:900;
+    cursor:pointer;
+}
+.rodada-filtro-tab.ativa {
+    background:#123852;
+    color:#fff;
+    border-color:#123852;
+}
+
+
+.grupos-regra-card {
+    border: 1px solid rgba(37,99,235,.24);
+    background: linear-gradient(135deg, rgba(37,99,235,.07), rgba(34,197,94,.045));
+}
+.grupos-regra-topo,
+.grupos-head-linha {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:14px;
+    flex-wrap:wrap;
+}
+.grupos-regra-topo p {
+    margin:6px 0 0;
+    color:var(--muted);
+    font-weight:760;
+    line-height:1.45;
+}
+.grupos-resumo-mini {
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+}
+.grupos-resumo-mini span {
+    border:1px solid rgba(37,99,235,.22);
+    background:rgba(255,255,255,.72);
+    border-radius:999px;
+    padding:8px 11px;
+    font-weight:950;
+    color:#123852;
+}
+.grupos-acoes-firmes {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:14px;
+}
+.grupos-acoes-firmes form { margin:0; }
+.grupos-modo-aviso {
+    margin-top:14px;
+    border:1px dashed rgba(37,99,235,.28);
+    border-radius:14px;
+    padding:12px 13px;
+    color:#334155;
+    background:rgba(255,255,255,.58);
+    font-weight:760;
+    line-height:1.45;
+}
+.grupos-grid-auto {
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));
+    gap:14px;
+    margin-top:16px;
+}
+.grupo-box-auto {
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:14px;
+    background:rgba(148,163,184,.045);
+    min-width:0;
+}
+.grupo-box-topo {
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    align-items:flex-start;
+    margin-bottom:10px;
+}
+.grupo-box-titulo {
+    font-size:20px;
+    font-weight:1000;
+    color:var(--text);
+}
+.grupo-box-sub {
+    color:var(--muted);
+    font-size:12px;
+    font-weight:850;
+    margin-top:3px;
+}
+.grupo-quadra-form {
+    display:flex;
+    gap:8px;
+    align-items:end;
+    margin-bottom:10px;
+}
+.grupo-quadra-form label {
+    font-size:12px;
+    font-weight:950;
+    color:var(--muted);
+}
+.grupo-quadra-auto,
+.grupo-vazio {
+    color:var(--muted);
+    font-weight:800;
+    border:1px dashed var(--border);
+    border-radius:12px;
+    padding:11px;
+    margin:8px 0;
+    text-align:center;
+}
+.grupo-equipes-lista { margin-top:8px; }
+
+
+@media (max-width: 700px) {
+    .modal-equipes-backdrop { padding:10px; align-items:flex-end; }
+    .modal-equipes {
+        max-height:88vh;
+        border-radius:18px 18px 0 0;
+    }
+    .modal-equipes-topo { padding:16px 14px 10px; }
+    .modal-equipes-corpo { padding:12px 14px 16px; }
+    .item-equipe-modal {
+        align-items:stretch;
+        flex-direction:column;
+    }
+    .item-equipe-modal form,
+    .item-equipe-modal button {
+        width:100%;
+    }
+}
+
+@media (max-width: 900px) {
+    .tabela-grid { grid-template-columns:1fr; }
+    .tabela-tabs { gap:8px; }
+    .tabela-tab { padding:9px 12px; font-size:13px; }
+    .visualizador-preview, .visualizador-preview iframe { min-height:520px; }
+    .acoes-partida .edicao-mata-mata { grid-template-columns:1fr; }
+}
+.avanco-espelho { margin-bottom:18px; border:1px solid var(--border); border-radius:18px; padding:16px; background:linear-gradient(180deg, rgba(37,99,235,.06), rgba(255,255,255,.02)); }
+.avanco-espelho-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+.avanco-espelho-title { font-size:18px; font-weight:1000; color:var(--text); }
+.avanco-espelho-hint { color:var(--muted); font-size:13px; font-weight:700; line-height:1.45; margin-top:4px; }
+.avanco-serie-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 16px; }
+.avanco-serie-tab { padding:8px 13px; border:1px solid var(--border); border-radius:999px; font-weight:900; text-decoration:none; color:inherit; background:rgba(148,163,184,.08); }
+.avanco-serie-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
+.avanco-board-mini { display:flex; gap:14px; overflow-x:auto; padding:4px 2px 8px; }
+.avanco-col-mini { min-width:245px; display:grid; gap:10px; align-content:start; }
+.avanco-col-mini-title { font-weight:1000; color:#123852; text-transform:uppercase; font-size:12px; letter-spacing:.08em; }
+.avanco-card-mini { border:1px solid var(--border); border-radius:15px; background:#fff; padding:12px; box-shadow:0 8px 18px rgba(15,23,42,.06); }
+.avanco-card-mini-top { display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted); font-weight:900; margin-bottom:8px; }
+.avanco-slot-mini { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:8px 9px; border-radius:11px; background:rgba(148,163,184,.08); margin-bottom:6px; font-weight:900; }
+.avanco-slot-mini .origem { color:var(--muted); font-size:11px; font-weight:800; }
+.avanco-slot-mini.resolvido { background:rgba(34,197,94,.10); }
+.avanco-card-mini-meta { color:var(--muted); font-size:12px; font-weight:800; line-height:1.35; margin-top:6px; }
+
+</style>
+
+<div class="tabela-tabs">
+    <a class="tabela-tab {% if aba_ativa == 'geracao' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='geracao') }}">Grupos</a>
+    <a class="tabela-tab {% if aba_ativa == 'partidas' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase=fase_ativa) }}">Partidas</a>
+    <a class="tabela-tab {% if aba_ativa == 'classificacao' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='classificacao') }}">Classificação</a>
+    <a class="tabela-tab {% if aba_ativa == 'visualizador' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='visualizador') }}">Link público</a>
+</div>
+
+{% if competicao_travada %}
+<div class="card-painel" style="border:1px solid #f3c26b; background:#fff9ef;">
+    <strong>Competição travada.</strong> Atletas e configurações estruturais seguem protegidos conforme a regra da competição.
+</div>
+{% endif %}
+
+{% if grupos_travados %}
+<div class="card-painel" style="border:1px solid #f3c26b; background:#fff9ef;">
+    <strong>Classificatórias travadas.</strong> Como a fase de grupos já iniciou, grupos e jogos classificatórios não podem mais ser alterados. Quartas, semifinais e final continuam liberadas enquanto a própria fase ainda não iniciar.
+</div>
+{% endif %}
+
+{% if aba_ativa == 'geracao' %}
+{% set qtd_grupos_comp = competicao.qtd_grupos or 1 %}
+{% set qtd_equipes_comp = competicao.qtd_equipes or equipes|length %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Reset da tabela</h3>
+    <p style="color: var(--muted); margin-top:0;">Apaga todas as partidas da competição. Grupos e equipes permanecem.</p>
+    <form method="post" action="{{ url_for('tabela.limpar_tabela') }}" onsubmit="return confirm('Tem certeza que deseja apagar todas as partidas da competição?');">
+        <button class="tabela-danger-button" type="submit" {% if grupos_travados %}disabled{% endif %}>Limpar toda a tabela</button>
+    </form>
+</div>
+
+<div class="card-painel grupos-regra-card">
+    <div class="grupos-regra-topo">
+        <div>
+            <h3 style="margin:0;">Distribuição dos grupos</h3>
+            {% if grupo_unico_auto %}
+                <p>Esta competição está configurada como <strong>grupo único</strong>. O sistema mantém todas as equipes no Grupo A automaticamente.</p>
+            {% else %}
+                <p>Esta competição está configurada com <strong>{{ qtd_grupos_comp }} grupos</strong>. O sistema cria os grupos automaticamente conforme a estrutura e você decide se distribui manualmente ou por sorteio.</p>
+            {% endif %}
+        </div>
+        <div class="grupos-resumo-mini">
+            <span>{{ qtd_equipes_comp }} equipe(s)</span>
+            <span>{{ qtd_grupos_comp }} grupo(s)</span>
+        </div>
+    </div>
+
+    <div class="grupos-acoes-firmes">
+        <form method="post" action="{{ url_for('tabela.garantir_grupos_view') }}">
+            <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>
+                {% if grupo_unico_auto %}Sincronizar Grupo A{% else %}Criar/sincronizar grupos da estrutura{% endif %}
+            </button>
+        </form>
+
+        {% if not grupo_unico_auto %}
+        <form method="post" action="{{ url_for('tabela.sortear_grupos_view') }}" onsubmit="return confirm('Sortear novamente vai limpar a distribuição atual e redistribuir as equipes entre os grupos. Continuar?');">
+            <button class="btn-padrao" type="submit" {% if grupos_travados %}disabled{% endif %}>Sortear equipes nos grupos</button>
+        </form>
+        {% endif %}
+    </div>
+
+    {% if not grupo_unico_auto %}
+    <div class="grupos-modo-aviso">
+        <strong>Manual:</strong> clique em “Adicionar equipe” dentro de cada grupo. A equipe escolhida sai automaticamente de qualquer outro grupo.
+        <br><strong>Sorteio:</strong> o sistema embaralha e distribui de forma equilibrada entre A, B, C, D...
+    </div>
+    {% endif %}
+</div>
+
+<div class="card-painel">
+    <div class="grupos-head-linha">
+        <div>
+            <h3 style="margin:0;">Grupos da competição</h3>
+            <div style="color:var(--muted);font-weight:750;font-size:13px;margin-top:4px;">
+                {% if grupo_unico_auto %}
+                    Grupo único automático.
+                {% else %}
+                    Grupos definidos pela Estrutura da competição. Não crie grupos avulsos.
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if grupos %}
+        {% set equipes_vinculadas_ns = namespace(nomes=[]) %}
+        {% for gg in grupos %}
+            {% for ge in gg.equipes %}
+                {% set equipes_vinculadas_ns.nomes = equipes_vinculadas_ns.nomes + [ge.equipe] %}
+            {% endfor %}
+        {% endfor %}
+
+        <div class="grupos-grid-auto">
+        {% for g in grupos %}
+            <div class="grupo-box-auto">
+                <div class="grupo-box-topo">
+                    <div>
+                        <div class="grupo-box-titulo">Grupo {{ g.grupo.nome }}</div>
+                        <div class="grupo-box-sub">{{ g.equipes|length }} equipe(s) • Quadra: {{ g.quadra_label or 'Sem quadra' }}</div>
+                    </div>
+                </div>
+
+                {% if not quadra_unica_auto %}
+                <form method="post" action="{{ url_for('tabela.vincular_grupo_quadra_view') }}" class="grupo-quadra-form">
+                    <input type="hidden" name="grupo_nome" value="{{ g.grupo.nome }}">
+                    <div style="min-width:0; flex:1;">
+                        <label>Quadra deste grupo</label>
+                        <select name="quadra_id" {% if grupos_travados %}disabled{% endif %}>
+                            <option value="">Sem quadra definida</option>
+                            {% for q in quadras %}
+                                <option value="{{ q.id }}" {% if g.quadra_id and q.id == g.quadra_id %}selected{% endif %}>{{ q.nome_exibicao or q.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Salvar</button>
+                </form>
+                {% else %}
+                <div class="grupo-quadra-auto">Quadra única herdada automaticamente.</div>
+                {% endif %}
+
+                {% if not grupo_unico_auto %}
+                <button
+                    class="btn-add-equipe-grupo"
+                    type="button"
+                    data-abrir-modal-equipes="modal-equipes-grupo-{{ g.grupo.id }}"
+                    {% if grupos_travados %}disabled{% endif %}
+                >
+                    <span class="icone">+</span>
+                    <span>Adicionar equipe</span>
+                </button>
+
+                <div class="modal-equipes-backdrop" id="modal-equipes-grupo-{{ g.grupo.id }}" aria-hidden="true">
+                    <div class="modal-equipes" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-equipes-{{ g.grupo.id }}">
+                        <div class="modal-equipes-topo">
+                            <div>
+                                <h3 id="titulo-modal-equipes-{{ g.grupo.id }}">Adicionar equipe ao Grupo {{ g.grupo.nome }}</h3>
+                                <div class="modal-equipes-sub">Só aparecem equipes que ainda não estão em nenhum grupo.</div>
+                            </div>
+                            <button class="modal-fechar" type="button" data-fechar-modal-equipes aria-label="Fechar">×</button>
+                        </div>
+
+                        <div class="modal-equipes-corpo">
+                            <div class="modal-equipes-info">Selecione uma equipe disponível para adicionar manualmente ao Grupo {{ g.grupo.nome }}.</div>
+                            <input class="busca-equipe-modal" type="search" placeholder="Buscar equipe..." data-busca-equipe-modal autocomplete="off">
+                            <div class="lista-equipes-modal">
+                                {% set tem_disponivel = namespace(valor=false) %}
+                                {% for e in equipes %}
+                                    {% if e.nome not in equipes_vinculadas_ns.nomes %}
+                                        {% set tem_disponivel.valor = true %}
+                                        <div class="item-equipe-modal" data-equipe-modal-item data-equipe-nome="{{ e.nome|lower }}">
+                                            <div class="dados-equipe">
+                                                <img src="{{ e.escudo or e.escudo_url or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ e.nome }}" loading="lazy" decoding="async">
+                                                <span class="nome-equipe-modal">{{ e.nome }}</span>
+                                            </div>
+                                            <form method="post" action="{{ url_for('tabela.adicionar_equipe_grupo') }}">
+                                                <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
+                                                <input type="hidden" name="equipe" value="{{ e.nome }}">
+                                                <button class="btn-secundario" type="submit" {% if grupos_travados %}disabled{% endif %}>Adicionar</button>
+                                            </form>
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+                                {% if not tem_disponivel.valor %}
+                                    <div class="vazio-equipes-modal">Nenhuma equipe disponível. Todas já estão em algum grupo.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="grupo-equipes-lista">
+                {% if g.equipes %}
+                    {% for e in g.equipes %}
+                        <div class="card-grupo-equipe">
+                            <strong>{{ e.equipe }}</strong>
+                            {% if not grupo_unico_auto %}
+                            <form method="post" action="{{ url_for('tabela.remover_equipe_grupo_view') }}" onsubmit="return confirm('Remover esta equipe do grupo? Os jogos desse grupo envolvendo ela também serão apagados.');">
+                                <input type="hidden" name="grupo_id" value="{{ g.grupo.id }}">
+                                <input type="hidden" name="equipe" value="{{ e.equipe }}">
+                                <button class="tabela-danger-outline" type="submit" {% if grupos_travados %}disabled{% endif %}>Remover</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="grupo-vazio">Nenhuma equipe no grupo.</div>
+                {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+        </div>
+    {% else %}
+        <div class="grupo-vazio">Nenhum grupo criado. Clique em sincronizar grupos da estrutura.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+
+
+{% if aba_ativa == 'partidas' %}
+<div class="tabela-tabs">
+    <a class="tabela-tab {% if fase_ativa == 'classificatorias' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='classificatorias') }}">Classificatórias</a>
+    {% if avanco_fases_tabs %}
+        {% for fase_tab in avanco_fases_tabs %}
+            <a class="tabela-tab {% if fase_ativa == fase_tab %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase=fase_tab) }}">{{ fase_labels.get(fase_tab, fase_tab) }}</a>
+        {% endfor %}
+    {% else %}
+        {% if tem_quartas %}<a class="tabela-tab {% if fase_ativa == 'quartas' %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='quartas') }}">Quartas</a>{% endif %}
+        {% if tem_semifinais %}<a class="tabela-tab {% if fase_ativa in ['semifinal','semifinais'] %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='semifinal') }}">Semifinais</a>{% endif %}
+        {% if tem_finais %}<a class="tabela-tab {% if fase_ativa in ['final','finais'] %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase='final') }}">Finais</a>{% endif %}
+    {% endif %}
+</div>
+
+<div class="card-painel">
+    <div class="topo-secao" style="margin-bottom: 12px;">
+        <h3 style="margin:0;">
+            {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% else %}{{ fase_labels.get(fase_ativa, fase_ativa) }}{% endif %}
+        </h3>
+    </div>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        {% if fase_ativa == 'classificatorias' %}
+        <form method="post" action="{{ url_for('tabela.gerar_automatico') }}" onsubmit="return confirm('Gerar automaticamente vai substituir os jogos ainda não iniciados desta fase. Deseja continuar?');">
+            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+            <button class="btn-padrao" type="submit" {% if fase_atual_travada %}disabled{% endif %}>Gerar jogos automaticamente</button>
+        </form>
+        {% else %}
+        <a class="btn-secundario" href="{{ url_for('competicoes.avanco_competicao_view') }}">Editar desenho do avanço</a>
+        <form method="post" action="{{ url_for('tabela.gerar_avanco_tabela_view') }}" onsubmit="return confirm('Gerar os confrontos reais do avanço agora? O sistema só vai liberar se todos os jogos classificatórios estiverem finalizados.');">
+            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+            <input type="hidden" name="serie" value="{{ avanco_serie_ativa or '' }}">
+            <button class="btn-padrao" type="submit" {% if not avanco_status or not avanco_status.fechada %}disabled{% endif %}>Gerar jogos da próxima fase</button>
+        </form>
+        {% endif %}
+
+        {% if fase_ativa == 'classificatorias' %}
+        <a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='rodadas') }}">⚙️ Configurar rodadas</a>
+        {% endif %}
+
+        {% if fase_ativa != 'classificatorias' %}
+        <div style="color: var(--muted); display:flex; align-items:center; line-height:1.45;">
+            {% if avanco_status and avanco_status.fechada %}
+                Classificatórias finalizadas. Clique em “Gerar jogos da próxima fase” para congelar os classificados e criar os confrontos reais.
+            {% else %}
+                Avanço bloqueado: enquanto houver jogo classificatório pendente, o sistema mostra só os placeholders configurados, como “1º Grupo A”, sem puxar nomes reais.
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('tabela.limpar_fase_view') }}" onsubmit="return confirm('Deseja apagar todas as partidas desta fase?');">
+            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+            <button class="tabela-danger-outline" type="submit" {% if fase_atual_travada %}disabled{% endif %}>Limpar fase</button>
+        </form>
+    </div>
+</div>
+
+{% if fase_ativa == 'classificatorias' %}
+<div class="modal-equipes-backdrop" id="modal-config-geracao" aria-hidden="true">
+    <div class="modal-equipes" role="dialog" aria-modal="true" aria-labelledby="titulo-modal-config-geracao">
+        <div class="modal-equipes-topo">
+            <div>
+                <h3 id="titulo-modal-config-geracao">Configurar geração automática</h3>
+                <div class="modal-equipes-sub">
+                    Essas regras serão usadas quando você clicar em gerar jogos automaticamente.
+                </div>
+            </div>
+            <button class="modal-fechar" type="button" data-fechar-modal-equipes aria-label="Fechar">×</button>
+        </div>
+
+        <form method="post" action="{{ url_for('tabela.salvar_config_geracao_view') }}">
+            <div class="modal-equipes-corpo">
+                <div class="modal-equipes-info">
+                    Use quadra fixa quando cada grupo jogar sempre na mesma quadra. Use rodízio quando um grupo puder alternar entre quadras permitidas.
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Modo de distribuição</h4>
+                    <div class="config-radio-lista">
+                        <label>
+                            <input type="radio" name="modo_distribuicao" value="fixa" {% if not config_geracao or config_geracao.modo_distribuicao != 'rodizio' %}checked{% endif %}>
+                            Grupo fixo na quadra escolhida
+                        </label>
+                        <label>
+                            <input type="radio" name="modo_distribuicao" value="rodizio" {% if config_geracao and config_geracao.modo_distribuicao == 'rodizio' %}checked{% endif %}>
+                            Rodízio entre quadras permitidas
+                        </label>
+                    </div>
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Descanso mínimo</h4>
+                    <label for="descanso_minimo_geracao">Jogos de intervalo antes da mesma equipe jogar novamente</label>
+                    <input id="descanso_minimo_geracao" type="number" min="0" max="5" name="descanso_minimo" value="{{ config_geracao.descanso_minimo if config_geracao else 1 }}">
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Ordem dos jogos</h4>
+                    <select name="ordem_jogos">
+                        <option value="intercalar_grupos" {% if not config_geracao or config_geracao.ordem_jogos == 'intercalar_grupos' %}selected{% endif %}>Intercalar grupos por rodada</option>
+                        <option value="por_grupo" {% if config_geracao and config_geracao.ordem_jogos == 'por_grupo' %}selected{% endif %}>Fazer grupo por grupo</option>
+                        <option value="balancear_quadras" {% if config_geracao and config_geracao.ordem_jogos == 'balancear_quadras' %}selected{% endif %}>Balancear uso das quadras</option>
+                    </select>
+                </div>
+
+                <div class="config-geracao-bloco">
+                    <h4>Quadras permitidas por grupo</h4>
+                    <div class="config-grupo-quadras">
+                        {% for g in grupos %}
+                            {% set selecionadas_grupo = config_geracao.quadras_por_grupo.get(g.grupo.nome, []) if config_geracao and config_geracao.quadras_por_grupo else [] %}
+                            <div class="config-grupo-card">
+                                <div class="config-grupo-titulo">Grupo {{ g.grupo.nome }}</div>
+                                <div class="config-quadras-grid">
+                                    {% for q in quadras %}
+                                        <label class="config-check-quadra">
+                                            <input
+                                                type="checkbox"
+                                                name="quadras_grupo_{{ g.grupo.nome }}[]"
+                                                value="{{ q.id }}"
+                                                {% if q.id in selecionadas_grupo or (not selecionadas_grupo and g.quadra_id and q.id == g.quadra_id) %}checked{% endif %}
+                                            >
+                                            <span>{{ q.nome_exibicao or q.nome }}</span>
+                                        </label>
+                                    {% endfor %}
+                                </div>
+                                {% if not quadras %}
+                                    <div style="color:var(--muted); font-size:13px;">Nenhuma quadra cadastrada nesta competição.</div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; padding:14px 20px; border-top:1px solid var(--border);">
+                <button class="btn-secundario" type="button" data-fechar-modal-equipes>Cancelar</button>
+                <button class="btn-padrao" type="submit">Salvar configurações</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if fase_ativa != 'classificatorias' and avanco_series_fase %}
+<div class="avanco-serie-tabs">
+    {% for serie in avanco_series_fase %}
+        <a class="avanco-serie-tab {% if avanco_serie_ativa == serie.id %}ativa{% endif %}" href="{{ url_for('tabela.tabela_view', aba='partidas', fase=fase_ativa, serie=serie.id) }}">{{ serie.nome }}</a>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if fase_ativa != 'classificatorias' and avanco_espelho %}
+<div class="avanco-espelho">
+    <div class="avanco-espelho-head">
+        <div>
+            <div class="avanco-espelho-title">Espelho do Avanço</div>
+            <div class="avanco-espelho-hint">O quadro abaixo vem da aba Avanço. Enquanto a classificatória inteira não estiver finalizada e o botão de geração não for acionado, aparecem apenas os placeholders configurados, como “1º Grupo A” e “Vencedor J1”.</div>
+        </div>
+    </div>
+    {% for serie in avanco_espelho %}
+        {% if not avanco_serie_ativa or serie.id == avanco_serie_ativa %}
+        <div style="font-weight:1000; margin:10px 0 8px; color:#123852;">{{ serie.nome }}</div>
+        <div class="avanco-board-mini">
+            {% for fase in serie.fases %}
+                {% if fase.id == fase_ativa %}
+                <div class="avanco-col-mini">
+                    <div class="avanco-col-mini-title">{{ fase.nome }}</div>
+                    {% for jogo in fase.jogos %}
+                    <div class="avanco-card-mini">
+                        <div class="avanco-card-mini-top"><span>{{ jogo.id }}</span><span>{{ jogo.status_exibicao }}</span></div>
+                        <div class="avanco-slot-mini {% if jogo.equipe_a %}resolvido{% endif %}">
+                            <span>{{ jogo.equipe_a or jogo.origem_a_label }}</span>
+                            {% if jogo.equipe_a %}<span class="origem">{{ jogo.origem_a_label }}</span>{% endif %}
+                        </div>
+                        <div class="avanco-slot-mini {% if jogo.equipe_b %}resolvido{% endif %}">
+                            <span>{{ jogo.equipe_b or jogo.origem_b_label }}</span>
+                            {% if jogo.equipe_b %}<span class="origem">{{ jogo.origem_b_label }}</span>{% endif %}
+                        </div>
+                        {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
+                            <div class="avanco-card-mini-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if fase_ativa == 'classificatorias' or not avanco_fases_tabs %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">{% if fase_ativa == 'classificatorias' %}Criar jogo manual{% else %}Criar jogo extra/manual{% endif %}</h3>
+
+    <form id="form-nova-partida" method="post" action="{{ url_for('tabela.nova_partida') }}" novalidate>
+        <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            {% if fase_ativa == 'classificatorias' and grupo_unico_auto %}
+                <input type="hidden" id="grupo" name="grupo" value="A">
+                <div style="min-width:180px; flex:1;">
+                    <label>Grupo</label>
+                    <input type="text" value="Grupo A automático" disabled>
+                </div>
+            {% elif fase_ativa == 'classificatorias' %}
+            <div style="min-width:180px; flex:1;">
+                <label for="grupo">Grupo</label>
+                <select id="grupo" name="grupo" required>
+                    <option value="">Selecione</option>
+                    {% for g in grupos %}
+                        <option value="{{ g.grupo.nome }}" data-quadra-id="{{ g.quadra_id or '' }}">{{ g.grupo.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% else %}
+                <input type="hidden" name="grupo" value="">
+                <div style="min-width:180px; flex:1;">
+                    <label>Identificação da fase</label>
+                    <input type="text" value="{{ fase_labels.get(fase_ativa, fase_ativa) }}" disabled>
+                </div>
+            {% endif %}
+
+            {% if quadra_unica_auto %}
+                {% set q_auto = quadras[0] if quadras else None %}
+                <input type="hidden" id="quadra_id" name="quadra_id" value="{{ q_auto.id if q_auto else '' }}">
+                <div style="min-width:220px; flex:1;">
+                    <label>Quadra</label>
+                    <input type="text" value="{{ q_auto.nome_exibicao or q_auto.nome if q_auto else 'Quadra automática' }}" disabled>
+                </div>
+            {% else %}
+            <div style="min-width:220px; flex:1;">
+                <label for="quadra_id">Quadra</label>
+                <select id="quadra_id" name="quadra_id">
+                    <option value="">Herdar do grupo / sem quadra</option>
+                    {% for q in quadras %}
+                        <option value="{{ q.id }}">{{ q.nome_exibicao or q.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div style="min-width:240px; flex:1;">
+                <label for="equipe_a">Equipe A</label>
+                <select id="equipe_a" name="equipe_a" {% if fase_ativa == 'classificatorias' %}required{% endif %}>
+                    <option value="">{% if fase_ativa == 'classificatorias' %}Selecione{% else %}A definir{% endif %}</option>
+                    {% for e in equipes %}
+                        <option value="{{ e.nome }}">{{ e.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="min-width:240px; flex:1;">
+                <label for="equipe_b">Equipe B</label>
+                <select id="equipe_b" name="equipe_b" {% if fase_ativa == 'classificatorias' %}required{% endif %}>
+                    <option value="">{% if fase_ativa == 'classificatorias' %}Selecione{% else %}A definir{% endif %}</option>
+                    {% for e in equipes %}
+                        <option value="{{ e.nome }}">{{ e.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div style="display:flex; align-items:end;">
+                <button class="btn-secundario" type="submit" form="form-nova-partida" {% if fase_atual_travada %}disabled{% endif %}>Criar partida</button>
+            </div>
+
+            {% if fase_ativa != 'classificatorias' %}
+            <div style="width:100%; color:var(--muted); font-size:13px; margin-top:-4px;">
+                Use isso apenas para jogo extra fora do desenho do Avanço. O chaveamento principal vem da aba Avanço.
+            </div>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="card-painel">
+    <h3 style="margin-top: 0;">
+        {% if fase_ativa == 'classificatorias' %}Jogos classificatórios{% else %}{{ fase_labels.get(fase_ativa, fase_ativa) }}{% endif %}
+    </h3>
+
+    {% if partidas_fase %}
+    {% if fase_ativa == 'classificatorias' %}
+    {% set ns_rodadas = namespace(valores=[]) %}
+    {% for px in partidas_fase %}
+        {% if px.rodada and px.rodada not in ns_rodadas.valores %}
+            {% set ns_rodadas.valores = ns_rodadas.valores + [px.rodada] %}
+        {% endif %}
+    {% endfor %}
+
+    {% if quadras|length > 1 %}
+    <div class="quadra-filtro-tabs" data-filtro-quadras>
+        <button class="quadra-filtro-tab ativa" type="button" data-quadra-filtro="todas">
+            Todos os jogos
+        </button>
+        {% for q in quadras %}
+            <button class="quadra-filtro-tab" type="button" data-quadra-filtro="{{ q.id }}">
+                {{ q.nome_exibicao or q.nome }}
+            </button>
+        {% endfor %}
+        <button class="quadra-filtro-tab" type="button" data-quadra-filtro="sem_quadra">
+            Sem quadra
+        </button>
+    </div>
+    {% endif %}
+
+    {% if ns_rodadas.valores %}
+    <div class="rodada-filtro-tabs" data-filtro-rodadas>
+        <button class="rodada-filtro-tab ativa" type="button" data-rodada-filtro="todas">
+            Todas as rodadas
+        </button>
+        {% for r in ns_rodadas.valores|sort %}
+            <button class="rodada-filtro-tab" type="button" data-rodada-filtro="{{ r }}">
+                Rodada {{ r }}
+            </button>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="quadra-filtro-vazio" data-quadra-filtro-vazio>
+        Nenhum jogo encontrado para este filtro.
+    </div>
+    {% endif %}
+    <div class="tabela-scroll">
+    <table class="tabela-pro" data-tabela-partidas>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Grupo</th>
+                <th>Rodada</th>
+                <th>Data/hora</th>
+                <th>Quadra</th>
+                <th>Jogo</th>
+                <th>Fase</th>
+                <th>Status</th>
+                <th>Sets</th>
+                <th>Parciais / Ao vivo</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in partidas_fase %}
+            <tr
+                data-partida-id="{{ p.id }}"
+                data-competicao="{{ competicao.nome }}"
+                data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
+                data-quadra-id="{{ p.quadra_id_normalizado if p.quadra_id_normalizado else 'sem_quadra' }}"
+                data-rodada="{{ p.rodada or 'sem_rodada' }}"
+            >
+                <td><span class="posicao">{{ p.ordem }}</span></td>
+                <td>{% if p.fase_normalizada == 'grupos' %}{{ p.grupo }}{% else %}-{% endif %}</td>
+                <td><strong>{% if p.rodada %}Rodada {{ p.rodada }}{% else %}-{% endif %}</strong></td>
+                <td>{% if p.data_hora_label %}<strong>{{ p.data_hora_label }}</strong>{% else %}<span style="color:var(--muted);">Sem horário</span>{% endif %}</td>
+                <td><strong>{{ p.quadra_label or '-' }}</strong></td>
+                <td class="col-equipe jogo-nome">
+                    <div class="confronto-com-escudos">
+                        <span class="confronto-time">
+                            <img src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
+                            <span>{{ p.equipe_a or 'A definir' }}</span>
+                        </span>
+                        <span style="color:var(--muted); font-weight:900;">x</span>
+                        <span class="confronto-time">
+                            <img src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
+                            <span>{{ p.equipe_b or 'A definir' }}</span>
+                        </span>
+                    </div>
+                </td>
+                <td>{{ p.fase_normalizada or 'grupos' }}</td>
+
+                <td id="status-{{ p.id }}">
+                    {% if p.ao_vivo %}
+                        <span class="badge-status badge-ao-vivo">AO VIVO</span>
+                    {% elif p.finalizada %}
+                        <span class="badge-status badge-finalizado">FINALIZADO</span>
+                    {% else %}
+                        <span class="badge-status badge-agendada">{{ p.status_exibicao }}</span>
+                    {% endif %}
+                </td>
+
+                <td id="sets-{{ p.id }}" style="font-weight:800;">
+                    {{ p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.sets_a or 0) }} x {{ p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.sets_b or 0) }}
+                </td>
+
+                <td id="parciais-{{ p.id }}" style="font-size:13px; color:var(--muted);">
+                    {% if p.ao_vivo %}
+                        {{ p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.placar_ao_vivo_a or p.pontos_a or 0) }} x {{ p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.placar_ao_vivo_b or p.pontos_b or 0) }}
+                    {% elif p.finalizada %}
+                        {{ p.parciais_formatadas }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td class="acoes-partida">
+                    {% if p.pode_excluir and not fase_atual_travada %}
+                        <form class="edicao-mata-mata" method="post" action="{{ url_for('tabela.atualizar_partida_view', partida_id=p.id) }}">
+                            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+                            <input type="hidden" name="rodada" value="{{ p.rodada or '' }}">
+                            {% if fase_ativa != 'classificatorias' %}
+                            <select name="equipe_a" style="min-width:150px;">
+                                <option value="">A definir</option>
+                                {% for e in equipes %}
+                                    <option value="{{ e.nome }}" {% if e.nome == p.equipe_a %}selected{% endif %}>{{ e.nome }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="equipe_b" style="min-width:150px;">
+                                <option value="">A definir</option>
+                                {% for e in equipes %}
+                                    <option value="{{ e.nome }}" {% if e.nome == p.equipe_b %}selected{% endif %}>{{ e.nome }}</option>
+                                {% endfor %}
+                            </select>
+                            {% endif %}
+                            <input type="datetime-local" name="data_hora" value="{{ p.data_hora_input or '' }}" style="min-width:170px;">
+                            <select name="quadra_id" style="min-width:150px;">
+                                <option value="">Sem quadra</option>
+                                {% for q in quadras %}
+                                    <option value="{{ q.id }}" {% if p.quadra_id_normalizado and q.id == p.quadra_id_normalizado %}selected{% endif %}>{{ q.nome_exibicao or q.nome }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn-secundario" type="submit">Salvar</button>
+                        </form>
+                        <form method="post" action="{{ url_for('tabela.excluir_partida_view', partida_id=p.id) }}" onsubmit="return confirm('Excluir esta partida? Essa ação não poderá ser feita depois que o jogo iniciar.');">
+                            <input type="hidden" name="fase_subaba" value="{{ fase_ativa }}">
+                            <button class="tabela-danger-outline" type="submit">Excluir</button>
+                        </form>
+                    {% else %}
+                        <span style="color:var(--muted); font-size:12px;">Bloqueada</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+        <div>Nenhum jogo criado nesta fase.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if aba_ativa == 'classificacao' %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Classificação</h3>
+    <div class="classificacao-hint">
+        A tabela usa a pontuação e os critérios configurados nas regras da competição.
+        As colunas exibidas abaixo acompanham somente os critérios ativos antes do sorteio.
+    </div>
+    {% if colunas_classificacao %}
+        <div class="classificacao-hint" style="font-size:13px; margin-top:-8px;">
+            Colunas ativas:
+            {% for coluna in colunas_classificacao %}
+                <strong>{{ coluna.titulo }}</strong>{% if not loop.last %} › {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if classificacao %}
+        {% for nome_grupo, linhas in classificacao.items() %}
+            <div style="margin-bottom: 20px;">
+                <div style="font-size:18px; font-weight:900; margin-bottom:8px;">
+                    Grupo {{ nome_grupo }}
+                </div>
+
+                <div class="tabela-scroll">
+                <table class="tabela-pro">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Equipe</th>
+                            {% for coluna in colunas_classificacao %}
+                                <th>{{ coluna.titulo }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in linhas %}
+                        <tr>
+                            <td><span class="posicao">{{ loop.index }}</span></td>
+                            <td class="col-equipe">
+                                <div class="equipe-inline">
+                                    <img class="escudo-mini" src="{{ linha.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ linha.equipe }}" loading="lazy" decoding="async">
+                                    <span>{{ linha.equipe }}</span>
+                                </div>
+                            </td>
+                            {% for coluna in colunas_classificacao %}
+                                <td>{{ linha[coluna.campo] }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div style="color: var(--muted);">Nenhum grupo criado ainda para montar a classificação.</div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if aba_ativa == 'visualizador' %}
+<div class="card-painel">
+    <h3 style="margin-top: 0;">Visualizador ao vivo</h3>
+    <p style="margin-top:0; color: var(--muted);">
+        Este é o link exclusivo para divulgar a classificação e os jogos ao vivo da competição.
+    </p>
+
+    <label style="font-weight:800;">Link para divulgação</label>
+    <input
+        class="tabela-link-box"
+        type="text"
+        readonly
+        value="{{ request.host_url.rstrip('/') }}{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"
+        onclick="this.select();"
+    >
+
+    {% set link_visualizador = request.host_url.rstrip('/') ~ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) %}
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:14px;">
+        <a href="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}" target="_blank">
+            <button class="btn-padrao" type="button">Abrir visualizador</button>
+        </a>
+
+        <button
+            class="btn-secundario"
+            type="button"
+            onclick="copiarLinkVisualizador()"
+        >
+            Copiar link
+        </button>
+    </div>
+
+    <div class="visualizador-preview">
+        <iframe src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
+    </div>
+</div>
+{% endif %}
+
+<style>[data-tabela-app].carregando{opacity:.55;pointer-events:none;transition:.15s ease;}</style>

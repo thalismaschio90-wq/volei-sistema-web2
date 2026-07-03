@@ -34,6 +34,8 @@ from banco import (
     marcar_etapa_configuracao_competicao,
     buscar_config_destaques_competicao,
     salvar_config_destaques_competicao,
+    listar_rodadas_competicao,
+    salvar_rodadas_competicao,
 )
 
 from routes.utils import exigir_perfil, perfil_atual
@@ -333,6 +335,8 @@ def listar_competicoes_view():
             competicao_travada=competicao_esta_travada(competicao["nome"]),
             config_inicial_status=config_inicial_status,
             destaques_config=buscar_config_destaques_competicao(competicao["nome"]),
+            rodadas_config=listar_rodadas_competicao(competicao["nome"]),
+            rodadas_modelo=_montar_modelo_rodadas_competicao(competicao, avanco),
         )
         # A trava visual agora é feita diretamente pelo template, por jogo.
         # Não injetamos JavaScript por fora porque isso confundia J1/J5/J7
@@ -639,10 +643,21 @@ def salvar_estrutura_view():
     if modo_operacao not in ("simples", "avancado"):
         modo_operacao = "simples"
 
+    qtd_grupos_form = _to_int(request.form.get("qtd_grupos"), padrao=0, minimo=0)
+    # Regra firme da estrutura:
+    # - 0 ou 1 grupo = grupo único;
+    # - 2+ grupos = competição em grupos, mesmo que o checkbox antigo não venha no POST.
+    # Isso evita a Tabela interpretar uma competição de 4 grupos como grupo único.
+    tem_grupos_form = (request.form.get("tem_grupos") == "on") or qtd_grupos_form > 1
+    if not tem_grupos_form:
+        qtd_grupos_form = 1
+    elif qtd_grupos_form <= 0:
+        qtd_grupos_form = 1
+
     dados = {
         "qtd_equipes": _to_int(request.form.get("qtd_equipes"), padrao=0, minimo=0),
-        "tem_grupos": request.form.get("tem_grupos") == "on",
-        "qtd_grupos": _to_int(request.form.get("qtd_grupos"), padrao=0, minimo=0),
+        "tem_grupos": tem_grupos_form,
+        "qtd_grupos": qtd_grupos_form,
         "modo_operacao": modo_operacao,
         "data_limite_inscricao": data_limite_inscricao,
         "hora_limite_inscricao": hora_limite_inscricao,
@@ -687,9 +702,11 @@ def salvar_quadras_view():
         flash("Cadastre pelo menos uma quadra ativa para a competição.", "erro")
         return redirect(url_for("competicoes.listar_competicoes_view"))
 
-    qtd_quadras = len(quadras)
+    # salvar_quadras_competicao já atualiza competicoes.qtd_quadras com a
+    # quantidade ativa. Não chamamos atualizar_estrutura_competicao aqui porque
+    # este salvamento é exclusivo das quadras e não pode mexer em equipes,
+    # grupos, modo de operação ou demais configurações já salvas.
     salvar_quadras_competicao(comp["nome"], quadras)
-    atualizar_estrutura_competicao(comp["nome"], {"qtd_quadras": qtd_quadras})
 
     marcar_etapa_configuracao_competicao(comp["nome"], "quadras", True)
 
@@ -744,6 +761,144 @@ def _coletar_grupos_compartilhados_agenda_form():
     return dados
 
 
+
+def _rodadas_classificatoria_estimadas(competicao):
+    nome = (competicao or {}).get("nome") or ""
+    try:
+        from banco import listar_grupos, listar_equipes_por_grupo
+        grupos = listar_grupos(nome) or []
+        max_rodadas = 0
+        for g in grupos:
+            equipes = listar_equipes_por_grupo(g.get("id")) or []
+            qtd = len([e for e in equipes if e.get("equipe")])
+            if qtd >= 2:
+                max_rodadas = max(max_rodadas, qtd if qtd % 2 else qtd - 1)
+        if max_rodadas > 0:
+            return max_rodadas
+    except Exception:
+        pass
+    qtd = _to_int((competicao or {}).get("qtd_equipes") or (competicao or {}).get("numero_equipes"), 0, minimo=0)
+    if qtd >= 2:
+        return qtd if qtd % 2 else qtd - 1
+    return 0
+
+
+def _montar_modelo_rodadas_competicao(competicao, avanco=None):
+    modelo = {"classificatoria": [], "avanco": []}
+    total = _rodadas_classificatoria_estimadas(competicao)
+    for i in range(1, total + 1):
+        modelo["classificatoria"].append({
+            "tipo_fase": "classificatoria",
+            "fase": "grupos",
+            "serie": "",
+            "numero_rodada": i,
+            "nome": f"Rodada {i}",
+        })
+
+    jogos = []
+    if isinstance(avanco, dict):
+        jogos = avanco.get("jogos") or []
+    for idx, jogo in enumerate(jogos, start=1):
+        if not isinstance(jogo, dict):
+            continue
+        fase = str(jogo.get("fase") or "avanco").strip().lower()
+        serie = str(jogo.get("serie") or "ouro").strip().lower()
+        jid = str(jogo.get("id") or f"J{idx}").strip()
+        try:
+            numero = int(jid.lstrip("Jj") or idx)
+        except Exception:
+            numero = idx
+        nome_fase = {
+            "quartas": "Quartas",
+            "semifinal": "Semifinal",
+            "semifinais": "Semifinal",
+            "final": "Final",
+            "terceiro_lugar": "3º lugar",
+        }.get(fase, fase.replace("_", " ").title())
+        nome = f"{nome_fase} {serie.title()} - {jid}" if serie else f"{nome_fase} - {jid}"
+        modelo["avanco"].append({
+            "tipo_fase": "avanco",
+            "fase": fase,
+            "serie": serie,
+            "numero_rodada": numero,
+            "nome": nome,
+        })
+    return modelo
+
+
+def _indice_rodadas_salvas(rodadas):
+    idx = {}
+    for r in rodadas or []:
+        chave = (
+            str(r.get("tipo_fase") or "").strip().lower(),
+            str(r.get("fase") or "").strip().lower(),
+            str(r.get("serie") or "").strip().lower(),
+            int(r.get("numero_rodada") or 1),
+        )
+        idx[chave] = r
+    return idx
+
+
+@competicoes_bp.route("/competicoes/rodadas", methods=["POST"])
+@exigir_perfil("organizador")
+def salvar_rodadas_programadas_view():
+    comp = _competicao_do_organizador_logado()
+    if not comp:
+        flash("Competição não encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if competicao_esta_travada(comp["nome"]):
+        flash("A competição está travada. As rodadas programadas não podem mais ser alteradas.", "erro")
+        return redirect(url_for("competicoes.listar_competicoes_view", tab="rodadas"))
+
+    cfg = buscar_configuracao_agenda_competicao(comp["nome"]) or {}
+    usar = request.form.get("usar_rodadas_programadas") == "on"
+    uma_por_rodada = request.form.get("uma_partida_por_equipe_rodada") == "on"
+    atualizar_configuracao_agenda_competicao(
+        comp["nome"],
+        modo_distribuicao=cfg.get("modo_distribuicao", "automatico_inteligente"),
+        descanso_minimo_jogos=cfg.get("descanso_minimo_jogos", 1),
+        rodizio_grupos=cfg.get("rodizio_grupos", "por_rodada"),
+        permitir_relaxar_descanso=cfg.get("permitir_relaxar_descanso", True),
+        grupos_compartilhados=cfg.get("grupos_compartilhados") or {},
+        quadras_compartilhadas=cfg.get("quadras_compartilhadas") or [],
+        usar_rodadas_programadas=usar,
+        uma_partida_por_equipe_rodada=uma_por_rodada,
+    )
+
+    tipos = request.form.getlist("rodada_tipo_fase[]")
+    fases = request.form.getlist("rodada_fase[]")
+    series = request.form.getlist("rodada_serie[]")
+    numeros = request.form.getlist("rodada_numero[]")
+    nomes = request.form.getlist("rodada_nome[]")
+    datas = request.form.getlist("rodada_data[]")
+    horas = request.form.getlist("rodada_hora[]")
+
+    rodadas = []
+    total = max(len(tipos), len(fases), len(series), len(numeros), len(nomes), len(datas), len(horas))
+    for i in range(total):
+        rodadas.append({
+            "tipo_fase": tipos[i] if i < len(tipos) else "classificatoria",
+            "fase": fases[i] if i < len(fases) else "grupos",
+            "serie": series[i] if i < len(series) else "",
+            "numero_rodada": numeros[i] if i < len(numeros) else i + 1,
+            "nome": nomes[i] if i < len(nomes) else f"Rodada {i+1}",
+            "data": datas[i] if i < len(datas) else "",
+            "hora": horas[i] if i < len(horas) else "",
+            "ativo": True,
+        })
+
+    if not usar:
+        rodadas = []
+
+    if salvar_rodadas_competicao(comp["nome"], rodadas):
+        marcar_etapa_configuracao_competicao(comp["nome"], "rodadas", bool(usar))
+        flash("Rodadas programadas salvas com sucesso.", "sucesso")
+    else:
+        flash("Não foi possível salvar as rodadas programadas.", "erro")
+    return redirect(url_for("competicoes.listar_competicoes_view", tab="rodadas"))
+
+
 @competicoes_bp.route("/competicoes/agenda", methods=["POST"])
 @exigir_perfil("organizador")
 def salvar_agenda_automatica_view():
@@ -766,6 +921,7 @@ def salvar_agenda_automatica_view():
     )
     grupos_compartilhados = _coletar_grupos_compartilhados_agenda_form()
 
+    cfg_atual = buscar_configuracao_agenda_competicao(comp["nome"]) or {}
     ok = atualizar_configuracao_agenda_competicao(
         comp["nome"],
         modo_distribuicao=modo,
@@ -774,6 +930,8 @@ def salvar_agenda_automatica_view():
         permitir_relaxar_descanso=permitir_relaxar,
         grupos_compartilhados=grupos_compartilhados,
         quadras_compartilhadas=quadras_compartilhadas,
+        usar_rodadas_programadas=cfg_atual.get("usar_rodadas_programadas", False),
+        uma_partida_por_equipe_rodada=cfg_atual.get("uma_partida_por_equipe_rodada", True),
     )
 
     if ok:

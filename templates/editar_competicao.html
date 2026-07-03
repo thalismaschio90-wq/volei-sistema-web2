@@ -306,6 +306,21 @@
         line-height: 1.45;
     }
 
+
+    .quadra-remover {
+        border: 1px solid #fecaca;
+        background: #fff5f5;
+        color: #991b1b;
+        border-radius: 999px;
+        padding: 7px 11px;
+        font-weight: 900;
+        cursor: pointer;
+    }
+
+    .quadra-remover:hover {
+        background: #fee2e2;
+    }
+
     .fase-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -726,6 +741,14 @@
         }
     }
 
+    .rodadas-programadas-box { display: grid; gap: 14px; }
+    .rodadas-programadas-toggle { background:#f8fbff; border:1px solid #d7dee7; border-radius:16px; padding:16px; }
+    .rodadas-lista { display:grid; gap:10px; margin-top:12px; }
+    .rodada-row { display:grid; grid-template-columns:1.4fr .8fr .6fr; gap:12px; align-items:end; background:white; border:1px solid #d7dee7; border-radius:14px; padding:12px; }
+    .rodada-row input[readonly] { background:#f1f5f9; font-weight:900; color:#183247; }
+    .rodada-subtitle { font-size:14px; color:#6b7c8c; line-height:1.45; margin:4px 0 12px; }
+    @media (max-width: 760px) { .rodada-row { grid-template-columns:1fr; } }
+
 </style>
 
 {% set criterios_salvos = (competicao.criterios_desempate or 'pontos,vitorias,saldo_sets,sets_average,saldo_pontos,pontos_average,confronto_direto,sorteio').split(',') %}
@@ -739,6 +762,7 @@
         <button type="button" class="competicao-tab-btn {% if cfg.regras %}salva{% endif %}" data-etapa="regras" data-tab="tab-regras">Regras do jogo</button>
         <button type="button" class="competicao-tab-btn {% if cfg.classificacao %}salva{% endif %}" data-etapa="pontuacao" data-tab="tab-pontuacao">Classificação</button>
         <button type="button" class="competicao-tab-btn {% if cfg.avanco %}salva{% endif %}" data-etapa="avanco" data-tab="tab-avanco-chaveamento">Avanço / Chaveamento</button>
+        <button type="button" class="competicao-tab-btn {% if config_agenda and config_agenda.usar_rodadas_programadas %}salva{% endif %}" data-etapa="rodadas" data-tab="tab-rodadas">Rodadas</button>
         <button type="button" class="competicao-tab-btn {% if destaques_config and (destaques_config.ativo_destaque_partida or destaques_config.ativo_destaque_competicao) %}salva{% endif %}" data-etapa="destaques" data-tab="tab-destaques">Premiação e Destaques</button>
     </div>
 
@@ -823,10 +847,13 @@
 
                         <div class="quadra-card-head">
                             <div class="quadra-card-title">Quadra {{ loop.index }}</div>
-                            <label class="quadra-ativa">
-                                <input type="checkbox" name="quadra_ativa_{{ q.id }}" style="width:auto;" {% if q.ativa is not defined or q.ativa %}checked{% endif %}>
-                                Ativa
-                            </label>
+                            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                                <label class="quadra-ativa" title="Se estiver desmarcada, a quadra fica inativa e não entra nas novas partidas.">
+                                    <input type="checkbox" name="quadra_ativa_{{ q.id }}" style="width:auto;" {% if q.ativa is not defined or q.ativa %}checked{% endif %}>
+                                    Ativa
+                                </label>
+                                <button type="button" class="quadra-remover" data-remover-quadra>Excluir</button>
+                            </div>
                         </div>
 
                         <div class="quadra-grid">
@@ -914,7 +941,10 @@
 
                     <div class="competicao-form-field">
                         <label for="qtd_grupos">Quantidade de grupos</label>
-                        <input type="number" id="qtd_grupos" name="qtd_grupos" value="{{ competicao.qtd_grupos or 0 }}">
+                        <input type="number" id="qtd_grupos" name="qtd_grupos" min="1" value="{{ competicao.qtd_grupos or 1 }}">
+                        <div class="helper-text" style="margin-top:6px;font-size:13px;">
+                            Use <strong>1</strong> para grupo único. Use <strong>2 ou mais</strong> para o sistema criar automaticamente Grupo A, B, C, D... na aba Tabela.
+                        </div>
                     </div>
 
                     <div class="competicao-form-field full">
@@ -1398,6 +1428,101 @@
     </div>
 
 
+    <!-- ABA: RODADAS PROGRAMADAS -->
+    <div id="tab-rodadas" class="competicao-tab-pane" data-etapa="rodadas" data-salva="{{ 1 if config_agenda and config_agenda.usar_rodadas_programadas else 0 }}">
+        <div class="etapa-lock-box"><span>✓ Rodadas salvas. Para alterar, clique em Editar.</span><a class="btn-secundario" href="{{ url_for('competicoes.listar_competicoes_view', tab='rodadas', edit='rodadas') }}">Editar</a></div>
+        <div class="competicao-pane-title">Rodadas programadas</div>
+        <div class="competicao-pane-subtitle">
+            Ative quando a competição for dividida por datas. A estrutura calcula as rodadas da classificatória e o Avanço calcula as fases/jogos programáveis. A Tabela só vai obedecer o que estiver salvo aqui.
+        </div>
+
+        {% set rcfg = config_agenda if config_agenda is defined and config_agenda else {} %}
+        {% set rodadas_salvas = rodadas_config if rodadas_config is defined and rodadas_config else [] %}
+        {% set modelo = rodadas_modelo if rodadas_modelo is defined and rodadas_modelo else {'classificatoria': [], 'avanco': []} %}
+
+        <form method="post" action="{{ url_for('competicoes.salvar_rodadas_programadas_view') }}">
+            <div class="competicao-section-box rodadas-programadas-box">
+                <div class="rodadas-programadas-toggle">
+                    <label class="competicao-check-inline">
+                        <input type="checkbox" id="usarRodadasProgramadas" name="usar_rodadas_programadas" style="width:auto;" {% if rcfg.usar_rodadas_programadas %}checked{% endif %}>
+                        Usar rodadas/datas programadas
+                    </label>
+                    <div class="helper-text" style="margin-top:8px;">
+                        Se estiver desmarcado, a competição continua funcionando como hoje. Se marcar, a geração automática grava rodada e data/hora quando estiver preenchido.
+                    </div>
+                    <label class="competicao-check-inline" style="margin-top:12px;">
+                        <input type="checkbox" name="uma_partida_por_equipe_rodada" style="width:auto;" {% if rcfg.uma_partida_por_equipe_rodada is not defined or rcfg.uma_partida_por_equipe_rodada %}checked{% endif %}>
+                        Cada equipe joga no máximo 1 vez por rodada, quando possível
+                    </label>
+                </div>
+
+                <div id="rodadasProgramadasCampos" style="display:{% if rcfg.usar_rodadas_programadas %}block{% else %}none{% endif %};">
+                    <div class="competicao-section-box" style="margin-bottom:14px;">
+                        <div style="font-weight:900;color:#183247;">Classificatória</div>
+                        <div class="rodada-subtitle">Geradas pela estrutura dos grupos. Ex.: grupo único com 6 equipes vira 5 rodadas.</div>
+                        <div class="rodadas-lista">
+                            {% if modelo.classificatoria %}
+                                {% for r in modelo.classificatoria %}
+                                    {% set salvo = namespace(row=None) %}
+                                    {% for sr in rodadas_salvas %}
+                                        {% if (sr.tipo_fase or '') == r.tipo_fase and (sr.fase or '') == r.fase and (sr.serie or '') == r.serie and (sr.numero_rodada or 0) == r.numero_rodada %}{% set salvo.row = sr %}{% endif %}
+                                    {% endfor %}
+                                    <div class="rodada-row">
+                                        <div>
+                                            <label>Rodada</label>
+                                            <input type="text" name="rodada_nome[]" value="{{ (salvo.row.nome if salvo.row else r.nome) }}" readonly>
+                                            <input type="hidden" name="rodada_tipo_fase[]" value="{{ r.tipo_fase }}">
+                                            <input type="hidden" name="rodada_fase[]" value="{{ r.fase }}">
+                                            <input type="hidden" name="rodada_serie[]" value="{{ r.serie }}">
+                                            <input type="hidden" name="rodada_numero[]" value="{{ r.numero_rodada }}">
+                                        </div>
+                                        <div><label>Data</label><input type="date" name="rodada_data[]" value="{{ salvo.row.data if salvo.row else '' }}"></div>
+                                        <div><label>Hora inicial</label><input type="time" name="rodada_hora[]" value="{{ salvo.row.hora if salvo.row else '' }}"></div>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="helper-text">Salve a Estrutura/Grupos primeiro para o sistema calcular as rodadas da classificatória.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="competicao-section-box">
+                        <div style="font-weight:900;color:#183247;">Avanço / Mata-mata</div>
+                        <div class="rodada-subtitle">Aparece conforme os confrontos configurados no Avanço. Pode programar horário mesmo antes dos times classificados serem conhecidos.</div>
+                        <div class="rodadas-lista">
+                            {% if modelo.avanco %}
+                                {% for r in modelo.avanco %}
+                                    {% set salvo = namespace(row=None) %}
+                                    {% for sr in rodadas_salvas %}
+                                        {% if (sr.tipo_fase or '') == r.tipo_fase and (sr.fase or '') == r.fase and (sr.serie or '') == r.serie and (sr.numero_rodada or 0) == r.numero_rodada %}{% set salvo.row = sr %}{% endif %}
+                                    {% endfor %}
+                                    <div class="rodada-row">
+                                        <div>
+                                            <label>Jogo/fase</label>
+                                            <input type="text" name="rodada_nome[]" value="{{ (salvo.row.nome if salvo.row else r.nome) }}" readonly>
+                                            <input type="hidden" name="rodada_tipo_fase[]" value="{{ r.tipo_fase }}">
+                                            <input type="hidden" name="rodada_fase[]" value="{{ r.fase }}">
+                                            <input type="hidden" name="rodada_serie[]" value="{{ r.serie }}">
+                                            <input type="hidden" name="rodada_numero[]" value="{{ r.numero_rodada }}">
+                                        </div>
+                                        <div><label>Data</label><input type="date" name="rodada_data[]" value="{{ salvo.row.data if salvo.row else '' }}"></div>
+                                        <div><label>Hora inicial</label><input type="time" name="rodada_hora[]" value="{{ salvo.row.hora if salvo.row else '' }}"></div>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="helper-text">Configure o Avanço/Chaveamento para liberar as rodadas do mata-mata.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="competicao-actions">
+                    <button class="btn-padrao" type="submit" {% if competicao_travada %}disabled{% endif %}>Salvar rodadas</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
     <!-- ABA: PREMIAÇÃO E DESTAQUES -->
     <div id="tab-destaques" class="competicao-tab-pane" data-etapa="destaques" data-salva="{{ 1 if destaques_config and (destaques_config.ativo_destaque_partida or destaques_config.ativo_destaque_competicao) else 0 }}">
         {% set dc = destaques_config if destaques_config is defined and destaques_config else {} %}
@@ -1533,28 +1658,6 @@
             </div>
         </form>
     </div>
-
-
-<script>
-function removerCampoDestaque(btn){
-    const row = btn.closest('.destaque-campo-row');
-    if(row) row.remove();
-}
-function adicionarCampoDestaque(){
-    const lista = document.getElementById('listaCamposDestaques');
-    if(!lista) return;
-    const div = document.createElement('div');
-    div.className = 'destaque-campo-row';
-    div.style.cssText = 'border:1px solid #d7e1ee;border-radius:14px;padding:12px;background:#fbfdff;display:grid;grid-template-columns:1.4fr .7fr .7fr .9fr auto;gap:10px;align-items:end;';
-    div.innerHTML = `
-        <div><label>Nome do destaque</label><input name="destaque_campo_titulo[]" placeholder="Ex.: Melhor defesa"></div>
-        <div><label>Série</label><select name="destaque_campo_serie[]"><option value="">Todas</option><option value="Ouro">Ouro</option><option value="Prata">Prata</option><option value="Bronze">Bronze</option></select></div>
-        <div><label>Momento</label><select name="destaque_campo_fase[]"><option value="">Final da competição</option><option value="Final">Final</option><option value="Semifinal">Semifinal</option><option value="Quartas">Quartas</option><option value="Oitavas">Oitavas</option><option value="Classificatórias">Classificatórias</option></select></div>
-        <div><label>Equipes aptas</label><select name="destaque_campo_aptos[]"><option value="top3">3 primeiros</option><option value="top2">Finalistas</option><option value="top1">Campeão</option><option value="top4">4 primeiros</option><option value="todos">Todos da série</option></select></div>
-        <button type="button" class="btn-secundario" onclick="removerCampoDestaque(this)">Remover</button>`;
-    lista.appendChild(div);
-}
-</script>
 
 
 <div class="avanco-modal-bg" id="modalAvancoVisual">
@@ -2062,216 +2165,5 @@ function adicionarCampoDestaque(){
 })();
 </script>
 
-<script>
-    (function () {
-        const buttons = document.querySelectorAll('.competicao-tab-btn');
-        const panes = document.querySelectorAll('.competicao-tab-pane');
-        const params = new URLSearchParams(window.location.search);
-        const tabParam = params.get('tab') || 'dados';
-        const editParam = params.get('edit') || '';
-        const tabMap = {
-            dados: 'tab-dados',
-            quadras: 'tab-quadras',
-            estrutura: 'tab-estrutura',
-            regras: 'tab-regras',
-            pontuacao: 'tab-pontuacao',
-            classificacao: 'tab-pontuacao',
-            avanco: 'tab-avanco-chaveamento',
-            destaques: 'tab-destaques',
-            fases: 'tab-avanco-chaveamento',
-        };
-
-        function ativarTabPorId(target) {
-            if (!target) return;
-            buttons.forEach((btn) => btn.classList.remove('active'));
-            panes.forEach((pane) => pane.classList.remove('active'));
-            const botao = Array.from(buttons).find((btn) => btn.getAttribute('data-tab') === target);
-            const pane = document.getElementById(target);
-            if (botao) botao.classList.add('active');
-            if (pane) pane.classList.add('active');
-        }
-
-        function aplicarBloqueioEtapas() {
-            panes.forEach((pane) => {
-                const etapa = pane.getAttribute('data-etapa') || '';
-                const salva = pane.getAttribute('data-salva') === '1';
-                const editando = editParam === etapa || (etapa === 'pontuacao' && editParam === 'classificacao');
-                if (!salva || editando) return;
-                pane.classList.add('etapa-bloqueada');
-                pane.querySelectorAll('input, select, textarea, button').forEach((el) => {
-                    if (el.closest('.etapa-lock-box')) return;
-                    el.disabled = true;
-                });
-            });
-        }
-
-        ativarTabPorId(tabMap[tabParam] || 'tab-dados');
-        aplicarBloqueioEtapas();
-
-        buttons.forEach((button) => {
-            button.addEventListener('click', function () {
-                const target = this.getAttribute('data-tab');
-                ativarTabPorId(target);
-            });
-        });
-
-        const listaCriterios = document.getElementById('criterios-classificacao-lista');
-        const inputCriterios = document.getElementById('criterios_ordenados');
-        const previewCriterios = document.getElementById('criterios-classificacao-preview');
-        let criterioArrastado = null;
-
-        function atualizarCriteriosClassificacao() {
-            if (!listaCriterios || !inputCriterios) {
-                return;
-            }
-
-            const itens = Array.from(listaCriterios.querySelectorAll('[data-criterio]'));
-            const valores = [];
-            const nomes = [];
-            let posicaoSorteio = null;
-
-            itens.forEach((item, index) => {
-                const criterio = item.getAttribute('data-criterio');
-                const titulo = item.querySelector('.criterio-titulo');
-                const ordem = item.querySelector('.criterio-ordem');
-                const nomeTitulo = titulo ? titulo.textContent.trim() : criterio;
-
-                item.classList.remove('criterio-ignorado');
-
-                if (!criterio) {
-                    return;
-                }
-
-                valores.push(criterio);
-                nomes.push(`${index + 1}º ${nomeTitulo}`);
-
-                if (ordem) {
-                    ordem.textContent = index + 1;
-                }
-
-                if (criterio === 'sorteio') {
-                    posicaoSorteio = index + 1;
-                }
-            });
-
-            inputCriterios.value = valores.join(',');
-
-            if (previewCriterios) {
-                let html = `<strong>Ordem salva:</strong> ${nomes.join(' › ')}`;
-
-                if (posicaoSorteio !== null) {
-                    html += `<br><span style="color:#8a6512;font-weight:700;">Observação:</span> se a classificação chegar no Sorteio, ele encerra o desempate naquele ponto. Os critérios abaixo dele continuam salvos e disponíveis para reordenação.`;
-                }
-
-                previewCriterios.innerHTML = html;
-            }
-        }
-
-        function itemAposCursor(container, y) {
-            const itens = [...container.querySelectorAll('.criterio-item:not(.dragging)')];
-
-            return itens.reduce((maisProximo, item) => {
-                const box = item.getBoundingClientRect();
-                const offset = y - box.top - box.height / 2;
-
-                if (offset < 0 && offset > maisProximo.offset) {
-                    return { offset, element: item };
-                }
-
-                return maisProximo;
-            }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
-        }
-
-        if (listaCriterios) {
-            listaCriterios.addEventListener('dragstart', function (event) {
-                const item = event.target.closest('.criterio-item');
-                if (!item) {
-                    return;
-                }
-
-                criterioArrastado = item;
-                item.classList.add('dragging');
-                event.dataTransfer.effectAllowed = 'move';
-            });
-
-            listaCriterios.addEventListener('dragover', function (event) {
-                event.preventDefault();
-                const itemDestino = itemAposCursor(listaCriterios, event.clientY);
-                const itemAtual = document.querySelector('.criterio-item.dragging');
-
-                if (!itemAtual) {
-                    return;
-                }
-
-                if (itemDestino == null) {
-                    listaCriterios.appendChild(itemAtual);
-                } else {
-                    listaCriterios.insertBefore(itemAtual, itemDestino);
-                }
-            });
-
-            listaCriterios.addEventListener('dragend', function () {
-                if (criterioArrastado) {
-                    criterioArrastado.classList.remove('dragging');
-                    criterioArrastado = null;
-                }
-                atualizarCriteriosClassificacao();
-            });
-
-            atualizarCriteriosClassificacao();
-        }
-
-        const listaQuadras = document.getElementById('quadras-lista');
-        const btnAdicionarQuadra = document.getElementById('btn-adicionar-quadra');
-
-        function totalQuadras() {
-            return listaQuadras ? listaQuadras.querySelectorAll('[data-quadra-card]').length : 0;
-        }
-
-        function criarCardQuadra() {
-            const indice = totalQuadras();
-            const numero = indice + 1;
-            const card = document.createElement('div');
-            card.className = 'quadra-card';
-            card.setAttribute('data-quadra-card', '1');
-
-            card.innerHTML = `
-                <input type="hidden" name="quadra_id[]" value="">
-
-                <div class="quadra-card-head">
-                    <div class="quadra-card-title">Quadra ${numero}</div>
-                    <label class="quadra-ativa">
-                        <input type="checkbox" name="quadra_ativa_nova_${indice}" style="width:auto;" checked>
-                        Ativa
-                    </label>
-                </div>
-
-                <div class="quadra-grid">
-                    <div class="competicao-form-field">
-                        <label>Ordem</label>
-                        <input type="number" name="quadra_ordem[]" min="1" value="${numero}">
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label>Nome da quadra</label>
-                        <input type="text" name="quadra_nome[]" value="Quadra ${numero}" placeholder="Ex.: Quadra 1 - Lourenço Golin">
-                    </div>
-
-                    <div class="competicao-form-field">
-                        <label>Local / observação</label>
-                        <input type="text" name="quadra_local[]" value="" placeholder="Ex.: Ginásio principal, escola, bairro...">
-                    </div>
-                </div>
-            `;
-
-            return card;
-        }
-
-        if (btnAdicionarQuadra && listaQuadras) {
-            btnAdicionarQuadra.addEventListener('click', function () {
-                listaQuadras.appendChild(criarCardQuadra());
-            });
-        }
-    })();
-</script>
+<script src="{{ url_for('static', filename='js/competicoes.js') }}?v=20260702-tabs1"></script>
 {% endblock %}

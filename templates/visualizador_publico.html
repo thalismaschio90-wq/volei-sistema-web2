@@ -129,6 +129,10 @@
         .jogos-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap:12px; }
         .jogo { margin-bottom: 0; background:var(--card-2); }
         .jogo.ao-vivo-card { border-color:rgba(34,197,94,.55); box-shadow:0 0 0 1px rgba(34,197,94,.18), 0 14px 30px rgba(0,0,0,.22); }
+        .jogo[data-url-partida], .bracket-card[data-url-partida] { cursor:pointer; }
+        .jogo[data-url-partida]:hover, .bracket-card[data-url-partida]:hover { transform:translateY(-2px); border-color:rgba(147,197,253,.55); }
+        .abrir-partida { display:flex; justify-content:center; margin-top:10px; }
+        .abrir-partida span { padding:7px 10px; border-radius:999px; background:rgba(59,130,246,.18); color:#bfdbfe; font-size:12px; font-weight:1000; border:1px solid rgba(147,197,253,.22); }
         .jogo-topo { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:12px; }
         .confronto { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:18px; font-weight:900; }
         .time-jogo { display:inline-flex; align-items:center; gap:8px; min-width:0; max-width:100%; }
@@ -312,6 +316,7 @@
                                         data-partida-id="{{ jogo.partida_id }}"
                                         data-competicao="{{ competicao_nome }}"
                                         data-ao-vivo="{{ '1' if jogo.ao_vivo else '0' }}"
+                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida', competicao_nome=competicao_nome, partida_id=jogo.partida_id) }}"{% endif %}
                                     {% endif %}
                                 >
                                     <div class="bracket-card-top">
@@ -346,6 +351,7 @@
                                         <div class="bracket-parciais" data-parciais>
                                             {% if jogo.finalizada %}Parciais: {{ jogo.parciais_formatadas }}{% elif jogo.ao_vivo %}Placar do set atual em tempo real{% endif %}
                                         </div>
+                                        {% if jogo.ao_vivo or jogo.finalizada %}<div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>{% endif %}
                                     {% endif %}
                                     {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
                                         <div class="bracket-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
@@ -388,6 +394,7 @@
                 data-competicao="{{ competicao_nome }}"
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
                 data-quadra-label="{{ q_label }}"
+                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida', competicao_nome=competicao_nome, partida_id=p.id) }}"{% endif %}
             >
                 <div class="jogo-topo">
                     <div>
@@ -403,7 +410,7 @@
                             </span>
                         </div>
                         <div class="meta">
-                            {% if p.fase_normalizada == 'grupos' %}Grupo {{ p.grupo }}{% else %}{{ p.fase_normalizada|capitalize }}{% endif %}
+                            {% if p.fase_normalizada == 'grupos' %}Grupo {{ p.grupo }}{% else %}{{ p.fase_normalizada|capitalize }}{% endif %}{% if p.rodada %} • Rodada {{ p.rodada }}{% endif %}{% if p.data_hora %} • {{ p.data_hora|replace('T',' ') }}{% endif %}
                             {% if p.quadra_label %} • {{ p.quadra_label }}{% endif %}
                         </div>
                     </div>
@@ -433,6 +440,9 @@
                         Aguardando início da partida.
                     {% endif %}
                 </div>
+                {% if p.ao_vivo or p.finalizada %}
+                    <div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>
+                {% endif %}
             </div>
         {% endfor %}
         </div>
@@ -459,6 +469,15 @@
     const avisoVazioFiltro = document.querySelector('[data-jogos-vazio-filtro]');
     let filtroQuadraAtual = '__todos__';
     let reloadFinalizacaoAgendado = false;
+
+    cards.forEach((card) => {
+        card.addEventListener('click', function (ev) {
+            const url = this.dataset.urlPartida;
+            if (!url) return;
+            if (ev.target && ev.target.closest && ev.target.closest('button, a, input, select, textarea')) return;
+            window.location.href = url;
+        });
+    });
 
 
     function aplicarFiltroQuadra() {
@@ -603,6 +622,9 @@
 
         card.classList.toggle('ao-vivo-card', aoVivo && !finalizada);
         card.dataset.aoVivo = finalizada ? '0' : (aoVivo ? '1' : '0');
+        if ((aoVivo || finalizada) && !card.dataset.urlPartida) {
+            card.dataset.urlPartida = `/visualizador/${encodeURIComponent(competicao)}/partida/${encodeURIComponent(partidaId)}`;
+        }
 
         if (finalizada) recarregarParaResultadoOficial();
     }

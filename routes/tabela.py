@@ -17,6 +17,10 @@ from banco import (
     listar_equipes_por_grupos_competicao,
     criar_partida,
     listar_partidas,
+    buscar_partida_por_id,
+    buscar_estado_jogo_partida,
+    listar_eventos_partida,
+    criar_tabela_destaques_partida,
     limpar_partidas,
     limpar_partidas_por_fase,
     remover_equipe_do_grupo,
@@ -48,6 +52,7 @@ from banco import (
     assinatura_classificacao_competicao,
     obter_cache_classificacao,
     salvar_cache_classificacao,
+    buscar_data_hora_rodada_programada,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -1130,7 +1135,7 @@ def _inserir_partidas_em_lote(partidas):
 
     campos_base = [
         "competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem",
-        "quadra", "quadra_id", "quadra_nome", "origem", "rodada", "status",
+        "quadra", "quadra_id", "quadra_nome", "origem", "rodada", "data_hora", "status",
     ]
     extras_possiveis = [
         "status_jogo", "fase_partida", "status_operacao",
@@ -1156,6 +1161,7 @@ def _inserir_partidas_em_lote(partidas):
             "quadra_nome": p.get("quadra_nome") or "",
             "origem": p.get("origem") or "automatica",
             "rodada": p.get("rodada"),
+            "data_hora": p.get("data_hora"),
             "status": "aguardando",
             "status_jogo": "aguardando",
             "fase_partida": "aguardando",
@@ -1316,6 +1322,15 @@ def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
 
         partida["quadra_label"] = _quadra_label(partida)
         partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
+        partida["data_hora_valor"] = str(partida.get("data_hora") or "").strip()
+        _dh = partida["data_hora_valor"].replace(" ", "T")
+        if len(_dh) >= 16:
+            partida["data_hora_input"] = _dh[:16]
+            data_p, hora_p = _dh[:10], _dh[11:16]
+            partida["data_hora_label"] = f"{data_p[8:10]}/{data_p[5:7]}/{data_p[0:4]} {hora_p}"
+        else:
+            partida["data_hora_input"] = _dh
+            partida["data_hora_label"] = _dh
 
         partida["escudo_a"] = _normalizar_url_escudo_tabela(partida.get("escudo_a")) if partida.get("escudo_a") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_a"))
         partida["escudo_b"] = _normalizar_url_escudo_tabela(partida.get("escudo_b")) if partida.get("escudo_b") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_b"))
@@ -2144,6 +2159,220 @@ def _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparad
     return classificacao, False
 
 
+
+
+def _bool_publico(valor):
+    if valor is True or valor == 1:
+        return True
+    if valor is False or valor is None:
+        return False
+    return str(valor).strip().lower() in {"1", "true", "sim", "yes", "on", "avancado", "avançado"}
+
+
+def _modo_scout_ativo_publico(partida, competicao):
+    modo = str((partida or {}).get("modo_operacao") or (competicao or {}).get("modo_operacao") or "simples").strip().lower()
+    return modo in {"avancado", "avançado", "scout", "com_scout"} or _bool_publico((partida or {}).get("scout_ativo"))
+
+
+def _evento_detalhes_publico(ev):
+    raw = ev.get("detalhes") if isinstance(ev, dict) else None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            dado = json.loads(raw)
+            return dado if isinstance(dado, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _lado_para_nome_publico(partida, lado):
+    lado = str(lado or "").strip().upper()
+    if lado == "A":
+        return partida.get("equipe_a_operacional") or partida.get("equipe_a") or "Equipe A"
+    if lado == "B":
+        return partida.get("equipe_b_operacional") or partida.get("equipe_b") or "Equipe B"
+    return "Equipe"
+
+
+def _lado_pontuador_evento_publico(ev):
+    detalhes = _evento_detalhes_publico(ev)
+    lado = str(
+        detalhes.get("equipe_pontuadora")
+        or detalhes.get("equipe_ponto")
+        or detalhes.get("lado_ponto")
+        or ""
+    ).strip().upper()
+    if lado in {"A", "B"}:
+        return lado
+    tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+    resultado = str(ev.get("resultado") or detalhes.get("resultado") or detalhes.get("tipo_lance") or "").strip().lower()
+    equipe = str(ev.get("equipe") or "").strip().upper()
+    if equipe in {"A", "B"}:
+        if resultado in {"erro", "falta"}:
+            return "B" if equipe == "A" else "A"
+        if tipo in {"ponto", "retardamento_penalidade"}:
+            return equipe
+    return ""
+
+
+def _rotulo_fundamento_publico(valor):
+    txt = str(valor or "").strip().replace("_", " ").title()
+    mapa = {
+        "Ataque": "Ataque",
+        "Bloqueio": "Bloqueio",
+        "Saque": "Saque",
+        "Ace": "Ace",
+        "Erro": "Erro",
+        "Falta": "Falta",
+        "Levantamento": "Levantamento",
+        "Defesa": "Defesa",
+        "Recepcao": "Recepção",
+        "Recepção": "Recepção",
+    }
+    return mapa.get(txt, txt or "Ponto")
+
+
+def _descricao_evento_publico(ev, partida, scout_ativo):
+    detalhes = _evento_detalhes_publico(ev)
+    tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+    fundamento = ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro")
+    resultado = ev.get("resultado") or detalhes.get("resultado") or detalhes.get("tipo_lance")
+    detalhe = ev.get("detalhe") or detalhes.get("detalhe") or detalhes.get("detalhe_lance")
+    numero = ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero")
+    atleta = ev.get("atleta_nome") or detalhes.get("atleta_nome") or ""
+    lado_ponto = _lado_pontuador_evento_publico(ev)
+    equipe_ponto = _lado_para_nome_publico(partida, lado_ponto)
+
+    if tipo not in {"ponto", "retardamento_penalidade"}:
+        base = tipo.replace("_", " ").title() if tipo else "Evento"
+        if detalhe:
+            base += f" • {detalhe}"
+        return base
+
+    if not scout_ativo:
+        return f"Ponto para {equipe_ponto}"
+
+    acao = _rotulo_fundamento_publico(fundamento or resultado or tipo)
+    pessoa = ""
+    if numero and atleta:
+        pessoa = f"#{numero} {atleta}"
+    elif numero:
+        pessoa = f"#{numero}"
+    elif atleta:
+        pessoa = atleta
+
+    if pessoa:
+        return f"{acao} de {pessoa} ({equipe_ponto})"
+    if detalhe and str(detalhe).strip().lower() not in {str(acao).lower()}:
+        return f"{acao} • {detalhe} ({equipe_ponto})"
+    return f"{acao} ({equipe_ponto})"
+
+
+def _montar_linha_ponto_publico(partida, eventos, scout_ativo):
+    eventos_ordenados = list(reversed(eventos or []))
+    placares_por_set = {}
+    linhas = []
+    stats = {}
+
+    for ev in eventos_ordenados:
+        tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+        if tipo not in {"ponto", "retardamento_penalidade"}:
+            continue
+        set_num = int(ev.get("set_numero") or 1)
+        atual = placares_por_set.setdefault(set_num, {"a": 0, "b": 0})
+        lado = _lado_pontuador_evento_publico(ev)
+        if lado == "A":
+            atual["a"] += 1
+        elif lado == "B":
+            atual["b"] += 1
+        else:
+            continue
+
+        detalhes = _evento_detalhes_publico(ev)
+        fundamento = _rotulo_fundamento_publico(ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro") or ev.get("resultado"))
+        equipe_nome = _lado_para_nome_publico(partida, lado)
+        stats.setdefault(equipe_nome, {})
+        stats[equipe_nome][fundamento] = stats[equipe_nome].get(fundamento, 0) + 1
+
+        linhas.append({
+            "id": ev.get("id"),
+            "set": set_num,
+            "placar_a": atual["a"],
+            "placar_b": atual["b"],
+            "placar": f'{atual["a"]} x {atual["b"]}',
+            "lado_ponto": lado,
+            "equipe_ponto": equipe_nome,
+            "descricao": _descricao_evento_publico(ev, partida, scout_ativo),
+            "fundamento": fundamento,
+            "numero": ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero") or "",
+            "atleta_nome": ev.get("atleta_nome") or detalhes.get("atleta_nome") or "",
+        })
+
+    linhas.sort(key=lambda x: (x["set"], x["id"] or 0), reverse=True)
+    evolucao_sets = []
+    for set_num in sorted(placares_por_set.keys()):
+        pontos = [{"placar": "0 x 0", "a": 0, "b": 0}]
+        a = b = 0
+        for linha in reversed([l for l in linhas if l["set"] == set_num]):
+            a = linha["placar_a"]
+            b = linha["placar_b"]
+            pontos.append({"placar": f"{a} x {b}", "a": a, "b": b})
+        evolucao_sets.append({"set": set_num, "pontos": pontos})
+
+    return linhas, evolucao_sets, stats
+
+
+def _buscar_destaque_partida_publico(partida_id, competicao):
+    try:
+        criar_tabela_destaques_partida()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT lado, atleta_id, numero, nome, observacao, equipe, criado_em
+                    FROM destaques_partida
+                    WHERE partida_id = %s AND competicao = %s
+                    ORDER BY id DESC
+                    LIMIT 1
+                """, (partida_id, competicao))
+                return cur.fetchone()
+    except Exception as e:
+        print("AVISO visualizador/destaque_partida:", repr(e), flush=True)
+        return None
+
+
+def _contexto_partida_publica(competicao_nome, partida_id):
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partida = buscar_partida_por_id(partida_id, competicao_nome)
+    if not partida:
+        return None
+    mapa_escudos = {
+        partida.get("equipe_a"): partida.get("escudo_a"),
+        partida.get("equipe_b"): partida.get("escudo_b"),
+    }
+    preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
+    estado = None
+    try:
+        estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+    except Exception:
+        estado = {}
+    eventos = listar_eventos_partida(partida_id, competicao_nome, limite=2000) or []
+    scout_ativo = _modo_scout_ativo_publico(partida, competicao)
+    timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
+    destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
+    return {
+        "competicao": competicao,
+        "partida": preparada,
+        "estado": estado,
+        "scout_ativo": scout_ativo,
+        "timeline": timeline,
+        "evolucao_sets": evolucao_sets,
+        "stats": stats,
+        "destaque": destaque,
+    }
+
+
 # =========================================================
 # VISUALIZADOR PÚBLICO
 # =========================================================
@@ -2196,6 +2425,46 @@ def visualizador_publico(competicao_nome):
     )
 
 
+@tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>")
+def visualizador_publico_partida(competicao_nome, partida_id):
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    if not contexto:
+        return "Partida não encontrada.", 404
+    return render_template("visualizador_partida_publica.html", competicao_nome=competicao_nome, **contexto)
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados")
+def visualizador_publico_partida_dados(competicao_nome, partida_id):
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    if not contexto:
+        return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
+    p = contexto["partida"]
+    estado = contexto.get("estado") or {}
+    return jsonify({
+        "ok": True,
+        "partida": {
+            "id": p.get("id"),
+            "equipe_a": p.get("equipe_a"),
+            "equipe_b": p.get("equipe_b"),
+            "escudo_a": p.get("escudo_a") or "/static/img/escudo_padrao.svg",
+            "escudo_b": p.get("escudo_b") or "/static/img/escudo_padrao.svg",
+            "status_exibicao": p.get("status_exibicao"),
+            "ao_vivo": bool(p.get("ao_vivo")),
+            "finalizada": bool(p.get("finalizada")),
+            "set_unico": bool(p.get("set_unico")),
+            "sets_a": int(estado.get("sets_a") or p.get("sets_a") or 0),
+            "sets_b": int(estado.get("sets_b") or p.get("sets_b") or 0),
+            "set_atual": int(estado.get("set_atual") or p.get("set_atual") or 1),
+            "pontos_a": int(estado.get("pontos_a") or estado.get("placar_a") or p.get("placar_exibicao_a") or 0),
+            "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or p.get("placar_exibicao_b") or 0),
+            "parciais_formatadas": p.get("parciais_formatadas") or "",
+        },
+        "scout_ativo": bool(contexto.get("scout_ativo")),
+        "timeline": contexto.get("timeline") or [],
+        "evolucao_sets": contexto.get("evolucao_sets") or [],
+        "stats": contexto.get("stats") or {},
+        "destaque": contexto.get("destaque") or None,
+    })
 
 
 def _estrutura_grupo_unico(competicao):
@@ -2210,6 +2479,154 @@ def _estrutura_grupo_unico(competicao):
         qtd = 0
     tem_grupos = _to_bool((competicao or {}).get("tem_grupos"))
     return qtd <= 1 or not tem_grupos
+
+
+def _nomes_grupos_automaticos(qtd):
+    try:
+        qtd = int(qtd or 1)
+    except Exception:
+        qtd = 1
+    qtd = max(1, min(qtd, 26))
+    return [chr(ord("A") + i) for i in range(qtd)]
+
+
+def _qtd_grupos_configurada(competicao):
+    try:
+        qtd = int((competicao or {}).get("qtd_grupos") or 0)
+    except Exception:
+        qtd = 0
+    if _estrutura_grupo_unico(competicao):
+        return 1
+    return max(2, min(qtd or 2, 26))
+
+
+
+def _existe_distribuicao_salva_fora_do_grupo_a(nome_competicao):
+    """Protege sorteios/manuais já salvos.
+
+    A tela da Tabela pode ser aberta várias vezes e não pode redistribuir times
+    automaticamente. Se já existir equipe em grupo B/C/D..., não sincronizamos
+    tudo para o Grupo A só porque algum salvamento parcial deixou qtd_grupos=1.
+    """
+    try:
+        grupos = listar_grupos(nome_competicao) or []
+        for g in grupos:
+            nome_g = str(g.get("nome") or "").strip().upper()
+            if nome_g in {"", "A"}:
+                continue
+            equipes = listar_equipes_por_grupo(g.get("id")) or []
+            if any(str(e.get("equipe") or "").strip() for e in equipes):
+                return True
+    except Exception as e:
+        print("AVISO existe_distribuicao_salva_fora_do_grupo_a:", repr(e), flush=True)
+    return False
+
+
+def _garantir_grupos_da_estrutura(competicao):
+    """Garante que a aba Tabela obedeça a estrutura salva na competição.
+
+    - Grupo único: cria/usa apenas o grupo A e coloca todas as equipes nele.
+    - 2+ grupos: cria automaticamente A, B, C, D... conforme qtd_grupos,
+      mas NÃO distribui equipes sozinho. O organizador pode preencher manualmente
+      ou usar o sorteio.
+    """
+    if not competicao:
+        return False
+    nome_competicao = competicao.get("nome")
+    if not nome_competicao or fase_grupos_esta_travada_por_jogo(nome_competicao):
+        return False
+
+    if _estrutura_grupo_unico(competicao):
+        # Não sobrescreve sorteio/distribuição manual já salva.
+        # Só sincroniza Grupo A quando realmente não há equipes salvas em outros grupos.
+        if _existe_distribuicao_salva_fora_do_grupo_a(nome_competicao):
+            return False
+        return _sincronizar_grupo_unico_automatico(competicao)
+
+    qtd = _qtd_grupos_configurada(competicao)
+    nomes_estrutura = _nomes_grupos_automaticos(qtd)
+    existentes = listar_grupos(nome_competicao) or []
+    existentes_nomes = {str(g.get("nome") or "").strip().upper() for g in existentes}
+    mudou = False
+
+    # Cria automaticamente somente os grupos definidos na Estrutura da competição.
+    # Ex.: qtd_grupos=4 => A, B, C e D. A tela não deve depender de criação manual.
+    for nome_grupo in nomes_estrutura:
+        if nome_grupo not in existentes_nomes:
+            if criar_grupo(nome_grupo, nome_competicao) is not False:
+                mudou = True
+
+    # Grupos extras antigos ficam preservados se tiverem vínculo/partida, mas a tela
+    # passa a trabalhar prioritariamente com os grupos da estrutura. Não apagamos aqui
+    # para não destruir histórico por acidente.
+    if mudou:
+        _limpar_cache_tabela(nome_competicao)
+    return mudou
+
+
+def _limpar_vinculos_equipes_grupos_competicao(nome_competicao):
+    if not nome_competicao:
+        return 0
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM grupos_equipes WHERE competicao = %s", (nome_competicao,))
+            total = cur.rowcount or 0
+        conn.commit()
+    return total
+
+
+def _sortear_equipes_nos_grupos(competicao):
+    """Distribui equipes aleatoriamente e balanceado nos grupos configurados."""
+    if not competicao:
+        return {"ok": False, "mensagem": "Competição não encontrada."}
+    nome_competicao = competicao.get("nome")
+    if not nome_competicao:
+        return {"ok": False, "mensagem": "Competição sem nome."}
+    if fase_grupos_esta_travada_por_jogo(nome_competicao):
+        return {"ok": False, "mensagem": "A fase classificatória já iniciou. Não é possível sortear grupos."}
+    if _estrutura_grupo_unico(competicao):
+        _sincronizar_grupo_unico_automatico(competicao)
+        return {"ok": True, "mensagem": "Competição em grupo único: todas as equipes ficam no Grupo A."}
+
+    _garantir_grupos_da_estrutura(competicao)
+    qtd = _qtd_grupos_configurada(competicao)
+    grupos = listar_grupos(nome_competicao) or []
+    grupos_alvo = []
+    nomes_alvo = set(_nomes_grupos_automaticos(qtd))
+    for g in grupos:
+        nome_g = str(g.get("nome") or "").strip().upper()
+        if nome_g in nomes_alvo:
+            grupos_alvo.append(g)
+    grupos_alvo = sorted(grupos_alvo, key=lambda g: str(g.get("nome") or ""))
+
+    equipes = listar_equipes_da_competicao(nome_competicao) or []
+    nomes_equipes = []
+    vistos = set()
+    for eq in equipes:
+        nome = str(eq.get("nome") or eq.get("equipe") or "").strip()
+        chave = nome.lower()
+        if nome and chave not in vistos:
+            nomes_equipes.append(nome)
+            vistos.add(chave)
+
+    if len(grupos_alvo) < qtd:
+        return {"ok": False, "mensagem": "Não foi possível criar todos os grupos configurados."}
+    if not nomes_equipes:
+        return {"ok": False, "mensagem": "Cadastre as equipes antes de sortear os grupos."}
+
+    random.shuffle(nomes_equipes)
+    _limpar_vinculos_equipes_grupos_competicao(nome_competicao)
+    for idx, equipe in enumerate(nomes_equipes):
+        grupo = grupos_alvo[idx % len(grupos_alvo)]
+        adicionar_equipe_no_grupo(grupo.get("id"), equipe, nome_competicao)
+
+    _limpar_cache_tabela_e_classificacao(nome_competicao)
+    tamanhos = {str(g.get("nome") or "").strip().upper(): 0 for g in grupos_alvo}
+    for idx, _equipe in enumerate(nomes_equipes):
+        nome_g = str(grupos_alvo[idx % len(grupos_alvo)].get("nome") or "").strip().upper()
+        tamanhos[nome_g] = tamanhos.get(nome_g, 0) + 1
+    resumo = ", ".join(f"{g}: {qtd_eq}" for g, qtd_eq in tamanhos.items())
+    return {"ok": True, "mensagem": f"Sorteio realizado: {len(nomes_equipes)} equipe(s) distribuída(s). {resumo}."}
 
 
 def _sincronizar_grupo_unico_automatico(competicao):
@@ -2243,6 +2660,69 @@ def _sincronizar_grupo_unico_automatico(competicao):
     except Exception as e:
         print("AVISO sincronizar grupo único:", repr(e), flush=True)
         return False
+def _injetar_acoes_grupos_estrutura_html(html, competicao):
+    """Adiciona botões de grupos quando o template antigo ainda não tem a opção."""
+    if not isinstance(html, str) or not competicao:
+        return html
+    try:
+        nomes = _nomes_grupos_automaticos(_qtd_grupos_configurada(competicao))
+        grupo_unico = _estrutura_grupo_unico(competicao)
+    except Exception:
+        return html
+
+    if grupo_unico:
+        titulo = "Grupo único"
+        texto = "A estrutura está como grupo único. O sistema mantém todas as equipes no Grupo A."
+        botoes = '<form method="post" action="/tabela/garantir-grupos"><button type="submit">Sincronizar Grupo A</button></form>'
+    else:
+        titulo = f"Grupos da competição: {', '.join(nomes)}"
+        texto = "Os grupos são criados pela estrutura salva. Preencha as equipes manualmente ou use o sorteio."
+        botoes = '<form method="post" action="/tabela/garantir-grupos"><button type="submit">Criar grupos da estrutura</button></form><form method="post" action="/tabela/sortear-grupos" onsubmit="return confirm(\'Sortear novamente vai refazer a distribuição das equipes nos grupos. Continuar?\')"><button type="submit">Sortear equipes nos grupos</button></form>'
+
+    bloco = f'''
+<style>
+.grupos-estrutura-atalho{{margin:12px 0;padding:12px 14px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:14px;color:#0f172a;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}}
+.grupos-estrutura-atalho strong{{display:block;font-weight:900;color:#1d4ed8}}
+.grupos-estrutura-atalho span{{font-size:13px;color:#334155}}
+.grupos-estrutura-atalho .acoes{{display:flex;gap:8px;flex-wrap:wrap}}
+.grupos-estrutura-atalho form{{margin:0}}
+.grupos-estrutura-atalho button{{border:0;border-radius:999px;padding:9px 13px;font-weight:900;background:#2563eb;color:white;cursor:pointer}}
+.grupos-estrutura-atalho form+form button{{background:#16a34a}}
+</style>
+<div class="grupos-estrutura-atalho">
+  <div><strong>{titulo}</strong><span>{texto}</span></div>
+  <div class="acoes">{botoes}</div>
+</div>
+'''
+
+    if 'grupos-estrutura-atalho' in html:
+        return html
+
+    alvos = ['<main', '<section', '<div class="container"', '<div class="conteudo"']
+    for alvo in alvos:
+        idx = html.find(alvo)
+        if idx >= 0:
+            fim = html.find('>', idx)
+            if fim >= 0:
+                return html[:fim+1] + bloco + html[fim+1:]
+    if '</body>' in html:
+        return html.replace('</body>', bloco + '\n</body>')
+    return bloco + html
+
+
+
+
+def _render_tabela_resposta(contexto):
+    """Renderiza a tabela inteira ou apenas o miolo quando a troca de aba vem por fetch.
+
+    Isso permite que /tabela continue funcionando igual no navegador, mas o
+    JavaScript consiga trocar Grupos/Partidas/Classificação/Link público sem
+    recarregar base, menu lateral e topo inteiro.
+    """
+    parcial = (request.args.get("parcial") == "1") or (request.headers.get("X-Requested-With") == "fetch")
+    template = "tabela/_conteudo.html" if parcial else "tabela.html"
+    return render_template(template, **contexto)
+
 # =========================================================
 # TELA PRINCIPAL
 # =========================================================
@@ -2276,7 +2756,7 @@ def tabela_view():
     # O restante só é carregado conforme a aba ativa. Isso evita que abrir
     # "Configurações" carregue classificação, partidas e avanço completos.
     nome_competicao = competicao["nome"]
-    _sincronizar_grupo_unico_automatico(competicao)
+    _garantir_grupos_da_estrutura(competicao)
     fases = _fases_disponiveis(competicao)
     grupos_travados = _grupos_travados_cache(nome_competicao)
     fase_banco_ativa = _fase_subaba_para_banco(fase_subaba)
@@ -2319,7 +2799,10 @@ def tabela_view():
     pacote_cacheado = None if aba == "partidas" else _pacote_cache_get(nome_competicao, aba, fase_subaba, serie_param_cache)
     if pacote_cacheado is not None:
         contexto.update(pacote_cacheado)
-        return render_template("tabela.html", **contexto)
+        html = _render_tabela_resposta(contexto)
+        if aba == "geracao":
+            html = _injetar_acoes_grupos_estrutura_html(html, competicao)
+        return html
 
     pacote_contexto = {}
 
@@ -2417,7 +2900,10 @@ def tabela_view():
             _pacote_cache_set(nome_competicao, aba, fase_subaba, serie_param_cache, pacote_contexto)
         contexto.update(pacote_contexto)
 
-    return render_template("tabela.html", **contexto)
+    html = _render_tabela_resposta(contexto)
+    if aba == "geracao":
+        html = _injetar_acoes_grupos_estrutura_html(html, competicao)
+    return html
 
 
 @tabela_bp.route("/tabela/api/resumo")
@@ -2470,6 +2956,41 @@ def gerar_avanco_tabela_view():
 # =========================================================
 # CRIAR GRUPO
 # =========================================================
+@tabela_bp.route("/tabela/garantir-grupos", methods=["POST"])
+@exigir_organizador_da_competicao
+def garantir_grupos_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
+        flash("A fase classificatória já iniciou. Não é possível alterar grupos.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+    _garantir_grupos_da_estrutura(competicao)
+    if _estrutura_grupo_unico(competicao):
+        flash("Grupo único sincronizado: todas as equipes ficam no Grupo A.", "sucesso")
+    else:
+        flash(f"Grupos criados conforme a competição: {', '.join(_nomes_grupos_automaticos(_qtd_grupos_configurada(competicao)))}. Agora preencha manualmente ou use o sorteio.", "sucesso")
+    return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+
+@tabela_bp.route("/tabela/sortear-grupos", methods=["POST"])
+@exigir_organizador_da_competicao
+def sortear_grupos_view():
+    competicao = buscar_competicao_por_organizador(session.get("usuario"))
+
+    if not competicao:
+        flash("Nenhuma competição encontrada.", "erro")
+        return redirect(url_for("painel.inicio"))
+
+    resultado = _sortear_equipes_nos_grupos(competicao)
+    flash(resultado.get("mensagem") or "Sorteio concluído.", "sucesso" if resultado.get("ok") else "erro")
+    return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+
 @tabela_bp.route("/tabela/criar-grupo", methods=["POST"])
 @exigir_organizador_da_competicao
 def criar_grupo_view():
@@ -2480,12 +3001,20 @@ def criar_grupo_view():
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if not nome:
-        flash("Informe o nome do grupo.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
     if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
         flash("A fase classificatória já iniciou. Não é possível criar grupos.", "erro")
+        return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+    # Regra firme: os grupos vêm da Estrutura da competição.
+    # Se for grupo único, usa Grupo A. Se forem 2+ grupos, usa A/B/C/D...
+    # Assim ninguém cria grupo solto e a competição não volta a virar grupo único por engano.
+    if _estrutura_grupo_unico(competicao) or _qtd_grupos_configurada(competicao) >= 1:
+        _garantir_grupos_da_estrutura(competicao)
+        flash("Os grupos são controlados pela Estrutura da competição. Eles foram sincronizados automaticamente.", "sucesso")
+        return redirect(url_for("tabela.tabela_view", aba="geracao"))
+
+    if not nome:
+        flash("Informe o nome do grupo.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
     criar_grupo(nome, competicao["nome"])
@@ -2759,13 +3288,14 @@ def atualizar_partida_view(partida_id):
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
     fase_banco = _fase_subaba_para_banco(fase_subaba)
     quadra_id = _to_int_or_none(request.form.get("quadra_id"))
+    data_hora = (request.form.get("data_hora") or "").strip() or None
+    rodada = _to_int_or_none(request.form.get("rodada"))
 
-    if fase_banco == "grupos":
-        flash("Jogos classificatórios não podem ser editados por aqui depois da geração. Use excluir e recriar antes do início.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    equipe_a = (request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante") or "").strip()
-    equipe_b = (request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante") or "").strip()
+    partida_atual = buscar_partida_por_id(partida_id, competicao["nome"]) or {}
+    equipe_a = (request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante") or partida_atual.get("equipe_a") or "").strip()
+    equipe_b = (request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante") or partida_atual.get("equipe_b") or "").strip()
+    if rodada is None:
+        rodada = _to_int_or_none(partida_atual.get("rodada"))
 
     if equipe_a and equipe_b and equipe_a == equipe_b:
         flash("A partida precisa ter duas equipes diferentes.", "erro")
@@ -2790,6 +3320,8 @@ def atualizar_partida_view(partida_id):
         quadra=str(quadra_id) if quadra_id else None,
         quadra_id=quadra_id,
         quadra_nome=quadra_nome,
+        data_hora=data_hora,
+        rodada=rodada,
         status="aguardando",
     )
 
@@ -2825,7 +3357,12 @@ def excluir_partida_view(partida_id):
 # MOTOR INTELIGENTE DE AGENDA DA FASE CLASSIFICATÓRIA
 # =========================================================
 def _gerar_rodadas_round_robin(equipes):
-    """Gera rodadas todos-contra-todos pelo método do círculo."""
+    """Gera rodadas reais todos-contra-todos pelo método do círculo.
+
+    Rodada aqui NÃO é a ordem física da partida. Rodada é o bloco lógico em que
+    uma equipe joga no máximo uma vez. Exemplo com 6 equipes: 5 rodadas, cada
+    rodada com 3 jogos. Com número ímpar, uma equipe folga e a folga gira.
+    """
     times = list(equipes or [])
     if len(times) < 2:
         return []
@@ -2837,20 +3374,68 @@ def _gerar_rodadas_round_robin(equipes):
     rodadas = []
 
     for rodada_idx in range(n - 1):
-        rodada = []
+        jogos = []
+        folga = None
         for i in range(n // 2):
             t1 = times[i]
             t2 = times[n - 1 - i]
-            if t1 is not None and t2 is not None:
-                # Alterna mando/ordem visual para não deixar sempre o mesmo time primeiro.
-                if rodada_idx % 2 == 0:
-                    rodada.append((t1, t2))
-                else:
-                    rodada.append((t2, t1))
-        rodadas.append(rodada)
+            if t1 is None or t2 is None:
+                folga = t1 or t2
+                continue
+
+            # Alterna mando/ordem visual para não deixar sempre o mesmo time primeiro.
+            if rodada_idx % 2 == 0:
+                jogos.append((t1, t2))
+            else:
+                jogos.append((t2, t1))
+
+        rodadas.append({
+            "numero": rodada_idx + 1,
+            "jogos": jogos,
+            "folga": folga,
+        })
         times = [times[0]] + [times[-1]] + times[1:-1]
 
     return rodadas
+
+
+def _numero_rodada_info(rodada_info, padrao=1):
+    if isinstance(rodada_info, dict):
+        try:
+            return int(rodada_info.get("numero") or padrao)
+        except (TypeError, ValueError):
+            return padrao
+    return padrao
+
+
+def _jogos_rodada_info(rodada_info):
+    """Retorna somente confrontos válidos (equipe_a, equipe_b).
+
+    Compatibilidade importante:
+    - _gerar_rodadas_round_robin() retorna dict com {"numero", "jogos", "folga"};
+    - versões antigas/rotas auxiliares podem mandar lista de tuplas;
+    - nunca devemos transformar dict em list(dict), porque isso vira
+      ["numero", "jogos", "folga"] e causa ValueError no unpack.
+    """
+    if isinstance(rodada_info, dict):
+        jogos_raw = rodada_info.get("jogos") or []
+    else:
+        jogos_raw = rodada_info or []
+
+    jogos = []
+    for jogo in jogos_raw:
+        if isinstance(jogo, dict):
+            equipe_a = jogo.get("equipe_a") or jogo.get("a") or jogo.get("time_a")
+            equipe_b = jogo.get("equipe_b") or jogo.get("b") or jogo.get("time_b")
+        elif isinstance(jogo, (list, tuple)) and len(jogo) >= 2:
+            equipe_a, equipe_b = jogo[0], jogo[1]
+        else:
+            continue
+
+        if equipe_a and equipe_b:
+            jogos.append((equipe_a, equipe_b))
+
+    return jogos
 
 
 def _ids_quadras_ativas(quadras):
@@ -2941,6 +3526,8 @@ def _config_agenda_da_requisicao(nome_competicao):
             permitir_relaxar_descanso=permitir_relaxar,
             grupos_compartilhados=grupos_comp,
             quadras_compartilhadas=quadras_comp,
+            usar_rodadas_programadas=config.get("usar_rodadas_programadas", False),
+            uma_partida_por_equipe_rodada=config.get("uma_partida_por_equipe_rodada", True),
         )
         config = buscar_configuracao_agenda_competicao(nome_competicao) or config
 
@@ -3006,26 +3593,29 @@ def _quadras_permitidas_para_grupo(nome_competicao, grupos_raw, grupo_nome, quad
 
 
 def _montar_fila_jogos_classificatorios(rodadas_por_grupo, rodizio):
-    """Monta uma fila respeitando a ideia de rodadas entre grupos."""
+    """Monta uma fila respeitando rodadas reais entre grupos."""
     fila = []
     grupos = sorted(rodadas_por_grupo.keys())
     max_rodadas = max((len(r) for r in rodadas_por_grupo.values()), default=0)
 
     if rodizio == "por_grupo_inteiro":
         for grupo in grupos:
-            for rodada_idx, rodada in enumerate(rodadas_por_grupo.get(grupo) or [], start=1):
-                for equipe_a, equipe_b in rodada:
-                    fila.append({"grupo": grupo, "rodada_grupo": rodada_idx, "equipe_a": equipe_a, "equipe_b": equipe_b})
+            for pos, rodada_info in enumerate(rodadas_por_grupo.get(grupo) or [], start=1):
+                rodada_num = _numero_rodada_info(rodada_info, pos)
+                for equipe_a, equipe_b in _jogos_rodada_info(rodada_info):
+                    fila.append({"grupo": grupo, "rodada_grupo": rodada_num, "equipe_a": equipe_a, "equipe_b": equipe_b})
         return fila
 
-    # Padrão: por rodada. O alternado inteligente usa a mesma base e o encaixe abaixo decide o melhor jogo.
+    # Padrão: primeiro todas as Rodadas 1 dos grupos, depois Rodadas 2, etc.
     for rodada_idx in range(max_rodadas):
         for grupo in grupos:
             rodadas = rodadas_por_grupo.get(grupo) or []
             if rodada_idx >= len(rodadas):
                 continue
-            for equipe_a, equipe_b in rodadas[rodada_idx]:
-                fila.append({"grupo": grupo, "rodada_grupo": rodada_idx + 1, "equipe_a": equipe_a, "equipe_b": equipe_b})
+            rodada_info = rodadas[rodada_idx]
+            rodada_num = _numero_rodada_info(rodada_info, rodada_idx + 1)
+            for equipe_a, equipe_b in _jogos_rodada_info(rodada_info):
+                fila.append({"grupo": grupo, "rodada_grupo": rodada_num, "equipe_a": equipe_a, "equipe_b": equipe_b})
     return fila
 
 
@@ -3117,100 +3707,77 @@ def _grupo_com_mais_rodadas_restantes(rodadas_por_grupo, grupos_pool, ultimo_gru
 
 
 def _gerar_slots_pool_multiquadra(rodadas_por_grupo, grupos_pool, quadras_pool):
-    """Gera slots em bloco: um grupo por slot, várias quadras simultâneas.
+    """Gera slots físicos mantendo a rodada lógica correta.
 
-    Esta é a regra que tu aprovou:
-    - com duas quadras na Floresta, o slot recebe 2 jogos do mesmo grupo;
-    - o grupo com mais rodadas pendentes aparece mais vezes;
-    - não repete o mesmo grupo em slot seguido quando há alternativa;
-    - como os confrontos vêm por rodada round-robin, nenhuma equipe dobra no slot.
+    A quadra/slot serve só para ordenar e distribuir jogos. O campo `rodada_grupo`
+    continua sendo a rodada real do todos-contra-todos. Assim, se o Grupo A tem
+    6 equipes, a Rodada 1 fica com 3 jogos, mesmo que precise de mais de um slot
+    físico para executar todos eles.
     """
     capacidade = max(1, len(quadras_pool or []))
     slots = []
-    ultimo_grupo = None
+    max_rodadas = max((len(rodadas_por_grupo.get(g) or []) for g in grupos_pool or []), default=0)
 
-    while any(rodadas_por_grupo.get(g) for g in grupos_pool):
-        grupo = _grupo_com_mais_rodadas_restantes(rodadas_por_grupo, grupos_pool, ultimo_grupo)
-        if not grupo:
-            break
-
-        rodada = list((rodadas_por_grupo.get(grupo) or []).pop(0) or [])
-        jogos_slot = []
-        equipes_slot = set()
-
-        for qid in quadras_pool[:capacidade]:
-            if not rodada:
-                break
-            jogo_tuple = rodada.pop(0)
-            equipe_a, equipe_b = jogo_tuple
-            if equipe_a in equipes_slot or equipe_b in equipes_slot:
+    for rodada_idx in range(max_rodadas):
+        for grupo in sorted(grupos_pool or []):
+            rodadas = rodadas_por_grupo.get(grupo) or []
+            if rodada_idx >= len(rodadas):
                 continue
-            jogos_slot.append({
-                "grupo": grupo,
-                "equipe_a": equipe_a,
-                "equipe_b": equipe_b,
-                "quadra_id": qid,
-            })
-            equipes_slot.update({equipe_a, equipe_b})
 
-        # Se sobrou jogo por alguma rodada maior que a capacidade, devolve como
-        # próxima rodada do mesmo grupo. Isso mantém compatibilidade com qualquer
-        # grupo/tamanho de quadras, embora no teu caso sejam blocos de 2.
-        if rodada:
-            rodadas_por_grupo.setdefault(grupo, []).insert(0, rodada)
+            rodada_info = rodadas[rodada_idx]
+            rodada_num = _numero_rodada_info(rodada_info, rodada_idx + 1)
+            jogos = _jogos_rodada_info(rodada_info)
 
-        if jogos_slot:
-            slots.append(jogos_slot)
-            ultimo_grupo = grupo
-        else:
-            # Proteção para não criar loop infinito em dados estranhos.
-            ultimo_grupo = None
+            while jogos:
+                jogos_slot = []
+                equipes_slot = set()
+                for qid in quadras_pool[:capacidade]:
+                    if not jogos:
+                        break
+                    equipe_a, equipe_b = jogos.pop(0)
+                    if equipe_a in equipes_slot or equipe_b in equipes_slot:
+                        jogos.insert(0, (equipe_a, equipe_b))
+                        break
+                    jogos_slot.append({
+                        "grupo": grupo,
+                        "equipe_a": equipe_a,
+                        "equipe_b": equipe_b,
+                        "quadra_id": qid,
+                        "rodada_grupo": rodada_num,
+                    })
+                    equipes_slot.update({equipe_a, equipe_b})
+                if jogos_slot:
+                    slots.append(jogos_slot)
+                else:
+                    break
 
     return slots
 
 
 def _gerar_slots_pool_quadra_unica(rodadas_por_grupo, grupos_pool, quadra_id):
-    """Gera slots para uma quadra só, tentando evitar equipe em slot seguido."""
-    jogos_por_grupo = {}
-    for grupo in grupos_pool or []:
-        jogos = []
-        for rodada in rodadas_por_grupo.get(grupo) or []:
-            for equipe_a, equipe_b in rodada:
-                jogos.append({
+    """Gera slots para uma quadra só sem transformar cada jogo em nova rodada.
+
+    Com uma quadra, os jogos são sequenciais, mas a rodada lógica permanece: a
+    Rodada 1 mostra todos os jogos da Rodada 1, depois a Rodada 2, e assim vai.
+    """
+    slots = []
+    max_rodadas = max((len(rodadas_por_grupo.get(g) or []) for g in grupos_pool or []), default=0)
+
+    for rodada_idx in range(max_rodadas):
+        for grupo in sorted(grupos_pool or []):
+            rodadas = rodadas_por_grupo.get(grupo) or []
+            if rodada_idx >= len(rodadas):
+                continue
+            rodada_info = rodadas[rodada_idx]
+            rodada_num = _numero_rodada_info(rodada_info, rodada_idx + 1)
+            for equipe_a, equipe_b in _jogos_rodada_info(rodada_info):
+                slots.append([{
                     "grupo": grupo,
                     "equipe_a": equipe_a,
                     "equipe_b": equipe_b,
                     "quadra_id": quadra_id,
-                })
-        jogos_por_grupo[grupo] = jogos
-
-    slots = []
-    ultimo_grupo = None
-    equipes_slot_anterior = set()
-
-    while any(jogos_por_grupo.get(g) for g in grupos_pool):
-        grupo = None
-        candidatos = []
-        for g in grupos_pool or []:
-            restante = len(jogos_por_grupo.get(g) or [])
-            if restante <= 0:
-                continue
-            if ultimo_grupo and g == ultimo_grupo and len(grupos_pool) > 1:
-                continue
-            candidatos.append((restante, g))
-        if not candidatos:
-            candidatos = [(len(jogos_por_grupo.get(g) or []), g) for g in grupos_pool if jogos_por_grupo.get(g)]
-        if not candidatos:
-            break
-        candidatos.sort(key=lambda x: (-x[0], x[1]))
-        grupo = candidatos[0][1]
-
-        jogo = _proximo_jogo_sem_conflito(jogos_por_grupo.get(grupo), set(), equipes_slot_anterior)
-        if not jogo:
-            break
-        slots.append([jogo])
-        ultimo_grupo = grupo
-        equipes_slot_anterior = {jogo["equipe_a"], jogo["equipe_b"]}
+                    "rodada_grupo": rodada_num,
+                }])
 
     return slots
 
@@ -3248,7 +3815,13 @@ def _gerar_agenda_classificatoria_inteligente(nome_competicao, grupos_raw, confi
     for quadras_pool, grupos_pool in pools.items():
         # Copia só as rodadas dos grupos deste pool para não consumir o dict global.
         rodadas_pool = {
-            g: [list(rodada) for rodada in (rodadas_por_grupo.get(g) or [])]
+            # Mantém o dict da rodada intacto.
+            # Antes usava list(rodada), que em dict vira ["numero", "jogos", "folga"]
+            # e quebrava a geração automática em quadra única.
+            g: [
+                dict(rodada) if isinstance(rodada, dict) else list(rodada)
+                for rodada in (rodadas_por_grupo.get(g) or [])
+            ]
             for g in grupos_pool
         }
 
@@ -3272,7 +3845,7 @@ def _gerar_agenda_classificatoria_inteligente(nome_competicao, grupos_raw, confi
                 item = dict(jogo)
                 item["slot"] = slot_numero
                 item["ordem_no_slot"] = ordem_no_slot
-                item["rodada_grupo"] = slot_numero
+                item["rodada_grupo"] = item.get("rodada_grupo") or slot_numero
                 agenda.append(item)
                 ordem_no_slot += 1
 
@@ -3381,7 +3954,7 @@ def gerar_automatico():
         flash("Esta fase já iniciou. Não é possível gerar jogos automaticamente nela.", "erro")
         return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
-    _sincronizar_grupo_unico_automatico(competicao)
+    _garantir_grupos_da_estrutura(competicao)
     grupos_raw = _listar_grupos_cache(nome_competicao)
     mapa_quadras = _mapa_quadras_formatadas(nome_competicao)
 
@@ -3496,7 +4069,8 @@ def gerar_automatico():
                 "quadra_id": quadra_id,
                 "quadra_nome": quadra_nome,
                 "origem": origem,
-                "rodada": None,
+                "rodada": indice,
+                "data_hora": buscar_data_hora_rodada_programada(nome_competicao, "avanco", fase_banco, serie_ativa, indice),
             })
 
         total_inserido = _inserir_partidas_em_lote(partidas_para_salvar)
@@ -3530,7 +4104,8 @@ def gerar_automatico():
             "quadra_id": quadra_id,
             "quadra_nome": quadra_nome,
             "origem": "automatica_inteligente",
-            "rodada": jogo.get("slot"),
+            "rodada": jogo.get("rodada_grupo") or jogo.get("slot"),
+            "data_hora": buscar_data_hora_rodada_programada(nome_competicao, "classificatoria", "grupos", "", jogo.get("rodada_grupo") or jogo.get("slot")),
         })
 
     total_inserido = _inserir_partidas_em_lote(partidas_para_salvar)
@@ -3538,7 +4113,7 @@ def gerar_automatico():
 
     flash(
         f"{total_inserido} jogos gerados automaticamente com agenda inteligente: "
-        f"{resultado_agenda.get('slots', 0)} rodadas/slots, "
+        f"{max([int(j.get('rodada_grupo') or 0) for j in (resultado_agenda.get('agenda') or [])] or [resultado_agenda.get('slots', 0)])} rodada(s) reais, "
         f"descanso mínimo de {config_agenda.get('descanso_minimo_jogos', 1)} jogo(s) quando possível.",
         "sucesso",
     )

@@ -845,7 +845,7 @@ document.addEventListener("keydown", function(e) {
                 <span class="ap-team-mini"><img class="ap-escudo-mini" src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async"><span class="ap-team-name">{{ p.equipe_b }}</span></span>
             </div>
             <div class="ap-meta">
-                Jogo {{ p.ordem or '-' }} • {{ quadra_label(p.quadra, nome_quadra) }} • {% if p.fase_normalizada and p.fase_normalizada != 'grupos' %}{{ p.fase_normalizada|replace('_',' ')|title }}{% else %}{{ p.grupo or '-' }}{% endif %}
+                Jogo {{ p.ordem or '-' }}{% if p.rodada %} • Rodada {{ p.rodada }}{% endif %}{% if p.data_hora %} • {{ p.data_hora|replace('T',' ') }}{% endif %} • {{ quadra_label(p.quadra, nome_quadra) }} • {% if p.fase_normalizada and p.fase_normalizada != 'grupos' %}{{ p.fase_normalizada|replace('_',' ')|title }}{% else %}{{ p.grupo or '-' }}{% endif %}
                 <span class="ap-badge ap-badge-avanco" title="Configuração da partida">
                     {{ p.resumo_regra or 'M3 • 25PTS • TB15' }}
                 </span>
