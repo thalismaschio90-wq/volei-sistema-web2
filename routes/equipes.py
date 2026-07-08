@@ -938,6 +938,25 @@ def perfil_equipe_view():
 @equipes_bp.route("/minha-equipe", methods=["GET", "POST"])
 @exigir_perfil("equipe")
 def minha_equipe():
+
+    # ===== CORREÇÃO =====
+    notificacoes_equipe = []
+    solicitacoes_equipe = [] # <--- Adicione esta linha
+    qtd_notificacoes = 0
+    try:
+        usuario = session.get("usuario")
+        if usuario:
+            notificacoes_equipe = listar_notificacoes_sistema(usuario) or []
+            qtd_notificacoes = contar_notificacoes_nao_lidas(usuario) or 0
+            
+            # Adicione a busca das solicitações:
+            equipe_data = _equipe_logada_com_competicao()
+            if equipe_data:
+                solicitacoes_equipe = listar_solicitacoes_equipes(equipe_data["competicao"], equipe=equipe_data["nome"], limite=10) or []
+    except Exception:
+        pass
+    # ====================
+
     usuario = session.get("usuario")
     equipe = _equipe_logada_com_competicao()
 
@@ -971,7 +990,7 @@ def minha_equipe():
         sucesso=sucesso,
         escudo_padrao=escudo_padrao_equipe(),
         notificacoes_equipe=notificacoes_equipe,
-        solicitacoes_equipe=solicitacoes_equipe,
+        solicitacoes_equipe=solicitacoes_equipe, # Agora a variável existe!
         notificacoes_nao_lidas=contar_notificacoes_nao_lidas(equipe["competicao"], "equipe", usuario, equipe["nome"]),
     )
 
