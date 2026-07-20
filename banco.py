@@ -5730,7 +5730,13 @@ def fase_partidas_pode_ser_alterada(nome_competicao, fase):
 
 def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fase='grupos', data_hora=None, rodada=None, origem='manual', quadra_id=None, quadra_nome=None):
     fase = _normalizar_fase_partida(fase)
-    grupo = grupo if fase == "grupos" else None
+    # Mantém o grupo existente quando a edição não informa um novo grupo.
+    if fase == "grupos":
+        if grupo is None:
+            partida_existente = buscar_partida_por_id(partida_id, competicao) or {}
+            grupo = partida_existente.get("grupo")
+    else:
+        grupo = None
 
     if quadra_id:
         q = buscar_quadra_competicao_por_id(competicao, quadra_id)
@@ -5794,26 +5800,57 @@ def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fas
         conn.commit()
 
 
-def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='aguardando', rodada=None, quadra_id=None, quadra_nome=None):
+def atualizar_partida(
+    partida_id,
+    competicao,
+    grupo,
+    fase,
+    equipe_a,
+    equipe_b,
+    quadra=None,
+    data_hora=None,
+    status='aguardando',
+    rodada=None,
+    quadra_id=None,
+    quadra_nome=None
+):
     fase = _normalizar_fase_partida(fase)
-    grupo = grupo if fase == "grupos" else None
 
+    # Busca a partida atual
+    partida_atual = buscar_partida_por_id(partida_id, competicao)
+    if not partida_atual:
+        return False
+
+    # Nunca perder o grupo de partidas classificatórias
+    if fase == "grupos":
+        if not grupo:
+            grupo = partida_atual.get("grupo")
+    else:
+        grupo = None
+
+    # Resolve a quadra
     if quadra_id:
         q = buscar_quadra_competicao_por_id(competicao, quadra_id)
         if q:
             quadra_id = int(q["id"])
             quadra_nome = formatar_quadra_exibicao(q)
             quadra = str(quadra_id)
+
     elif quadra_nome or quadra:
-        q = buscar_quadra_competicao_por_texto(competicao, quadra_nome or quadra)
+        q = buscar_quadra_competicao_por_texto(
+            competicao,
+            quadra_nome or quadra
+        )
         if q:
             quadra_id = int(q["id"])
             quadra_nome = formatar_quadra_exibicao(q)
             quadra = str(quadra_id)
 
-    partida_atual = buscar_partida_por_id(partida_id, competicao)
+    # Não permite alterar partidas iniciadas
     if partida_ja_iniciou_ou_finalizou(partida_atual):
         return False
+
+    # Não permite alterar fases travadas
     if not fase_partidas_pode_ser_alterada(competicao, fase):
         return False
 
@@ -5821,7 +5858,8 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE partidas
-                SET grupo = %s,
+                SET
+                    grupo = %s,
                     fase = %s,
                     equipe_a = %s,
                     equipe_b = %s,
@@ -5835,8 +5873,25 @@ def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, q
                     rodada = %s
                 WHERE id = %s
                   AND competicao = %s
-            """, (grupo, fase, equipe_a, equipe_b, quadra, quadra_id, quadra_nome or quadra or '', data_hora, status, status, status, rodada, partida_id, competicao))
+            """, (
+                grupo,
+                fase,
+                equipe_a,
+                equipe_b,
+                quadra,
+                quadra_id,
+                quadra_nome or quadra or "",
+                data_hora,
+                status,
+                status,
+                status,
+                rodada,
+                partida_id,
+                competicao,
+            ))
+
         conn.commit()
+
     return True
 
 

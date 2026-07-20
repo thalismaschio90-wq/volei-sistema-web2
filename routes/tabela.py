@@ -1342,10 +1342,9 @@ def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
     return sorted(
         partidas_preparadas,
         key=lambda p: (
+            p.get("data_hora_valor") or "9999-12-31 23:59",
+            p.get("quadra_label") or "",
             p.get("ordem") or 0,
-            p.get("grupo") or "",
-            p.get("equipe_a") or "",
-            p.get("equipe_b") or "",
         )
     )
     
@@ -3313,7 +3312,7 @@ def atualizar_partida_view(partida_id):
     ok = atualizar_partida(
         partida_id,
         competicao["nome"],
-        None,
+        partida_atual.get("grupo"),
         fase_banco,
         equipe_a,
         equipe_b,
