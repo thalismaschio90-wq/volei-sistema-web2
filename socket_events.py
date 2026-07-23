@@ -582,6 +582,23 @@ def emitir_estado_partida(partida_id, dados=None):
             partida_id,
         )
 
+    # ==========================================================
+    # Atualiza também o placar profissional automaticamente
+    # ==========================================================
+    apontador = _normalizar_apontador(
+        payload.get("apontador")
+        or payload.get("apontador_login")
+        or payload.get("operador_login")
+    )
+
+    if apontador:
+        _ULTIMO_PLACAR_APONTADOR[apontador] = payload
+
+        socketio.emit(
+            "placar_apontador_atualizado",
+            _payload_placar_rapido(payload),
+            room=_room_placar_apontador(apontador),
+        )
 
 # =========================
 # TREINADOR → APONTADOR
@@ -1255,4 +1272,8 @@ def entrar_placar_apontador(data=None):
     ultimo = _ULTIMO_PLACAR_APONTADOR.get(apontador)
 
     if ultimo:
-        socketio.emit("placar_apontador_atualizado", ultimo, room=request.sid)
+        socketio.emit(
+            "placar_apontador_atualizado",
+            _payload_placar_rapido(ultimo),
+            room=request.sid,
+        )

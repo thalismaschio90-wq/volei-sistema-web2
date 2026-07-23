@@ -2983,22 +2983,29 @@ def criar_campos_liberacao_extra_equipes(force=False):
 def controle_inscricao_para_equipe(nome_competicao, nome_equipe):
     controle = obter_controle_inscricao_competicao(nome_competicao)
 
-    liberado_atletas, motivo_travamento = validar_edicao_atletas_equipe(nome_competicao, nome_equipe)
-    if not liberado_atletas:
+    # As exigências fazem parte do contexto da inscrição e precisam acompanhar
+    # qualquer resultado (aberto, bloqueado ou com liberação especial). Antes,
+    # esses campos eram lidos do banco, mas descartados nos retornos abaixo.
+    exigencias = {
+        "exigir_foto_atleta": bool(controle.get("exigir_foto_atleta")) if controle else False,
+        "exigir_instagram_atleta": bool(controle.get("exigir_instagram_atleta")) if controle else False,
+    }
+
+    def resposta(aberta, motivo, origem):
         return {
-            "aberta": False,
-            "liberado": False,
-            "motivo": motivo_travamento,
-            "origem": "competicao_travada"
+            "aberta": bool(aberta),
+            "liberado": bool(aberta),
+            "motivo": motivo or "",
+            "origem": origem,
+            **exigencias,
         }
 
+    liberado_atletas, motivo_travamento = validar_edicao_atletas_equipe(nome_competicao, nome_equipe)
+    if not liberado_atletas:
+        return resposta(False, motivo_travamento, "competicao_travada")
+
     if not controle:
-        return {
-            "aberta": True,
-            "liberado": True,
-            "motivo": motivo_travamento,
-            "origem": "competicao_aberta"
-        }
+        return resposta(True, motivo_travamento, "competicao_aberta")
 
     equipe = buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao)
     if equipe:
@@ -3008,12 +3015,7 @@ def controle_inscricao_para_equipe(nome_competicao, nome_equipe):
 
         if liberacao_extra:
             if not data_extra:
-                return {
-                    "aberta": True,
-                    "liberado": True,
-                    "motivo": "Equipe com liberação especial após o prazo.",
-                    "origem": "liberacao_especial"
-                }
+                return resposta(True, "Equipe com liberação especial após o prazo.", "liberacao_especial")
 
             try:
                 if hora_extra:
@@ -3022,36 +3024,15 @@ def controle_inscricao_para_equipe(nome_competicao, nome_equipe):
                     limite_extra = datetime.strptime(f"{data_extra} 23:59", "%Y-%m-%d %H:%M")
 
                 if datetime.now() <= limite_extra:
-                    return {
-                        "aberta": True,
-                        "liberado": True,
-                        "motivo": "Equipe com liberação especial dentro do prazo extra.",
-                        "origem": "liberacao_especial"
-                    }
+                    return resposta(True, "Equipe com liberação especial dentro do prazo extra.", "liberacao_especial")
             except ValueError:
-                return {
-                    "aberta": True,
-                    "liberado": True,
-                    "motivo": "Equipe com liberação especial.",
-                    "origem": "liberacao_especial"
-                }
+                return resposta(True, "Equipe com liberação especial.", "liberacao_especial")
 
     liberado, motivo = inscricao_e_edicao_liberadas(nome_competicao)
-
     if liberado:
-        return {
-            "aberta": True,
-            "liberado": True,
-            "motivo": "",
-            "origem": "competicao_aberta"
-        }
+        return resposta(True, "", "competicao_aberta")
 
-    return {
-        "aberta": False,
-        "liberado": False,
-        "motivo": motivo or "Inscrição/edição bloqueada para esta equipe.",
-        "origem": "bloqueado"
-    }
+    return resposta(False, motivo or "Inscrição/edição bloqueada para esta equipe.", "bloqueado")
 
 
 def salvar_liberacao_extra_equipe(
