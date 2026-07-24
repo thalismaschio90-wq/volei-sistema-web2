@@ -75,6 +75,10 @@
 .atalhos-salvar { background:#0f766e; color:#fff; }
 .atalhos-limpar { background:#e5e7eb; color:#111827; }
 
+.ap-rodada-tabs { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 12px; padding:10px; background:#f8fafc; border:1px solid var(--border); border-radius:18px; }
+.ap-rodada-tab { border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius:14px; padding:9px 13px; font-weight:1000; cursor:pointer; display:inline-flex; flex-direction:column; align-items:flex-start; gap:2px; }
+.ap-rodada-tab.ativa { background:#123852; color:#fff; border-color:#123852; }
+.ap-rodada-tab small { font-size:11px; opacity:.78; font-weight:800; }
 .ap-quadra-tabs { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 18px; padding:10px; background:#f8fafc; border:1px solid var(--border); border-radius:18px; }
 .ap-quadra-tab { border:1px solid #cbd5e1; background:#fff; color:#0f172a; border-radius:999px; padding:10px 14px; font-weight:1000; cursor:pointer; display:inline-flex; align-items:center; gap:8px; box-shadow:0 8px 20px rgba(15,23,42,.05); transition:.18s ease; }
 .ap-quadra-tab:hover { transform:translateY(-1px); border-color:#94a3b8; }
@@ -837,6 +841,7 @@ document.addEventListener("keydown", function(e) {
          data-url-operacao="{{ url_operacao }}"
          data-finalizada="{{ '1' if jogo_finalizado else '0' }}"
          data-status-categoria="{{ status_categoria }}"
+         data-rodada-chave="{{ p.rodada if p.rodada else 'SEM_RODADA' }}"
          data-quadra-chave="{{ quadra_chave }}">
         <div class="ap-info">
             <div class="ap-match-line">
@@ -1127,6 +1132,19 @@ document.addEventListener("keydown", function(e) {
         {% endfor %}
 
         {% if partidas %}
+            {% if rodadas_exibicao %}
+                <div class="ap-rodada-tabs" id="ap-rodada-tabs" aria-label="Filtrar partidas por rodada">
+                    <button type="button" class="ap-rodada-tab ativa" data-rodada-chave="TODAS">
+                        <span>Todas as rodadas</span><small>{{ partidas|length }} jogo(s)</small>
+                    </button>
+                    {% for rodada in rodadas_exibicao %}
+                        <button type="button" class="ap-rodada-tab" data-rodada-chave="{{ rodada.chave }}">
+                            <span>{{ rodada.nome }}</span>
+                            <small>{% if rodada.data %}{{ rodada.data }}{% endif %}{% if rodada.hora %} • {{ rodada.hora }}{% endif %} • {{ rodada.total }} jogo(s)</small>
+                        </button>
+                    {% endfor %}
+                </div>
+            {% endif %}
             {% set qns = namespace(chaves=[]) %}
             <div class="ap-quadra-tabs" id="ap-quadra-tabs" aria-label="Filtrar partidas por quadra">
                 <button type="button" class="ap-quadra-tab ativa" data-quadra-chave="TODAS">
@@ -1207,6 +1225,7 @@ document.addEventListener("keydown", function(e) {
                 }
             };
             (function () {
+                let filtroRodada = "TODAS";
                 let filtroQuadra = "TODAS";
                 let filtroStatus = "all";
 
@@ -1217,12 +1236,13 @@ document.addEventListener("keydown", function(e) {
 
                     cards.forEach(card => {
                         const status = card.dataset.statusCategoria || "wait";
+                        const bateRodada = filtroRodada === "TODAS" || card.dataset.rodadaChave === filtroRodada;
                         const bateQuadra = filtroQuadra === "TODAS" || card.dataset.quadraChave === filtroQuadra;
                         const bateStatus = filtroStatus === "all" || status === filtroStatus;
-                        const mostrar = bateQuadra && bateStatus;
+                        const mostrar = bateRodada && bateQuadra && bateStatus;
                         card.style.display = mostrar ? "" : "none";
 
-                        if (bateQuadra && counts[status] !== undefined) {
+                        if (bateRodada && bateQuadra && counts[status] !== undefined) {
                             counts[status] += 1;
                             counts.all += 1;
                         }
@@ -1239,10 +1259,10 @@ document.addEventListener("keydown", function(e) {
                         section.classList.toggle("ap-section-oculta", !mostrarSecao || (filtroStatus === "all" && totalCategoria === 0));
 
                         if (originalEmpty) {
-                            originalEmpty.style.display = filtroQuadra === "TODAS" && filtroStatus === "all" && !temCardsOriginais ? "block" : "none";
+                            originalEmpty.style.display = filtroRodada === "TODAS" && filtroQuadra === "TODAS" && filtroStatus === "all" && !temCardsOriginais ? "block" : "none";
                         }
                         if (filtroEmpty) {
-                            filtroEmpty.classList.toggle("aparece", mostrarSecao && (filtroQuadra !== "TODAS" || filtroStatus !== "all") && totalCategoria === 0);
+                            filtroEmpty.classList.toggle("aparece", mostrarSecao && (filtroRodada !== "TODAS" || filtroQuadra !== "TODAS" || filtroStatus !== "all") && totalCategoria === 0);
                         }
                     });
 
@@ -1259,6 +1279,15 @@ document.addEventListener("keydown", function(e) {
                         if (el) el.textContent = counts[k] || 0;
                     });
                 }
+
+                document.querySelectorAll(".ap-rodada-tab").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        document.querySelectorAll(".ap-rodada-tab").forEach(b => b.classList.remove("ativa"));
+                        btn.classList.add("ativa");
+                        filtroRodada = btn.dataset.rodadaChave || "TODAS";
+                        aplicarFiltros();
+                    });
+                });
 
                 document.querySelectorAll(".ap-quadra-tab").forEach(btn => {
                     btn.addEventListener("click", () => {

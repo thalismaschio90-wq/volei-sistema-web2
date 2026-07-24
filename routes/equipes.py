@@ -59,6 +59,7 @@ from banco import (
     listar_solicitacoes_equipes,
     responder_solicitacao_equipe,
     listar_notificacoes_sistema,
+    listar_rodadas_competicao,
     contar_notificacoes_nao_lidas,
     criar_notificacao_sistema,
 )
@@ -1205,10 +1206,9 @@ def _preparar_partidas_para_equipe(equipe, competicao=None, mapa_escudos=None):
     return sorted(
         resultado,
         key=lambda p: (
-            p.get("fase_ordem") or 9,
-            p.get("rodada") or 999999,
-            p.get("ordem") or 999999,
-            p.get("id") or 999999,
+            p.get("rodada") if p.get("rodada") is not None else 999999,
+            p.get("ordem") if p.get("ordem") is not None else 999999,
+            p.get("id") if p.get("id") is not None else 999999,
         )
     )
 
@@ -1262,10 +1262,9 @@ def _preparar_partidas_home_equipe(equipe, limite=50):
     return sorted(
         resultado,
         key=lambda p: (
-            p.get("fase_ordem") or 9,
-            p.get("rodada") or 999999,
-            p.get("ordem") or 999999,
-            p.get("id") or 999999,
+            p.get("rodada") if p.get("rodada") is not None else 999999,
+            p.get("ordem") if p.get("ordem") is not None else 999999,
+            p.get("id") if p.get("id") is not None else 999999,
         )
     )
 
@@ -1305,6 +1304,41 @@ def selecionar_competicao_equipe_view():
     return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
 
+def _agrupar_partidas_por_rodada_equipe(nome_competicao, partidas):
+    """Agrupa apenas para exibição, mantendo a ordem definida pelo organizador."""
+    configuradas = listar_rodadas_competicao(nome_competicao) or []
+    por_numero = {}
+    for r in configuradas:
+        try:
+            numero = int(r.get("numero_rodada") or 1)
+        except (TypeError, ValueError):
+            numero = 1
+        por_numero.setdefault(numero, r)
+
+    grupos = []
+    indice = {}
+    for partida in partidas or []:
+        try:
+            numero = int(partida.get("rodada") or 0)
+        except (TypeError, ValueError):
+            numero = 0
+        chave = str(numero) if numero > 0 else "SEM_RODADA"
+        if chave not in indice:
+            cfg = por_numero.get(numero, {}) if numero > 0 else {}
+            indice[chave] = len(grupos)
+            grupos.append({
+                "chave": chave,
+                "numero": numero if numero > 0 else None,
+                "nome": cfg.get("nome") or (f"Rodada {numero}" if numero > 0 else "Sem rodada definida"),
+                "data": cfg.get("data") or "",
+                "hora": cfg.get("hora") or "",
+                "data_hora": cfg.get("data_hora") or "",
+                "partidas": [],
+            })
+        grupos[indice[chave]]["partidas"].append(partida)
+    return grupos
+
+
 @equipes_bp.route("/minhas-partidas")
 @exigir_perfil("equipe")
 def minhas_partidas_view():
@@ -1329,6 +1363,7 @@ def minhas_partidas_view():
         "minhas_partidas.html",
         equipe=equipe,
         partidas=partidas,
+        rodadas_partidas=_agrupar_partidas_por_rodada_equipe(nome_competicao, partidas),
         competicao=dados_classificacao.get("competicao") or competicao,
         grupos=dados_classificacao.get("grupos") or [],
         classificacao=dados_classificacao.get("classificacao") or {},

@@ -62,7 +62,7 @@
             <div id="mobile-set-atual" class="mobile-set-atual">1º SET</div>
             <div class="mobile-sets"><span id="mobile-sets-esq">0</span> × <span id="mobile-sets-dir">0</span></div>
             <div id="mobile-saque" class="mobile-saque">Saque atual ainda não definido</div>
-            <div id="mobile-relogio-jogo-real" class="mobile-saque">⏱ 00:00</div>
+
         </div>
 
         <button id="mobile-head-dir" class="mobile-equipe-head" type="button">
@@ -87,7 +87,7 @@
                     <button class="mobile-btn" type="button" data-mobile-action="sancao">🟨 Sanção</button>
                     <button class="mobile-btn" type="button" data-mobile-action="verde">🟩 Cartão verde</button>
                     <button class="mobile-btn" type="button" data-mobile-action="retardamento">⏳ Retardamento</button>
-                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="esq">WO</button>
+                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="esq">Perdeu por WO</button>
                 </div>
             </div>
         </div>
@@ -115,7 +115,7 @@
                     <button class="mobile-btn" type="button" data-mobile-action="sancao">🟨 Sanção</button>
                     <button class="mobile-btn" type="button" data-mobile-action="verde">🟩 Cartão verde</button>
                     <button class="mobile-btn" type="button" data-mobile-action="retardamento">⏳ Retardamento</button>
-                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="dir">WO</button>
+                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="dir">Perdeu por WO</button>
                 </div>
             </div>
         </div>
@@ -2399,11 +2399,7 @@ body {
             <span id="pontos-b">{{ estado.pontos_b or 0 }}</span>
         </div>
         <div class="pc-sets-mini">Sets: <span id="sets-a">{{ estado.sets_a or 0 }}</span> x <span id="sets-b">{{ estado.sets_b or 0 }}</span></div>
-        <div id="relogio-jogo-real" class="relogio-jogo-real" aria-live="polite">
-            <span id="relogio-data-real">--/--/----</span>
-            <span id="relogio-hora-real">--:--:--</span>
-            <span id="relogio-duracao-real">⏱ 00:00</span>
-        </div>
+
         <div id="alerta-point" class="alerta-point"></div>
         <div id="saque-info" class="pc-saque-info" aria-live="polite">
             {% if estado.saque_atual %}Saque atual: {{ estado.saque_atual }}{% else %}Saque atual ainda não definido{% endif %}
@@ -2433,6 +2429,7 @@ body {
                 <span title="Substituições">🔁<strong id="subs-a">{{ estado.subs_a if estado.subs_a is defined else 0 }}</strong></span>
                 <span title="Cartões amarelos">🟨<strong id="sancoes-a">{{ estado.sancoes_a|length if estado.sancoes_a is defined else 0 }}</strong></span>
                 <span title="Cartões vermelhos">🟥<strong id="vermelhos-a">{{ estado.cartoes_vermelhos_a|length if estado.cartoes_vermelhos_a is defined else 0 }}</strong></span>
+                <span title="Cartões verdes / fair play">🟩<strong id="verdes-a">{{ estado.cartoes_verdes_a|length if estado.cartoes_verdes_a is defined else 0 }}</strong></span>
             </div>
         </div>
     </div>
@@ -2450,6 +2447,7 @@ body {
                 <span title="Substituições">🔁<strong id="subs-b">{{ estado.subs_b if estado.subs_b is defined else 0 }}</strong></span>
                 <span title="Cartões amarelos">🟨<strong id="sancoes-b">{{ estado.sancoes_b|length if estado.sancoes_b is defined else 0 }}</strong></span>
                 <span title="Cartões vermelhos">🟥<strong id="vermelhos-b">{{ estado.cartoes_vermelhos_b|length if estado.cartoes_vermelhos_b is defined else 0 }}</strong></span>
+                <span title="Cartões verdes / fair play">🟩<strong id="verdes-b">{{ estado.cartoes_verdes_b|length if estado.cartoes_verdes_b is defined else 0 }}</strong></span>
             </div>
         </div>
         <div class="pc-shield-wrap">
@@ -3195,6 +3193,18 @@ function montarPayloadTempoReal(extra = {}) {
 
     function receberSolicitacaoTempoReal(dados) {
         if (!dados || typeof dados !== "object") return;
+
+        // Esta faixa é EXCLUSIVA para pedidos ainda pendentes enviados pelo treinador.
+        // Eventos executados pelo próprio apontador (substituição/tempo), respostas já
+        // confirmadas e notificações gerais não podem aparecer como "Solicitação do treinador".
+        const tipoRecebido = String(dados.tipo || "").trim().toLowerCase();
+        const statusRecebido = String(dados.status || "").trim().toLowerCase();
+        const origemRecebida = String(dados.origem || "").trim().toLowerCase();
+        const ehPedidoPendente = ["tempo", "substituicao"].includes(tipoRecebido)
+            && !["confirmada", "confirmado", "executada", "executado", "iniciado", "finalizado", "recusada", "recusado"].includes(statusRecebido)
+            && (origemRecebida.includes("treinador") || dados.id_solicitacao);
+        if (!ehPedidoPendente) return;
+
         const chave = chaveSolicitacaoTempoReal(dados);
         if (chave && solicitacoesRecebidasTempoReal.has(chave)) return;
         if (chave) {
@@ -3280,6 +3290,20 @@ function montarPayloadTempoReal(extra = {}) {
 
         socket.on("notificacao_geral", function (dados) {
             receberSolicitacaoTempoReal(dados);
+        });
+
+        // Garante que um tempo confirmado pelo backend também abra o relógio
+        // nesta tela, inclusive após reconexão ou quando o evento vem de outro painel.
+        socket.on("tempo_executado", function (dados) {
+            if (!dados || String(dados.status || "iniciado").toLowerCase() === "finalizado") return;
+            iniciarCronometro(Number(dados.restante ?? dados.segundos ?? dados.duracao ?? 30), dados.equipe || "");
+        });
+        socket.on("cronometro_tempo", function (dados) {
+            if (!dados) return;
+            const status = String(dados.status || "").toLowerCase();
+            if (status === "iniciado") {
+                iniciarCronometro(Number(dados.restante ?? dados.segundos ?? dados.duracao ?? 30), dados.equipe || "");
+            }
         });
     }
     let ultimoTokenSync = 0;
@@ -3816,8 +3840,8 @@ function montarPayloadTempoReal(extra = {}) {
         marcarBotaoComEquipe(btnTempoB, equipeDir, `Tempo ${nomeDir}`);
         marcarBotaoComEquipe(btnSubA, equipeEsq, `Substituição ${nomeEsq}`);
         marcarBotaoComEquipe(btnSubB, equipeDir, `Substituição ${nomeDir}`);
-        marcarBotaoComEquipe(btnWoA, equipeEsq, `WO ${nomeEsq}`);
-        marcarBotaoComEquipe(btnWoB, equipeDir, `WO ${nomeDir}`);
+        marcarBotaoComEquipe(btnWoA, equipeEsq, `${nomeEsq} perdeu por WO`);
+        marcarBotaoComEquipe(btnWoB, equipeDir, `${nomeDir} perdeu por WO`);
 
         if (btnInverterLados) btnInverterLados.textContent = ladosInvertidos ? "Desfazer inversão dos lados" : "Inverter lados";
         if (btnMobileInverterLados) btnMobileInverterLados.textContent = ladosInvertidos ? "⇄ Desfazer" : "⇄ Inverter";
@@ -4100,14 +4124,20 @@ function inverterLadosVisual() {
         const equipeSubEsq = equipeDoBotao(btnSubA, "esquerda");
         const equipeSubDir = equipeDoBotao(btnSubB, "direita");
 
+        // Mantém o botão clicável quando o contador chega a zero para que o
+        // apontador receba a mensagem clara de que a equipe não possui mais tempos.
         if (btnTempoA) {
-            btnTempoA.disabled = travadoGeral || !podePedirTempo(equipeTempoEsq, dados);
-            btnTempoA.title = !podePedirTempo(equipeTempoEsq, dados) ? "Limite de tempos atingido para esta equipe neste set." : "";
+            const semTempoA = !podePedirTempo(equipeTempoEsq, dados);
+            btnTempoA.disabled = travadoGeral;
+            btnTempoA.setAttribute("aria-disabled", semTempoA ? "true" : "false");
+            btnTempoA.title = semTempoA ? "Esta equipe não possui mais pedidos de tempo neste set." : "";
         }
 
         if (btnTempoB) {
-            btnTempoB.disabled = travadoGeral || !podePedirTempo(equipeTempoDir, dados);
-            btnTempoB.title = !podePedirTempo(equipeTempoDir, dados) ? "Limite de tempos atingido para esta equipe neste set." : "";
+            const semTempoB = !podePedirTempo(equipeTempoDir, dados);
+            btnTempoB.disabled = travadoGeral;
+            btnTempoB.setAttribute("aria-disabled", semTempoB ? "true" : "false");
+            btnTempoB.title = semTempoB ? "Esta equipe não possui mais pedidos de tempo neste set." : "";
         }
 
         if (btnSubA) {
@@ -4163,10 +4193,14 @@ function inverterLadosVisual() {
         const equipeNormalizada = normalizarEquipe(equipe);
         const nomeEquipeTempo = (equipeNormalizada === "A" || equipeNormalizada === "B") ? nomeEquipePorLado(equipeNormalizada) : String(equipe || "");
 
-        cronometroEl.style.display = "block";
+        if (!cronometroEl) {
+            console.error("Elemento #cronometro-tempo não encontrado.");
+            return;
+        }
+        cronometroEl.style.setProperty("display", "block", "important");
         cronometroEl.textContent = "⏱️ " + tempoAtual;
         atualizarMobileCronometro("⏱️ " + tempoAtual, true);
-        abrirPopupJogoGrande("tempo", {
+        if (typeof abrirPopupJogoGrande === "function") abrirPopupJogoGrande("tempo", {
             segundos: tempoAtual,
             nome: "CRONÔMETRO",
             equipe: nomeEquipeTempo ? `Tempo ${nomeEquipeTempo}` : "Tempo técnico"
@@ -4299,14 +4333,31 @@ function inverterLadosVisual() {
     }
 
     function atualizarContadoresDisciplinares() {
-        sancoesAEl.textContent = Array.isArray(sancoesA) ? sancoesA.length : 0;
-        sancoesBEl.textContent = Array.isArray(sancoesB) ? sancoesB.length : 0;
-        verdesAEl.textContent = Array.isArray(verdesA) ? verdesA.length : 0;
-        verdesBEl.textContent = Array.isArray(verdesB) ? verdesB.length : 0;
+        // Alguns contadores não existem em todos os layouts/modos de operação.
+        // Nunca deixe a ausência de um elemento interromper a abertura do jogo.
+        if (sancoesAEl) sancoesAEl.textContent = Array.isArray(sancoesA) ? sancoesA.length : 0;
+        if (sancoesBEl) sancoesBEl.textContent = Array.isArray(sancoesB) ? sancoesB.length : 0;
+        if (verdesAEl) verdesAEl.textContent = Array.isArray(verdesA) ? verdesA.length : 0;
+        if (verdesBEl) verdesBEl.textContent = Array.isArray(verdesB) ? verdesB.length : 0;
     }
 
 
-    function abrirObservacoesAutomaticamente() {
+    function estadoConfirmaPartidaFinalizada(dados) {
+        dados = dados && typeof dados === "object" ? dados : {};
+        const status = String(dados.status_jogo || dados.status || "").trim().toLowerCase();
+        const fase = String(dados.fase_partida || "").trim().toLowerCase();
+        const tipoEncerramento = String(dados.tipo_encerramento || "").trim().toLowerCase();
+        const setsA = numeroInteiro(dados.sets_a ?? estadoAtual?.sets_a ?? 0, 0);
+        const setsB = numeroInteiro(dados.sets_b ?? estadoAtual?.sets_b ?? 0, 0);
+        const alvo = numeroInteiro(dados.sets_para_vencer ?? estadoAtual?.sets_para_vencer ?? REGRAS_JOGO_INICIAIS.sets_para_vencer, setsParaVencerPelasRegras(dados));
+        const statusFinal = status === "finalizada" || status === "encerrado" || fase === "encerrado";
+        const placarFinal = Math.max(setsA, setsB) >= Math.max(1, alvo);
+        const woFinal = tipoEncerramento === "wo" && statusFinal;
+        return Boolean(statusFinal && (placarFinal || woFinal || dados.fim_jogo === true));
+    }
+
+    function abrirObservacoesAutomaticamente(dados) {
+        if (!estadoConfirmaPartidaFinalizada(dados || estadoAtual)) return;
         if (observacoesAbrindo) return;
         observacoesAbrindo = true;
         setTimeout(() => {
@@ -4533,7 +4584,9 @@ function inverterLadosVisual() {
             }
         }
         if (saqueInfo) saqueInfo.textContent = textoSaqueAtual();
-        if (dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) subsLimiteEl.textContent = dados.limite_substituicoes;
+        if (subsLimiteEl && dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
+            subsLimiteEl.textContent = dados.limite_substituicoes;
+        }
         if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) statusJogadoresA = dados.status_jogadores_a;
         if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) statusJogadoresB = dados.status_jogadores_b;
         if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) sancoesA = Array.isArray(dados.sancoes_a) ? dados.sancoes_a : sancoesA;
@@ -4548,7 +4601,7 @@ function inverterLadosVisual() {
         atualizarEscudosDoJogo(dados);
         if (dados.ultima_acao !== undefined) atualizarUltimaAcao(dados.ultima_acao || "-");
         if (Array.isArray(dados.historico)) renderHistoricoBackend(dados.historico);
-        partidaFinalizada = !!dados.partida_finalizada;
+        partidaFinalizada = estadoConfirmaPartidaFinalizada(dados);
 
         // Não finaliza set/partida apenas pelo cálculo local do navegador.
         // A fonte da verdade é a resposta oficial do backend em /ponto, porque
@@ -4590,7 +4643,7 @@ function inverterLadosVisual() {
             // Se o servidor ou o socket avisar que a partida acabou, mantém o mesmo fluxo:
             // ir para observações, não ficar parado na tela do jogo.
             if (dados?.abrir_observacoes || dados?.partida_finalizada || dados?.encerrado) {
-                abrirObservacoesAutomaticamente();
+                abrirObservacoesAutomaticamente(dados);
             }
         } else {
             salvarJogoOfflineLocal(true);
@@ -6217,7 +6270,7 @@ function acaoOperacionalPermitida(tipo, payload) {
     }
 
     if (tipo === "tempo" && !podePedirTempo(lado)) {
-        mostrarErro("Limite de tempos atingido para esta equipe neste set.");
+        mostrarErro(`A equipe ${nomeEquipePorLado(lado)} não possui mais pedidos de tempo neste set.`);
         atualizarTravasOperacionais();
         return false;
     }
@@ -6299,7 +6352,7 @@ async function enviarAcaoRapida(tipo, payload, aoSucesso) {
         return false;
     }
 
-    const exigeConfirmacaoBackend = ["tempo", "substituicao", "substituicao_excepcional"].includes(String(tipo || ""));
+    const exigeConfirmacaoBackend = ["tempo", "substituicao", "substituicao_excepcional", "sancao", "cartao_verde", "retardamento"].includes(String(tipo || ""));
 
     if (exigeConfirmacaoBackend) {
         const url = URLS_ACAO[tipo];
@@ -6321,8 +6374,30 @@ async function enviarAcaoRapida(tipo, payload, aoSucesso) {
                 throw new Error(dados.mensagem || dados.erro || "Ação recusada pela regra da partida.");
             }
 
+            // O pedido de tempo do apontador inicia o cronômetro logo após a
+            // confirmação HTTP. Fazemos isso ANTES de aplicar o estado completo,
+            // evitando que qualquer falha de renderização posterior impeça o relógio.
+            if (tipo === "tempo") {
+                const equipeTempo = payload.equipe || dados.equipe || "";
+                const segundosTempo = Number(dados.duracao || dados.segundos || dados.restante || 30);
+                iniciarCronometro(segundosTempo, equipeTempo);
+                atualizarUltimaAcao(dados.ultima_acao || `Pedido de tempo de ${nomeEquipePorLado(equipeTempo)}.`);
+            }
+
             aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: `${tipo}_fetch`, origem: "backend" }), { fonte: `${tipo}_fetch` });
-            if (dados.ultima_acao) atualizarUltimaAcao(dados.ultima_acao);
+            if (tipo !== "tempo" && dados.ultima_acao) atualizarUltimaAcao(dados.ultima_acao);
+
+            // Expulsão/desqualificação de atleta em quadra exige substituição imediata.
+            // Atleta no banco não gera abertura automática.
+            const forçada = dados.substituicao_forcada || dados.substituicao_forcada_atual;
+            if (forçada && forçada.equipe && forçada.numero) {
+                setTimeout(function () {
+                    abrirModalSubstituicao(String(forçada.equipe).toUpperCase());
+                    numeroSaiSub = String(forçada.numero || "");
+                    renderModalSubstituicao();
+                }, 80);
+            }
+
             if (typeof aoSucesso === "function") {
                 try { aoSucesso(dados); } catch (e) {}
             }
@@ -6517,7 +6592,7 @@ async function registrarPonto(equipe, scout) {
     limparErro();
 
     if (!podePedirTempo(equipe)) {
-        mostrarErro("Limite de tempos atingido para esta equipe neste set.");
+        mostrarErro(`A equipe ${nomeEquipePorLado(equipe)} não possui mais pedidos de tempo neste set.`);
         atualizarTravasOperacionais();
         return;
     }
@@ -6675,8 +6750,13 @@ async function registrarRetardamento() {
 async function registrarWO(equipe) {
     if (enviando || partidaFinalizada) return;
 
-    const nome = nomeEquipePorLado(equipe);
-    const confirmar = window.confirm(`Confirmar WO com vitória de ${nome}?`);
+    const nomePerdedora = nomeEquipePorLado(equipe);
+    const ladoVencedor = String(equipe || "").toUpperCase() === "A" ? "B" : "A";
+    const nomeVencedora = nomeEquipePorLado(ladoVencedor);
+    const confirmar = window.confirm(
+        `Confirmar WO da equipe ${nomePerdedora}?\n\n` +
+        `${nomeVencedora} será declarada vencedora e a partida será encerrada imediatamente.`
+    );
     if (!confirmar) return;
 
     enviando = true;
@@ -6691,7 +6771,7 @@ async function registrarWO(equipe) {
                 "X-Requested-With": "fetch"
             },
             cache: "no-store",
-            body: JSON.stringify({ equipe_vencedora: equipe })
+            body: JSON.stringify({ equipe_wo: equipe })
         });
 
         let bruto = {};
@@ -10297,4 +10377,86 @@ document.addEventListener("DOMContentLoaded", function () {
 }
 </style>
 
+
+<style id="apontador-desktop-safety-fix">
+/* Desktop real: impede que regras mobile/tablet posteriores escondam toda a tela.
+   O modo mobile continua sendo usado em celular/tablet até 1024px. */
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui,
+    .mobile-orientacao-bloqueio {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    .pc-scoreboard-card {
+        display: flex !important;
+        visibility: visible !important;
+    }
+
+    .jogo-area-central {
+        display: grid !important;
+        visibility: visible !important;
+    }
+
+    #ultima-acao,
+    .ultima-acao-barra {
+        display: block !important;
+        visibility: visible !important;
+    }
+}
+</style>
+
+<style id="apontador-desktop-safety-fix-v2">
+/* Correção de precedência: regras de tablet com !important estavam vencendo no desktop
+   porque usavam seletores mais específicos (main > ...). */
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
+    main > #mobile-apontador-ui,
+    main > .mobile-apontador-ui,
+    #mobile-apontador-ui,
+    .mobile-apontador-ui,
+    main > .mobile-orientacao-bloqueio,
+    .mobile-orientacao-bloqueio {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    main > .card-painel.pc-scoreboard-card,
+    body > .card-painel.pc-scoreboard-card,
+    .card-painel.pc-scoreboard-card,
+    .pc-scoreboard-card {
+        display: flex !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+
+    main > #ultima-acao.ultima-acao-barra,
+    body > #ultima-acao.ultima-acao-barra,
+    main > .ultima-acao-barra,
+    body > .ultima-acao-barra,
+    #ultima-acao.ultima-acao-barra,
+    .ultima-acao-barra {
+        display: block !important;
+        visibility: visible !important;
+    }
+
+    main > .jogo-area-central,
+    body > .jogo-area-central,
+    .jogo-area-central {
+        display: grid !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+
+    main > .card-painel.jogo-rodape-card,
+    body > .card-painel.jogo-rodape-card,
+    .jogo-rodape-card {
+        display: flex !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+}
+</style>
 {% endblock %}

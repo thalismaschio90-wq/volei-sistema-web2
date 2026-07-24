@@ -165,6 +165,10 @@
     color: #0f766e;
 }
 
+.rodada-equipe-bloco { margin:18px 0 24px; }
+.rodada-equipe-cabecalho { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:13px 15px; margin-bottom:10px; border:1px solid var(--border); border-radius:16px; background:var(--surface-soft,#f8fbff); }
+.rodada-equipe-nome { font-size:18px; font-weight:1000; color:var(--text); }
+.rodada-equipe-data { color:var(--muted); font-size:13px; font-weight:800; }
 .partidas-equipe-card {
     border: 1px solid var(--border);
     border-radius: 16px;
@@ -518,7 +522,16 @@
 </div>
 
 {% if partidas %}
-    {% for p in partidas %}
+    {% for rodada in rodadas_partidas %}
+        <section class="rodada-equipe-bloco" data-rodada-chave="{{ rodada.chave }}">
+            <div class="rodada-equipe-cabecalho">
+                <div class="rodada-equipe-nome">{{ rodada.nome }}</div>
+                <div class="rodada-equipe-data">
+                    {% if rodada.data %}{{ rodada.data }}{% endif %}{% if rodada.hora %} • {{ rodada.hora }}{% endif %}
+                    {% if not rodada.data and not rodada.hora %}Programação conforme tabela do organizador{% endif %}
+                </div>
+            </div>
+            {% for p in rodada.partidas %}
         <div
             class="partidas-equipe-card {% if p.minha_partida %}minha-partida{% endif %}"
             data-partida-id="{{ p.id }}"
@@ -611,6 +624,8 @@
                 </div>
             </div>
         </div>
+            {% endfor %}
+        </section>
     {% endfor %}
 {% else %}
     <div class="card-painel">

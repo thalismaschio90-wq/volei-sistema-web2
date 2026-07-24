@@ -82,6 +82,7 @@ from banco import (
     listar_atletas_para_destaques_competicao,
     salvar_respostas_destaques_competicao,
     gerar_partidas_avanco_competicao,
+    listar_rodadas_competicao,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
@@ -1951,15 +1952,15 @@ def listar_apontadores():
             cur.execute("""
                 SELECT
                     COALESCE(NULLIF(TRIM(o.nome), ''), 'Apontador sem nome') AS nome,
-                    REGEXP_REPLACE(COALESCE(a.cpf, o.cpf, ''), '\D', '', 'g') AS cpf,
+                    REGEXP_REPLACE(COALESCE(a.cpf, o.cpf, ''), '\\D', '', 'g') AS cpf,
                     a.ativo,
                     a.primeiro_acesso,
                     COALESCE(a.pode_criar_jogo_avulso, FALSE) AS pode_criar_jogo_avulso,
                     a.cliente_id
                 FROM apontadores_acesso a
                 LEFT JOIN oficiais o
-                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\D', '', 'g') =
-                     REGEXP_REPLACE(COALESCE(a.cpf, ''), '\D', '', 'g')
+                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') =
+                     REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
                  AND o.cliente_id = a.cliente_id
                 WHERE (%s::INTEGER IS NULL OR a.cliente_id = %s)
                 ORDER BY COALESCE(NULLIF(TRIM(o.nome), ''), 'Apontador sem nome')
@@ -1991,7 +1992,7 @@ def apontadores():
                     cur.execute("""
                         SELECT cpf
                         FROM oficiais
-                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\D', '', 'g') = %s
+                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                           AND (%s::INTEGER IS NULL OR cliente_id = %s)
                         LIMIT 1
                     """, (cpf_limpo, cliente_id, cliente_id))
@@ -2004,7 +2005,7 @@ def apontadores():
                             UPDATE oficiais
                                SET nome = COALESCE(NULLIF(%s, ''), nome),
                                    cpf = %s
-                             WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\D', '', 'g') = %s
+                             WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                                AND (%s::INTEGER IS NULL OR cliente_id = %s)
                         """, (nome, cpf_limpo, cpf_limpo, cliente_id, cliente_id))
                     conn.commit()
@@ -2480,6 +2481,41 @@ def _partida_leve_para_lista_apontador(partida):
     return item
 
 
+def _montar_rodadas_exibicao(competicao, partidas):
+    """Monta metadados das rodadas sem alterar a sequência das partidas."""
+    configuradas = listar_rodadas_competicao(competicao) or []
+    por_numero = {}
+    for r in configuradas:
+        try:
+            numero = int(r.get("numero_rodada") or 1)
+        except (TypeError, ValueError):
+            numero = 1
+        por_numero.setdefault(numero, r)
+
+    resultado = []
+    vistos = set()
+    for partida in partidas or []:
+        try:
+            numero = int(partida.get("rodada") or 0)
+        except (TypeError, ValueError):
+            numero = 0
+        chave = str(numero) if numero > 0 else "SEM_RODADA"
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        cfg = por_numero.get(numero, {}) if numero > 0 else {}
+        resultado.append({
+            "chave": chave,
+            "numero": numero if numero > 0 else None,
+            "nome": cfg.get("nome") or (f"Rodada {numero}" if numero > 0 else "Sem rodada definida"),
+            "data": cfg.get("data") or "",
+            "hora": cfg.get("hora") or "",
+            "data_hora": cfg.get("data_hora") or "",
+            "total": sum(1 for p in partidas if (str(p.get("rodada") or "SEM_RODADA") == chave)),
+        })
+    return resultado
+
+
 def _montar_partidas_painel_apontador_cache(competicao):
     """Monta lista leve da competição para a tela do apontador.
 
@@ -2487,7 +2523,7 @@ def _montar_partidas_painel_apontador_cache(competicao):
     Essa tela só precisa listar jogos e placar resumido.
     """
     competicao = str(competicao or "").strip()
-    chave = ("painel_competicao", competicao, "v4-regra-card")
+    chave = ("painel_competicao", competicao, "v5-rodadas-organizador")
     cached = _cache_get(chave)
     if cached is not None:
         return cached
@@ -2512,7 +2548,16 @@ def _montar_partidas_painel_apontador_cache(competicao):
     except Exception as e:
         print("AVISO placar exibicao lista apontador:", repr(e), flush=True)
 
-    partidas = sorted(partidas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
+    # A ordem exibida deve ser exatamente a mesma do painel do organizador:
+    # rodada programada -> ordem definida pelo organizador -> id como desempate.
+    partidas = sorted(
+        partidas,
+        key=lambda x: (
+            x.get("rodada") if x.get("rodada") is not None else 999999,
+            x.get("ordem") if x.get("ordem") is not None else 999999,
+            x.get("id") if x.get("id") is not None else 999999,
+        ),
+    )
 
     sets_max_manual_global = _sets_max_competicao(competicao)
 
@@ -2551,6 +2596,7 @@ def _montar_partidas_painel_apontador_cache(competicao):
     payload = {
         "competicao_cfg": competicao_cfg,
         "partidas": partidas_leves,
+        "rodadas_exibicao": _montar_rodadas_exibicao(competicao, partidas_leves),
         "sets_max_manual": sets_max_manual_global,
         "sets_para_vencer_manual": 3 if sets_max_manual_global >= 5 else (2 if sets_max_manual_global >= 3 else 1),
     }
@@ -2602,6 +2648,7 @@ def entrar_competicao_apontador(competicao):
         modo_partidas=True,
         competicao_nome=competicao,
         partidas=dados.get("partidas") or [],
+        rodadas_exibicao=dados.get("rodadas_exibicao") or [],
         pin_operacional=pin_operacional,
         pode_jogo_avulso=pode_jogo_avulso,
         offline_habilitado=offline_habilitado,
@@ -4072,16 +4119,35 @@ def ponto_view(competicao, partida_id):
             estado["historico"] = [{"descricao": desc}]
             estado["ultima_acao"] = desc
 
-        # Não reconstruir histórico/evolução pelo banco a cada ponto.
-        # O estado retornado por registrar_ponto_partida + socket é a fonte viva.
+        # CAMINHO RÁPIDO DO PONTO:
+        # registrar_ponto_partida já fez o COMMIT e devolveu placar, saque e rotações.
+        # Não chamar _emitir_estado_e_placar aqui, pois essa função pode abrir novas
+        # consultas (partida, regras, contadores e escudos) antes da resposta HTTP.
+        # Mesclamos com o cache vivo e emitimos o estado oficial sem tocar no banco.
         estado["_forcar_rebuild_eventos"] = False
+        try:
+            cache_atual = obter_estado_cache(partida_id) or {}
+            payload_socket = dict(cache_atual)
+            payload_socket.update(estado)
+            payload_socket["ok"] = True
+            payload_socket["competicao"] = competicao
+            payload_socket["partida_id"] = partida_id
+            payload_socket["origem"] = "PONTO_OFICIAL"
+            payload_socket["ultima_acao"] = estado.get("ultima_acao") or "Ponto registrado"
+            payload_socket["historico"] = estado.get("historico") or cache_atual.get("historico") or []
 
-        estado = _emitir_estado_e_placar(
-            partida_id,
-            competicao,
-            estado=estado,
-            origem="PONTO_OFICIAL"
-        )
+            atualizar_estado_cache(partida_id, payload_socket)
+            emitir_estado_partida(partida_id, payload_socket)
+
+            apontador_login = _login_apontador_sessao()
+            if apontador_login:
+                emitir_placar_apontador(apontador_login, partida_id, payload_socket)
+
+            estado = payload_socket
+        except Exception as e:
+            # Falha de socket não pode transformar um ponto já salvo em erro HTTP.
+            print("AVISO emissão rápida do ponto:", repr(e), flush=True)
+
         _limpar_cache_apontador(competicao)
 
         return _json_no_cache({
@@ -4108,19 +4174,28 @@ def wo_view(competicao, partida_id):
 
         corpo = request.get_json(silent=True) or {}
 
-        equipe_vencedora = (
+        equipe_wo = (
+            request.form.get("equipe_wo")
+            or corpo.get("equipe_wo")
+            or ""
+        ).strip().upper()
+        # Compatibilidade temporária com versões antigas do HTML.
+        equipe_vencedora_legado = (
             request.form.get("equipe_vencedora")
             or corpo.get("equipe_vencedora")
             or ""
         ).strip().upper()
 
-        if equipe_vencedora not in {"A", "B"}:
-            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
+        if equipe_wo and equipe_wo not in {"A", "B"}:
+            return _json_no_cache({"ok": False, "mensagem": "Equipe que sofreu o WO é inválida."}, 400)
+        if not equipe_wo and equipe_vencedora_legado not in {"A", "B"}:
+            return _json_no_cache({"ok": False, "mensagem": "Informe a equipe que sofreu o WO."}, 400)
 
         ok, retorno = registrar_wo_partida(
             partida_id=partida_id,
             competicao=competicao,
-            vencedor_lado=equipe_vencedora
+            equipe_wo=equipe_wo or None,
+            vencedor_lado=equipe_vencedora_legado or None,
         )
 
         if not ok:
@@ -4135,10 +4210,11 @@ def wo_view(competicao, partida_id):
             origem="WO"
         )
         _limpar_cache_apontador(competicao)
+        _atualizar_avanco_apos_finalizacao_async(competicao)
 
         return _json_no_cache({
             "ok": True,
-            "mensagem": "Partida encerrada por WO.",
+            "mensagem": estado.get("mensagem") or "Partida encerrada por WO.",
             **estado
         })
 
@@ -4385,6 +4461,11 @@ def registrar_tempo_view(competicao, partida_id):
         return _json_no_cache({
             "ok": True,
             "mensagem": "Tempo registrado.",
+            "tipo": "tempo",
+            "status": "iniciado",
+            "duracao": 30,
+            "segundos": 30,
+            "equipe": equipe,
             **estado
         })
 
@@ -4552,7 +4633,15 @@ def registrar_sancao_view(competicao, partida_id):
         if not sancao:
             return _json_no_cache({"ok": False, "mensagem": "Selecione o tipo de sanção."}, 400)
 
-        ok, retorno = registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa, alvo, sancao)
+        ok, retorno = registrar_sancao_partida(
+            partida_id,
+            competicao,
+            equipe,
+            tipo_pessoa="atleta" if tipo_pessoa == "jogador" else tipo_pessoa,
+            numero=alvo if tipo_pessoa == "jogador" else "",
+            nome="" if tipo_pessoa == "jogador" else alvo,
+            tipo_sancao=sancao,
+        )
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
@@ -4586,7 +4675,14 @@ def registrar_cartao_verde_view(competicao, partida_id):
         if not alvo:
             return _json_no_cache({"ok": False, "mensagem": "Selecione o alvo do cartão verde."}, 400)
 
-        ok, retorno = registrar_cartao_verde_partida(partida_id, competicao, equipe, tipo_pessoa, alvo)
+        ok, retorno = registrar_cartao_verde_partida(
+            partida_id,
+            competicao,
+            equipe,
+            tipo_pessoa="atleta" if tipo_pessoa == "jogador" else tipo_pessoa,
+            numero=alvo if tipo_pessoa == "jogador" else "",
+            nome="" if tipo_pessoa == "jogador" else alvo,
+        )
         if not ok:
             return _json_no_cache({"ok": False, "mensagem": retorno}, 400)
 
@@ -5249,22 +5345,29 @@ def encerrar_partida_view(competicao, partida_id):
         estado = buscar_estado_jogo_partida(partida_id, competicao) or estado or {}
 
         if not ok_encerrar:
+            # Chamada antecipada após um set não é erro operacional. O fluxo
+            # correto é voltar à papeleta para preparar o próximo set, sem
+            # exibir alerta vermelho nem abrir observações/destaques.
             estado["encerrado"] = False
             estado["partida_finalizada"] = False
-            estado["status_jogo"] = estado.get("status_jogo") or "entre_sets"
-            estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_BLOQUEADO_SETS_INSUFICIENTES")
+            estado["fim_jogo"] = False
+            estado["abrir_observacoes"] = False
+            estado["status_jogo"] = "entre_sets"
+            estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="FLUXO_ENTRE_SETS")
             _limpar_cache_apontador(competicao)
             return _json_no_cache({
-                "ok": False,
-                "mensagem": msg_encerrar or "A partida ainda não atingiu os sets necessários para finalizar.",
+                "ok": True,
+                "mensagem": "Set finalizado. Prepare a papeleta do próximo set.",
                 "encerrado": False,
                 "partida_finalizada": False,
+                "fim_jogo": False,
+                "abrir_observacoes": False,
                 "redirecionar_papeleta": True,
                 "url_redirecionamento": url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id),
                 "estado": estado,
                 "eventos_processados": processados,
                 **estado
-            }, 409)
+            }, 200)
 
         resultado_avanco = _atualizar_avanco_apos_finalizacao_async(competicao)
         if resultado_avanco:
@@ -5300,7 +5403,17 @@ def encerrar_partida_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def observacoes_view(competicao, partida_id):
     dados_finalizacao = listar_dados_finalizacao_partida(partida_id, competicao) or {}
-    partida = dados_finalizacao.get("partida") or buscar_partida_operacional(partida_id, competicao)
+    partida = dados_finalizacao.get("partida") or buscar_partida_operacional(partida_id, competicao) or {}
+
+    status_jogo = str(partida.get("status_jogo") or "").strip().lower()
+    fase_partida = str(partida.get("fase_partida") or "").strip().lower()
+    tipo_encerramento = str(partida.get("tipo_encerramento") or "").strip().lower()
+    finalizada = status_jogo in {"finalizada", "encerrado"} or fase_partida == "encerrado" or tipo_encerramento == "wo"
+
+    if not finalizada:
+        # Proteção de rota: payload/socket antigo nunca pode abrir a finalização
+        # no intervalo entre sets.
+        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
 
     return render_template(
         "observacoes.html",
@@ -5317,6 +5430,20 @@ def observacoes_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def salvar_observacoes_view(competicao, partida_id):
     observacoes = request.form.get("observacoes")
+
+    partida_atual = buscar_partida_operacional(partida_id, competicao) or {}
+    status_jogo_atual = str(partida_atual.get("status_jogo") or "").strip().lower()
+    fase_atual = str(partida_atual.get("fase_partida") or "").strip().lower()
+    tipo_encerramento_atual = str(partida_atual.get("tipo_encerramento") or "").strip().lower()
+    partida_realmente_finalizada = (
+        status_jogo_atual in {"finalizada", "encerrado"}
+        or fase_atual == "encerrado"
+        or tipo_encerramento_atual == "wo"
+    )
+
+    if not partida_realmente_finalizada:
+        # Não salva destaque nem observações em um simples intervalo de set.
+        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
 
     destaque_lado = (request.form.get("destaque_lado") or "").strip().upper()
     destaque_atleta_id = (request.form.get("destaque_atleta_id") or "").strip()

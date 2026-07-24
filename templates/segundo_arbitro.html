@@ -1448,12 +1448,18 @@
             if (!payloadDaPartida(dados)) return;
             if (!isEventoTempoOficial(dados)) return;
 
-            // Regra nova: 2º árbitro e Árbitro Único NÃO rodam cronômetro.
-            // Eles recebem apenas o aviso do tempo/quantidade restante da equipe.
-            // O controle do tempo fica no apontador/mesário.
-            fecharCronometro();
-
             const status = String(dados.status || "").toLowerCase();
+
+            // O pedido autorizado pelo apontador deve abrir o mesmo cronômetro
+            // de 30 segundos em todas as telas oficiais. Eventos de encerramento
+            // ou bloqueio apenas fecham o overlay e exibem o aviso correspondente.
+            const statusEncerrado = ["finalizado", "fim", "encerrado"].includes(status);
+            const statusBloqueado = ["negado", "bloqueado", "sem_tempo"].includes(status);
+            if (!statusEncerrado && !statusBloqueado) {
+                iniciarCronometro(dados);
+            } else {
+                fecharCronometro();
+            }
             const equipeNome = String(
                 dados.equipe_nome ||
                 dados.equipe_solicitante ||

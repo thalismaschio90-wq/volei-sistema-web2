@@ -1923,6 +1923,7 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
                 "pontos_contra": 0,
                 "saldo_pontos": 0,
                 "pontos": 0,
+                "wo": 0,
             })
 
     mapa = {
@@ -1984,6 +1985,14 @@ def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
         linha_a["pontos_contra"] += pontos_b
         linha_b["pontos_pro"] += pontos_b
         linha_b["pontos_contra"] += pontos_a
+
+        tipo_encerramento = str(p.get("tipo_encerramento") or "").strip().lower()
+        origem_resultado = str(p.get("origem_resultado") or "").strip().lower()
+        if tipo_encerramento in {"wo", "w.o.", "w.o"} or origem_resultado == "wo":
+            if sets_a > sets_b:
+                linha_b["wo"] = int(linha_b.get("wo") or 0) + 1
+            elif sets_b > sets_a:
+                linha_a["wo"] = int(linha_a.get("wo") or 0) + 1
 
         if sets_a > sets_b:
             linha_a["vitorias"] += 1

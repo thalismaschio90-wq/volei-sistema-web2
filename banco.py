@@ -10465,10 +10465,10 @@ def registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa='', num
         }
 
         ok, resultado = registrar_ponto_partida(
-            partida_id, competicao, adversario,
-            tipo='retardamento_penalidade',
+            partida_id, competicao, equipe_ponto,
+            tipo='sancao_penalidade',
             detalhes={
-                'origem_retardamento': True,
+                'origem_sancao': True,
                 'tipo_lance': 'falta',
                 'detalhe_lance': 'retardamento',
                 'fundamento': 'retardamento',
@@ -11229,12 +11229,18 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
 
         conn.commit()
 
-    sincronizar_status_competicao(competicao)
+    # CAMINHO RÁPIDO DO APONTADOR:
+    # o ponto já foi confirmado no COMMIT acima. Não abra novas conexões
+    # para sincronizar a competição e reler o histórico antes de responder.
+    # Isso causava falso timeout no navegador, embora o ponto já estivesse salvo.
+    # A finalização da partida ainda precisa refletir imediatamente no status geral.
+    if fim_jogo:
+        try:
+            sincronizar_status_competicao(competicao)
+        except Exception as e:
+            print("AVISO sincronizar status após fim do jogo:", repr(e), flush=True)
 
-    try:
-        historico = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
-    except Exception:
-        historico = []
+    historico = []
 
     return True, {
         "mensagem": "Jogo finalizado." if fim_jogo else ("Set finalizado." if fim_set else "Ponto registrado."),
@@ -11287,158 +11293,174 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
         "controle_tempo_atualizado": True,
     }
 
-def registrar_wo_partida(partida_id, competicao, vencedor_lado):
-    print("🟢 WO - entrou registrar_wo_partida", flush=True)
+def registrar_wo_partida(partida_id, competicao, vencedor_lado=None, equipe_wo=None):
+    """Encerra definitivamente uma partida por WO em uma única transação.
 
+    A API preferencial recebe ``equipe_wo`` (a equipe derrotada). O parâmetro
+    antigo ``vencedor_lado`` continua aceito para compatibilidade com clientes
+    que ainda não foram atualizados.
+    """
     criar_campos_jogo_partida()
     criar_campos_sets_partida()
+    criar_tabela_eventos()
 
-    vencedor_lado = (vencedor_lado or "").strip().upper()
+    equipe_wo = str(equipe_wo or "").strip().upper()
+    vencedor_lado = str(vencedor_lado or "").strip().upper()
 
-    if vencedor_lado not in {"A", "B"}:
-        return False, "Vencedor inválido."
+    if equipe_wo:
+        if equipe_wo not in {"A", "B"}:
+            return False, "Equipe que sofreu o WO é inválida."
+        vencedor_lado = "B" if equipe_wo == "A" else "A"
+    elif vencedor_lado in {"A", "B"}:
+        equipe_wo = "B" if vencedor_lado == "A" else "A"
+    else:
+        return False, "Informe corretamente a equipe que sofreu o WO."
 
     regras = _regras_jogo_competicao(competicao)
-    sets_para_vencer = int(regras.get("sets_para_vencer") or 2)
+    sets_para_vencer = max(1, min(3, int(regras.get("sets_para_vencer") or 2)))
+    pontos_wo = max(1, int(regras.get("pontos_set") or 25))
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            # FOR UPDATE impede dois cliques simultâneos de encerrarem a mesma partida.
             cur.execute("""
                 SELECT
-                    id,
-                    equipe_a,
-                    equipe_b,
-                    equipe_a_operacional,
-                    equipe_b_operacional,
-                    status_jogo
+                    id, equipe_a, equipe_b,
+                    equipe_a_operacional, equipe_b_operacional,
+                    status, status_jogo
                 FROM partidas
-                WHERE id = %s
-                  AND competicao = %s
+                WHERE id = %s AND competicao = %s
                 LIMIT 1
+                FOR UPDATE
             """, (partida_id, competicao))
-
             partida = cur.fetchone()
 
             if not partida:
                 return False, "Partida não encontrada."
 
-            if (partida.get("status_jogo") or "").lower() == "finalizada":
+            status_atual = str(partida.get("status_jogo") or partida.get("status") or "").strip().lower()
+            if status_atual in {"finalizada", "finalizado", "encerrada", "encerrado"}:
                 return False, "Partida já finalizada."
 
-            equipe_a_nome = partida.get("equipe_a") or partida.get("equipe_a_operacional") or ""
-            equipe_b_nome = partida.get("equipe_b") or partida.get("equipe_b_operacional") or ""
+            equipe_a_nome = partida.get("equipe_a") or partida.get("equipe_a_operacional") or "Equipe A"
+            equipe_b_nome = partida.get("equipe_b") or partida.get("equipe_b_operacional") or "Equipe B"
+            vencedor_nome = equipe_a_nome if vencedor_lado == "A" else equipe_b_nome
+            equipe_wo_nome = equipe_a_nome if equipe_wo == "A" else equipe_b_nome
 
-            if vencedor_lado == "A":
-                vencedor_nome = equipe_a_nome
-                sets_a = sets_para_vencer
-                sets_b = 0
+            sets_a = sets_para_vencer if vencedor_lado == "A" else 0
+            sets_b = sets_para_vencer if vencedor_lado == "B" else 0
 
-                set1_a, set1_b = 21, 0
-                set2_a, set2_b = (21, 0) if sets_para_vencer >= 2 else (None, None)
-                set3_a, set3_b = None, None
-
-            else:
-                vencedor_nome = equipe_b_nome
-                sets_a = 0
-                sets_b = sets_para_vencer
-
-                set1_a, set1_b = 0, 21
-                set2_a, set2_b = (0, 21) if sets_para_vencer >= 2 else (None, None)
-                set3_a, set3_b = None, None
+            sets_admin = []
+            for indice in range(1, 6):
+                if indice <= sets_para_vencer:
+                    sets_admin.append((pontos_wo, 0) if vencedor_lado == "A" else (0, pontos_wo))
+                else:
+                    sets_admin.append((None, None))
 
             cur.execute("""
                 UPDATE partidas
                 SET
                     pontos_a = 0,
                     pontos_b = 0,
-
                     sets_a = %s,
                     sets_b = %s,
-                    set_atual = 1,
-
-                    set1_a = %s,
-                    set1_b = %s,
-                    set2_a = %s,
-                    set2_b = %s,
-                    set3_a = %s,
-                    set3_b = %s,
-
+                    set_atual = %s,
+                    set1_a = %s, set1_b = %s,
+                    set2_a = %s, set2_b = %s,
+                    set3_a = %s, set3_b = %s,
+                    set4_a = %s, set4_b = %s,
+                    set5_a = %s, set5_b = %s,
                     status = 'finalizada',
                     status_jogo = 'finalizada',
                     fase_partida = 'encerrado',
                     status_operacao = 'finalizada',
-
                     vencedor = %s,
                     inicio_partida_real = COALESCE(inicio_partida_real, NOW()),
-                    fim_partida_real = COALESCE(fim_partida_real, NOW()),
-                    fim_set1 = COALESCE(fim_set1, NOW()),
+                    fim_partida_real = NOW(),
                     data_fim = NOW(),
-                    tipo_encerramento = 'WO'
-                WHERE id = %s
-                  AND competicao = %s
+                    tipo_encerramento = 'WO',
+                    origem_resultado = 'wo'
+                WHERE id = %s AND competicao = %s
             """, (
-                sets_a,
-                sets_b,
-                set1_a,
-                set1_b,
-                set2_a,
-                set2_b,
-                set3_a,
-                set3_b,
-                vencedor_nome,
-                partida_id,
-                competicao
+                sets_a, sets_b, sets_para_vencer,
+                sets_admin[0][0], sets_admin[0][1],
+                sets_admin[1][0], sets_admin[1][1],
+                sets_admin[2][0], sets_admin[2][1],
+                sets_admin[3][0], sets_admin[3][1],
+                sets_admin[4][0], sets_admin[4][1],
+                vencedor_nome, partida_id, competicao,
             ))
-
         conn.commit()
 
+    # O histórico é gravado depois do commit da partida para não criar
+    # transações concorrentes sobre o mesmo registro bloqueado.
+    try:
+        registrar_evento_partida(
+            partida_id=partida_id,
+            competicao=competicao,
+            set_numero=1,
+            equipe=equipe_wo,
+            tipo="wo",
+            resultado="derrota_por_wo",
+            detalhe=f"{equipe_wo_nome} perdeu por WO. {vencedor_nome} venceu a partida.",
+            tipo_evento="wo",
+            detalhes={
+                "equipe_wo": equipe_wo,
+                "equipe_wo_nome": equipe_wo_nome,
+                "vencedor_lado": vencedor_lado,
+                "vencedor_nome": vencedor_nome,
+                "sets_para_vencer": sets_para_vencer,
+                "pontos_wo": pontos_wo,
+            },
+        )
+    except Exception as e:
+        print("AVISO ao registrar histórico do WO:", repr(e), flush=True)
+
+    try:
+        invalidar_cache_classificacao(competicao)
+    except Exception:
+        pass
     sincronizar_status_competicao(competicao)
 
-    return True, {
-        "mensagem": "Partida encerrada por WO.",
-
+    payload = {
+        "mensagem": f"Partida encerrada. {vencedor_nome} venceu por WO.",
         "competicao": competicao,
         "partida_id": partida_id,
-
         "equipe_a": equipe_a_nome,
         "equipe_b": equipe_b_nome,
-
         "pontos_a": 0,
         "pontos_b": 0,
         "placar_a": 0,
         "placar_b": 0,
-
         "sets_a": sets_a,
         "sets_b": sets_b,
-        "set_atual": 1,
-
-        "set1_a": set1_a,
-        "set1_b": set1_b,
-        "set2_a": set2_a,
-        "set2_b": set2_b,
-        "set3_a": set3_a,
-        "set3_b": set3_b,
-
+        "set_atual": sets_para_vencer,
         "saque_atual": "",
+        "status": "finalizada",
         "status_jogo": "finalizada",
-
+        "fase_partida": "encerrado",
+        "status_operacao": "finalizada",
         "fim_set": True,
         "fim_jogo": True,
         "set_finalizado": True,
         "partida_finalizada": True,
         "abrir_observacoes": True,
-
         "tipo_encerramento": "WO",
+        "origem_resultado": "wo",
+        "equipe_wo": equipe_wo,
+        "equipe_wo_nome": equipe_wo_nome,
         "vencedor_partida": vencedor_nome,
         "vencedor_lado": vencedor_lado,
-
+        "pontos_wo": pontos_wo,
         "rotacao_a": ["", "", "", "", "", ""],
         "rotacao_b": ["", "", "", "", "", ""],
-
-        "ultima_acao": "Partida encerrada por WO",
-        "historico": _montar_historico_resumido_partida(partida_id, competicao, limite=5),
+        "ultima_acao": f"{vencedor_nome} venceu por WO",
     }
-
+    for indice, (valor_a, valor_b) in enumerate(sets_admin, start=1):
+        payload[f"set{indice}_a"] = valor_a
+        payload[f"set{indice}_b"] = valor_b
+    payload["historico"] = _montar_historico_resumido_partida(partida_id, competicao, limite=5)
+    return True, payload
 
 def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra):
     criar_tabela_eventos()
@@ -12577,12 +12599,51 @@ def salvar_sorteio_tiebreak(partida_id, competicao, lado, saque):
 
 # ================= FIM DE PARTIDA =================
 
-def verificar_fim_partida(partida, estado):
-    sets_a = estado.get("sets_a", 0)
-    sets_b = estado.get("sets_b", 0)
-    sets_para_vencer = partida.get("sets_para_vencer", 1)
+def avaliar_fluxo_partida(partida, competicao=None):
+    """Resolve o estado oficial do fluxo sem alterar o banco.
 
-    return sets_a == sets_para_vencer or sets_b == sets_para_vencer
+    Esta é a fonte única para decidir se a partida terminou ou se deve seguir
+    para o próximo set. Usa primeiro a configuração gravada na própria partida
+    e cai para a configuração da competição apenas como compatibilidade.
+    """
+    partida = partida or {}
+    sets_tipo, sets_max, sets_para_vencer = _sets_config_partida_seguro(
+        partida,
+        competicao or partida.get("competicao") or "",
+    )
+    sets_a = int(partida.get("sets_a") or 0)
+    sets_b = int(partida.get("sets_b") or 0)
+    set_atual = max(1, int(partida.get("set_atual") or 1))
+    status_jogo = str(partida.get("status_jogo") or "").strip().lower()
+    tipo_encerramento = str(partida.get("tipo_encerramento") or "").strip().lower()
+
+    venceu_por_sets = max(sets_a, sets_b) >= int(sets_para_vencer or 1)
+    finalizada_status = status_jogo in {"finalizada", "encerrado"}
+    finalizada = bool(venceu_por_sets or finalizada_status or tipo_encerramento == "wo")
+
+    proximo_set = set_atual
+    if not finalizada and max(sets_a, sets_b) > 0:
+        proximo_set = min(set_atual + 1, int(sets_max or set_atual + 1))
+
+    return {
+        "sets_tipo": sets_tipo,
+        "sets_max": int(sets_max or 1),
+        "sets_para_vencer": int(sets_para_vencer or 1),
+        "sets_a": sets_a,
+        "sets_b": sets_b,
+        "set_atual": set_atual,
+        "proximo_set": proximo_set,
+        "partida_finalizada": finalizada,
+        "venceu_por_sets": venceu_por_sets,
+        "status_jogo": status_jogo,
+        "tipo_encerramento": tipo_encerramento,
+    }
+
+
+def verificar_fim_partida(partida, estado):
+    base = dict(partida or {})
+    base.update(estado or {})
+    return avaliar_fluxo_partida(base, base.get("competicao")) ["partida_finalizada"]
 
 
 def encerrar_partida(partida_id, competicao, observacoes):
@@ -12607,18 +12668,30 @@ def encerrar_partida(partida_id, competicao, observacoes):
             if not partida:
                 return False, "Partida não encontrada."
 
-            pode_finalizar, sets_para_vencer = _partida_tem_sets_para_finalizar(
-                partida=partida,
-                competicao=competicao,
-            )
+            fluxo = avaliar_fluxo_partida(partida, competicao)
+            sets_para_vencer = fluxo["sets_para_vencer"]
+            sets_a = fluxo["sets_a"]
+            sets_b = fluxo["sets_b"]
+            set_atual = fluxo["set_atual"]
+            sets_max = fluxo["sets_max"]
 
-            sets_a = int(partida.get("sets_a") or 0)
-            sets_b = int(partida.get("sets_b") or 0)
-            set_atual = int(partida.get("set_atual") or 1)
-            _sets_tipo, sets_max, _sets_para = _sets_config_partida_seguro(partida, competicao)
+            # Idempotência: observações/destaques podem salvar novamente depois
+            # que o último ponto já encerrou a partida. Nunca reabre uma finalizada.
+            if fluxo["partida_finalizada"] and fluxo["status_jogo"] in {"finalizada", "encerrado"}:
+                cur.execute("""
+                    UPDATE partidas
+                    SET observacoes = COALESCE(%s, observacoes, ''),
+                        status = 'finalizada',
+                        status_jogo = 'finalizada',
+                        status_operacao = 'finalizada',
+                        fase_partida = 'encerrado'
+                    WHERE id = %s AND competicao = %s
+                """, (observacoes, partida_id, competicao))
+                conn.commit()
+                return True, "Partida já estava finalizada; dados complementares foram salvos."
 
-            if not pode_finalizar:
-                proximo_set = min(set_atual + 1, sets_max) if max(sets_a, sets_b) > 0 else set_atual
+            if not fluxo["venceu_por_sets"]:
+                proximo_set = fluxo["proximo_set"]
                 cur.execute("""
                     UPDATE partidas
                     SET status = CASE WHEN status = 'finalizada' THEN 'em_andamento' ELSE COALESCE(status, 'em_andamento') END,
