@@ -988,6 +988,7 @@
                     </div>
                 </div>
 
+                {% if (competicao.tipo_competicao|default('normal')) != 'rapida' %}
                 <div class="competicao-section-box" style="margin-top: 20px;">
                     <div class="competicao-pane-title" style="font-size: 20px;">Datas e limitações</div>
                     <div class="helper-text" style="margin-bottom: 18px;">
@@ -1051,6 +1052,8 @@
                         Se nenhuma data for informada, o sistema deve considerar o bloqueio automático quando o primeiro jogo ou pré-jogo começar.
                     </div>
                 </div>
+
+                {% endif %}
 
                 <div class="competicao-actions">
                     <button class="btn-padrao" type="submit">Salvar estrutura</button>

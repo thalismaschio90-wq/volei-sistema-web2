@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block titulo %}Equipes e atletas da competição rápida{% endblock %}
+{% block conteudo %}
+<style>
+.rap-wrap{max-width:1100px;margin:0 auto}.rap-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:18px}.rap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}.rap-card{background:#fff;border:1px solid #dbe4ec;border-radius:18px;padding:17px}.rap-team-form{display:flex;gap:9px;align-items:end;flex-wrap:wrap;background:#fff;border:1px solid #dbe4ec;border-radius:18px;padding:17px;margin-bottom:16px}.rap-team-field{flex:1;min-width:240px}.rap-team-field label{display:block;font-weight:900;margin-bottom:6px}.rap-team-field input,.rap-form input,.rap-edit input{width:100%;padding:10px;border:1px solid #cfd9e3;border-radius:10px}.rap-form{display:grid;grid-template-columns:1fr 90px;gap:9px;margin:12px 0}.rap-checks{grid-column:1/-1;display:flex;gap:16px;align-items:center;flex-wrap:wrap}.rap-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:10px;padding:10px 13px;background:#123852;color:white;font-weight:800;cursor:pointer;text-decoration:none}.rap-list{display:grid;gap:8px}.rap-row{border-top:1px solid #edf1f5;padding-top:9px}.rap-edit{display:grid;grid-template-columns:1fr 75px auto;gap:7px;align-items:center}.rap-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:7px}.rap-danger{background:#991b1b}.rap-muted{color:#64748b;font-size:13px;font-weight:650}.rap-empty{padding:20px;text-align:center;border:1px dashed #cbd5e1;border-radius:14px;color:#64748b}.rap-title-row{display:flex;justify-content:space-between;gap:10px;align-items:center}.rap-title-row h2{margin:0}
+@media(max-width:620px){.rap-form,.rap-edit{grid-template-columns:1fr}.rap-checks{grid-column:1}.rap-btn{width:100%}}
+</style>
+<div class="rap-wrap">
+ <div class="rap-head">
+  <div>
+   <h1 style="margin:0 0 6px">Equipes e atletas da competição rápida</h1>
+   <div class="rap-muted">As equipes criadas aqui são temporárias e existem somente nesta competição. Não há busca no cadastro geral, login ou senha.</div>
+  </div>
+ </div>
+
+ <form class="rap-team-form" method="post" action="{{ url_for('equipes.adicionar_equipe_rapida') }}">
+  <div class="rap-team-field">
+   <label for="nome_equipe">Criar equipe temporária</label>
+   <input id="nome_equipe" name="nome_equipe" required autocomplete="off" placeholder="Ex.: Equipe Azul">
+  </div>
+  <button class="rap-btn" type="submit">+ Criar equipe</button>
+ </form>
+
+ {% if not equipes %}<div class="rap-empty">Crie uma equipe temporária acima para começar a cadastrar os atletas.</div>{% endif %}
+ <div class="rap-grid">
+ {% for eq in equipes %}{% set nome_eq=eq.nome %}
+  <section class="rap-card">
+   <div class="rap-title-row"><h2>{{ nome_eq }}</h2></div>
+   <form class="rap-form" method="post" action="{{ url_for('equipes.adicionar_atleta_rapida') }}">
+    <input type="hidden" name="equipe" value="{{ nome_eq }}">
+    <input name="nome" required autocomplete="off" placeholder="Nome do atleta">
+    <input name="numero" type="number" min="0" max="99" required placeholder="Nº">
+    <div class="rap-checks">
+     <label><input type="checkbox" name="capitao"> Capitão</label>
+     <label><input type="checkbox" name="libero"> Líbero</label>
+     <button class="rap-btn" type="submit">Adicionar atleta</button>
+    </div>
+   </form>
+   <div class="rap-list">
+   {% set ns=namespace(total=0) %}{% for a in atletas if a.equipe == nome_eq %}{% set ns.total=ns.total+1 %}
+    <div class="rap-row">
+     <form method="post" action="{{ url_for('equipes.editar_atleta_rapida', id=a.id) }}">
+      <div class="rap-edit">
+       <input name="nome" value="{{ a.nome }}" required>
+       <input name="numero" type="number" min="0" max="99" value="{{ a.numero }}" required>
+       <button class="rap-btn" type="submit">Salvar</button>
+      </div>
+      <div class="rap-actions">
+       <label><input type="checkbox" name="capitao" {% if a.capitao_padrao %}checked{% endif %}> Capitão</label>
+       <label><input type="checkbox" name="libero" {% if a.libero %}checked{% endif %}> Líbero</label>
+      </div>
+     </form>
+     <form method="post" action="{{ url_for('equipes.remover_atleta_rapida', id=a.id) }}" onsubmit="return confirm('Excluir este atleta?')">
+      <button class="rap-btn rap-danger" type="submit">Excluir atleta</button>
+     </form>
+    </div>
+   {% endfor %}{% if ns.total == 0 %}<div class="rap-muted">Nenhum atleta cadastrado nesta equipe.</div>{% endif %}
+   </div>
+  </section>
+ {% endfor %}
+ </div>
+</div>
+{% endblock %}

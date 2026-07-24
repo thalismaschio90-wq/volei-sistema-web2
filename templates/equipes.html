@@ -221,7 +221,11 @@
 
 <div class="topo-secao">
     <div class="titulo-secao" style="margin-bottom: 0;">Equipes</div>
+    {% if modo_rapido %}
+    <a href="{{ url_for('equipes.listar_atletas_organizador') }}" class="btn-padrao">Equipes e atletas temporários</a>
+    {% else %}
     <a href="{{ url_for('equipes.nova_equipe') }}" class="btn-padrao">Nova equipe</a>
+    {% endif %}
 </div>
 
 <div class="card-painel equipes-resumo">
@@ -349,15 +353,15 @@
         </div>
 
         <div class="equipe-card-acoes">
-            <a href="{{ url_for('equipes.gerenciar_equipe_view', nome=equipe.nome) }}" class="btn-secundario">
-                Gerenciar
-            </a>
-
+            {% if modo_rapido %}
+            <a href="{{ url_for('equipes.listar_atletas_organizador') }}" class="btn-secundario">Cadastrar atletas</a>
+            {% else %}
+            <a href="{{ url_for('equipes.gerenciar_equipe_view', nome=equipe.nome) }}" class="btn-secundario">Gerenciar</a>
             <form method="post" action="{{ url_for('equipes.redefinir_senha_equipe_view', nome=equipe.nome) }}">
                 <button type="submit" class="btn-secundario">Redefinir senha</button>
             </form>
-
-            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja excluir esta equipe?');">
+            {% endif %}
+            <form method="post" action="{{ url_for('equipes.excluir_equipe_view', nome=equipe.nome) }}" onsubmit="return confirm('Deseja excluir esta equipe e os atletas dela?');">
                 <button type="submit" class="btn-danger-outline">Excluir</button>
             </form>
         </div>

@@ -62,6 +62,12 @@ from banco import (
     listar_rodadas_competicao,
     contar_notificacoes_nao_lidas,
     criar_notificacao_sistema,
+    competicao_eh_rapida,
+    criar_equipe_temporaria_competicao,
+    cadastrar_atleta_temporario,
+    atualizar_atleta_temporario,
+    excluir_atleta_temporario,
+    excluir_equipe_temporaria_competicao,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
 from routes.tabela import (
@@ -501,7 +507,8 @@ def listar_equipes_view():
         competicao=competicao,
         equipes=equipes,
         credenciais=credenciais,
-        senha_redefinida=senha_redefinida
+        senha_redefinida=senha_redefinida,
+        modo_rapido=competicao_eh_rapida(competicao)
     )
 
 
@@ -515,10 +522,19 @@ def nova_equipe():
 
     equipes_encontradas = []
     nome_busca = ""
+    modo_rapido = competicao_eh_rapida(competicao)
 
     if request.method == "POST":
         acao = request.form.get("acao", "").strip()
         nome_busca = request.form.get("nome", "").strip()
+
+        if modo_rapido:
+            ok, msg = criar_equipe_temporaria_competicao(nome_busca, competicao["nome"])
+            flash(msg, "sucesso" if ok else "erro")
+            if ok:
+                _limpar_cache_equipes(competicao=competicao["nome"])
+                return redirect(url_for("equipes.listar_equipes_view"))
+            return render_template("nova_equipe.html", competicao=competicao, nome_busca=nome_busca, equipes_encontradas=[], modo_rapido=True)
         login_equipe = request.form.get("login_equipe", "").strip()
 
         if competicao_esta_travada(competicao["nome"]):
@@ -611,11 +627,15 @@ def nova_equipe():
             equipes_encontradas=equipes_encontradas,
         )
 
+    if modo_rapido:
+        return redirect(url_for("equipes.listar_atletas_organizador"))
+
     return render_template(
         "nova_equipe.html",
         competicao=competicao,
         nome_busca=nome_busca,
         equipes_encontradas=equipes_encontradas,
+        modo_rapido=False,
     )
 
 
@@ -649,12 +669,16 @@ def excluir_equipe_view(nome):
         flash("A competição está travada. Não é possível excluir equipes.", "erro")
         return redirect(url_for("equipes.listar_equipes_view"))
 
-    sucesso = excluir_equipe(nome, competicao["nome"])
-
-    if sucesso:
-        flash("Equipe excluída com sucesso.", "sucesso")
+    if competicao_eh_rapida(competicao):
+        sucesso, mensagem = excluir_equipe_temporaria_competicao(nome, competicao["nome"])
+        flash(mensagem, "sucesso" if sucesso else "erro")
     else:
-        flash("Erro ao excluir equipe.", "erro")
+        sucesso = excluir_equipe(nome, competicao["nome"])
+        if sucesso:
+            flash("Equipe excluída com sucesso.", "sucesso")
+        else:
+            flash("Erro ao excluir equipe.", "erro")
+    _limpar_cache_equipes(competicao=competicao["nome"])
 
     return redirect(url_for("equipes.listar_equipes_view"))
 
@@ -1855,12 +1879,66 @@ def listar_atletas_organizador():
         return redirect(url_for("painel.inicio"))
 
     atletas = listar_atletas_da_competicao(competicao["nome"])
+    modo_rapido = competicao_eh_rapida(competicao)
+    equipes = listar_equipes_da_competicao(competicao["nome"]) if modo_rapido else []
 
     return render_template(
-        "atletas_organizador.html",
+        "atletas_rapida.html" if modo_rapido else "atletas_organizador.html",
         atletas=atletas,
-        competicao=competicao
+        competicao=competicao,
+        equipes=equipes,
+        modo_rapido=modo_rapido
     )
+
+
+@equipes_bp.route("/atletas-rapida/equipe/adicionar", methods=["POST"])
+@exigir_perfil("organizador")
+def adicionar_equipe_rapida():
+    comp = buscar_competicao_por_organizador(session.get("usuario"))
+    if not comp or not competicao_eh_rapida(comp):
+        flash("Esta ação existe somente em competição rápida.", "erro")
+        return redirect(url_for("equipes.listar_atletas_organizador"))
+
+    nome = (request.form.get("nome_equipe") or "").strip()
+    ok, msg = criar_equipe_temporaria_competicao(nome, comp["nome"])
+    if ok:
+        _limpar_cache_equipes(competicao=comp["nome"])
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
+
+
+@equipes_bp.route("/atletas-rapida/adicionar", methods=["POST"])
+@exigir_perfil("organizador")
+def adicionar_atleta_rapida():
+    comp=buscar_competicao_por_organizador(session.get("usuario"))
+    if not comp or not competicao_eh_rapida(comp):
+        flash("Esta ação existe somente em competição rápida.", "erro")
+        return redirect(url_for("equipes.listar_atletas_organizador"))
+    ok,msg=cadastrar_atleta_temporario(request.form.get("nome"), request.form.get("numero"), request.form.get("equipe"), comp["nome"], request.form.get("capitao")=="on", request.form.get("libero")=="on")
+    _limpar_cache_equipes(competicao=comp["nome"])
+    flash(msg, "sucesso" if ok else "erro")
+    return redirect(url_for("equipes.listar_atletas_organizador", equipe=request.form.get("equipe")))
+
+@equipes_bp.route("/atletas-rapida/<int:id>/editar", methods=["POST"])
+@exigir_perfil("organizador")
+def editar_atleta_rapida(id):
+    comp=buscar_competicao_por_organizador(session.get("usuario"))
+    if not comp or not competicao_eh_rapida(comp):
+        flash("Competição rápida não encontrada.", "erro")
+        return redirect(url_for("equipes.listar_atletas_organizador"))
+    ok,msg=atualizar_atleta_temporario(id, request.form.get("nome"), request.form.get("numero"), request.form.get("capitao")=="on", request.form.get("libero")=="on")
+    _limpar_cache_equipes(competicao=comp["nome"]); flash(msg,"sucesso" if ok else "erro")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
+
+@equipes_bp.route("/atletas-rapida/<int:id>/excluir", methods=["POST"])
+@exigir_perfil("organizador")
+def remover_atleta_rapida(id):
+    comp=buscar_competicao_por_organizador(session.get("usuario"))
+    if not comp or not competicao_eh_rapida(comp):
+        flash("Competição rápida não encontrada.", "erro")
+        return redirect(url_for("equipes.listar_atletas_organizador"))
+    ok,msg=excluir_atleta_temporario(id, comp["nome"]); _limpar_cache_equipes(competicao=comp["nome"]); flash(msg,"sucesso" if ok else "erro")
+    return redirect(url_for("equipes.listar_atletas_organizador"))
 
 
 @equipes_bp.route("/atletas/<int:id>/aprovar", methods=["POST"])

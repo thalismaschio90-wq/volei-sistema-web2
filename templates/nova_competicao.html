@@ -83,7 +83,7 @@
         font-size: 14px;
     }
 
-    .nova-field input {
+    .nova-field input, .nova-field select {
         width: 100%;
         padding: 13px 14px;
         border: 1px solid #cfd9e3;
@@ -191,6 +191,15 @@
             <div class="nova-field nova-full">
                 <label for="nome">Nome da competição</label>
                 <input type="text" id="nome" name="nome" value="{{ form.nome or '' }}" required placeholder="Ex.: Prado Volley Cup 2026">
+            </div>
+
+            <div class="nova-field nova-full">
+                <label for="tipo_competicao">Tipo de competição</label>
+                <select id="tipo_competicao" name="tipo_competicao">
+                    <option value="normal" {% if (form.tipo_competicao or 'normal') == 'normal' %}selected{% endif %}>Competição normal — equipes recebem acesso</option>
+                    <option value="rapida" {% if form.tipo_competicao == 'rapida' %}selected{% endif %}>Competição rápida — organizador cadastra equipes e atletas</option>
+                </select>
+                <div class="helper-text">No modo rápido não são criados acessos para as equipes. Os dados exclusivos são apagados junto com a competição.</div>
             </div>
 
             <div class="nova-field">

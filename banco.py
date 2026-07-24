@@ -1968,6 +1968,13 @@ def excluir_competicao(nome):
                           AND COALESCE(competicao, '') <> ''
                     """)
 
+                # No modo rápido, atletas são descartáveis; no modo normal, permanecem.
+                competicao_rapida = False
+                if _tabela_existe(tabelas_existentes, "competicoes") and _tem_coluna(colunas_por_tabela, "competicoes", "tipo_competicao"):
+                    cur.execute("SELECT COALESCE(tipo_competicao, 'normal') AS tipo FROM competicoes WHERE nome=%s LIMIT 1", (nome,))
+                    row_tipo = cur.fetchone() or {}
+                    competicao_rapida = str(_valor_linha(row_tipo, "tipo") or "normal").lower() == "rapida"
+
                 # Guarda o login do organizador antes de apagar a competição.
                 organizador_login = None
                 if _tabela_existe(tabelas_existentes, "competicoes"):
@@ -2003,16 +2010,14 @@ def excluir_competicao(nome):
                               AND COALESCE(perfil, '') IN ('apontador', 'equipe')
                         """, (nome,))
 
-                # Atletas ficam cadastrados. Apenas remove vínculo com competição/equipe.
-                _update_vinculo_null(
-                    cur,
-                    tabelas_existentes,
-                    colunas_por_tabela,
-                    "atletas",
-                    "competicao",
-                    nome,
-                    ["competicao", "equipe", "equipe_login", "equipe_id", "numero"],
-                )
+                # Atletas rápidos são apagados; atletas normais apenas perdem o vínculo.
+                if competicao_rapida:
+                    _delete_por_coluna(cur, tabelas_existentes, colunas_por_tabela, "atletas", "competicao", nome)
+                else:
+                    _update_vinculo_null(
+                        cur, tabelas_existentes, colunas_por_tabela, "atletas", "competicao", nome,
+                        ["competicao", "equipe", "equipe_login", "equipe_id", "numero"],
+                    )
 
                 # Equipes ficam cadastradas. Se ainda houver coluna antiga competicao,
                 # remove só o vínculo antigo sem apagar a equipe global.
@@ -4437,6 +4442,7 @@ def criar_tabela_atletas(force=False):
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS equipe_id INTEGER")
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS foto_atleta TEXT")
             cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS instagram TEXT")
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS temporario BOOLEAN DEFAULT FALSE")
 
             # Cadastro global persistente por CPF.
             # A tabela atletas é o vínculo do atleta com equipe/competição.
@@ -5057,7 +5063,10 @@ def listar_atletas_da_competicao(nome_competicao):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, nome, cpf, data_nascimento, numero, equipe, status, foto_atleta, instagram
+                SELECT id, nome, cpf, data_nascimento, numero, equipe, status, foto_atleta, instagram,
+                       COALESCE(capitao_padrao, FALSE) AS capitao_padrao,
+                       COALESCE(libero, FALSE) AS libero,
+                       COALESCE(temporario, FALSE) AS temporario
                 FROM atletas
                 WHERE competicao = %s
                 ORDER BY status, nome
@@ -19347,6 +19356,7 @@ def criar_tabela_equipes_competicoes(force=False):
                 )
             """)
             cur.execute("ALTER TABLE equipes_competicoes ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
+            cur.execute("ALTER TABLE equipes_competicoes ADD COLUMN IF NOT EXISTS temporaria BOOLEAN DEFAULT FALSE")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_competicao ON equipes_competicoes (competicao)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_login ON equipes_competicoes (equipe_login)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_cliente_id ON equipes_competicoes (cliente_id)")
@@ -20082,12 +20092,13 @@ def excluir_superadmin_cliente(criador_login, login_alvo):
     return {"ok": True}
 
 
-def criar_competicao_com_organizador(nome, data=None, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None):
+def criar_competicao_com_organizador(nome, data=None, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None, tipo_competicao="normal"):
     """Cria competição no cliente do SuperADM logado.
 
     Mantém compatibilidade com chamadas antigas e com a nova tela simplificada.
     """
     garantir_schema_multiempresa_superadmin()
+    garantir_schema_competicao_rapida()
 
     nome = (nome or "").strip()
     data = (data or data_inicio or "").strip()
@@ -20172,6 +20183,7 @@ def criar_competicao_com_organizador(nome, data=None, status="Em preparação", 
                 "travada": False,
                 "motivo_travamento": "",
                 "travada_em": None,
+                "tipo_competicao": "rapida" if str(tipo_competicao).lower() == "rapida" else "normal",
             }
 
             for campo, default in mapa_defaults.items():
@@ -20432,6 +20444,107 @@ def marcar_notificacoes_lidas(destino_tipo, destino_login=None, competicao=None)
         print('AVISO marcar_notificacoes_lidas:', repr(e), flush=True)
         return False
 
+
+
+def garantir_schema_competicao_rapida():
+    """Adiciona somente as marcações necessárias ao modo rápido."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE competicoes ADD COLUMN IF NOT EXISTS tipo_competicao TEXT DEFAULT 'normal'")
+            cur.execute("ALTER TABLE equipes_competicoes ADD COLUMN IF NOT EXISTS temporaria BOOLEAN DEFAULT FALSE")
+            cur.execute("ALTER TABLE atletas ADD COLUMN IF NOT EXISTS temporario BOOLEAN DEFAULT FALSE")
+        conn.commit()
+    for tabela in ("competicoes", "equipes_competicoes", "atletas"):
+        try:
+            _CACHE_COLUNAS.pop(tabela, None)
+        except Exception:
+            pass
+
+
+def competicao_eh_rapida(competicao):
+    garantir_schema_competicao_rapida()
+    nome = competicao.get("nome") if isinstance(competicao, dict) else competicao
+    if not nome:
+        return False
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(tipo_competicao, 'normal') AS tipo FROM competicoes WHERE nome=%s LIMIT 1", (nome,))
+            row = cur.fetchone() or {}
+    return str(row.get("tipo") or "normal").lower() == "rapida"
+
+
+def criar_equipe_temporaria_competicao(nome_equipe, competicao):
+    garantir_schema_competicao_rapida()
+    nome_equipe=(nome_equipe or '').strip(); competicao=(competicao or '').strip()
+    if not nome_equipe or not competicao:
+        return False, "Informe o nome da equipe."
+    cid=cliente_id_por_competicao(competicao)
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM equipes_competicoes WHERE LOWER(TRIM(equipe_nome))=LOWER(TRIM(%s)) AND competicao=%s LIMIT 1", (nome_equipe, competicao))
+            if cur.fetchone():
+                return False, "Esta equipe já está cadastrada na competição."
+            cur.execute("INSERT INTO equipes_competicoes (equipe_nome, equipe_login, competicao, status, cliente_id, temporaria) VALUES (%s, NULL, %s, 'ativa', %s, TRUE)", (nome_equipe, competicao, cid))
+        conn.commit()
+    return True, "Equipe adicionada à competição rápida."
+
+
+def cadastrar_atleta_temporario(nome, numero, equipe, competicao, capitao=False, libero=False):
+    garantir_schema_competicao_rapida(); criar_tabela_atletas()
+    nome=(nome or '').strip(); equipe=(equipe or '').strip(); competicao=(competicao or '').strip()
+    if not nome or not equipe or not competicao:
+        return False, "Informe nome, número e equipe."
+    try:
+        numero=int(numero)
+        if numero < 0 or numero > 99: raise ValueError
+    except (TypeError, ValueError):
+        return False, "Informe um número de camisa entre 0 e 99."
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM atletas WHERE competicao=%s AND equipe=%s AND numero=%s LIMIT 1", (competicao,equipe,numero))
+            if cur.fetchone(): return False, "Já existe um atleta com esse número nesta equipe."
+            # A tabela operacional de atletas exige data_nascimento no banco antigo.
+            # No modo rápido esse dado não é solicitado nem exibido; a data abaixo é
+            # apenas um valor técnico para satisfazer a restrição NOT NULL.
+            cur.execute("INSERT INTO atletas (nome, cpf, data_nascimento, numero, equipe, competicao, status, temporario, capitao_padrao, libero) VALUES (%s, '', %s, %s, %s, %s, 'aprovado', TRUE, %s, %s)", (nome, '1900-01-01', numero, equipe, competicao, bool(capitao), bool(libero)))
+        conn.commit()
+    return True, "Atleta cadastrado."
+
+
+def atualizar_atleta_temporario(atleta_id, nome, numero, capitao=False, libero=False):
+    nome=(nome or '').strip()
+    try: numero=int(numero)
+    except (TypeError, ValueError): return False, "Número inválido."
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id,equipe,competicao FROM atletas WHERE id=%s AND COALESCE(temporario,FALSE)=TRUE", (atleta_id,))
+            atleta=cur.fetchone()
+            if not atleta: return False, "Atleta temporário não encontrado."
+            cur.execute("SELECT id FROM atletas WHERE competicao=%s AND equipe=%s AND numero=%s AND id<>%s LIMIT 1", (atleta['competicao'],atleta['equipe'],numero,atleta_id))
+            if cur.fetchone(): return False, "Já existe outro atleta com esse número."
+            cur.execute("UPDATE atletas SET nome=%s, numero=%s, capitao_padrao=%s, libero=%s WHERE id=%s", (nome,numero,bool(capitao),bool(libero),atleta_id))
+        conn.commit()
+    return True, "Atleta atualizado."
+
+
+def excluir_atleta_temporario(atleta_id, competicao):
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM atletas WHERE id=%s AND competicao=%s AND COALESCE(temporario,FALSE)=TRUE", (atleta_id,competicao))
+            ok=cur.rowcount>0
+        conn.commit()
+    return ok, "Atleta excluído." if ok else "Atleta temporário não encontrado."
+
+
+def excluir_equipe_temporaria_competicao(nome_equipe, competicao):
+    garantir_schema_competicao_rapida()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM atletas WHERE competicao=%s AND equipe=%s AND COALESCE(temporario,FALSE)=TRUE", (competicao,nome_equipe))
+            cur.execute("DELETE FROM equipes_competicoes WHERE competicao=%s AND LOWER(TRIM(equipe_nome))=LOWER(TRIM(%s)) AND COALESCE(temporaria,FALSE)=TRUE", (competicao,nome_equipe))
+            ok=cur.rowcount>0
+        conn.commit()
+    return ok, "Equipe rápida excluída." if ok else "Equipe rápida não encontrada."
 
 # =========================================================
 # FLUXO DE CONFIGURAÇÃO INICIAL DA COMPETIÇÃO

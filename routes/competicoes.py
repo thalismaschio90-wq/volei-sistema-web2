@@ -358,7 +358,10 @@ def nova_competicao():
         nome = request.form.get("nome", "").strip()
         data_inicio = request.form.get("data_inicio", "").strip()
         data_fim = request.form.get("data_fim", "").strip()
-        dados_form = {"nome": nome, "data_inicio": data_inicio, "data_fim": data_fim}
+        tipo_competicao = request.form.get("tipo_competicao", "normal").strip().lower()
+        if tipo_competicao not in {"normal", "rapida"}:
+            tipo_competicao = "normal"
+        dados_form = {"nome": nome, "data_inicio": data_inicio, "data_fim": data_fim, "tipo_competicao": tipo_competicao}
 
         if not nome:
             flash("Informe o nome da competição.", "erro")
@@ -384,6 +387,7 @@ def nova_competicao():
             criador_login=session.get("usuario"),
             data_inicio=data_inicio,
             data_fim=data_fim or data_inicio,
+            tipo_competicao=tipo_competicao,
         )
 
         session["credenciais_novas"] = {
@@ -636,8 +640,12 @@ def salvar_estrutura_view():
         flash("A competição está travada. A estrutura não pode mais ser alterada.", "erro")
         return redirect(url_for("competicoes.listar_competicoes_view"))
 
-    data_limite_inscricao = request.form.get("data_limite_inscricao", "").strip()
-    hora_limite_inscricao = request.form.get("hora_limite_inscricao", "").strip()
+    modo_rapido = str(comp.get("tipo_competicao") or "normal").strip().lower() == "rapida"
+
+    # Competições rápidas não possuem inscrição feita pelas equipes. Portanto,
+    # prazo, exigência de foto/Instagram e edição pós-prazo não se aplicam.
+    data_limite_inscricao = "" if modo_rapido else request.form.get("data_limite_inscricao", "").strip()
+    hora_limite_inscricao = "" if modo_rapido else request.form.get("hora_limite_inscricao", "").strip()
 
     modo_operacao = (request.form.get("modo_operacao") or comp.get("modo_operacao") or "simples").strip().lower()
     if modo_operacao not in ("simples", "avancado"):
@@ -661,11 +669,11 @@ def salvar_estrutura_view():
         "modo_operacao": modo_operacao,
         "data_limite_inscricao": data_limite_inscricao,
         "hora_limite_inscricao": hora_limite_inscricao,
-        "limite_atletas": _to_int(request.form.get("limite_atletas"), padrao=0, minimo=0),
-        "permitir_edicao_pos_prazo": request.form.get("permitir_edicao_pos_prazo") == "on",
-        "exigir_foto_atleta": request.form.get("exigir_foto_atleta") == "on",
-        "exigir_instagram_atleta": request.form.get("exigir_instagram_atleta") == "on",
-        "bloquear_apos_inicio": not bool(data_limite_inscricao),
+        "limite_atletas": 0 if modo_rapido else _to_int(request.form.get("limite_atletas"), padrao=0, minimo=0),
+        "permitir_edicao_pos_prazo": False if modo_rapido else request.form.get("permitir_edicao_pos_prazo") == "on",
+        "exigir_foto_atleta": False if modo_rapido else request.form.get("exigir_foto_atleta") == "on",
+        "exigir_instagram_atleta": False if modo_rapido else request.form.get("exigir_instagram_atleta") == "on",
+        "bloquear_apos_inicio": False if modo_rapido else not bool(data_limite_inscricao),
     }
 
     atualizar_estrutura_competicao(comp["nome"], dados)

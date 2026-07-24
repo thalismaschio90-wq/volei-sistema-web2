@@ -3,6 +3,13 @@
 {% block titulo %}Nova equipe{% endblock %}
 
 {% block conteudo %}
+{% if modo_rapido or (competicao.tipo_competicao|default('normal')) == 'rapida' %}
+<div style="max-width:680px;margin:0 auto;background:#fff;border:1px solid #dbe4ec;border-radius:20px;padding:22px">
+<h1>Adicionar equipe rápida</h1><p>Informe somente o nome. Nenhum login ou senha será criado.</p>
+<form method="post"><input type="hidden" name="acao" value="criar"><input style="width:100%;padding:13px;border:1px solid #cfd9e3;border-radius:12px;margin:12px 0" name="nome" value="{{ nome_busca or '' }}" required placeholder="Nome da equipe"><button class="btn-padrao" type="submit">Adicionar equipe</button></form>
+</div>
+{% else %}
+
 <style>
     .nova-equipe-wrap {
         display: grid;
@@ -340,4 +347,5 @@
         </div>
     {% endif %}
 </div>
+{% endif %}
 {% endblock %}
