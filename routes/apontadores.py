@@ -4302,6 +4302,14 @@ def ponto_view(competicao, partida_id):
             payload_socket["competicao"] = competicao
             payload_socket["partida_id"] = partida_id
             payload_socket["origem"] = "PONTO_OFICIAL"
+            # Mantém no socket as duas referências: cadastro fixo e lado
+            # operacional atual. O visualizador usa isso para reposicionar os
+            # pontos corretamente sem afetar apontador, árbitros ou telão.
+            partida_ref = dict(_partida_lock or {})
+            payload_socket["equipe_a_cadastro"] = partida_ref.get("equipe_a") or payload_socket.get("equipe_a_cadastro") or payload_socket.get("equipe_a") or ""
+            payload_socket["equipe_b_cadastro"] = partida_ref.get("equipe_b") or payload_socket.get("equipe_b_cadastro") or payload_socket.get("equipe_b") or ""
+            payload_socket["equipe_a_operacional"] = partida_ref.get("equipe_a_operacional") or payload_socket.get("equipe_a_operacional") or payload_socket.get("equipe_a") or payload_socket["equipe_a_cadastro"]
+            payload_socket["equipe_b_operacional"] = partida_ref.get("equipe_b_operacional") or payload_socket.get("equipe_b_operacional") or payload_socket.get("equipe_b") or payload_socket["equipe_b_cadastro"]
             payload_socket["ultima_acao"] = estado.get("ultima_acao") or "Ponto registrado"
             payload_socket["historico"] = estado.get("historico") or cache_atual.get("historico") or []
 

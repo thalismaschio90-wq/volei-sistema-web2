@@ -320,6 +320,35 @@ def obter_ultimo_placar_apontador(apontador):
 # =========================
 # NORMALIZAÇÃO
 # =========================
+def _nome_equipe_igual_socket(a, b):
+    return str(a or "").strip().casefold() == str(b or "").strip().casefold()
+
+
+def _adicionar_placar_publico_socket(payload):
+    """Adiciona a ordem pública sem alterar o estado operacional original."""
+    cadastro_a = str(payload.get("equipe_a_cadastro") or payload.get("equipe_a") or "").strip()
+    cadastro_b = str(payload.get("equipe_b_cadastro") or payload.get("equipe_b") or "").strip()
+    operacional_a = str(payload.get("equipe_a_operacional") or payload.get("equipe_a") or cadastro_a).strip()
+    operacional_b = str(payload.get("equipe_b_operacional") or payload.get("equipe_b") or cadastro_b).strip()
+    pontos_a = _to_int(payload.get("pontos_a"), 0)
+    pontos_b = _to_int(payload.get("pontos_b"), 0)
+
+    invertido = bool(
+        cadastro_a and cadastro_b and operacional_a and operacional_b
+        and _nome_equipe_igual_socket(operacional_a, cadastro_b)
+        and _nome_equipe_igual_socket(operacional_b, cadastro_a)
+    )
+    publico_a, publico_b = (pontos_b, pontos_a) if invertido else (pontos_a, pontos_b)
+    payload["equipe_a_cadastro"] = cadastro_a or operacional_a
+    payload["equipe_b_cadastro"] = cadastro_b or operacional_b
+    payload["pontos_publicos_a"] = publico_a
+    payload["pontos_publicos_b"] = publico_b
+    payload["placar_publico_a"] = publico_a
+    payload["placar_publico_b"] = publico_b
+    payload["lados_operacionais_invertidos"] = invertido
+    return payload
+
+
 def _normalizar_payload(partida_id, dados=None):
     dados = dict(dados or {})
 
@@ -452,6 +481,7 @@ def _normalizar_payload(partida_id, dados=None):
         ),
     }
 
+    payload = _adicionar_placar_publico_socket(payload)
     payload = _aplicar_placar_exibicao_socket(payload)
     return _json_safe(payload)
 
@@ -476,7 +506,10 @@ def _payload_placar_rapido(payload):
         "sets_a", "sets_b", "set_atual", "sets_tipo", "set_unico",
         "placar_exibicao_a", "placar_exibicao_b", "placar_exibicao_tipo",
         "placar_exibicao_rotulo", "placar_exibicao",
-        "equipe_a", "equipe_b", "equipe_a_operacional", "equipe_b_operacional",
+        "equipe_a", "equipe_b", "equipe_a_cadastro", "equipe_b_cadastro",
+        "equipe_a_operacional", "equipe_b_operacional",
+        "pontos_publicos_a", "pontos_publicos_b", "placar_publico_a", "placar_publico_b",
+        "lados_operacionais_invertidos",
         "escudo_a", "escudo_b", "escudo_a_operacional", "escudo_b_operacional",
         "equipe_a_escudo", "equipe_b_escudo",
         "cor_a", "cor_b", "cor_a_operacional", "cor_b_operacional",

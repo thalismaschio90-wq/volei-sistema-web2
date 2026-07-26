@@ -3091,6 +3091,9 @@ def tabela_view():
         "config_geracao": None,
         "grupo_unico_auto": _estrutura_grupo_unico(competicao),
         "quadra_unica_auto": False,
+        "codigo_publico": "",
+        "link_publico_path": "",
+        "link_publico": "",
         **fases,
     }
 
@@ -3194,8 +3197,30 @@ def tabela_view():
             "colunas_classificacao": colunas_classificacao,
         })
 
-    # Aba Visualizador: não carrega partidas nem classificação do organizador.
-    # O iframe/link público carrega a rota pública quando necessário.
+    # Aba Visualizador: gera/carrega o código curto e entrega o caminho pronto
+    # ao template. Sem isso, o campo exibia somente o domínio porque
+    # link_publico_path chegava vazio.
+    elif aba == "visualizador":
+        codigo_publico = garantir_codigo_publico_competicao(nome_competicao)
+
+        if codigo_publico:
+            link_publico_path = url_for(
+                "tabela.visualizador_publico_curto",
+                codigo_publico=codigo_publico,
+            )
+        else:
+            # Fallback seguro: mantém o visualizador acessível mesmo se o banco
+            # não conseguir criar o código curto naquele momento.
+            link_publico_path = url_for(
+                "tabela.visualizador_publico",
+                competicao_nome=nome_competicao,
+            )
+
+        pacote_contexto.update({
+            "codigo_publico": codigo_publico or "",
+            "link_publico_path": link_publico_path,
+            "link_publico": request.host_url.rstrip("/") + link_publico_path,
+        })
 
     if pacote_contexto:
         if aba != "partidas":

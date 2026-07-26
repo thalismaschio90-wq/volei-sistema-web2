@@ -617,13 +617,8 @@
 (function () {
     if (typeof io === 'undefined') return;
 
-    const ambienteLocal = ['127.0.0.1', 'localhost'].includes(window.location.hostname);
     const socket = io({
-        // O servidor de desenvolvimento do Werkzeug/Python 3.14 pode falhar
-        // durante o upgrade para WebSocket. No local usamos polling estável;
-        // em produção continuamos priorizando WebSocket com fallback.
-        transports: ambienteLocal ? ['polling'] : ['websocket', 'polling'],
-        upgrade: !ambienteLocal,
+        transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 800
