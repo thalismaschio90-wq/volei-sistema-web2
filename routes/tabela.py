@@ -2338,10 +2338,34 @@ def _buscar_destaque_partida_publico(partida_id, competicao):
         with conectar() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT lado, atleta_id, numero, nome, observacao, equipe, criado_em
-                    FROM destaques_partida
-                    WHERE partida_id = %s AND competicao = %s
-                    ORDER BY id DESC
+                    SELECT
+                        d.lado,
+                        d.atleta_id,
+                        d.numero,
+                        d.nome,
+                        d.observacao,
+                        d.equipe,
+                        d.criado_em,
+                        COALESCE(
+                            NULLIF(a.foto_atleta, ''),
+                            (
+                                SELECT NULLIF(a2.foto_atleta, '')
+                                FROM atletas a2
+                                WHERE a2.competicao = d.competicao
+                                  AND LOWER(TRIM(COALESCE(a2.equipe, ''))) = LOWER(TRIM(COALESCE(d.equipe, '')))
+                                  AND (
+                                      (d.numero IS NOT NULL AND a2.numero = d.numero)
+                                      OR LOWER(TRIM(COALESCE(a2.nome, ''))) = LOWER(TRIM(COALESCE(d.nome, '')))
+                                  )
+                                  AND COALESCE(a2.foto_atleta, '') <> ''
+                                ORDER BY CASE WHEN d.numero IS NOT NULL AND a2.numero = d.numero THEN 0 ELSE 1 END, a2.id DESC
+                                LIMIT 1
+                            )
+                        ) AS foto_atleta
+                    FROM destaques_partida d
+                    LEFT JOIN atletas a ON a.id = d.atleta_id
+                    WHERE d.partida_id = %s AND d.competicao = %s
+                    ORDER BY d.id DESC
                     LIMIT 1
                 """, (partida_id, competicao))
                 return cur.fetchone()
@@ -2415,7 +2439,29 @@ def visualizador_publico(competicao_nome):
     status_avanco["gerado"] = avanco_gerado
     if not avanco_gerado:
         partidas_preparadas = [p for p in partidas_preparadas if not _partida_eh_avanco(p)]
-    avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
+    # No visualizador público, o chaveamento só deve existir depois do
+    # encerramento completo das classificatórias e da geração oficial dos jogos.
+    # Antes disso, não mostramos placeholders nem antecipamos cruzamentos.
+    exibir_avanco_publico = bool(status_avanco.get("fechada")) and bool(avanco_gerado)
+    avanco_espelho = (
+        _montar_espelho_avanco(avanco, partidas_preparadas, True)
+        if exibir_avanco_publico
+        else []
+    )
+
+    # Organização exclusiva do visualizador público: rodada -> data/hora ->
+    # ordem definida pelo organizador. Não altera a ordem usada nas telas
+    # administrativas nem na geração das partidas.
+    partidas_preparadas = sorted(
+        partidas_preparadas,
+        key=lambda p: (
+            int(p.get("rodada") or 999999),
+            p.get("data_hora_valor") or "9999-12-31 23:59",
+            int(p.get("ordem") or 0),
+            p.get("quadra_label") or "",
+            int(p.get("id") or 0),
+        ),
+    )
 
     return render_template(
         "visualizador_publico.html",

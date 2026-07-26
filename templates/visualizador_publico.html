@@ -197,6 +197,24 @@
             margin-top:12px;
         }
         .jogos-vazio-filtro.ativo { display:block; }
+        .filtros-jogos { display:grid; gap:10px; margin:4px 0 16px; }
+        .filtro-grupo { display:grid; gap:7px; }
+        .filtro-titulo { color:#93c5fd; font-size:12px; font-weight:1000; text-transform:uppercase; letter-spacing:.08em; }
+        .rodada-tabs {
+            display:flex; gap:10px; flex-wrap:wrap; padding:10px;
+            border:1px solid rgba(148,163,184,.18); border-radius:18px;
+            background:rgba(15,23,42,.48); position:sticky; top:0; z-index:21;
+            backdrop-filter:blur(10px);
+        }
+        .rodada-tab {
+            border:1px solid rgba(148,163,184,.24); background:rgba(30,41,59,.76);
+            color:#dbeafe; border-radius:999px; padding:10px 14px; cursor:pointer;
+            font-weight:900; font-size:13px; white-space:nowrap; transition:.16s ease;
+        }
+        .rodada-tab:hover { transform:translateY(-1px); background:rgba(37,99,235,.34); }
+        .rodada-tab.ativa { background:linear-gradient(135deg,rgba(37,99,235,.95),rgba(29,78,216,.72)); color:#fff; border-color:rgba(191,219,254,.55); box-shadow:0 10px 22px rgba(37,99,235,.24); }
+        .agenda-jogo { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+        .agenda-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border-radius:999px; background:rgba(2,6,23,.52); border:1px solid rgba(148,163,184,.18); color:#dbeafe; font-size:12px; font-weight:900; }
 
         .bracket-publico { margin: 26px 0; }
         .bracket-serie { margin-bottom: 18px; }
@@ -370,30 +388,55 @@
     <h2>Jogos</h2>
 
     {% if partidas %}
+        {% set ns_rodadas = namespace(lista=[]) %}
         {% set ns_quadras = namespace(lista=[]) %}
         {% for p in partidas %}
+            {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
+            {% if rodada_chave not in ns_rodadas.lista %}
+                {% set ns_rodadas.lista = ns_rodadas.lista + [rodada_chave] %}
+            {% endif %}
             {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
-            {% if q_label not in ns_quadras.lista %}
+            {% if q_label != 'Sem quadra' and q_label not in ns_quadras.lista %}
                 {% set ns_quadras.lista = ns_quadras.lista + [q_label] %}
             {% endif %}
         {% endfor %}
 
-        <div class="quadra-tabs" data-quadra-tabs>
-            <button type="button" class="quadra-tab ativa" data-quadra-filter="__todos__">Todos</button>
-            {% for q_label in ns_quadras.lista %}
-                <button type="button" class="quadra-tab" data-quadra-filter="{{ q_label }}">{{ q_label }}</button>
-            {% endfor %}
+        <div class="filtros-jogos">
+            <div class="filtro-grupo">
+                <div class="filtro-titulo">Rodadas</div>
+                <div class="rodada-tabs" data-rodada-tabs>
+                    {% for rodada_chave in ns_rodadas.lista %}
+                        <button type="button" class="rodada-tab {% if loop.first %}ativa{% endif %}" data-rodada-filter="{{ rodada_chave }}">
+                            {{ 'Sem rodada' if rodada_chave == '__sem_rodada__' else 'Rodada ' ~ rodada_chave }}
+                        </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {% if ns_quadras.lista|length > 1 %}
+            <div class="filtro-grupo" data-quadra-area>
+                <div class="filtro-titulo">Quadras</div>
+                <div class="quadra-tabs" data-quadra-tabs>
+                    <button type="button" class="quadra-tab ativa" data-quadra-filter="__todos__">Todas</button>
+                    {% for q_label in ns_quadras.lista %}
+                        <button type="button" class="quadra-tab" data-quadra-filter="{{ q_label }}">{{ q_label }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
         </div>
 
         <div class="jogos-grid" data-jogos-grid>
         {% for p in partidas %}
             {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
+            {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
             <div
                 class="jogo {% if p.ao_vivo %}ao-vivo-card{% endif %}"
                 data-partida-id="{{ p.id }}"
                 data-competicao="{{ competicao_nome }}"
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
                 data-quadra-label="{{ q_label }}"
+                data-rodada="{{ rodada_chave }}"
                 {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida', competicao_nome=competicao_nome, partida_id=p.id) }}"{% endif %}
             >
                 <div class="jogo-topo">
@@ -409,9 +452,13 @@
                                 <span data-equipe-b>{{ p.equipe_b }}</span>
                             </span>
                         </div>
+                        <div class="agenda-jogo">
+                            <span class="agenda-chip">{{ 'Rodada ' ~ p.rodada if p.rodada else 'Sem rodada' }}</span>
+                            {% if p.data_hora_label %}<span class="agenda-chip">📅 {{ p.data_hora_label }}</span>{% endif %}
+                            {% if q_label != 'Sem quadra' %}<span class="agenda-chip">🏐 {{ q_label }}</span>{% endif %}
+                        </div>
                         <div class="meta">
-                            {% if p.fase_normalizada == 'grupos' %}Grupo {{ p.grupo }}{% else %}{{ p.fase_normalizada|capitalize }}{% endif %}{% if p.rodada %} • Rodada {{ p.rodada }}{% endif %}{% if p.data_hora %} • {{ p.data_hora|replace('T',' ') }}{% endif %}
-                            {% if p.quadra_label %} • {{ p.quadra_label }}{% endif %}
+                            {% if p.fase_normalizada == 'grupos' %}Grupo {{ p.grupo }}{% else %}{{ p.fase_normalizada|capitalize }}{% endif %}
                         </div>
                     </div>
                     <span data-status-badge class="badge {% if p.finalizada %}finalizado{% elif p.ao_vivo %}ao-vivo{% else %}status-neutro{% endif %}">
@@ -427,26 +474,19 @@
 
                 <div class="sets-live" data-sets-wrap {% if not p.ao_vivo or p.set_unico %}style="display:none;"{% endif %}>
                     Sets: <span data-sets-a>{{ p.sets_a or 0 }}</span> × <span data-sets-b>{{ p.sets_b or 0 }}</span>
-                    <span>•</span>
-                    Set atual: <span data-set-atual>{{ p.set_atual or 1 }}</span>
+                    <span>•</span> Set atual: <span data-set-atual>{{ p.set_atual or 1 }}</span>
                 </div>
 
                 <div class="parciais" data-parciais>
-                    {% if p.finalizada %}
-                        Parciais: {{ p.parciais_formatadas }}
-                    {% elif p.ao_vivo %}
-                        Placar {{ 'da partida' if p.set_unico else 'do set atual' }} em tempo real
-                    {% else %}
-                        Aguardando início da partida.
-                    {% endif %}
+                    {% if p.finalizada %}Parciais: {{ p.parciais_formatadas }}
+                    {% elif p.ao_vivo %}Placar {{ 'da partida' if p.set_unico else 'do set atual' }} em tempo real
+                    {% else %}Aguardando início da partida.{% endif %}
                 </div>
-                {% if p.ao_vivo or p.finalizada %}
-                    <div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>
-                {% endif %}
+                {% if p.ao_vivo or p.finalizada %}<div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>{% endif %}
             </div>
         {% endfor %}
         </div>
-        <div class="card vazio jogos-vazio-filtro" data-jogos-vazio-filtro>Nenhum jogo encontrado nesta quadra.</div>
+        <div class="card vazio jogos-vazio-filtro" data-jogos-vazio-filtro>Nenhum jogo encontrado nesta rodada ou quadra.</div>
     {% else %}
         <div class="card vazio">Nenhum jogo cadastrado.</div>
     {% endif %}
@@ -465,8 +505,10 @@
 
     const competicao = {{ competicao_nome|tojson }};
     const cards = Array.from(document.querySelectorAll('[data-partida-id]'));
+    const tabsRodada = Array.from(document.querySelectorAll('[data-rodada-filter]'));
     const tabsQuadra = Array.from(document.querySelectorAll('[data-quadra-filter]'));
     const avisoVazioFiltro = document.querySelector('[data-jogos-vazio-filtro]');
+    let filtroRodadaAtual = tabsRodada.length ? (tabsRodada[0].dataset.rodadaFilter || '__sem_rodada__') : '__todos__';
     let filtroQuadraAtual = '__todos__';
     let reloadFinalizacaoAgendado = false;
 
@@ -480,34 +522,44 @@
     });
 
 
-    function aplicarFiltroQuadra() {
+    function aplicarFiltrosJogos() {
         let visiveis = 0;
 
         cards.forEach((card) => {
+            // Os cards do chaveamento não participam dos filtros da lista de jogos.
+            if (!card.classList.contains('jogo')) return;
+            const rodadaCard = card.dataset.rodada || '__sem_rodada__';
             const quadraCard = card.dataset.quadraLabel || 'Sem quadra';
-            const mostrar = filtroQuadraAtual === '__todos__' || quadraCard === filtroQuadraAtual;
+            const combinaRodada = filtroRodadaAtual === '__todos__' || rodadaCard === filtroRodadaAtual;
+            const combinaQuadra = filtroQuadraAtual === '__todos__' || quadraCard === filtroQuadraAtual;
+            const mostrar = combinaRodada && combinaQuadra;
             card.style.display = mostrar ? '' : 'none';
             if (mostrar) visiveis += 1;
         });
 
-        if (avisoVazioFiltro) {
-            avisoVazioFiltro.classList.toggle('ativo', visiveis === 0);
-        }
+        if (avisoVazioFiltro) avisoVazioFiltro.classList.toggle('ativo', visiveis === 0);
     }
 
-    function configurarAbasQuadra() {
-        tabsQuadra.forEach((tab) => {
+    function configurarAbasJogos() {
+        tabsRodada.forEach((tab) => {
             tab.addEventListener('click', function () {
-                filtroQuadraAtual = this.dataset.quadraFilter || '__todos__';
-
-                tabsQuadra.forEach((outra) => outra.classList.remove('ativa'));
+                filtroRodadaAtual = this.dataset.rodadaFilter || '__sem_rodada__';
+                tabsRodada.forEach((outra) => outra.classList.remove('ativa'));
                 this.classList.add('ativa');
-
-                aplicarFiltroQuadra();
+                aplicarFiltrosJogos();
             });
         });
 
-        aplicarFiltroQuadra();
+        tabsQuadra.forEach((tab) => {
+            tab.addEventListener('click', function () {
+                filtroQuadraAtual = this.dataset.quadraFilter || '__todos__';
+                tabsQuadra.forEach((outra) => outra.classList.remove('ativa'));
+                this.classList.add('ativa');
+                aplicarFiltrosJogos();
+            });
+        });
+
+        aplicarFiltrosJogos();
     }
 
     function escudoValido(valor) {
@@ -639,7 +691,7 @@
         });
     }
 
-    configurarAbasQuadra();
+    configurarAbasJogos();
 
     socket.on('connect', entrarNasPartidas);
     socket.on('estado_partida', atualizarCard);
