@@ -5,6 +5,7 @@ import string
 import json
 import base64
 import math
+import time
 from io import BytesIO
 from datetime import datetime
 from threading import Lock, BoundedSemaphore
@@ -3597,15 +3598,9 @@ def listar_competicoes_da_equipe_por_login(login):
 def listar_equipes_da_competicao(nome_competicao):
     """Lista as equipes vinculadas à competição já com escudo pronto para exibição.
 
-    Correção importante:
-    - a tela do organizador lista equipes a partir de equipes_competicoes;
-    - o escudo real fica na tabela global equipes;
-    - registros antigos podem ter equipe_login vazio/desatualizado e só bater pelo nome;
-    - quando o JOIN por nome encontra mais de uma linha, priorizamos a equipe cujo login
-      bate com o vínculo e depois a que possui escudo salvo.
-
-    Assim /equipes, nova vinculação e telas do organizador recebem sempre:
-    escudo, escudo_blob e escudo_exibicao.
+    Além das compatibilidades já existentes, esta leitura possui uma tentativa
+    extra quando o Neon/PostgreSQL encerra a conexão durante a consulta.
+    A nova tentativa é segura porque esta função executa somente SELECT.
     """
     criar_campos_quadro_tecnico_equipes()
     criar_campos_liberacao_extra_equipes()
@@ -3617,81 +3612,111 @@ def listar_equipes_da_competicao(nome_competicao):
     if not nome_competicao:
         return []
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                WITH vinculos AS (
-                    SELECT
-                        ec.*,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY
-                                LOWER(TRIM(COALESCE(ec.equipe_login, ''))),
-                                LOWER(TRIM(COALESCE(ec.equipe_nome, ''))),
-                                ec.competicao
-                            ORDER BY ec.id NULLS LAST
-                        ) AS rn
-                    FROM equipes_competicoes ec
-                    WHERE ec.competicao = %s
-                      AND COALESCE(ec.status, 'ativa') = 'ativa'
+    sql = """
+        WITH vinculos AS (
+            SELECT
+                ec.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY
+                        LOWER(TRIM(COALESCE(ec.equipe_login, ''))),
+                        LOWER(TRIM(COALESCE(ec.equipe_nome, ''))),
+                        ec.competicao
+                    ORDER BY ec.id NULLS LAST
+                ) AS rn
+            FROM equipes_competicoes ec
+            WHERE ec.competicao = %s
+              AND COALESCE(ec.status, 'ativa') = 'ativa'
+        )
+        SELECT
+            COALESCE(NULLIF(e.nome, ''), v.equipe_nome) AS nome,
+            COALESCE(NULLIF(e.login, ''), v.equipe_login) AS login,
+            e.senha,
+            v.competicao,
+            v.equipe_nome AS nome_vinculo,
+            v.equipe_login AS login_vinculo,
+            v.grupo,
+
+            e.treinador,
+            e.auxiliar_tecnico,
+            e.preparador_fisico,
+            e.medico,
+            e.liberacao_extra_inscricao,
+            e.liberacao_extra_data,
+            e.liberacao_extra_hora,
+            e.cidade,
+            e.responsavel,
+            e.telefone,
+            e.email,
+            e.instagram,
+
+            COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
+            e.escudo_blob,
+            COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
+            COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
+            v.status AS status_vinculo
+        FROM vinculos v
+        LEFT JOIN LATERAL (
+            SELECT e2.*
+            FROM equipes e2
+            WHERE
+                (
+                    COALESCE(v.equipe_login, '') <> ''
+                    AND LOWER(TRIM(e2.login)) = LOWER(TRIM(v.equipe_login))
                 )
-                SELECT
-                    COALESCE(NULLIF(e.nome, ''), v.equipe_nome) AS nome,
-                    COALESCE(NULLIF(e.login, ''), v.equipe_login) AS login,
-                    e.senha,
-                    v.competicao,
-                    v.equipe_nome AS nome_vinculo,
-                    v.equipe_login AS login_vinculo,
-                    v.grupo,
+                OR (
+                    COALESCE(v.equipe_nome, '') <> ''
+                    AND LOWER(TRIM(e2.nome)) = LOWER(TRIM(v.equipe_nome))
+                )
+            ORDER BY
+                CASE
+                    WHEN COALESCE(v.equipe_login, '') <> ''
+                     AND LOWER(TRIM(e2.login)) = LOWER(TRIM(v.equipe_login)) THEN 0
+                    ELSE 1
+                END,
+                CASE
+                    WHEN COALESCE(NULLIF(e2.escudo_blob, ''), NULLIF(e2.escudo, '')) IS NOT NULL THEN 0
+                    ELSE 1
+                END,
+                e2.nome ASC,
+                e2.login ASC
+            LIMIT 1
+        ) e ON TRUE
+        WHERE v.rn = 1
+        ORDER BY COALESCE(NULLIF(e.nome, ''), v.equipe_nome) ASC
+    """
 
-                    e.treinador,
-                    e.auxiliar_tecnico,
-                    e.preparador_fisico,
-                    e.medico,
-                    e.liberacao_extra_inscricao,
-                    e.liberacao_extra_data,
-                    e.liberacao_extra_hora,
-                    e.cidade,
-                    e.responsavel,
-                    e.telefone,
-                    e.email,
-                    e.instagram,
+    ultimo_erro = None
 
-                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
-                    e.escudo_blob,
-                    COALESCE(NULLIF(e.escudo_blob, ''), NULLIF(e.escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
-                    COALESCE(e.perfil_completo, FALSE) AS perfil_completo,
-                    v.status AS status_vinculo
-                FROM vinculos v
-                LEFT JOIN LATERAL (
-                    SELECT e2.*
-                    FROM equipes e2
-                    WHERE
-                        (
-                            COALESCE(v.equipe_login, '') <> ''
-                            AND LOWER(TRIM(e2.login)) = LOWER(TRIM(v.equipe_login))
-                        )
-                        OR (
-                            COALESCE(v.equipe_nome, '') <> ''
-                            AND LOWER(TRIM(e2.nome)) = LOWER(TRIM(v.equipe_nome))
-                        )
-                    ORDER BY
-                        CASE
-                            WHEN COALESCE(v.equipe_login, '') <> ''
-                             AND LOWER(TRIM(e2.login)) = LOWER(TRIM(v.equipe_login)) THEN 0
-                            ELSE 1
-                        END,
-                        CASE
-                            WHEN COALESCE(NULLIF(e2.escudo_blob, ''), NULLIF(e2.escudo, '')) IS NOT NULL THEN 0
-                            ELSE 1
-                        END,
-                        e2.nome ASC,
-                        e2.login ASC
-                    LIMIT 1
-                ) e ON TRUE
-                WHERE v.rn = 1
-                ORDER BY COALESCE(NULLIF(e.nome, ''), v.equipe_nome) ASC
-            """, (nome_competicao,))
-            return cur.fetchall()
+    for tentativa in range(2):
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (nome_competicao,))
+                    return cur.fetchall()
+
+        except Exception as exc:
+            ultimo_erro = exc
+
+            # Só repete erros reconhecidos como conexão quebrada.
+            # Erros de SQL, coluna ou regra continuam sendo levantados imediatamente.
+            if tentativa >= 1 or not _erro_conexao_quebrada(exc):
+                raise
+
+            print(
+                "AVISO listar_equipes_da_competicao: conexão caiu; "
+                "descartando o pool e repetindo a leitura uma vez:",
+                repr(exc),
+                flush=True,
+            )
+
+            _fechar_pool_quebrado()
+            time.sleep(0.15)
+
+    if ultimo_erro is not None:
+        raise ultimo_erro
+
+    return []
+
 
 def buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao):
     criar_campos_quadro_tecnico_equipes()
