@@ -237,7 +237,7 @@ async function carregarDetalhes(partidaAtual){
 function proximoIntervalo(partida){
   if(document.hidden) return 15000;
   if(partida && partida.finalizada) return 20000;
-  if(partida && partida.ao_vivo) return socketConectado ? 8000 : 1800;
+  if(partida && partida.ao_vivo) return socketConectado ? 2000 : 1500;
   return 8000;
 }
 

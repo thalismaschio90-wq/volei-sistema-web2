@@ -58,6 +58,7 @@ from banco import (
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
+from socket_events import obter_estado_cache
 
 tabela_bp = Blueprint("tabela", __name__)
 
@@ -2499,10 +2500,30 @@ def _contexto_partida_publica(competicao_nome, partida_id):
     }
     preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
     estado = None
+    # O apontador mantém o estado corrente em memória para responder sem
+    # bloquear no Neon. O visualizador público deve ler esse mesmo estado vivo;
+    # consultar apenas o banco faz o placar ficar atrasado até o próximo
+    # checkpoint (fim de set/sincronização periódica).
+    estado_vivo = {}
     try:
-        estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
-    except Exception:
-        estado = {}
+        candidato = obter_estado_cache(partida_id) or {}
+        competicao_cache = str(candidato.get("competicao") or "").strip()
+        if not competicao_cache or competicao_cache == str(competicao_nome or "").strip():
+            estado_vivo = candidato
+    except Exception as e:
+        print("AVISO visualizador/estado_vivo:", repr(e), flush=True)
+
+    # O banco permanece como fallback para recarga/reinício do processo. Quando
+    # existe estado vivo, ele sempre prevalece sobre a fotografia persistida.
+    estado_banco = {}
+    if not estado_vivo:
+        try:
+            estado_banco = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+        except Exception:
+            estado_banco = {}
+
+    estado = dict(estado_banco)
+    estado.update(estado_vivo)
     eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
     scout_ativo = _modo_scout_ativo_publico(partida, competicao)
     timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
