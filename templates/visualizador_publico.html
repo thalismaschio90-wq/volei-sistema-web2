@@ -233,6 +233,15 @@
         .agenda-jogo { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
         .agenda-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border-radius:999px; background:rgba(2,6,23,.52); border:1px solid rgba(148,163,184,.18); color:#dbeafe; font-size:12px; font-weight:900; }
 
+        .ao-vivo-destaque { margin:26px 0 22px; }
+        .ao-vivo-destaque-topo { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+        .ao-vivo-destaque-topo h2 { margin:0; }
+        .ao-vivo-indicador { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:rgba(34,197,94,.16); border:1px solid rgba(74,222,128,.38); color:#86efac; font-size:12px; font-weight:1000; }
+        .ao-vivo-indicador::before { content:''; width:9px; height:9px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 5px rgba(34,197,94,.14); }
+        .ao-vivo-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr)); gap:14px; }
+        .ao-vivo-feature { border-color:rgba(34,197,94,.56); background:linear-gradient(145deg,rgba(20,83,45,.34),rgba(30,41,59,.96)); box-shadow:0 0 0 1px rgba(34,197,94,.12),0 18px 38px rgba(0,0,0,.26); }
+        .ao-vivo-feature .abrir-partida span { background:rgba(34,197,94,.16); color:#bbf7d0; border-color:rgba(74,222,128,.28); }
+
         .bracket-publico { margin: 26px 0; }
         .bracket-serie { margin-bottom: 18px; }
         .bracket-serie h3 { margin: 0 0 12px; }
@@ -357,7 +366,7 @@
                                 <td><span class="posicao {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span></td>
                                 <td class="equipe">
                                     <div class="equipe-inline">
-                                        <img class="escudo-mini" src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ l.equipe }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
+                                        <img class="escudo-mini" src="{{ l.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
                                         <span>{{ l.equipe }}</span>
                                     </div>
                                 </td>
@@ -374,6 +383,57 @@
     </div>
     {% else %}
     <div class="card vazio">Nenhum grupo criado ainda para exibir classificação.</div>
+    {% endif %}
+
+    {% set lista_ao_vivo = partidas_ao_vivo or [] %}
+
+    {% if lista_ao_vivo %}
+    <section id="partidasAoVivoDestaque" class="ao-vivo-destaque">
+        <div class="ao-vivo-destaque-topo">
+            <div>
+                <h2>Partida{% if lista_ao_vivo|length > 1 %}s{% endif %} ao vivo</h2>
+                <div class="hint" style="margin:5px 0 0;">Acompanhe agora sem precisar procurar pela rodada ou pela quadra.</div>
+            </div>
+            <span class="ao-vivo-indicador">{{ lista_ao_vivo|length }} EM ANDAMENTO</span>
+        </div>
+        <div class="ao-vivo-grid">
+        {% for p in lista_ao_vivo %}
+            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
+            <div class="jogo ao-vivo-card ao-vivo-feature"
+                 data-partida-id="{{ p.id }}"
+                 data-competicao="{{ competicao_nome }}"
+                 data-ao-vivo="1"
+                 data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=p.id) }}">
+                <div class="jogo-topo">
+                    <div>
+                        <div class="confronto">
+                            <span class="time-jogo"><img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}"><span data-equipe-a>{{ p.equipe_a }}</span></span>
+                            <span class="versus">x</span>
+                            <span class="time-jogo"><img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}"><span data-equipe-b>{{ p.equipe_b }}</span></span>
+                        </div>
+                        <div class="agenda-jogo">
+                            {% if p.rodada %}<span class="agenda-chip">Rodada {{ p.rodada }}</span>{% endif %}
+                            {% if q_label != 'Sem quadra' %}<span class="agenda-chip">🏐 {{ q_label }}</span>{% endif %}
+                            {% if p.data_hora_label %}<span class="agenda-chip">📅 {{ p.data_hora_label }}</span>{% endif %}
+                        </div>
+                    </div>
+                    <span data-status-badge class="badge ao-vivo">AO VIVO</span>
+                </div>
+                <div class="placar" data-placar-wrap>
+                    <span class="placar-numero" data-pontos-a>{{ p.placar_exibicao_a if p.placar_exibicao_a is defined else (p.pontos_a or 0) }}</span>
+                    <span>×</span>
+                    <span class="placar-numero" data-pontos-b>{{ p.placar_exibicao_b if p.placar_exibicao_b is defined else (p.pontos_b or 0) }}</span>
+                </div>
+                <div class="sets-live" data-sets-wrap {% if p.set_unico %}style="display:none;"{% endif %}>
+                    Sets: <span data-sets-a>{{ p.sets_a or 0 }}</span> × <span data-sets-b>{{ p.sets_b or 0 }}</span>
+                    <span>•</span> Set atual: <span data-set-atual>{{ p.set_atual or 1 }}</span>
+                </div>
+                <div class="parciais" data-parciais>Placar do set atual em tempo real</div>
+                <div class="abrir-partida"><span>Abrir acompanhamento ao vivo</span></div>
+            </div>
+        {% endfor %}
+        </div>
+    </section>
     {% endif %}
 
     {% if avanco_espelho is defined and avanco_espelho %}
@@ -395,7 +455,7 @@
                                         data-partida-id="{{ jogo.partida_id }}"
                                         data-competicao="{{ competicao_nome }}"
                                         data-ao-vivo="{{ '1' if jogo.ao_vivo else '0' }}"
-                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curto', codigo_publico=codigo_publico, partida_id=jogo.partida_id) }}"{% endif %}
+                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=jogo.partida_id) }}"{% endif %}
                                     {% endif %}
                                 >
                                     <div class="bracket-card-top">
@@ -406,12 +466,12 @@
                                     </div>
                                     <div class="bracket-team">
                                         <span>A</span>
-                                        <img data-escudo-a src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ jogo.equipe_a or '' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
+                                        <img data-escudo-a src="{{ jogo.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
                                         <strong data-equipe-a>{{ jogo.equipe_a or jogo.origem_a_label }}</strong>
                                     </div>
                                     <div class="bracket-team">
                                         <span>B</span>
-                                        <img data-escudo-b src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ jogo.equipe_b or '' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
+                                        <img data-escudo-b src="{{ jogo.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
                                         <strong data-equipe-b>{{ jogo.equipe_b or jogo.origem_b_label }}</strong>
                                     </div>
                                     {% if jogo.finalizada or jogo.ao_vivo %}
@@ -498,18 +558,18 @@
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
                 data-quadra-label="{{ q_label }}"
                 data-rodada="{{ rodada_chave }}"
-                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curto', codigo_publico=codigo_publico, partida_id=p.id) }}"{% endif %}
+                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=p.id) }}"{% endif %}
             >
                 <div class="jogo-topo">
                     <div>
                         <div class="confronto">
                             <span class="time-jogo">
-                                <img data-escudo-a src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ p.equipe_a }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
+                                <img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
                                 <span data-equipe-a>{{ p.equipe_a }}</span>
                             </span>
                             <span class="versus">x</span>
                             <span class="time-jogo">
-                                <img data-escudo-b src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ p.equipe_b }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
+                                <img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
                                 <span data-equipe-b>{{ p.equipe_b }}</span>
                             </span>
                         </div>
@@ -554,27 +614,25 @@
 </div>
 
 <script>
-const ESCUDOS_PUBLICOS = {{ (escudos_publicos or {})|tojson }};
 (function () {
     if (typeof io === 'undefined') return;
 
+    const ambienteLocal = ['127.0.0.1', 'localhost'].includes(window.location.hostname);
     const socket = io({
-        transports: ['websocket', 'polling'],
+        // O servidor de desenvolvimento do Werkzeug/Python 3.14 pode falhar
+        // durante o upgrade para WebSocket. No local usamos polling estável;
+        // em produção continuamos priorizando WebSocket com fallback.
+        transports: ambienteLocal ? ['polling'] : ['websocket', 'polling'],
+        upgrade: !ambienteLocal,
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 800
     });
 
     const competicao = {{ competicao_nome|tojson }};
-
-    // As imagens grandes ficam uma única vez no JSON acima. Cada ocorrência
-    // na página referencia somente o nome da equipe, evitando repetir base64.
-    document.querySelectorAll('[data-equipe-escudo]').forEach((img) => {
-        const equipe = String(img.dataset.equipeEscudo || '').trim();
-        const escudo = equipe ? ESCUDOS_PUBLICOS[equipe] : '';
-        if (escudo) img.src = escudo;
-    });
-
+    const AO_VIVO_STATUS_URL = {{ (url_for('tabela.visualizador_publico_ao_vivo_dados_curta', codigo_publico=codigo_publico) if codigo_publico else url_for('tabela.visualizador_publico_ao_vivo_dados', competicao_nome=competicao_nome))|tojson }};
+    const IDS_AO_VIVO_INICIAIS = new Set({{ (partidas_ao_vivo or [])|map(attribute='id')|list|tojson }}.map(String));
+    let consultaAoVivoEmAndamento = false;
     const cards = Array.from(document.querySelectorAll('[data-partida-id]'));
     const tabsRodada = Array.from(document.querySelectorAll('[data-rodada-filter]'));
     const tabsQuadra = Array.from(document.querySelectorAll('[data-quadra-filter]'));
@@ -687,14 +745,15 @@ const ESCUDOS_PUBLICOS = {{ (escudos_publicos or {})|tojson }};
         const partidaId = String(payload.partida_id || payload.id || '').trim();
         if (!partidaId) return;
 
-        const card = document.querySelector(`[data-partida-id="${CSS.escape(partidaId)}"]`);
-        if (!card) return;
+        const cardsPartida = Array.from(document.querySelectorAll(`[data-partida-id="${CSS.escape(partidaId)}"]`));
+        if (!cardsPartida.length) return;
 
         const statusTxt = textoStatus(payload);
         const finalizada = statusTxt === 'FINALIZADO';
         const aoVivo = statusTxt === 'AO VIVO';
         if (!aoVivo && !finalizada) return;
 
+        cardsPartida.forEach((card) => {
         const equipeA = payload.equipe_a || payload.nome_a || payload.time_a;
         const equipeB = payload.equipe_b || payload.nome_b || payload.time_b;
         const setUnico = payloadSetUnico(payload);
@@ -749,20 +808,49 @@ const ESCUDOS_PUBLICOS = {{ (escudos_publicos or {})|tojson }};
             card.dataset.urlPartida = `/visualizador/${encodeURIComponent(competicao)}/partida/${encodeURIComponent(partidaId)}`;
         }
 
+        });
+
         if (finalizada) recarregarParaResultadoOficial();
     }
 
     function entrarNasPartidas() {
+        const idsAoVivo = new Set();
         cards.forEach((card) => {
             if (card.dataset.aoVivo !== '1') return;
             const partidaId = card.dataset.partidaId;
-            if (!partidaId) return;
+            if (partidaId) idsAoVivo.add(partidaId);
+        });
+        idsAoVivo.forEach((partidaId) => {
             socket.emit('entrar_partida_tempo_real', { partida_id: partidaId, competicao: competicao, perfil: 'visualizador_publico' });
             socket.emit('entrar_partida', { partida_id: partidaId, competicao: competicao });
         });
     }
 
+    async function verificarMudancaPartidasAoVivo() {
+        if (consultaAoVivoEmAndamento) return;
+        consultaAoVivoEmAndamento = true;
+        try {
+            const resposta = await fetch(AO_VIVO_STATUS_URL, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+            if (!resposta.ok) return;
+            const dados = await resposta.json();
+            const atuais = new Set((dados.partidas_ao_vivo || []).map(String));
+            const mudouQuantidade = atuais.size !== IDS_AO_VIVO_INICIAIS.size;
+            const mudouIds = !mudouQuantidade && Array.from(atuais).some((id) => !IDS_AO_VIVO_INICIAIS.has(id));
+            if (mudouQuantidade || mudouIds) {
+                window.location.reload();
+            }
+        } catch (erro) {
+            console.debug('Não foi possível verificar partidas ao vivo agora.', erro);
+        } finally {
+            consultaAoVivoEmAndamento = false;
+        }
+    }
+
     configurarAbasJogos();
+    setInterval(verificarMudancaPartidasAoVivo, document.hidden ? 30000 : 8000);
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) verificarMudancaPartidasAoVivo();
+    });
 
     socket.on('connect', entrarNasPartidas);
     socket.on('estado_partida', atualizarCard);

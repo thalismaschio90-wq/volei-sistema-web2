@@ -1265,9 +1265,30 @@ def _partida_esta_finalizada(partida):
 
 
 def _partida_esta_ao_vivo(partida):
+    """Reconhece jogo ao vivo mesmo quando algum status legado não foi atualizado.
+
+    O apontador salva os pontos continuamente, mas em alguns fluxos o campo
+    status/status_jogo pode continuar como pre_jogo. Para o visualizador público,
+    uma partida não finalizada com placar, sets ou marca real de início deve ser
+    tratada como AO VIVO.
+    """
     if _partida_esta_finalizada(partida):
         return False
-    return _status_normalizado(partida) in STATUS_AO_VIVO
+
+    if _status_normalizado(partida) in STATUS_AO_VIVO:
+        return True
+
+    if partida.get("jogo_iniciado_em") or partida.get("pre_jogo_iniciado_em"):
+        return True
+
+    for campo in ("pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b"):
+        try:
+            if int((partida or {}).get(campo) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    return False
 
 
 def _montar_parciais(partida):
@@ -2227,21 +2248,100 @@ def _lado_pontuador_evento_publico(ev):
     return ""
 
 
-def _rotulo_fundamento_publico(valor):
-    txt = str(valor or "").strip().replace("_", " ").title()
-    mapa = {
-        "Ataque": "Ataque",
-        "Bloqueio": "Bloqueio",
-        "Saque": "Saque",
-        "Ace": "Ace",
-        "Erro": "Erro",
-        "Falta": "Falta",
-        "Levantamento": "Levantamento",
-        "Defesa": "Defesa",
-        "Recepcao": "Recepção",
-        "Recepção": "Recepção",
+def _normalizar_acao_publica(valor):
+    texto = str(valor or "").strip().lower().replace("_", " ").replace("-", " ")
+    trocas = {
+        "á": "a", "à": "a", "ã": "a", "â": "a",
+        "é": "e", "ê": "e", "í": "i",
+        "ó": "o", "ô": "o", "õ": "o",
+        "ú": "u", "ç": "c",
     }
-    return mapa.get(txt, txt or "Ponto")
+    for origem, destino in trocas.items():
+        texto = texto.replace(origem, destino)
+    return " ".join(texto.split())
+
+
+def _evento_eh_acao_negativa_adversario_publico(ev):
+    """Identifica lances em que o ponto nasceu de erro/falta do adversário.
+
+    Nesses eventos a equipe pontuadora recebe o ponto, mas não é quem executou
+    a ação exibida. A autoria pertence ao lado oposto.
+    """
+    detalhes = _evento_detalhes_publico(ev)
+    valores = [
+        ev.get("fundamento"),
+        ev.get("resultado"),
+        ev.get("detalhe"),
+        ev.get("tipo"),
+        detalhes.get("fundamento"),
+        detalhes.get("resultado"),
+        detalhes.get("tipo_lance"),
+        detalhes.get("tipo_erro"),
+        detalhes.get("detalhe_lance"),
+        detalhes.get("detalhe"),
+    ]
+    texto = " | ".join(_normalizar_acao_publica(v) for v in valores if v not in (None, ""))
+    marcadores = (
+        "erro de saque", "erro saque", "saque errado",
+        "erro geral", "erro", "falta",
+        "erro de rotacao", "erro rotacao", "rotacao",
+        "invasao", "conducao", "dois toques",
+    )
+    return any(marcador in texto for marcador in marcadores)
+
+
+def _lado_responsavel_evento_publico(ev, lado_ponto):
+    """Retorna quem executou a ação, e não apenas quem recebeu o ponto.
+
+    Para ataque, ace e bloqueio, o responsável normalmente é o pontuador.
+    Para erro de saque, erro geral, falta, rotação, invasão, condução e dois
+    toques, o responsável é obrigatoriamente o adversário do pontuador.
+
+    Alguns eventos antigos gravaram equipe_responsavel com o mesmo lado que
+    recebeu o ponto. Por isso a regra negativa tem prioridade sobre esse campo.
+    """
+    if _evento_eh_acao_negativa_adversario_publico(ev) and lado_ponto in {"A", "B"}:
+        return "B" if lado_ponto == "A" else "A"
+
+    detalhes = _evento_detalhes_publico(ev)
+    lado_explicito = str(
+        detalhes.get("equipe_responsavel")
+        or detalhes.get("lado_responsavel")
+        or detalhes.get("equipe_autora")
+        or detalhes.get("lado_acao")
+        or ""
+    ).strip().upper()
+    if lado_explicito in {"A", "B"}:
+        return lado_explicito
+
+    return lado_ponto
+
+
+def _rotulo_fundamento_publico(valor):
+    txt_normalizado = _normalizar_acao_publica(valor)
+    mapa = {
+        "ataque": "Ataque",
+        "bloqueio": "Bloqueio",
+        "saque": "Saque",
+        "ace": "Ace",
+        "erro": "Erro geral",
+        "erro geral": "Erro geral",
+        "erro saque": "Erro de saque",
+        "erro de saque": "Erro de saque",
+        "erro rotacao": "Erro de rotação",
+        "erro de rotacao": "Erro de rotação",
+        "rotacao": "Erro de rotação",
+        "falta": "Falta",
+        "invasao": "Invasão",
+        "conducao": "Condução",
+        "dois toques": "Dois toques",
+        "levantamento": "Levantamento",
+        "defesa": "Defesa",
+        "recepcao": "Recepção",
+    }
+    if txt_normalizado in mapa:
+        return mapa[txt_normalizado]
+    return str(valor or "Ponto").strip().replace("_", " ").title() or "Ponto"
 
 
 def _descricao_evento_publico(ev, partida, scout_ativo):
@@ -2254,6 +2354,9 @@ def _descricao_evento_publico(ev, partida, scout_ativo):
     atleta = ev.get("atleta_nome") or detalhes.get("atleta_nome") or ""
     lado_ponto = _lado_pontuador_evento_publico(ev)
     equipe_ponto = _lado_para_nome_publico(partida, lado_ponto)
+    lado_responsavel = _lado_responsavel_evento_publico(ev, lado_ponto)
+    equipe_responsavel = _lado_para_nome_publico(partida, lado_responsavel)
+    acao_negativa = _evento_eh_acao_negativa_adversario_publico(ev)
 
     if tipo not in {"ponto", "retardamento_penalidade"}:
         base = tipo.replace("_", " ").title() if tipo else "Evento"
@@ -2273,11 +2376,18 @@ def _descricao_evento_publico(ev, partida, scout_ativo):
     elif atleta:
         pessoa = atleta
 
+    if acao_negativa:
+        if pessoa:
+            return f"{acao} de {pessoa} ({equipe_responsavel}) — ponto para {equipe_ponto}"
+        if detalhe and _normalizar_acao_publica(detalhe) not in {_normalizar_acao_publica(acao)}:
+            return f"{acao} • {detalhe} ({equipe_responsavel}) — ponto para {equipe_ponto}"
+        return f"{acao} da {equipe_responsavel} — ponto para {equipe_ponto}"
+
     if pessoa:
-        return f"{acao} de {pessoa} ({equipe_ponto})"
+        return f"{acao} de {pessoa} ({equipe_responsavel})"
     if detalhe and str(detalhe).strip().lower() not in {str(acao).lower()}:
-        return f"{acao} • {detalhe} ({equipe_ponto})"
-    return f"{acao} ({equipe_ponto})"
+        return f"{acao} • {detalhe} ({equipe_responsavel})"
+    return f"{acao} ({equipe_responsavel})"
 
 
 def _montar_linha_ponto_publico(partida, eventos, scout_ativo):
@@ -2302,7 +2412,8 @@ def _montar_linha_ponto_publico(partida, eventos, scout_ativo):
 
         detalhes = _evento_detalhes_publico(ev)
         fundamento = _rotulo_fundamento_publico(ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro") or ev.get("resultado"))
-        equipe_nome = _lado_para_nome_publico(partida, lado)
+        lado_responsavel = _lado_responsavel_evento_publico(ev, lado)
+        equipe_nome = _lado_para_nome_publico(partida, lado_responsavel)
         stats.setdefault(equipe_nome, {})
         stats[equipe_nome][fundamento] = stats[equipe_nome].get(fundamento, 0) + 1
 
@@ -2313,7 +2424,8 @@ def _montar_linha_ponto_publico(partida, eventos, scout_ativo):
             "placar_b": atual["b"],
             "placar": f'{atual["a"]} x {atual["b"]}',
             "lado_ponto": lado,
-            "equipe_ponto": equipe_nome,
+            "equipe_ponto": _lado_para_nome_publico(partida, lado),
+            "equipe_responsavel": equipe_nome,
             "descricao": _descricao_evento_publico(ev, partida, scout_ativo),
             "fundamento": fundamento,
             "numero": ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero") or "",
@@ -2376,14 +2488,7 @@ def _buscar_destaque_partida_publico(partida_id, competicao):
         return None
 
 
-def _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=True):
-    """Monta o contexto da página pública da partida.
-
-    A abertura inicial precisa apenas da partida, estado e modo de scout. A
-    evolução completa é carregada pela rota de detalhes logo depois. Separar
-    esses caminhos evita consultar e processar centenas de eventos duas vezes
-    na mesma abertura da página.
-    """
+def _contexto_partida_publica(competicao_nome, partida_id):
     competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
     partida = buscar_partida_por_id(partida_id, competicao_nome)
     if not partida:
@@ -2393,22 +2498,15 @@ def _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=True
         partida.get("equipe_b"): partida.get("escudo_b"),
     }
     preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
+    estado = None
     try:
         estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
     except Exception:
         estado = {}
-
+    eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
     scout_ativo = _modo_scout_ativo_publico(partida, competicao)
-    timeline = []
-    evolucao_sets = []
-    stats = {}
-    destaque = None
-
-    if incluir_detalhes:
-        eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
-        timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
-        destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
-
+    timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
+    destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
     return {
         "competicao": competicao,
         "partida": preparada,
@@ -2480,30 +2578,19 @@ def visualizador_publico(competicao_nome):
     )
 
     codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
-
-    # Escudos podem estar armazenados em base64. Repeti-los em cada linha da
-    # classificação e em cada cartão fazia o HTML ultrapassar vários MB. O
-    # template recebe agora um único mapa nome -> escudo e referencia cada
-    # imagem pelo nome da equipe.
-    escudos_publicos = {}
-    for equipe in equipes_competicao or []:
-        nome_equipe = str(equipe.get("nome") or equipe.get("equipe") or "").strip()
-        if nome_equipe:
-            escudos_publicos[nome_equipe] = _buscar_escudo_mapa(mapa_escudos, nome_equipe)
-    for partida_item in partidas_preparadas or []:
-        for lado in ("a", "b"):
-            nome_equipe = str(partida_item.get(f"equipe_{lado}") or "").strip()
-            if nome_equipe and nome_equipe not in escudos_publicos:
-                escudos_publicos[nome_equipe] = partida_item.get(f"escudo_{lado}") or "/static/img/escudo_padrao.svg"
+    partidas_ao_vivo = [
+        p for p in partidas_preparadas
+        if bool(p.get("ao_vivo")) and not bool(p.get("finalizada"))
+    ]
 
     return render_template(
         "visualizador_publico.html",
         competicao_nome=competicao_nome,
         codigo_publico=codigo_publico,
-        escudos_publicos=escudos_publicos,
         grupos=grupos,
         classificacao=classificacao,
         partidas=partidas_preparadas,
+        partidas_ao_vivo=partidas_ao_vivo,
         criterios_classificacao=criterios_classificacao,
         colunas_classificacao=colunas_classificacao,
         set_unico=set_unico,
@@ -2514,9 +2601,24 @@ def visualizador_publico(competicao_nome):
     )
 
 
+@tabela_bp.route("/visualizador/<competicao_nome>/ao-vivo/dados")
+def visualizador_publico_ao_vivo_dados(competicao_nome):
+    """Lista leve dos jogos ao vivo para fazer o destaque aparecer sozinho."""
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partidas = listar_partidas(competicao_nome) or []
+    preparadas = _preparar_partidas(partidas, {}, competicao)
+    ids = sorted(
+        int(p.get("id")) for p in preparadas
+        if p.get("id") and p.get("ao_vivo") and not p.get("finalizada")
+    )
+    resposta = jsonify({"ok": True, "partidas_ao_vivo": ids})
+    resposta.headers["Cache-Control"] = "no-store, max-age=0"
+    return resposta
+
+
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>")
 def visualizador_publico_partida(competicao_nome, partida_id):
-    contexto = _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=False)
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
     if not contexto:
         return "Partida não encontrada.", 404
     codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
@@ -2626,13 +2728,21 @@ def visualizador_publico_curto(codigo_publico):
     return visualizador_publico(competicao.get("nome"))
 
 
+@tabela_bp.route("/v/<codigo_publico>/ao-vivo/dados")
+def visualizador_publico_ao_vivo_dados_curta(codigo_publico):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return jsonify({"ok": False, "erro": "Competição não encontrada."}), 404
+    return visualizador_publico_ao_vivo_dados(competicao.get("nome"))
+
+
 @tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>")
 def visualizador_publico_partida_curta(codigo_publico, partida_id):
     competicao = buscar_competicao_por_codigo_publico(codigo_publico)
     if not competicao:
         return "Competição não encontrada.", 404
     competicao_nome = competicao.get("nome")
-    contexto = _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=False)
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
     if not contexto:
         return "Partida não encontrada.", 404
     return render_template(
