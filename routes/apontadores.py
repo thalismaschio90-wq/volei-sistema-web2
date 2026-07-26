@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, session, url_fo
 import threading
 import time
 import os
+import copy
 from datetime import datetime
 from collections import Counter
 
@@ -164,6 +165,20 @@ _CACHE_COLUNAS_ESCUDO_EQUIPE = {"valor": None}
 # Snapshot em memória carregado uma única vez ao assumir/abrir a operação local.
 # As etapas seguintes reaproveitam estes dados sem novas consultas ao banco.
 _CACHE_OPERACAO_LOCAL = {}
+
+# Ações críticas (principalmente substituições) não podem trabalhar sobre duas
+# cópias simultâneas do estado da mesma partida. O lock é curto e por partida.
+_LOCKS_ACAO_PARTIDA = {}
+_LOCKS_ACAO_PARTIDA_GUARDA = threading.Lock()
+
+def _lock_acao_partida(partida_id):
+    chave = str(partida_id)
+    with _LOCKS_ACAO_PARTIDA_GUARDA:
+        lock = _LOCKS_ACAO_PARTIDA.get(chave)
+        if lock is None:
+            lock = threading.RLock()
+            _LOCKS_ACAO_PARTIDA[chave] = lock
+        return lock
 
 def _chave_operacao_local(partida_id, competicao):
     return (str(competicao or "").strip(), int(partida_id))
@@ -4556,7 +4571,7 @@ def _salvar_async(nome, funcao, *args, **kwargs):
 def _acao_rapida(partida_id, competicao, tipo, equipe='', payload=None):
     payload = payload or {}
     equipe = (equipe or '').strip().upper()
-    estado = dict(obter_estado_cache(partida_id) or {})
+    estado = copy.deepcopy(obter_estado_cache(partida_id) or {})
 
     if not estado:
         try:
@@ -4655,10 +4670,36 @@ def registrar_substituicao_view(competicao, partida_id):
         numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
         if equipe not in {"A", "B"} or not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Substituição inválida."}, 400)
-        estado = _acao_rapida(partida_id, competicao, "substituicao", equipe, {**corpo, "numero_sai": numero_sai, "numero_entra": numero_entra})
-        return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", **estado})
+        # Substituição é uma ação crítica: primeiro consolida o snapshot local
+        # (placar/rotação atual) e depois registra a troca no banco. Assim outro
+        # worker do Gunicorn não reconstrói a escalação a partir de estado antigo.
+        with _lock_acao_partida(partida_id):
+            cache_atual = copy.deepcopy(obter_estado_cache(partida_id) or {})
+            if cache_atual:
+                salvar_estado_manual_partida(
+                    partida_id, competicao, cache_atual,
+                    operador=session.get("usuario") or session.get("login"),
+                    pausar=False,
+                )
+
+            ok_reg, retorno_reg = registrar_substituicao_partida(
+                partida_id, competicao, equipe, numero_sai, numero_entra
+            )
+            if not ok_reg:
+                return _json_no_cache({"ok": False, "mensagem": retorno_reg}, 400)
+
+            estado = _normalizar_estado_pos_acao(
+                partida_id, competicao, retorno_reg, origem="SUBSTITUICAO_CHECKPOINT"
+            )
+
+        return _json_no_cache({
+            "ok": True,
+            "local": False,
+            "persistencia": "checkpoint_imediato",
+            **estado,
+        })
     except Exception as e:
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição local: {e}"}, 500)
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição: {e}"}, 500)
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/substituicao-excepcional", methods=["POST"])
 @exigir_perfil("apontador")
@@ -4673,10 +4714,35 @@ def registrar_substituicao_excepcional_view(competicao, partida_id):
         numero_entra = str(corpo.get("numero_entra") or "").strip()
         if equipe not in {"A", "B"} or not numero_sai or not numero_entra:
             return _json_no_cache({"ok": False, "mensagem": "Substituição excepcional inválida."}, 400)
-        estado = _acao_rapida(partida_id, competicao, "substituicao_excepcional", equipe, corpo)
-        return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", **estado})
+        with _lock_acao_partida(partida_id):
+            cache_atual = copy.deepcopy(obter_estado_cache(partida_id) or {})
+            if cache_atual:
+                salvar_estado_manual_partida(
+                    partida_id, competicao, cache_atual,
+                    operador=session.get("usuario") or session.get("login"),
+                    pausar=False,
+                )
+
+            ok_reg, retorno_reg = registrar_substituicao_excepcional_partida(
+                partida_id, competicao, equipe, numero_sai, numero_entra,
+                motivo=str(corpo.get("motivo") or "").strip(),
+                observacao=str(corpo.get("observacao") or "").strip(),
+            )
+            if not ok_reg:
+                return _json_no_cache({"ok": False, "mensagem": retorno_reg}, 400)
+
+            estado = _normalizar_estado_pos_acao(
+                partida_id, competicao, retorno_reg, origem="SUBSTITUICAO_EXCEPCIONAL_CHECKPOINT"
+            )
+
+        return _json_no_cache({
+            "ok": True,
+            "local": False,
+            "persistencia": "checkpoint_imediato",
+            **estado,
+        })
     except Exception as e:
-        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional local: {e}"}, 500)
+        return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar substituição excepcional: {e}"}, 500)
 
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/retardamento", methods=["POST"])
 @exigir_perfil("apontador")

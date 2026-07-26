@@ -1,6 +1,8 @@
 from datetime import date, datetime
 import time
 import os
+import copy
+import threading
 
 from flask import request, session
 from flask_socketio import join_room
@@ -11,6 +13,7 @@ from extensions import socketio
 # CACHE ULTRA RÁPIDO
 # =========================
 _ESTADO_PARTIDAS = {}
+_ESTADO_PARTIDAS_LOCK = threading.RLock()
 
 PLACAR_GERAL_ROOM = "placar_geral_ao_vivo"
 _ULTIMO_PLACAR_GERAL = None
@@ -296,7 +299,11 @@ def _validar_operador_socket(partida_id, competicao, data):
 # CACHE
 # =========================
 def obter_estado_cache(partida_id):
-    return _ESTADO_PARTIDAS.get(_room(partida_id))
+    # Nunca entrega a referência interna do cache. Listas/dicionários de rotação
+    # e status eram alterados por uma requisição enquanto outra os emitia.
+    with _ESTADO_PARTIDAS_LOCK:
+        estado = _ESTADO_PARTIDAS.get(_room(partida_id))
+        return copy.deepcopy(estado) if estado is not None else None
 
 
 def atualizar_estado_cache(partida_id, dados):
@@ -305,11 +312,14 @@ def atualizar_estado_cache(partida_id, dados):
     if not sala:
         return
 
-    _ESTADO_PARTIDAS[sala] = _normalizar_payload(partida_id, dados)
+    payload = _normalizar_payload(partida_id, copy.deepcopy(dados or {}))
+    with _ESTADO_PARTIDAS_LOCK:
+        _ESTADO_PARTIDAS[sala] = payload
 
 
 def limpar_estado_cache(partida_id):
-    _ESTADO_PARTIDAS.pop(_room(partida_id), None)
+    with _ESTADO_PARTIDAS_LOCK:
+        _ESTADO_PARTIDAS.pop(_room(partida_id), None)
 
 
 def obter_ultimo_placar_apontador(apontador):
