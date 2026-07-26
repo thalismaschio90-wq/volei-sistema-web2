@@ -579,7 +579,8 @@ def emitir_estado_partida(partida_id, dados=None):
     payload = _normalizar_payload(partida_id, dados)
 
     # Guarda sempre o estado completo em memória para quem entrar/recarregar a tela.
-    _ESTADO_PARTIDAS[sala] = payload
+    with _ESTADO_PARTIDAS_LOCK:
+        _ESTADO_PARTIDAS[sala] = copy.deepcopy(payload)
 
     payload_leve = _payload_placar_rapido(payload)
 
@@ -1322,19 +1323,32 @@ def entrar_placar_geral(data=None):
 
 @socketio.on("entrar_placar_apontador")
 def entrar_placar_apontador(data=None):
-    apontador = _normalizar_apontador((data or {}).get("apontador"))
-    sala = _room_placar_apontador(apontador)
+    """Conecta o telão à sala do apontador e também às salas da partida."""
+    data = dict(data or {})
+    apontador = _normalizar_apontador(data.get("apontador"))
+    partida_id = str(data.get("partida_id") or "").strip()
+    competicao = str(data.get("competicao") or "").strip()
+    sala_apontador = _room_placar_apontador(apontador)
 
-    if not sala:
-        return
+    if sala_apontador:
+        join_room(sala_apontador)
 
-    join_room(sala)
+    if partida_id:
+        for sala_partida in _rooms_partida(partida_id, competicao):
+            join_room(sala_partida)
 
-    ultimo = _ULTIMO_PLACAR_APONTADOR.get(apontador)
+    estado = None
+    if partida_id:
+        with _ESTADO_PARTIDAS_LOCK:
+            atual = _ESTADO_PARTIDAS.get(_room(partida_id))
+            estado = copy.deepcopy(atual) if atual is not None else None
 
-    if ultimo:
-        socketio.emit(
-            "placar_apontador_atualizado",
-            _payload_placar_rapido(ultimo),
-            room=request.sid,
+    if estado is None and apontador:
+        estado = _ULTIMO_PLACAR_APONTADOR.get(apontador)
+
+    if estado:
+        payload = _payload_placar_rapido(
+            _normalizar_payload(partida_id or estado.get("partida_id"), estado)
         )
+        socketio.emit("placar_apontador_atualizado", payload, room=request.sid)
+        socketio.emit("placar_rapido", payload, room=request.sid)

@@ -570,11 +570,30 @@ btnInverter.addEventListener("click", function () {
     if (ultimoEstado) aplicarEstado(ultimoEstado);
 });
 
-socket.on("connect", () => {
-    if (apontador) {
-        socket.emit("entrar_placar_apontador", { apontador: apontador });
+function entrarNoTempoRealDoPlacar() {
+    const base = (ultimoEstado && typeof ultimoEstado === "object")
+        ? ultimoEstado
+        : (ESTADO_INICIAL || {});
+
+    const partidaId = String(base.partida_id || base.id || "").trim();
+    const competicao = String(base.competicao || "").trim();
+
+    socket.emit("entrar_placar_apontador", {
+        apontador: apontador || base.apontador || base.apontador_login || "",
+        partida_id: partidaId,
+        competicao: competicao
+    });
+
+    if (partidaId) {
+        socket.emit("entrar_partida_tempo_real", {
+            partida_id: partidaId,
+            competicao: competicao,
+            perfil: "placar_profissional"
+        });
     }
-});
+}
+
+socket.on("connect", entrarNoTempoRealDoPlacar);
 
 socket.on("inversao_lados_apontador", (dados) => {
     if (!dados || typeof dados !== "object") return;
@@ -1079,7 +1098,31 @@ if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_I
     renderizarLinhaVazia();
 }
 
-socket.on("placar_apontador_atualizado", aplicarEstado);
+[
+    "placar_apontador_atualizado",
+    "placar_rapido",
+    "estado_partida",
+    "estado_jogo_atualizado",
+    "estado_partida_tempo_real",
+    "estado_partida_completo"
+].forEach((evento) => socket.on(evento, (dados) => {
+    if (!dados || typeof dados !== "object") return;
+
+    const partidaAtual = String(
+        (ultimoEstado && (ultimoEstado.partida_id || ultimoEstado.id)) ||
+        ESTADO_INICIAL.partida_id ||
+        ESTADO_INICIAL.id ||
+        ""
+    );
+    const partidaRecebida = String(dados.partida_id || dados.id || "");
+
+    if (partidaAtual && partidaRecebida && partidaAtual !== partidaRecebida) return;
+    aplicarEstado(dados);
+}));
+
+setInterval(() => {
+    if (socket.connected) entrarNoTempoRealDoPlacar();
+}, 15000);
 </script>
 </body>
 </html>
