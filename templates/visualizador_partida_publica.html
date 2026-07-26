@@ -11,7 +11,7 @@
 <body>
 <div class="wrap">
   <div class="topbar">
-    <a class="back" href="{{ url_for('tabela.visualizador_publico_curto', codigo_publico=codigo_publico) }}">← Voltar ao visualizador</a>
+    <a class="back" href="{{ url_for('tabela.visualizador_publico_curto', codigo_publico=codigo_publico) if codigo_publico else url_for('tabela.visualizador_publico', competicao_nome=competicao_nome) }}">← Voltar ao visualizador</a>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span id="statusPill" class="pill {% if partida.finalizada %}done{% elif partida.ao_vivo %}live{% else %}mode{% endif %}">{% if partida.finalizada %}FINALIZADA{% elif partida.ao_vivo %}● AO VIVO{% else %}{{ partida.status_exibicao or 'AGUARDANDO' }}{% endif %}</span>
       <span class="pill mode">{{ 'COM SCOUT' if scout_ativo else 'SEM SCOUT' }}</span>
@@ -74,9 +74,14 @@
 </div>
 
 <script>
-const DADOS_URL = {{ url_for('tabela.visualizador_publico_partida_dados_curto', codigo_publico=codigo_publico, partida_id=partida.id)|tojson }};
+const DADOS_URL = {{ (url_for('tabela.visualizador_publico_partida_dados_curta', codigo_publico=codigo_publico, partida_id=partida.id) if codigo_publico else url_for('tabela.visualizador_publico_partida_dados', competicao_nome=competicao_nome, partida_id=partida.id))|tojson }};
+const DETALHES_URL = {{ (url_for('tabela.visualizador_publico_partida_detalhes_curta', codigo_publico=codigo_publico, partida_id=partida.id) if codigo_publico else url_for('tabela.visualizador_publico_partida_detalhes', competicao_nome=competicao_nome, partida_id=partida.id))|tojson }};
 const SCOUT_ATIVO = {{ scout_ativo|tojson }};
-let ultimoHash = '';
+let ultimoHashLeve = '';
+let ultimaVersaoEventos = null;
+let ultimaVersaoDestaque = null;
+let consultaEmAndamento = false;
+let timerConsulta = null;
 let timelineUsuarioInteragiu = false;
 let partidaJaEstavaFinalizada = {{ partida.finalizada|tojson }};
 
@@ -159,8 +164,8 @@ function atualizarTopo(p){
   if(!p) return;
   document.getElementById('equipeA').textContent = p.equipe_a || '';
   document.getElementById('equipeB').textContent = p.equipe_b || '';
-  document.getElementById('escudoA').src = p.escudo_a || '/static/img/escudo_padrao.svg';
-  document.getElementById('escudoB').src = p.escudo_b || '/static/img/escudo_padrao.svg';
+  if(p.escudo_a) document.getElementById('escudoA').src = p.escudo_a;
+  if(p.escudo_b) document.getElementById('escudoB').src = p.escudo_b;
   document.getElementById('pontosA').textContent = p.pontos_a ?? 0;
   document.getElementById('pontosB').textContent = p.pontos_b ?? 0;
   const pill = document.getElementById('statusPill');
@@ -175,25 +180,83 @@ function atualizarTopo(p){
   const parciaisInfo = document.getElementById('parciaisInfo');
   if(parciaisInfo && p.parciais_formatadas) parciaisInfo.textContent = `Parciais: ${p.parciais_formatadas}`;
 }
-async function carregar(){
+async function carregarDetalhes(partidaAtual){
   try{
-    const resp = await fetch(DADOS_URL, {cache:'no-store'});
+    const resp = await fetch(DETALHES_URL, {cache:'no-store'});
+    if(!resp.ok) return;
     const data = await resp.json();
     if(!data.ok) return;
-    const hash = JSON.stringify(data);
-    if(hash === ultimoHash) return;
-    ultimoHash = hash;
-    atualizarTopo(data.partida);
-    atualizarRecolhimentoTimeline(data.partida);
     renderTimeline(data.timeline);
     renderEvolucao(data.evolucao_sets);
     renderStats(data.stats);
-    renderMvp(data.destaque, data.partida);
-  }catch(e){}
+    renderMvp(data.destaque, partidaAtual);
+  }catch(e){
+    console.debug('Visualizador: detalhes indisponíveis temporariamente.', e);
+  }
 }
+
+function proximoIntervalo(partida){
+  if(document.hidden) return 15000;
+  if(partida && partida.finalizada) return 20000;
+  if(partida && partida.ao_vivo) return 3500;
+  return 8000;
+}
+
+function agendarProximaConsulta(partida){
+  clearTimeout(timerConsulta);
+  timerConsulta = setTimeout(carregar, proximoIntervalo(partida));
+}
+
+async function carregar(){
+  if(consultaEmAndamento){
+    agendarProximaConsulta(null);
+    return;
+  }
+  consultaEmAndamento = true;
+  let partidaAtual = null;
+  try{
+    const resp = await fetch(DADOS_URL, {cache:'no-store'});
+    if(!resp.ok) return;
+    const data = await resp.json();
+    if(!data.ok) return;
+    partidaAtual = data.partida || null;
+
+    const hashLeve = JSON.stringify(data.partida || {});
+    if(hashLeve !== ultimoHashLeve){
+      ultimoHashLeve = hashLeve;
+      atualizarTopo(partidaAtual);
+      atualizarRecolhimentoTimeline(partidaAtual);
+    }
+
+    const versaoEventos = Number(data.eventos_versao || 0);
+    const versaoDestaque = Number(data.destaque_versao || 0);
+    const detalhesMudaram = (
+      ultimaVersaoEventos === null ||
+      ultimaVersaoDestaque === null ||
+      versaoEventos !== ultimaVersaoEventos ||
+      versaoDestaque !== ultimaVersaoDestaque
+    );
+
+    if(detalhesMudaram){
+      ultimaVersaoEventos = versaoEventos;
+      ultimaVersaoDestaque = versaoDestaque;
+      await carregarDetalhes(partidaAtual);
+    }
+  }catch(e){
+    console.debug('Visualizador: estado leve indisponível temporariamente.', e);
+  }finally{
+    consultaEmAndamento = false;
+    agendarProximaConsulta(partidaAtual);
+  }
+}
+
 configurarTimeline();
 carregar();
-setInterval(carregar, 2500);
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(timerConsulta);
+  if(!document.hidden) carregar();
+  else agendarProximaConsulta(null);
+});
 </script>
 </body>
 </html>
