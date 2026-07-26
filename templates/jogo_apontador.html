@@ -5786,7 +5786,12 @@ function atualizarResumoSubEx() {
     if (!URLS_ACAO || !URLS_ACAO.estado) return null;
 
     try {
-        const resp = await fetch(URLS_ACAO.estado, {
+        const separadorEstado = URLS_ACAO.estado.includes("?") ? "&" : "?";
+        const urlEstadoConsulta = forcarInicial
+            ? URLS_ACAO.estado
+            : `${URLS_ACAO.estado}${separadorEstado}leve=1`;
+
+        const resp = await fetch(urlEstadoConsulta, {
             method: "GET",
             headers: {
                 "X-Requested-With": "fetch",
@@ -6698,13 +6703,22 @@ async function registrarPonto(equipe, scout) {
         }
 
         // Compatibilidade do fluxo antigo: fora do modo local integral, usa a rota oficial.
-        const resp = await fetch(URLS_ACAO.ponto, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-Requested-With": "fetch"
-            },
-            body: JSON.stringify({
+        // Cancela a requisição se o servidor não responder em tempo razoável.
+        // Isso impede que a flag `enviando` permaneça presa indefinidamente.
+        const controladorPonto = new AbortController();
+        const timeoutPonto = window.setTimeout(() => controladorPonto.abort(), 12000);
+
+        let resp;
+        try {
+            resp = await fetch(URLS_ACAO.ponto, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Requested-With": "fetch"
+                },
+                cache: "no-store",
+                signal: controladorPonto.signal,
+                body: JSON.stringify({
                 equipe: equipe,
                 fundamento: scoutSeguro.fundamento || scoutSeguro.detalhe_lance || "",
                 resultado: scoutSeguro.resultado || scoutSeguro.tipo_lance || "",
@@ -6718,9 +6732,12 @@ async function registrarPonto(equipe, scout) {
                 saque_atual_local: saqueAtual,
                 rotacao_a_local: Array.isArray(rotA) ? [...rotA] : [],
                 rotacao_b_local: Array.isArray(rotB) ? [...rotB] : [],
-                operador_dispositivo_id: DISPOSITIVO_OPERACIONAL_ID
-            })
-        });
+                    operador_dispositivo_id: DISPOSITIVO_OPERACIONAL_ID
+                })
+            });
+        } finally {
+            window.clearTimeout(timeoutPonto);
+        }
 
         const dados = await resp.json().catch(() => ({}));
 
@@ -6764,19 +6781,35 @@ async function registrarPonto(equipe, scout) {
         }
 
     } catch (e) {
-        // Se a internet cair, preserva localmente, mas avisa. Não sobrescreve
-        // a partida do banco silenciosamente com um autosave parcial.
-        adicionarFilaOffline("ponto", {
-            equipe: equipe,
-            scout: scoutSeguro,
-            estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
-        });
-        salvarSnapshotLocalAutomatico("ponto_pendente_offline");
-        mostrarErro((e && e.message) ? e.message : "Erro ao registrar ponto.");
-        atualizarUltimaAcao("Ponto pendente de sincronização.");
+        const abortada = e && e.name === "AbortError";
+
+        // Em timeout não adicionamos automaticamente outro ponto na fila,
+        // porque o servidor pode ter concluído o COMMIT antes da resposta cair.
+        // Isso evita duplicar o ponto ao sincronizar depois.
+        if (!abortada) {
+            adicionarFilaOffline("ponto", {
+                equipe: equipe,
+                scout: scoutSeguro,
+                estado_depois: montarPayloadTempoReal({ tipo_evento: "ponto" })
+            });
+            salvarSnapshotLocalAutomatico("ponto_pendente_offline");
+        }
+
+        mostrarErro(
+            abortada
+                ? "O servidor demorou para confirmar. Aguarde alguns segundos e confira o placar antes de tentar novamente."
+                : ((e && e.message) ? e.message : "Erro ao registrar ponto.")
+        );
+        atualizarUltimaAcao(
+            abortada
+                ? "Confirmação do ponto demorou."
+                : "Ponto pendente de sincronização."
+        );
     } finally {
         enviando = false;
-        travarBotoes(false);
+        if (!partidaFinalizada) {
+            travarBotoes(false);
+        }
     }
 }
 

@@ -4317,13 +4317,50 @@ def ponto_view(competicao, partida_id):
             # Falha de socket não pode transformar um ponto já salvo em erro HTTP.
             print("AVISO emissão rápida do ponto:", repr(e), flush=True)
 
-        _limpar_cache_apontador(competicao)
+        if bool(
+            estado.get("fim_set")
+            or estado.get("set_finalizado")
+            or estado.get("fim_jogo")
+            or estado.get("partida_finalizada")
+        ):
+            _limpar_cache_apontador(competicao)
+
+        # Resposta HTTP compacta. O cache do servidor continua completo e o
+        # Socket.IO já emite seu próprio payload leve. Não devolver histórico,
+        # atletas, scout e eventos a cada clique reduz centenas de KB por ponto.
+        chaves_resposta_ponto = (
+            "pontos_a", "pontos_b", "placar_a", "placar_b",
+            "sets_a", "sets_b", "set_atual",
+            "saque_atual", "sacador_nome", "sacador_numero",
+            "rotacao_a", "rotacao_b",
+            "tempos_a", "tempos_b", "limite_tempos",
+            "subs_a", "subs_b", "limite_substituicoes",
+            "sets_tipo", "sets_para_vencer", "sets_max",
+            "pontos_set", "ponto_alvo_set", "pontos_para_vencer_set",
+            "pontos_tiebreak", "diferenca_minima",
+            "fim_set", "set_finalizado", "fim_jogo",
+            "partida_finalizada", "encerrado",
+            "status_jogo", "fase_partida",
+            "vencedor_set", "vencedor_partida",
+            "ultima_acao", "lados_invertidos_apontador",
+            "ultima_inversao_automatica_set",
+        )
 
         resposta_ponto = {
             "ok": True,
             "mensagem": "Ponto registrado com sucesso.",
-            **estado
+            "competicao": competicao,
+            "partida_id": partida_id,
         }
+
+        for chave in chaves_resposta_ponto:
+            if chave in estado:
+                resposta_ponto[chave] = estado.get(chave)
+
+        # Uma única ação é suficiente para a área "Últimas ações".
+        resposta_ponto["historico"] = [{
+            "descricao": estado.get("ultima_acao") or "Ponto registrado"
+        }]
 
         # O último ponto já é confirmado e finalizado dentro de
         # registrar_ponto_partida(). Nesse fluxo não chamamos /encerrar outra

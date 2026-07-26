@@ -4,6 +4,7 @@ import re
 import string
 import json
 import base64
+import math
 from io import BytesIO
 from datetime import datetime
 from threading import Lock, BoundedSemaphore
@@ -546,12 +547,35 @@ def obter_cache_classificacao(competicao, assinatura):
         return None
 
 
+
+def _sanitizar_json_postgres(valor):
+    """Converte valores não aceitos pelo JSON/JSONB do PostgreSQL.
+
+    Python aceita NaN e Infinity em json.dumps por padrão, mas o PostgreSQL
+    rejeita esses tokens. Mantém a estrutura original e converte somente
+    números não finitos para None.
+    """
+    if isinstance(valor, float):
+        return valor if math.isfinite(valor) else None
+
+    if isinstance(valor, dict):
+        return {
+            str(chave): _sanitizar_json_postgres(item)
+            for chave, item in valor.items()
+        }
+
+    if isinstance(valor, (list, tuple, set)):
+        return [_sanitizar_json_postgres(item) for item in valor]
+
+    return valor
+
 def salvar_cache_classificacao(competicao, assinatura, payload):
     if not assinatura:
         return False
     try:
         criar_tabela_cache_classificacao()
-        payload_json = json.dumps(payload, ensure_ascii=False, default=str)
+        payload_limpo = _sanitizar_json_postgres(payload)
+        payload_json = json.dumps(payload_limpo, ensure_ascii=False, default=str, allow_nan=False)
         with conectar() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
