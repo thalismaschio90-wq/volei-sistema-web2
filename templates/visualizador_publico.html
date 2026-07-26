@@ -357,7 +357,7 @@
                                 <td><span class="posicao {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span></td>
                                 <td class="equipe">
                                     <div class="equipe-inline">
-                                        <img class="escudo-mini" src="{{ l.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
+                                        <img class="escudo-mini" src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ l.equipe }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
                                         <span>{{ l.equipe }}</span>
                                     </div>
                                 </td>
@@ -406,12 +406,12 @@
                                     </div>
                                     <div class="bracket-team">
                                         <span>A</span>
-                                        <img data-escudo-a src="{{ jogo.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
+                                        <img data-escudo-a src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ jogo.equipe_a or '' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
                                         <strong data-equipe-a>{{ jogo.equipe_a or jogo.origem_a_label }}</strong>
                                     </div>
                                     <div class="bracket-team">
                                         <span>B</span>
-                                        <img data-escudo-b src="{{ jogo.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
+                                        <img data-escudo-b src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ jogo.equipe_b or '' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
                                         <strong data-equipe-b>{{ jogo.equipe_b or jogo.origem_b_label }}</strong>
                                     </div>
                                     {% if jogo.finalizada or jogo.ao_vivo %}
@@ -504,12 +504,12 @@
                     <div>
                         <div class="confronto">
                             <span class="time-jogo">
-                                <img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
+                                <img data-escudo-a src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ p.equipe_a }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
                                 <span data-equipe-a>{{ p.equipe_a }}</span>
                             </span>
                             <span class="versus">x</span>
                             <span class="time-jogo">
-                                <img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
+                                <img data-escudo-b src="/static/img/escudo_padrao.svg" data-equipe-escudo="{{ p.equipe_b }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
                                 <span data-equipe-b>{{ p.equipe_b }}</span>
                             </span>
                         </div>
@@ -554,6 +554,7 @@
 </div>
 
 <script>
+const ESCUDOS_PUBLICOS = {{ (escudos_publicos or {})|tojson }};
 (function () {
     if (typeof io === 'undefined') return;
 
@@ -565,6 +566,15 @@
     });
 
     const competicao = {{ competicao_nome|tojson }};
+
+    // As imagens grandes ficam uma única vez no JSON acima. Cada ocorrência
+    // na página referencia somente o nome da equipe, evitando repetir base64.
+    document.querySelectorAll('[data-equipe-escudo]').forEach((img) => {
+        const equipe = String(img.dataset.equipeEscudo || '').trim();
+        const escudo = equipe ? ESCUDOS_PUBLICOS[equipe] : '';
+        if (escudo) img.src = escudo;
+    });
+
     const cards = Array.from(document.querySelectorAll('[data-partida-id]'));
     const tabsRodada = Array.from(document.querySelectorAll('[data-rodada-filter]'));
     const tabsQuadra = Array.from(document.querySelectorAll('[data-quadra-filter]'));

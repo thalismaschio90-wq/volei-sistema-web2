@@ -2376,7 +2376,14 @@ def _buscar_destaque_partida_publico(partida_id, competicao):
         return None
 
 
-def _contexto_partida_publica(competicao_nome, partida_id):
+def _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=True):
+    """Monta o contexto da página pública da partida.
+
+    A abertura inicial precisa apenas da partida, estado e modo de scout. A
+    evolução completa é carregada pela rota de detalhes logo depois. Separar
+    esses caminhos evita consultar e processar centenas de eventos duas vezes
+    na mesma abertura da página.
+    """
     competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
     partida = buscar_partida_por_id(partida_id, competicao_nome)
     if not partida:
@@ -2386,15 +2393,22 @@ def _contexto_partida_publica(competicao_nome, partida_id):
         partida.get("equipe_b"): partida.get("escudo_b"),
     }
     preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
-    estado = None
     try:
         estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
     except Exception:
         estado = {}
-    eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
+
     scout_ativo = _modo_scout_ativo_publico(partida, competicao)
-    timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
-    destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
+    timeline = []
+    evolucao_sets = []
+    stats = {}
+    destaque = None
+
+    if incluir_detalhes:
+        eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
+        timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
+        destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
+
     return {
         "competicao": competicao,
         "partida": preparada,
@@ -2467,10 +2481,26 @@ def visualizador_publico(competicao_nome):
 
     codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
 
+    # Escudos podem estar armazenados em base64. Repeti-los em cada linha da
+    # classificação e em cada cartão fazia o HTML ultrapassar vários MB. O
+    # template recebe agora um único mapa nome -> escudo e referencia cada
+    # imagem pelo nome da equipe.
+    escudos_publicos = {}
+    for equipe in equipes_competicao or []:
+        nome_equipe = str(equipe.get("nome") or equipe.get("equipe") or "").strip()
+        if nome_equipe:
+            escudos_publicos[nome_equipe] = _buscar_escudo_mapa(mapa_escudos, nome_equipe)
+    for partida_item in partidas_preparadas or []:
+        for lado in ("a", "b"):
+            nome_equipe = str(partida_item.get(f"equipe_{lado}") or "").strip()
+            if nome_equipe and nome_equipe not in escudos_publicos:
+                escudos_publicos[nome_equipe] = partida_item.get(f"escudo_{lado}") or "/static/img/escudo_padrao.svg"
+
     return render_template(
         "visualizador_publico.html",
         competicao_nome=competicao_nome,
         codigo_publico=codigo_publico,
+        escudos_publicos=escudos_publicos,
         grupos=grupos,
         classificacao=classificacao,
         partidas=partidas_preparadas,
@@ -2486,7 +2516,7 @@ def visualizador_publico(competicao_nome):
 
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>")
 def visualizador_publico_partida(competicao_nome, partida_id):
-    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    contexto = _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=False)
     if not contexto:
         return "Partida não encontrada.", 404
     codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
@@ -2602,7 +2632,7 @@ def visualizador_publico_partida_curta(codigo_publico, partida_id):
     if not competicao:
         return "Competição não encontrada.", 404
     competicao_nome = competicao.get("nome")
-    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    contexto = _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=False)
     if not contexto:
         return "Partida não encontrada.", 404
     return render_template(
