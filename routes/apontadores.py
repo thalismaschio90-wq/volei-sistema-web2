@@ -83,6 +83,7 @@ from banco import (
     salvar_respostas_destaques_competicao,
     gerar_partidas_avanco_competicao,
     listar_rodadas_competicao,
+    finalizar_partida_completa,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
@@ -5688,61 +5689,106 @@ def observacoes_view(competicao, partida_id):
 @apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_observacoes_view(competicao, partida_id):
-    observacoes = request.form.get("observacoes")
+    """Salva toda a finalização por uma única operação transacional."""
+    observacoes = (request.form.get("observacoes") or "").strip()
 
-    partida_atual = buscar_partida_operacional(partida_id, competicao) or {}
-    status_jogo_atual = str(partida_atual.get("status_jogo") or "").strip().lower()
-    fase_atual = str(partida_atual.get("fase_partida") or "").strip().lower()
-    tipo_encerramento_atual = str(partida_atual.get("tipo_encerramento") or "").strip().lower()
-    partida_realmente_finalizada = (
-        status_jogo_atual in {"finalizada", "encerrado"}
-        or fase_atual == "encerrado"
-        or tipo_encerramento_atual == "wo"
-    )
+    destaque = {
+        "lado": (request.form.get("destaque_lado") or "").strip().upper(),
+        "atleta_id": (request.form.get("destaque_atleta_id") or "").strip(),
+        "numero": (request.form.get("destaque_numero") or "").strip(),
+        "nome": (request.form.get("destaque_nome") or "").strip(),
+        "observacao": (
+            request.form.get("destaque_observacao") or ""
+        ).strip(),
+    }
 
-    if not partida_realmente_finalizada:
-        # Não salva destaque nem observações em um simples intervalo de set.
-        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
-
-    destaque_lado = (request.form.get("destaque_lado") or "").strip().upper()
-    destaque_atleta_id = (request.form.get("destaque_atleta_id") or "").strip()
-    destaque_numero = (request.form.get("destaque_numero") or "").strip()
-    destaque_nome = (request.form.get("destaque_nome") or "").strip()
-    destaque_observacao = (request.form.get("destaque_observacao") or "").strip()
-
-    if destaque_lado and (destaque_atleta_id or destaque_numero or destaque_nome):
-        ok_destaque, msg_destaque = salvar_destaque_partida(
-            partida_id,
-            competicao,
-            destaque_lado,
-            atleta_id=destaque_atleta_id,
-            numero=destaque_numero,
-            nome=destaque_nome,
-            observacao=destaque_observacao,
+    try:
+        ok, mensagem, estado = finalizar_partida_completa(
+            partida_id=partida_id,
+            competicao=competicao,
+            observacoes=observacoes,
+            destaque=destaque,
+            operador_login=_login_apontador_sessao(),
         )
-        if not ok_destaque:
-            flash(msg_destaque or "Não foi possível salvar o destaque.", "erro")
-            return redirect(url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id))
-        flash(msg_destaque or "Destaque salvo com sucesso.", "sucesso")
 
-    ok_encerrar, msg_encerrar = encerrar_partida(partida_id, competicao, observacoes)
+        if not ok:
+            flash(
+                mensagem or "Não foi possível salvar a finalização.",
+                "erro",
+            )
+            return redirect(
+                url_for(
+                    "apontadores.observacoes_view",
+                    competicao=competicao,
+                    partida_id=partida_id,
+                )
+            )
 
-    estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
-    if not ok_encerrar:
-        flash(msg_encerrar or "A partida ainda não atingiu os sets necessários para finalizar.", "erro")
-        return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
+        estado = dict(estado or {})
+        estado["encerrado"] = True
+        estado["fim_jogo"] = True
+        estado["partida_finalizada"] = True
+        estado["status_jogo"] = "finalizada"
+        estado["fase_partida"] = "encerrado"
 
-    estado["encerrado"] = True
-    estado["partida_finalizada"] = True
-    estado["status_jogo"] = "finalizada"
-    _emitir_estado_e_placar(partida_id, competicao, estado, origem="SALVAR_FINALIZACAO")
-    _limpar_cache_apontador(competicao)
+        try:
+            _emitir_estado_e_placar(
+                partida_id,
+                competicao,
+                estado,
+                origem="FINALIZACAO_COMPLETA",
+            )
+        except Exception as e:
+            print(
+                "AVISO emitir estado após finalização:",
+                repr(e),
+                flush=True,
+            )
 
-    pendencia_destaques = verificar_destaques_competicao_pendentes(competicao, partida_id)
-    if pendencia_destaques.get("abrir"):
-        return redirect(url_for("apontadores.destaques_competicao_view", competicao=competicao, partida_id=partida_id))
+        # O cálculo do avanço não bloqueia a resposta ao apontador.
+        try:
+            _atualizar_avanco_apos_finalizacao_async(competicao)
+        except Exception as e:
+            print(
+                "AVISO agendar avanço após finalização:",
+                repr(e),
+                flush=True,
+            )
 
-    return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
+        _limpar_cache_apontador(competicao)
+        _CACHE_OPERACAO_LOCAL.pop(
+            _chave_operacao_local(partida_id, competicao),
+            None,
+        )
+
+        flash(
+            mensagem or "Finalização salva com sucesso.",
+            "sucesso",
+        )
+        return redirect(
+            url_for(
+                "apontadores.entrar_competicao_apontador",
+                competicao=competicao,
+            )
+        )
+
+    except Exception as e:
+        print(
+            "ERRO salvar_observacoes_view/finalizacao_completa:",
+            repr(e),
+            flush=True,
+        )
+        flash(
+            "Não foi possível concluir a finalização. Tente novamente.",
+            "erro",
+        )
+        return redirect(
+            url_for(
+                "apontadores.observacoes_view",
+                competicao=competicao,
+                partida_id=partida_id,
+            )
+        )
 
 @apontadores_bp.route("/apontador/destaques-competicao/<competicao>")
 @exigir_perfil("apontador")

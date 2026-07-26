@@ -12885,13 +12885,13 @@ def salvar_partida_completa_final(partida_id, competicao, pacote, operador=None)
                     UPDATE partidas
                     SET status='finalizada', status_jogo='finalizada',
                         status_operacao='finalizada', fase_partida='encerrado',
-                        vencedor=COALESCE(%s, vencedor),
-                        observacoes=CASE WHEN %s IS NULL OR BTRIM(%s)='' THEN COALESCE(observacoes,'') ELSE %s END,
+                        vencedor=COALESCE(NULLIF(%s::text, ''), vencedor),
+                        observacoes=COALESCE(NULLIF(BTRIM(%s::text), ''), observacoes, ''),
                         tipo_encerramento=COALESCE(NULLIF(tipo_encerramento,''),'normal'),
                         fim_partida_real=COALESCE(fim_partida_real,%s),
                         data_fim=COALESCE(data_fim,%s)
                     WHERE id=%s AND competicao=%s
-                """, (vencedor, observacoes, observacoes, observacoes, agora, agora, partida_id, competicao))
+                """, (vencedor, observacoes, agora, agora, partida_id, competicao))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -12904,6 +12904,270 @@ def salvar_partida_completa_final(partida_id, competicao, pacote, operador=None)
     return True, "Partida e eventos finais salvos com sucesso."
 
 
+
+
+def finalizar_partida_completa(
+    partida_id,
+    competicao,
+    observacoes="",
+    destaque=None,
+    operador_login=None,
+):
+    """Conclui a finalização administrativa em uma única transação.
+
+    Esta função deve ser chamada na tela de observações, quando o resultado
+    esportivo já está definido. Ela:
+    - valida que a partida realmente terminou;
+    - salva/atualiza o destaque da partida;
+    - salva as observações;
+    - mantém o status definitivamente finalizado;
+    - libera a trava operacional;
+    - retorna o estado final sem abrir novas conexões.
+
+    É idempotente: repetir a chamada atualiza a mesma finalização, sem reabrir
+    a partida e sem criar dois destaques para a mesma partida.
+    """
+    competicao = str(competicao or "").strip()
+    observacoes = str(observacoes or "").strip()
+    destaque = dict(destaque or {})
+    operador_login = str(operador_login or "").strip()
+
+    if not competicao:
+        return False, "Competição não informada.", {}
+
+    # Garante a estrutura antes de abrir a transação principal. Depois de
+    # criada, os comandos são IF NOT EXISTS e não alteram o resultado.
+    criar_tabela_destaques_partida()
+    garantir_campos_trava_operacional_partida()
+
+    def _int_ou_none(valor):
+        try:
+            if valor in (None, ""):
+                return None
+            return int(str(valor).strip())
+        except Exception:
+            return None
+
+    with conectar() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT *
+                    FROM partidas
+                    WHERE id = %s
+                      AND competicao = %s
+                    FOR UPDATE
+                """, (partida_id, competicao))
+                partida = cur.fetchone()
+
+                if not partida:
+                    conn.rollback()
+                    return False, "Partida não encontrada.", {}
+
+                status_jogo = str(partida.get("status_jogo") or "").strip().lower()
+                fase_partida = str(partida.get("fase_partida") or "").strip().lower()
+                tipo_encerramento = str(partida.get("tipo_encerramento") or "").strip().lower()
+
+                sets_a = int(partida.get("sets_a") or 0)
+                sets_b = int(partida.get("sets_b") or 0)
+                sets_tipo = str(partida.get("sets_tipo") or "").strip().lower()
+
+                if sets_tipo == "set_unico":
+                    sets_para_vencer = 1
+                elif sets_tipo == "melhor_de_5":
+                    sets_para_vencer = 3
+                else:
+                    sets_para_vencer = 2
+
+                resultado_definido = (
+                    max(sets_a, sets_b) >= sets_para_vencer
+                    or tipo_encerramento == "wo"
+                    or status_jogo in {"finalizada", "finalizado", "encerrada", "encerrado"}
+                    or fase_partida in {"finalizada", "finalizado", "encerrada", "encerrado"}
+                )
+
+                if not resultado_definido:
+                    conn.rollback()
+                    return (
+                        False,
+                        "A partida ainda não possui resultado final confirmado.",
+                        dict(partida),
+                    )
+
+                vencedor = str(partida.get("vencedor") or "").strip()
+                equipe_a = str(partida.get("equipe_a") or "").strip()
+                equipe_b = str(partida.get("equipe_b") or "").strip()
+
+                if not vencedor:
+                    if sets_a > sets_b:
+                        vencedor = equipe_a
+                    elif sets_b > sets_a:
+                        vencedor = equipe_b
+
+                vencedor_lado = ""
+                if vencedor and vencedor == equipe_a:
+                    vencedor_lado = "A"
+                elif vencedor and vencedor == equipe_b:
+                    vencedor_lado = "B"
+                elif sets_a > sets_b:
+                    vencedor_lado = "A"
+                    vencedor = equipe_a
+                elif sets_b > sets_a:
+                    vencedor_lado = "B"
+                    vencedor = equipe_b
+
+                # --------------------------------------------------------
+                # Destaque da partida, dentro da mesma transação
+                # --------------------------------------------------------
+                lado = str(destaque.get("lado") or "").strip().upper()
+                atleta_id = _int_ou_none(destaque.get("atleta_id"))
+                numero = _int_ou_none(destaque.get("numero"))
+                nome = str(destaque.get("nome") or "").strip()
+                destaque_observacao = str(
+                    destaque.get("observacao") or ""
+                ).strip()
+
+                tem_destaque = bool(lado and (atleta_id is not None or numero is not None or nome))
+
+                if tem_destaque:
+                    if lado not in {"A", "B"}:
+                        conn.rollback()
+                        return False, "Lado do destaque inválido.", dict(partida)
+
+                    if vencedor_lado and lado != vencedor_lado:
+                        conn.rollback()
+                        return (
+                            False,
+                            "Só é possível eleger destaque da equipe vencedora.",
+                            dict(partida),
+                        )
+
+                    equipe_destaque = equipe_a if lado == "A" else equipe_b
+
+                    # Verifica duplicidade do atleta em outra partida da mesma
+                    # competição antes de remover o destaque atual.
+                    if atleta_id is not None:
+                        cur.execute("""
+                            SELECT id, partida_id
+                            FROM destaques_partida
+                            WHERE competicao = %s
+                              AND atleta_id = %s
+                              AND partida_id <> %s
+                            LIMIT 1
+                        """, (competicao, atleta_id, partida_id))
+                        if cur.fetchone():
+                            conn.rollback()
+                            return (
+                                False,
+                                "Este atleta já foi eleito destaque nesta competição.",
+                                dict(partida),
+                            )
+                    elif numero is not None and nome:
+                        cur.execute("""
+                            SELECT id, partida_id
+                            FROM destaques_partida
+                            WHERE competicao = %s
+                              AND equipe = %s
+                              AND COALESCE(numero, -1) = %s
+                              AND LOWER(COALESCE(nome, '')) = LOWER(%s)
+                              AND partida_id <> %s
+                            LIMIT 1
+                        """, (competicao, equipe_destaque, numero, nome, partida_id))
+                        if cur.fetchone():
+                            conn.rollback()
+                            return (
+                                False,
+                                "Este atleta já foi eleito destaque nesta competição.",
+                                dict(partida),
+                            )
+
+                    cur.execute("""
+                        DELETE FROM destaques_partida
+                        WHERE partida_id = %s
+                          AND competicao = %s
+                    """, (partida_id, competicao))
+
+                    cur.execute("""
+                        INSERT INTO destaques_partida (
+                            competicao,
+                            partida_id,
+                            equipe,
+                            lado,
+                            atleta_id,
+                            numero,
+                            nome,
+                            observacao
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        competicao,
+                        partida_id,
+                        equipe_destaque,
+                        lado,
+                        atleta_id,
+                        numero,
+                        nome,
+                        destaque_observacao,
+                    ))
+
+                # --------------------------------------------------------
+                # Finalização e liberação de trava em um único UPDATE
+                # --------------------------------------------------------
+                cur.execute("""
+                    UPDATE partidas
+                    SET observacoes = %s::text,
+                        status = 'finalizada',
+                        status_jogo = 'finalizada',
+                        status_operacao = 'finalizada',
+                        fase_partida = 'encerrado',
+                        vencedor = COALESCE(NULLIF(%s::text, ''), vencedor),
+                        tipo_encerramento = COALESCE(
+                            NULLIF(tipo_encerramento, ''),
+                            'normal'
+                        ),
+                        fim_partida_real = COALESCE(
+                            fim_partida_real,
+                            NOW()
+                        ),
+                        data_fim = COALESCE(
+                            data_fim,
+                            NOW()
+                        ),
+                        operador_login = NULL,
+                        operador_nome = NULL,
+                        apontador_login = NULL,
+                        apontador_nome = NULL,
+                        operador_heartbeat = NULL,
+                        operador_socket_id = NULL,
+                        reservado_em = NULL
+                    WHERE id = %s
+                      AND competicao = %s
+                    RETURNING *
+                """, (
+                    observacoes,
+                    vencedor,
+                    partida_id,
+                    competicao,
+                ))
+                estado_final = cur.fetchone() or {}
+
+            conn.commit()
+
+        except Exception:
+            conn.rollback()
+            raise
+
+    # Cache de classificação é invalidado somente depois do COMMIT.
+    try:
+        invalidar_cache_classificacao(competicao)
+    except Exception as e:
+        print(
+            "AVISO finalizar_partida_completa/invalidar_cache:",
+            repr(e),
+            flush=True,
+        )
+
+    return True, "Finalização salva com sucesso.", dict(estado_final)
 
 
 
