@@ -395,7 +395,7 @@
                                         data-partida-id="{{ jogo.partida_id }}"
                                         data-competicao="{{ competicao_nome }}"
                                         data-ao-vivo="{{ '1' if jogo.ao_vivo else '0' }}"
-                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida', competicao_nome=competicao_nome, partida_id=jogo.partida_id) }}"{% endif %}
+                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curto', codigo_publico=codigo_publico, partida_id=jogo.partida_id) }}"{% endif %}
                                     {% endif %}
                                 >
                                     <div class="bracket-card-top">
@@ -498,7 +498,7 @@
                 data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
                 data-quadra-label="{{ q_label }}"
                 data-rodada="{{ rodada_chave }}"
-                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida', competicao_nome=competicao_nome, partida_id=p.id) }}"{% endif %}
+                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curto', codigo_publico=codigo_publico, partida_id=p.id) }}"{% endif %}
             >
                 <div class="jogo-topo">
                     <div>

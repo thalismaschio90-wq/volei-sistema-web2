@@ -45,6 +45,7 @@ _SCHEMA_FLAGS = {
     "tabela_competicao_agenda_config": False,
     "tabela_competicao_rodadas": False,
     "campos_trava_operacional_partida": False,
+    "codigo_publico_competicoes": False,
 }
 _SCHEMA_LOCK = Lock()
 _POOL_LOCK = Lock()
@@ -723,6 +724,9 @@ def _campos_competicao(prefixo="", incluir_senha_organizador=False):
         f"{p}data",
         f"{p}status",
         f"{p}organizador_login",
+        _campo_ou_alias(colunas, "codigo_publico", "NULL::text AS codigo_publico") if not prefixo else (
+            f"{p}codigo_publico" if "codigo_publico" in colunas else "NULL::text AS codigo_publico"
+        ),
         _campo_ou_alias(colunas, "cidade", "'' AS cidade") if not prefixo else (
             f"{p}cidade" if "cidade" in colunas else "'' AS cidade"
         ),
@@ -887,6 +891,126 @@ def _campos_competicao(prefixo="", incluir_senha_organizador=False):
         campos.append("u.senha AS organizador_senha")
 
     return campos
+
+
+# =========================================================
+# LINK PÚBLICO CURTO DAS COMPETIÇÕES
+# =========================================================
+_CODIGO_PUBLICO_ALFABETO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_CODIGO_PUBLICO_TAMANHO = 6
+
+
+def _gerar_codigo_publico_aleatorio(tamanho=_CODIGO_PUBLICO_TAMANHO):
+    return "".join(random.choice(_CODIGO_PUBLICO_ALFABETO) for _ in range(int(tamanho or 6)))
+
+
+def garantir_schema_codigo_publico_competicoes(force=False):
+    """Cria a coluna e o índice único usados pelos links /v/CODIGO.
+
+    É idempotente e executa uma única vez por processo. O ALTER TABLE usa
+    IF NOT EXISTS, portanto também é seguro após deploys repetidos.
+    """
+    if _schema_ja_pronto("codigo_publico_competicoes", force=force):
+        return True
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE competicoes
+                ADD COLUMN IF NOT EXISTS codigo_publico VARCHAR(12)
+            """)
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_competicoes_codigo_publico
+                ON competicoes (UPPER(codigo_publico))
+                WHERE codigo_publico IS NOT NULL
+                  AND BTRIM(codigo_publico) <> ''
+            """)
+        conn.commit()
+
+    # A coluna pode ter sido consultada antes do ALTER e estar no cache antigo.
+    _CACHE_COLUNAS.pop("competicoes", None)
+    _marcar_schema_pronto("codigo_publico_competicoes")
+    return True
+
+
+def garantir_codigo_publico_competicao(nome_competicao):
+    """Retorna um código público estável e exclusivo para a competição."""
+    nome_competicao = str(nome_competicao or "").strip()
+    if not nome_competicao:
+        return None
+
+    garantir_schema_codigo_publico_competicoes()
+
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT codigo_publico
+                FROM competicoes
+                WHERE nome = %s
+                LIMIT 1
+            """, (nome_competicao,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            existente = str(row.get("codigo_publico") or "").strip().upper()
+            if existente:
+                return existente
+
+    # Normalmente acerta na primeira tentativa. O índice único impede repetição.
+    for _ in range(40):
+        codigo = _gerar_codigo_publico_aleatorio()
+        try:
+            with conectar() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE competicoes
+                        SET codigo_publico = %s
+                        WHERE nome = %s
+                          AND COALESCE(BTRIM(codigo_publico), '') = ''
+                        RETURNING codigo_publico
+                    """, (codigo, nome_competicao))
+                    atualizado = cur.fetchone()
+                    if atualizado:
+                        conn.commit()
+                        return str(atualizado.get("codigo_publico") or codigo).upper()
+
+                    # Outro processo pode ter criado o código entre o SELECT e o UPDATE.
+                    cur.execute("""
+                        SELECT codigo_publico
+                        FROM competicoes
+                        WHERE nome = %s
+                        LIMIT 1
+                    """, (nome_competicao,))
+                    row = cur.fetchone()
+                conn.commit()
+                existente = str((row or {}).get("codigo_publico") or "").strip().upper()
+                if existente:
+                    return existente
+        except Exception as e:
+            # Colisão extremamente rara: tenta outro código.
+            if "unique" not in repr(e).lower() and "duplicate" not in repr(e).lower():
+                raise
+
+    raise RuntimeError("Não foi possível gerar um código público exclusivo para a competição.")
+
+
+def buscar_competicao_por_codigo_publico(codigo_publico):
+    codigo = str(codigo_publico or "").strip().upper()
+    if not codigo:
+        return None
+
+    garantir_schema_codigo_publico_competicoes()
+    campos = _campos_competicao()
+    sql = f"""
+        SELECT {', '.join(campos)}
+        FROM competicoes
+        WHERE UPPER(codigo_publico) = %s
+        LIMIT 1
+    """
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (codigo,))
+            return cur.fetchone()
 
 
 # =========================================================

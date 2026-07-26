@@ -1328,14 +1328,14 @@
         class="tabela-link-box"
         type="text"
         readonly
-        value="{{ request.host_url.rstrip('/') }}{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"
+        value="{{ request.host_url.rstrip('/') }}{{ link_publico_path }}"
         onclick="this.select();"
     >
 
-    {% set link_visualizador = request.host_url.rstrip('/') ~ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) %}
+    {% set link_visualizador = request.host_url.rstrip('/') ~ link_publico_path %}
 
     <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:14px;">
-        <a href="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}" target="_blank">
+        <a href="{{ link_publico_path }}" target="_blank">
             <button class="btn-padrao" type="button">Abrir visualizador</button>
         </a>
 
@@ -1349,7 +1349,7 @@
     </div>
 
     <div class="visualizador-preview">
-        <iframe src="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao.nome) }}"></iframe>
+        <iframe src="{{ link_publico_path }}"></iframe>
     </div>
 </div>
 {% endif %}

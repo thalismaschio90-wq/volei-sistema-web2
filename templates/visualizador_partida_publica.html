@@ -11,7 +11,7 @@
 <body>
 <div class="wrap">
   <div class="topbar">
-    <a class="back" href="{{ url_for('tabela.visualizador_publico', competicao_nome=competicao_nome) }}">← Voltar ao visualizador</a>
+    <a class="back" href="{{ url_for('tabela.visualizador_publico_curto', codigo_publico=codigo_publico) }}">← Voltar ao visualizador</a>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span id="statusPill" class="pill {% if partida.finalizada %}done{% elif partida.ao_vivo %}live{% else %}mode{% endif %}">{% if partida.finalizada %}FINALIZADA{% elif partida.ao_vivo %}● AO VIVO{% else %}{{ partida.status_exibicao or 'AGUARDANDO' }}{% endif %}</span>
       <span class="pill mode">{{ 'COM SCOUT' if scout_ativo else 'SEM SCOUT' }}</span>
@@ -74,7 +74,7 @@
 </div>
 
 <script>
-const DADOS_URL = {{ url_for('tabela.visualizador_publico_partida_dados', competicao_nome=competicao_nome, partida_id=partida.id)|tojson }};
+const DADOS_URL = {{ url_for('tabela.visualizador_publico_partida_dados_curto', codigo_publico=codigo_publico, partida_id=partida.id)|tojson }};
 const SCOUT_ATIVO = {{ scout_ativo|tojson }};
 let ultimoHash = '';
 let timelineUsuarioInteragiu = false;

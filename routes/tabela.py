@@ -53,6 +53,8 @@ from banco import (
     obter_cache_classificacao,
     salvar_cache_classificacao,
     buscar_data_hora_rodada_programada,
+    garantir_codigo_publico_competicao,
+    buscar_competicao_por_codigo_publico,
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
@@ -2376,6 +2378,9 @@ def _buscar_destaque_partida_publico(partida_id, competicao):
 
 def _contexto_partida_publica(competicao_nome, partida_id):
     competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
+    competicao = dict(competicao)
+    competicao["codigo_publico"] = codigo_publico
     partida = buscar_partida_por_id(partida_id, competicao_nome)
     if not partida:
         return None
@@ -2408,6 +2413,30 @@ def _contexto_partida_publica(competicao_nome, partida_id):
 # =========================================================
 # VISUALIZADOR PÚBLICO
 # =========================================================
+@tabela_bp.route("/v/<codigo_publico>")
+def visualizador_publico_curto(codigo_publico):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    return visualizador_publico(competicao["nome"])
+
+
+@tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>")
+def visualizador_publico_partida_curto(codigo_publico, partida_id):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    return visualizador_publico_partida(competicao["nome"], partida_id)
+
+
+@tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>/dados")
+def visualizador_publico_partida_dados_curto(codigo_publico, partida_id):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return jsonify({"ok": False, "erro": "Competição não encontrada."}), 404
+    return visualizador_publico_partida_dados(competicao["nome"], partida_id)
+
+
 @tabela_bp.route("/visualizador/<competicao_nome>")
 def visualizador_publico(competicao_nome):
     try:
@@ -2426,6 +2455,9 @@ def visualizador_publico(competicao_nome):
     competicao = buscar_competicao_por_nome(competicao_nome) or {
         "nome": competicao_nome
     }
+    codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
+    competicao = dict(competicao)
+    competicao["codigo_publico"] = codigo_publico
 
     partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
     classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparadas, grupos, competicao, mapa_escudos)
@@ -2466,6 +2498,7 @@ def visualizador_publico(competicao_nome):
     return render_template(
         "visualizador_publico.html",
         competicao_nome=competicao_nome,
+        codigo_publico=codigo_publico,
         grupos=grupos,
         classificacao=classificacao,
         partidas=partidas_preparadas,
@@ -2484,7 +2517,12 @@ def visualizador_publico_partida(competicao_nome, partida_id):
     contexto = _contexto_partida_publica(competicao_nome, partida_id)
     if not contexto:
         return "Partida não encontrada.", 404
-    return render_template("visualizador_partida_publica.html", competicao_nome=competicao_nome, **contexto)
+    return render_template(
+        "visualizador_partida_publica.html",
+        competicao_nome=competicao_nome,
+        codigo_publico=(contexto.get("competicao") or {}).get("codigo_publico"),
+        **contexto,
+    )
 
 
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados")
@@ -2810,6 +2848,9 @@ def tabela_view():
     # O restante só é carregado conforme a aba ativa. Isso evita que abrir
     # "Configurações" carregue classificação, partidas e avanço completos.
     nome_competicao = competicao["nome"]
+    codigo_publico = garantir_codigo_publico_competicao(nome_competicao)
+    competicao = dict(competicao)
+    competicao["codigo_publico"] = codigo_publico
     _garantir_grupos_da_estrutura(competicao)
     fases = _fases_disponiveis(competicao)
     grupos_travados = _grupos_travados_cache(nome_competicao)
@@ -2818,6 +2859,8 @@ def tabela_view():
 
     contexto = {
         "competicao": competicao,
+        "codigo_publico": codigo_publico,
+        "link_publico_path": url_for("tabela.visualizador_publico_curto", codigo_publico=codigo_publico),
         "aba_ativa": aba,
         "fase_ativa": fase_subaba,
         "fase_labels": FASES_AVANCO_LABELS,
