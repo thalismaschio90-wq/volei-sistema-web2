@@ -3262,7 +3262,11 @@ function montarPayloadTempoReal(extra = {}) {
                 competicao: "{{ competicao_nome }}",
                 partida_id: {{ partida.id }}
             });
-            setTimeout(() => emitirEstadoTempoReal({ ultima_acao: estadoAtual?.ultima_acao || "Apontador conectado ao tempo real" }), 120);
+            setTimeout(() => {
+                if (estadoInicialSincronizado) {
+                    emitirEstadoTempoReal({ ultima_acao: estadoAtual?.ultima_acao || "Apontador conectado ao tempo real" });
+                }
+            }, 120);
         });
 
         socket.on("disconnect", function () {
@@ -3273,6 +3277,16 @@ function montarPayloadTempoReal(extra = {}) {
         socket.on("connect_error", function () {
             socketConectado = false;
             agendarSincronizacao(500, true);
+        });
+
+        socket.on("estado_partida_local_ok", function (resposta) {
+            if (!resposta || !resposta.snapshot_atrasado) return;
+            if (resposta.estado_atual) {
+                aplicarEstado(normalizarRespostaJogo(resposta.estado_atual), { fonte: "socket_estado_vivo" });
+                estadoInicialSincronizado = true;
+            } else {
+                sincronizarEstadoJogo({ forcarInicial: true }).catch(() => {});
+            }
         });
 
         socket.on("estado_jogo_atualizado", function (dados) {
@@ -5835,6 +5849,13 @@ function atualizarResumoSubEx() {
         if (jogoTeveAcaoLocal && !forcarInicial) return null;
 
         aplicarEstado(normalizarRespostaJogo(dados), { fonte: forcarInicial ? "abertura_banco" : "sync_banco" });
+        if (forcarInicial) {
+            estadoInicialSincronizado = true;
+            salvarSnapshotLocalAutomatico("abertura_confirmada");
+            if (socketConectado) {
+                emitirEstadoTempoReal({ ultima_acao: estadoAtual?.ultima_acao || "Estado oficial carregado" });
+            }
+        }
         return dados;
     } catch (e) {
         return null;
@@ -6114,6 +6135,9 @@ let autosaveBancoTimer = null;
 let ultimoAutosaveBancoEm = 0;
 let autosaveBancoEmAndamento = false;
 let ultimoHashAutosaveBanco = "";
+// Enquanto a primeira leitura oficial não terminar, o HTML recém-aberto pode
+// conter um snapshot antigo. Não publicar nem persistir esse estado.
+let estadoInicialSincronizado = false;
 
 function hashLeveEstadoAutosave(estado) {
     try {
@@ -6140,6 +6164,7 @@ function hashLeveEstadoAutosave(estado) {
 
 function salvarSnapshotLocalAutomatico(motivo = "autosave") {
     try {
+        if (!estadoInicialSincronizado && motivo !== "acao_local_confirmada") return null;
         const estado = montarEstadoManualParaBanco();
         const pacote = {
             ok: true,
@@ -7217,8 +7242,13 @@ if (OFFLINE_HABILITADO_PELO_SUPERADM && btnPrepararJogoOffline) {
         salvarJogoOfflineLocal(false);
     });
 }
-salvarSnapshotLocalAutomatico("abertura_jogo_local");
-setTimeout(() => sincronizarEstadoJogo({ forcarInicial: true }).catch(() => {}), 500);
+setTimeout(async () => {
+    const dadosIniciais = await sincronizarEstadoJogo({ forcarInicial: true }).catch(() => null);
+    if (!dadosIniciais) {
+        // Não publica o HTML antigo. Tenta novamente após a rede estabilizar.
+        setTimeout(() => sincronizarEstadoJogo({ forcarInicial: true }).catch(() => {}), 1800);
+    }
+}, 350);
 
 btnRetardamentoCancelar.addEventListener("click", fecharModalRetardamento);
 btnRetardamentoConfirmar.addEventListener("click", registrarRetardamento);

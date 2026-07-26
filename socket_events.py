@@ -1208,7 +1208,44 @@ def estado_partida_local_socket(data):
         return
 
     payload = _normalizar_payload(partida_id, data)
-    _ESTADO_PARTIDAS[_room(partida_id)] = payload
+
+    # O navegador pode reconectar carregando o HTML/snapshot antigo. Ele não
+    # pode sobrescrever o cache vivo e fazer telão/árbitros/apontador voltarem.
+    sala_cache = _room(partida_id)
+    with _ESTADO_PARTIDAS_LOCK:
+        atual = copy.deepcopy(_ESTADO_PARTIDAS.get(sala_cache) or {})
+
+        def _progresso(d):
+            return (
+                _to_int(d.get("sets_a"), 0) + _to_int(d.get("sets_b"), 0),
+                max(1, _to_int(d.get("set_atual"), 1)),
+            )
+
+        prog_atual = _progresso(atual)
+        prog_novo = _progresso(payload)
+        total_atual = _to_int(atual.get("pontos_a"), 0) + _to_int(atual.get("pontos_b"), 0)
+        total_novo = _to_int(payload.get("pontos_a"), 0) + _to_int(payload.get("pontos_b"), 0)
+        origem = str(payload.get("origem") or "").strip().lower()
+        permite_reducao = "desfazer" in origem
+
+        atrasado = bool(atual) and not permite_reducao and (
+            prog_novo < prog_atual
+            or (prog_novo == prog_atual and total_novo < total_atual)
+        )
+
+        if atrasado:
+            # Conserva todo o estado vivo, mas confirma ao emissor para ele
+            # solicitar a hidratação oficial em vez de insistir no snapshot velho.
+            socketio.emit("estado_partida_local_ok", {
+                "ok": False,
+                "snapshot_atrasado": True,
+                "partida_id": partida_id,
+                "estado_atual": atual,
+                "mensagem": "Snapshot local mais antigo que o estado vivo; atualização ignorada.",
+            }, room=request.sid)
+            return
+
+        _ESTADO_PARTIDAS[sala_cache] = copy.deepcopy(payload)
 
     eventos = (
         "estado_partida",

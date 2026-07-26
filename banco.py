@@ -17172,6 +17172,52 @@ def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, 
 
     with conectar() as conn:
         with conn.cursor() as cur:
+            # Proteção contra snapshot atrasado do navegador. Pontos oficiais e
+            # desfazer já passam por rotas próprias e transacionais. Portanto,
+            # salvar-estado nunca pode regredir set/sets/placar já confirmados.
+            cur.execute("""
+                SELECT pontos_a, pontos_b, sets_a, sets_b, set_atual,
+                       status_jogo, fase_partida
+                FROM partidas
+                WHERE id = %s AND competicao = %s
+                FOR UPDATE
+            """, (partida_id, competicao))
+            atual = cur.fetchone() or {}
+
+            atual_pontos_a = _int(atual.get("pontos_a"), 0)
+            atual_pontos_b = _int(atual.get("pontos_b"), 0)
+            atual_sets_a = _int(atual.get("sets_a"), 0)
+            atual_sets_b = _int(atual.get("sets_b"), 0)
+            atual_set = max(1, _int(atual.get("set_atual"), 1))
+
+            progresso_atual = (atual_sets_a + atual_sets_b, atual_set)
+            progresso_recebido = (sets_a + sets_b, set_atual)
+            mesmo_progresso = progresso_recebido == progresso_atual
+            placar_atual = (atual_pontos_a, atual_pontos_b)
+            placar_recebido = (pontos_a, pontos_b)
+
+            snapshot_atrasado = (
+                progresso_recebido < progresso_atual
+                or (
+                    mesmo_progresso
+                    and placar_recebido != placar_atual
+                    and (pontos_a + pontos_b) <= (atual_pontos_a + atual_pontos_b)
+                )
+            )
+
+            if snapshot_atrasado:
+                print(
+                    "AVISO salvar_estado_manual: snapshot atrasado ignorado",
+                    {
+                        "partida_id": partida_id,
+                        "recebido": {"sets": (sets_a, sets_b), "set": set_atual, "pontos": placar_recebido},
+                        "atual": {"sets": (atual_sets_a, atual_sets_b), "set": atual_set, "pontos": placar_atual},
+                    },
+                    flush=True,
+                )
+                conn.rollback()
+                return buscar_estado_jogo_partida(partida_id, competicao) or {}
+
             cur.execute(f"""
                 UPDATE partidas
                 SET {', '.join(sets)}
