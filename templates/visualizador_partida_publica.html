@@ -85,6 +85,7 @@ let socketConectado = false;
 let ultimoEstadoSocketEm = 0;
 let ultimoHashLeve = '';
 let ultimaVersaoEventos = null;
+let ultimaVersaoEstado = null;
 let ultimaVersaoDestaque = null;
 let consultaEmAndamento = false;
 let timerConsulta = null;
@@ -237,7 +238,7 @@ async function carregarDetalhes(partidaAtual){
 function proximoIntervalo(partida){
   if(document.hidden) return 15000;
   if(partida && partida.finalizada) return 20000;
-  if(partida && partida.ao_vivo) return socketConectado ? 2000 : 1500;
+  if(partida && partida.ao_vivo) return socketConectado ? 8000 : 1800;
   return 8000;
 }
 
@@ -268,16 +269,20 @@ async function carregar(){
     }
 
     const versaoEventos = Number(data.eventos_versao || 0);
+    const versaoEstado = Number(data.estado_versao || 0);
     const versaoDestaque = Number(data.destaque_versao || 0);
     const detalhesMudaram = (
       ultimaVersaoEventos === null ||
+      ultimaVersaoEstado === null ||
       ultimaVersaoDestaque === null ||
       versaoEventos !== ultimaVersaoEventos ||
+      versaoEstado !== ultimaVersaoEstado ||
       versaoDestaque !== ultimaVersaoDestaque
     );
 
     if(detalhesMudaram){
       ultimaVersaoEventos = versaoEventos;
+      ultimaVersaoEstado = versaoEstado;
       ultimaVersaoDestaque = versaoDestaque;
       await carregarDetalhes(partidaAtual);
     }
@@ -296,7 +301,15 @@ function configurarSocketTempoReal(){
   const hostLocal = ['127.0.0.1', 'localhost'].includes(window.location.hostname);
   const opcoes = hostLocal
     ? {transports:['polling'], upgrade:false, reconnection:true}
-    : {transports:['websocket','polling'], reconnection:true};
+    : {
+        transports:['websocket'],
+        upgrade:false,
+        reconnection:true,
+        reconnectionAttempts:Infinity,
+        reconnectionDelay:500,
+        reconnectionDelayMax:5000,
+        timeout:10000
+      };
 
   try{
     socketTempoReal = io(opcoes);
@@ -338,7 +351,9 @@ function configurarSocketTempoReal(){
     // O ponto a ponto continua vindo pela rota de detalhes, mas buscamos
     // imediatamente quando chega uma ação nova, sem esperar o polling.
     clearTimeout(timerConsulta);
-    timerConsulta = setTimeout(carregar, 250);
+    clearTimeout(window.__timerDetalhesSocket);
+    window.__timerDetalhesSocket = setTimeout(() => carregarDetalhes(payload), 700);
+    timerConsulta = setTimeout(carregar, 900);
   };
 
   socketTempoReal.on('connect', entrarNaSala);

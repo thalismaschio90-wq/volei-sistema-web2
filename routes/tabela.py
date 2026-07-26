@@ -58,7 +58,7 @@ from banco import (
 )
 
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
-from socket_events import obter_estado_cache
+from socket_events import obter_estado_cache, obter_estado_versao
 
 tabela_bp = Blueprint("tabela", __name__)
 
@@ -2659,10 +2659,18 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
     if not partida:
         return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
 
+    # Prioriza o mesmo estado vivo usado pelo apontador. Isso evita consultar
+    # o Neon a cada atualização pública e mantém o placar correto mesmo durante
+    # uma breve instabilidade do banco.
     try:
-        estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+        estado = obter_estado_cache(partida_id) or {}
     except Exception:
         estado = {}
+    if not estado:
+        try:
+            estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+        except Exception:
+            estado = {}
 
     mapa_escudos = {
         partida.get("equipe_a"): partida.get("escudo_a"),
@@ -2671,6 +2679,10 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
     p = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
 
     eventos_versao = 0
+    try:
+        estado_versao = obter_estado_versao(partida_id)
+    except Exception:
+        estado_versao = 0
     destaque_versao = 0
     try:
         with conectar() as conn:
@@ -2712,7 +2724,11 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
             "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or p.get("placar_exibicao_b") or 0),
             "parciais_formatadas": p.get("parciais_formatadas") or "",
         },
+        # O banco informa a versão persistida; estado_versao muda em cada ação
+        # local e faz o cliente buscar detalhes logo após o ponto.
         "eventos_versao": eventos_versao,
+        "estado_versao": estado_versao,
+        "ultima_acao": estado.get("ultima_acao") or "",
         "destaque_versao": destaque_versao,
     })
     resposta.headers["Cache-Control"] = "no-store, max-age=0"

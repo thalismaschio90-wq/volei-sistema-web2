@@ -24,11 +24,12 @@ _INVERSAO_PLACAR_APONTADOR = {}
 # 0 = quase nunca envia completo automaticamente; valores maiores enviam um
 # estado completo no máximo a cada N segundos, mantendo o placar leve em tempo real.
 try:
-    SOCKET_FULL_STATE_INTERVAL = float(os.environ.get("SOCKET_FULL_STATE_INTERVAL", "3") or 3)
+    SOCKET_FULL_STATE_INTERVAL = float(os.environ.get("SOCKET_FULL_STATE_INTERVAL", "30") or 30)
 except Exception:
-    SOCKET_FULL_STATE_INTERVAL = 3
+    SOCKET_FULL_STATE_INTERVAL = 30
 
 _ULTIMO_ESTADO_COMPLETO_EMITIDO = {}
+_ESTADO_PARTIDAS_VERSAO = {}
 
 
 def _env_bool(nome, padrao=False):
@@ -306,6 +307,17 @@ def obter_estado_cache(partida_id):
         return copy.deepcopy(estado) if estado is not None else None
 
 
+def obter_estado_versao(partida_id):
+    """Versão monotônica do estado vivo da partida neste processo.
+
+    Permite ao visualizador detectar cada ação sem consultar MAX(id) no banco
+    a cada polling. A versão volta a zero em reinício, quando o cliente força
+    uma leitura completa normalmente.
+    """
+    with _ESTADO_PARTIDAS_LOCK:
+        return int(_ESTADO_PARTIDAS_VERSAO.get(_room(partida_id), 0) or 0)
+
+
 def atualizar_estado_cache(partida_id, dados):
     sala = _room(partida_id)
 
@@ -316,11 +328,14 @@ def atualizar_estado_cache(partida_id, dados):
     normalizado = _normalizar_payload(partida_id, copy.deepcopy(dados or {}))
     with _ESTADO_PARTIDAS_LOCK:
         _ESTADO_PARTIDAS[sala] = normalizado
+        _ESTADO_PARTIDAS_VERSAO[sala] = int(_ESTADO_PARTIDAS_VERSAO.get(sala, 0) or 0) + 1
 
 
 def limpar_estado_cache(partida_id):
     with _ESTADO_PARTIDAS_LOCK:
-        _ESTADO_PARTIDAS.pop(_room(partida_id), None)
+        sala = _room(partida_id)
+        _ESTADO_PARTIDAS.pop(sala, None)
+        _ESTADO_PARTIDAS_VERSAO.pop(sala, None)
 
 
 def obter_ultimo_placar_apontador(apontador):
@@ -581,6 +596,8 @@ def emitir_estado_partida(partida_id, dados=None):
     # Guarda sempre o estado completo em memória para quem entrar/recarregar a tela.
     with _ESTADO_PARTIDAS_LOCK:
         _ESTADO_PARTIDAS[sala] = copy.deepcopy(payload)
+        _ESTADO_PARTIDAS_VERSAO[sala] = int(_ESTADO_PARTIDAS_VERSAO.get(sala, 0) or 0) + 1
+        payload["estado_versao"] = _ESTADO_PARTIDAS_VERSAO[sala]
 
     payload_leve = _payload_placar_rapido(payload)
 
@@ -1323,32 +1340,19 @@ def entrar_placar_geral(data=None):
 
 @socketio.on("entrar_placar_apontador")
 def entrar_placar_apontador(data=None):
-    """Conecta o telão à sala do apontador e também às salas da partida."""
-    data = dict(data or {})
-    apontador = _normalizar_apontador(data.get("apontador"))
-    partida_id = str(data.get("partida_id") or "").strip()
-    competicao = str(data.get("competicao") or "").strip()
-    sala_apontador = _room_placar_apontador(apontador)
+    apontador = _normalizar_apontador((data or {}).get("apontador"))
+    sala = _room_placar_apontador(apontador)
 
-    if sala_apontador:
-        join_room(sala_apontador)
+    if not sala:
+        return
 
-    if partida_id:
-        for sala_partida in _rooms_partida(partida_id, competicao):
-            join_room(sala_partida)
+    join_room(sala)
 
-    estado = None
-    if partida_id:
-        with _ESTADO_PARTIDAS_LOCK:
-            atual = _ESTADO_PARTIDAS.get(_room(partida_id))
-            estado = copy.deepcopy(atual) if atual is not None else None
+    ultimo = _ULTIMO_PLACAR_APONTADOR.get(apontador)
 
-    if estado is None and apontador:
-        estado = _ULTIMO_PLACAR_APONTADOR.get(apontador)
-
-    if estado:
-        payload = _payload_placar_rapido(
-            _normalizar_payload(partida_id or estado.get("partida_id"), estado)
+    if ultimo:
+        socketio.emit(
+            "placar_apontador_atualizado",
+            _payload_placar_rapido(ultimo),
+            room=request.sid,
         )
-        socketio.emit("placar_apontador_atualizado", payload, room=request.sid)
-        socketio.emit("placar_rapido", payload, room=request.sid)
