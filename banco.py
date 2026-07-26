@@ -17159,7 +17159,7 @@ def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, 
     ]
 
     if "status_operacao" in colunas:
-        sets.append("status_operacao = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'finalizada' ELSE %s END")
+        sets.append("status_operacao = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'finalizada' WHEN LOWER(COALESCE(status_operacao, '')) IN ('papeleta','sorteio') THEN status_operacao ELSE %s END")
         params.append("pausada" if pausar else "em_andamento")
     if "status" in colunas:
         sets.append("status = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'finalizada' ELSE %s END")

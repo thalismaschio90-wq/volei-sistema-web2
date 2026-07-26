@@ -1226,7 +1226,13 @@ def estado_partida_local_socket(data):
         total_atual = _to_int(atual.get("pontos_a"), 0) + _to_int(atual.get("pontos_b"), 0)
         total_novo = _to_int(payload.get("pontos_a"), 0) + _to_int(payload.get("pontos_b"), 0)
         origem = str(payload.get("origem") or "").strip().lower()
-        permite_reducao = "desfazer" in origem
+        permite_reducao = (
+            "desfazer" in origem
+            or bool(payload.get("transicao_set"))
+            or bool(payload.get("fim_set"))
+            or bool(payload.get("set_finalizado"))
+            or prog_novo > prog_atual
+        )
 
         atrasado = bool(atual) and not permite_reducao and (
             prog_novo < prog_atual

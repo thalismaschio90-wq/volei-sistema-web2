@@ -3183,6 +3183,7 @@ function montarPayloadTempoReal(extra = {}) {
     }
 
     function emitirEstadoTempoReal(extra = {}) {
+        if (transicaoSetEmAndamento && !extra.transicao_set) return false;
         if (!socket || !socket.connected) return false;
         try {
             socket.emit("estado_partida_local", montarPayloadTempoReal(extra));
@@ -4744,23 +4745,23 @@ function haSubstituicaoLocalPendente(setNumero) {
         renderQuadra();
 
         if (dados.fim_set && !dados.partida_finalizada) {
+            transicaoSetEmAndamento = true;
+            if (autosaveBancoTimer) { clearTimeout(autosaveBancoTimer); autosaveBancoTimer = null; }
             atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
-            // Dispara o lote do set encerrado sem bloquear a ida para a papeleta.
-            sincronizarSetEmSegundoPlano(setAnterior, true);
             travarBotoes(true);
+
+            // O lote do set é enviado sem bloquear a navegação. Nenhum autosave
+            // pode devolver status_operacao para em_andamento neste intervalo.
+            sincronizarSetEmSegundoPlano(setAnterior, true).catch(() => {});
 
             const destinoFluxo = dados.url_redirecionamento
                 || dados.url
                 || (dados.redirecionar_tiebreak ? "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}" : null)
-                || (dados.redirecionar_papeleta ? "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}" : null);
+                || "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}";
 
-            setTimeout(() => {
-                if (destinoFluxo) {
-                    window.location.href = destinoFluxo;
-                } else {
-                    window.location.reload();
-                }
-            }, 900);
+            // replace evita voltar pelo histórico para a tela do set encerrado.
+            window.setTimeout(() => window.location.replace(destinoFluxo), 120);
+            return;
         }
         if (partidaFinalizada && !saqueInfo.textContent.includes("Partida finalizada")) {
             saqueInfo.textContent += " • Partida finalizada";
@@ -6138,6 +6139,8 @@ let ultimoHashAutosaveBanco = "";
 // Enquanto a primeira leitura oficial não terminar, o HTML recém-aberto pode
 // conter um snapshot antigo. Não publicar nem persistir esse estado.
 let estadoInicialSincronizado = false;
+// Bloqueia qualquer autosave/socket enquanto o fluxo oficial troca de set.
+let transicaoSetEmAndamento = false;
 
 function hashLeveEstadoAutosave(estado) {
     try {
@@ -6218,6 +6221,7 @@ enviarHeartbeatOperacional();
 setInterval(enviarHeartbeatOperacional, 15000);
 
 async function enviarSnapshotBancoAutomatico({ pausar = false, finalizar = false, motivo = "autosave", forcar = false } = {}) {
+    if (transicaoSetEmAndamento && !finalizar) return false;
     if (autosaveBancoEmAndamento && !forcar) return false;
 
     const pacoteLocal = salvarSnapshotLocalAutomatico(motivo);
@@ -6802,6 +6806,20 @@ async function registrarPonto(equipe, scout) {
         // treinador e telão pelo socket emitido no backend.
         dados.fonte = "resposta_ponto_fetch";
         aplicarEstado(dados, { fonte: "resposta_ponto_fetch" });
+
+        // Fallback obrigatório: mesmo que algum componente visual lance erro,
+        // o fim de set confirmado pelo backend sempre segue para a próxima etapa.
+        if (dados.fim_set === true && dados.partida_finalizada !== true && dados.fim_jogo !== true) {
+            transicaoSetEmAndamento = true;
+            if (autosaveBancoTimer) { clearTimeout(autosaveBancoTimer); autosaveBancoTimer = null; }
+            travarBotoes(true);
+            const destinoSet = dados.url_redirecionamento
+                || dados.url
+                || (dados.redirecionar_tiebreak ? "{{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) }}" : null)
+                || "{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}";
+            window.setTimeout(() => window.location.replace(destinoSet), 80);
+            return;
+        }
 
         const msg = dados.ultima_acao || dados.mensagem || "Ponto registrado";
         atualizarUltimaAcao(msg);
