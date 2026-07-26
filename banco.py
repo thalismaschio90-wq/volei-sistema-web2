@@ -12694,11 +12694,12 @@ def verificar_fim_partida(partida, estado):
 
 
 def encerrar_partida(partida_id, competicao, observacoes):
-    """Finaliza a partida somente se a regra de sets permitir.
+    """Finaliza a partida de forma monotônica e idempotente.
 
-    Proteção importante: se a tela/JS chamar encerramento logo ao terminar o
-    1º set de um melhor_de_3, o banco NÃO marca como finalizada. Ele mantém a
-    partida entre sets e devolve False para a rota avisar o apontador.
+    Uma partida que já atingiu o número de sets ou já está finalizada nunca é
+    reaberta por snapshot atrasado. Quando ainda não houve vencedor por sets,
+    esta função apenas informa que a partida não pode ser encerrada; a passagem
+    para o próximo set deve ser feita exclusivamente por registrar_resultado_set.
     """
     from datetime import datetime
 
@@ -12716,69 +12717,186 @@ def encerrar_partida(partida_id, competicao, observacoes):
                 return False, "Partida não encontrada."
 
             fluxo = avaliar_fluxo_partida(partida, competicao)
-            sets_para_vencer = fluxo["sets_para_vencer"]
-            sets_a = fluxo["sets_a"]
-            sets_b = fluxo["sets_b"]
-            set_atual = fluxo["set_atual"]
-            sets_max = fluxo["sets_max"]
+            sets_para_vencer = int(fluxo["sets_para_vencer"] or 1)
+            sets_a = int(fluxo["sets_a"] or 0)
+            sets_b = int(fluxo["sets_b"] or 0)
+            status_atual = str(partida.get("status_jogo") or "").strip().lower()
+            fase_atual = str(partida.get("fase_partida") or "").strip().lower()
 
-            # Idempotência: observações/destaques podem salvar novamente depois
-            # que o último ponto já encerrou a partida. Nunca reabre uma finalizada.
-            if fluxo["partida_finalizada"] and fluxo["status_jogo"] in {"finalizada", "encerrado"}:
-                cur.execute("""
-                    UPDATE partidas
-                    SET observacoes = COALESCE(%s, observacoes, ''),
-                        status = 'finalizada',
-                        status_jogo = 'finalizada',
-                        status_operacao = 'finalizada',
-                        fase_partida = 'encerrado'
-                    WHERE id = %s AND competicao = %s
-                """, (observacoes, partida_id, competicao))
-                conn.commit()
-                return True, "Partida já estava finalizada; dados complementares foram salvos."
+            ja_finalizada = (
+                fluxo["partida_finalizada"]
+                or status_atual in {"finalizada", "finalizado", "encerrada", "encerrado"}
+                or fase_atual in {"encerrado", "finalizada", "finalizado"}
+            )
 
-            if not fluxo["venceu_por_sets"]:
-                proximo_set = fluxo["proximo_set"]
-                cur.execute("""
-                    UPDATE partidas
-                    SET status = CASE WHEN status = 'finalizada' THEN 'em_andamento' ELSE COALESCE(status, 'em_andamento') END,
-                        status_jogo = 'entre_sets',
-                        status_operacao = 'papeleta',
-                        fase_partida = 'intervalo_set',
-                        set_atual = %s,
-                        pontos_a = 0,
-                        pontos_b = 0,
-                        vencedor = NULL,
-                        tipo_encerramento = NULL,
-                        data_fim = NULL,
-                        observacoes = COALESCE(observacoes, '')
-                    WHERE id = %s AND competicao = %s
-                """, (proximo_set, partida_id, competicao))
-                conn.commit()
-                return False, f"Partida ainda não pode ser finalizada: precisa vencer {sets_para_vencer} set(s)."
+            if not ja_finalizada and not fluxo["venceu_por_sets"]:
+                # Nunca altera set, placar ou status aqui. Isso evita que uma
+                # segunda chamada atrasada transforme o fim da partida em
+                # intervalo de set e prenda a tela do apontador.
+                return False, (
+                    f"Partida ainda não pode ser finalizada: precisa vencer "
+                    f"{sets_para_vencer} set(s). Placar atual de sets: {sets_a} x {sets_b}."
+                )
 
-            vencedor = None
-            if sets_a > sets_b:
-                vencedor = partida.get("equipe_a") or partida.get("equipe_a_operacional") or "A"
-            elif sets_b > sets_a:
-                vencedor = partida.get("equipe_b") or partida.get("equipe_b_operacional") or "B"
+            vencedor = partida.get("vencedor")
+            if not vencedor:
+                if sets_a > sets_b:
+                    vencedor = partida.get("equipe_a") or partida.get("equipe_a_operacional") or "A"
+                elif sets_b > sets_a:
+                    vencedor = partida.get("equipe_b") or partida.get("equipe_b_operacional") or "B"
 
+            agora = datetime.now()
             cur.execute("""
                 UPDATE partidas
                 SET status = 'finalizada',
                     status_jogo = 'finalizada',
                     status_operacao = 'finalizada',
                     fase_partida = 'encerrado',
-                    observacoes = %s,
+                    observacoes = CASE
+                        WHEN %s IS NULL OR BTRIM(%s) = '' THEN COALESCE(observacoes, '')
+                        ELSE %s
+                    END,
                     vencedor = COALESCE(%s, vencedor),
-                    tipo_encerramento = COALESCE(tipo_encerramento, 'normal'),
+                    tipo_encerramento = COALESCE(NULLIF(tipo_encerramento, ''), 'normal'),
                     fim_partida_real = COALESCE(fim_partida_real, %s),
-                    data_fim = %s
+                    data_fim = COALESCE(data_fim, %s)
                 WHERE id = %s AND competicao = %s
-            """, (observacoes, vencedor, datetime.now(), datetime.now(), partida_id, competicao))
+            """, (
+                observacoes, observacoes, observacoes,
+                vencedor, agora, agora, partida_id, competicao,
+            ))
         conn.commit()
 
     return True, "Partida finalizada com sucesso."
+
+
+def salvar_partida_completa_final(partida_id, competicao, pacote, operador=None):
+    """Persiste o snapshot final em uma única transação.
+
+    A função é compatível com o modo local: recebe estado_final, eventos e
+    observações. O UPDATE final é monotônico, portanto nunca reabre uma partida.
+    Eventos com ``evento_id`` repetido são ignorados na mesma chamada.
+    """
+    pacote = dict(pacote or {})
+    estado = dict(pacote.get("estado_final") or pacote.get("estado") or {})
+    eventos = list(pacote.get("eventos") or pacote.get("fila_eventos") or [])
+    observacoes = pacote.get("observacoes")
+
+    def _int(v, padrao=0):
+        try:
+            return padrao if v in (None, "") else int(v)
+        except Exception:
+            return padrao
+
+    criar_campos_jogo_partida()
+    criar_campos_sets_partida()
+    criar_tabela_eventos()
+
+    with conectar() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT * FROM partidas
+                    WHERE id = %s AND competicao = %s
+                    FOR UPDATE
+                """, (partida_id, competicao))
+                atual = cur.fetchone()
+                if not atual:
+                    raise ValueError("Partida não encontrada.")
+
+                sets_a = max(_int(atual.get("sets_a")), _int(estado.get("sets_a")))
+                sets_b = max(_int(atual.get("sets_b")), _int(estado.get("sets_b")))
+                set_atual = max(_int(atual.get("set_atual"), 1), _int(estado.get("set_atual"), 1))
+                pontos_a = _int(estado.get("pontos_a", estado.get("placar_a", atual.get("pontos_a"))))
+                pontos_b = _int(estado.get("pontos_b", estado.get("placar_b", atual.get("pontos_b"))))
+
+                colunas = _buscar_colunas_tabela("partidas")
+                atribuicoes = [
+                    "sets_a = %s", "sets_b = %s", "set_atual = %s",
+                    "pontos_a = %s", "pontos_b = %s",
+                ]
+                params = [sets_a, sets_b, set_atual, pontos_a, pontos_b]
+
+                for n in range(1, 6):
+                    ca, cb = f"set{n}_a", f"set{n}_b"
+                    if ca in colunas and estado.get(ca) not in (None, ""):
+                        atribuicoes.append(f"{ca} = %s")
+                        params.append(_int(estado.get(ca)))
+                    if cb in colunas and estado.get(cb) not in (None, ""):
+                        atribuicoes.append(f"{cb} = %s")
+                        params.append(_int(estado.get(cb)))
+
+                if operador and "operador_login" in colunas:
+                    atribuicoes.append("operador_login = COALESCE(operador_login, %s)")
+                    params.append(operador)
+
+                params.extend([partida_id, competicao])
+                cur.execute(f"""
+                    UPDATE partidas SET {', '.join(atribuicoes)}
+                    WHERE id = %s AND competicao = %s
+                """, tuple(params))
+
+                vistos = set()
+                for ev in eventos:
+                    if not isinstance(ev, dict):
+                        continue
+                    evento_id = str(ev.get("evento_id") or ev.get("id_local") or "").strip()
+                    if evento_id and evento_id in vistos:
+                        continue
+                    if evento_id:
+                        vistos.add(evento_id)
+                    detalhes = dict(ev.get("detalhes") or {}) if isinstance(ev.get("detalhes"), dict) else {}
+                    if evento_id:
+                        detalhes.setdefault("evento_id", evento_id)
+                    cur.execute("""
+                        INSERT INTO eventos (
+                            partida_id, competicao, set_numero, equipe, tipo,
+                            tipo_evento, fundamento, resultado, detalhe,
+                            atleta_id, atleta_nome, numero, detalhes
+                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """, (
+                        partida_id, competicao,
+                        _int(ev.get("set_numero", ev.get("set_atual", set_atual)), set_atual),
+                        ev.get("equipe"), ev.get("tipo") or ev.get("tipo_evento"),
+                        ev.get("tipo_evento") or ev.get("tipo"), ev.get("fundamento"),
+                        ev.get("resultado"), ev.get("detalhe") or ev.get("descricao"),
+                        ev.get("atleta_id"), ev.get("atleta_nome"), ev.get("numero"),
+                        json.dumps(detalhes, ensure_ascii=False),
+                    ))
+
+                cur.execute("SELECT * FROM partidas WHERE id=%s AND competicao=%s", (partida_id, competicao))
+                confirmado = cur.fetchone() or {}
+                fluxo = avaliar_fluxo_partida(confirmado, competicao)
+                if not fluxo["partida_finalizada"] and not fluxo["venceu_por_sets"]:
+                    raise ValueError(
+                        f"Estado final inválido: sets confirmados {fluxo['sets_a']} x {fluxo['sets_b']}."
+                    )
+
+                vencedor = confirmado.get("vencedor")
+                if not vencedor:
+                    vencedor = confirmado.get("equipe_a") if fluxo["sets_a"] > fluxo["sets_b"] else confirmado.get("equipe_b")
+                agora = datetime.now()
+                cur.execute("""
+                    UPDATE partidas
+                    SET status='finalizada', status_jogo='finalizada',
+                        status_operacao='finalizada', fase_partida='encerrado',
+                        vencedor=COALESCE(%s, vencedor),
+                        observacoes=CASE WHEN %s IS NULL OR BTRIM(%s)='' THEN COALESCE(observacoes,'') ELSE %s END,
+                        tipo_encerramento=COALESCE(NULLIF(tipo_encerramento,''),'normal'),
+                        fim_partida_real=COALESCE(fim_partida_real,%s),
+                        data_fim=COALESCE(data_fim,%s)
+                    WHERE id=%s AND competicao=%s
+                """, (vencedor, observacoes, observacoes, observacoes, agora, agora, partida_id, competicao))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    try:
+        invalidar_cache_classificacao(competicao)
+    except Exception:
+        pass
+    return True, "Partida e eventos finais salvos com sucesso."
 
 
 
@@ -16555,12 +16673,17 @@ def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, 
 
     colunas = _buscar_colunas_tabela("partidas")
     sets = [
-        "pontos_a = %s", "pontos_b = %s", "sets_a = %s", "sets_b = %s", "set_atual = %s",
+        "pontos_a = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN pontos_a ELSE %s END",
+        "pontos_b = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN pontos_b ELSE %s END",
+        "sets_a = GREATEST(COALESCE(sets_a, 0), %s)",
+        "sets_b = GREATEST(COALESCE(sets_b, 0), %s)",
+        "set_atual = GREATEST(COALESCE(set_atual, 1), %s)",
         "saque_atual = %s", "rotacao_a = %s", "rotacao_b = %s", "rotacao_a_json = %s", "rotacao_b_json = %s",
         "status_jogadores_a_json = %s", "status_jogadores_b_json = %s", "subs_a = %s", "subs_b = %s",
         "sancoes_a_json = %s", "sancoes_b_json = %s", "cartoes_verdes_a_json = %s", "cartoes_verdes_b_json = %s",
         "retardamentos_a_json = %s", "retardamentos_b_json = %s", "subs_excepcionais_json = %s",
-        "status_jogo = %s", "fase_partida = %s"
+        "status_jogo = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'finalizada' ELSE %s END",
+        "fase_partida = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'encerrado' ELSE %s END"
     ]
     params = [
         pontos_a, pontos_b, sets_a, sets_b, set_atual,
@@ -16575,10 +16698,10 @@ def salvar_estado_manual_partida(partida_id, competicao, estado, operador=None, 
     ]
 
     if "status_operacao" in colunas:
-        sets.append("status_operacao = %s")
+        sets.append("status_operacao = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'finalizada' ELSE %s END")
         params.append("pausada" if pausar else "em_andamento")
     if "status" in colunas:
-        sets.append("status = %s")
+        sets.append("status = CASE WHEN LOWER(COALESCE(status_jogo, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 'finalizada' ELSE %s END")
         params.append("em andamento")
     if "operador_login" in colunas and operador:
         sets.append("operador_login = COALESCE(operador_login, %s)")

@@ -4746,9 +4746,14 @@ function inverterLadosVisual() {
             // Libera o ciclo atual de renderização antes do POST final. Isso
             // evita que a resposta do último ponto ainda esteja atualizando a
             // interface quando o navegador inicia o redirecionamento.
-            window.setTimeout(() => {
-                abrirObservacoesAutomaticamente(estadoFinalParaEncerrar);
-            }, 80);
+            // A resposta oficial do último ponto já foi gravada no banco.
+            // O chamador de registrarPonto faz o redirecionamento direto para
+            // observações; apenas estados locais/socket usam o POST /encerrar.
+            if (String(dados?.fonte || "") !== "resposta_ponto_fetch") {
+                window.setTimeout(() => {
+                    abrirObservacoesAutomaticamente(estadoFinalParaEncerrar);
+                }, 80);
+            }
         } else {
             salvarJogoOfflineLocal(true);
             salvarSnapshotLocalAutomatico("estado_aplicado");
@@ -6731,6 +6736,32 @@ async function registrarPonto(equipe, scout) {
         const msg = dados.ultima_acao || dados.mensagem || "Ponto registrado";
         atualizarUltimaAcao(msg);
         estadoAtual.ultima_acao = msg;
+
+        // No fluxo oficial, o último ponto já fez COMMIT e marcou a partida
+        // como finalizada. Seguimos direto para observações, sem uma segunda
+        // chamada /encerrar que poderia reaplicar snapshot local antigo.
+        const terminouOficialmente = Boolean(
+            dados.fim_jogo === true
+            || dados.partida_finalizada === true
+            || dados.encerrado === true
+            || dados.abrir_observacoes === true
+            || ["finalizada", "encerrado"].includes(String(dados.status_jogo || "").trim().toLowerCase())
+        );
+
+        if (terminouOficialmente) {
+            partidaFinalizada = true;
+            travarBotoes(true);
+            salvarFilaOffline([]);
+            try {
+                localStorage.removeItem(`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`);
+            } catch (e) {}
+            removerJogoOfflineSeFinalizado();
+
+            const destinoObservacoes = dados.url_observacoes
+                || "{{ url_for('apontadores.observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}";
+            window.setTimeout(() => window.location.replace(destinoObservacoes), 120);
+            return;
+        }
 
     } catch (e) {
         // Se a internet cair, preserva localmente, mas avisa. Não sobrescreve

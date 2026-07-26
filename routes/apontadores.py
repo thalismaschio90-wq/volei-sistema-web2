@@ -4318,11 +4318,32 @@ def ponto_view(competicao, partida_id):
 
         _limpar_cache_apontador(competicao)
 
-        return _json_no_cache({
+        resposta_ponto = {
             "ok": True,
             "mensagem": "Ponto registrado com sucesso.",
             **estado
-        })
+        }
+
+        # O último ponto já é confirmado e finalizado dentro de
+        # registrar_ponto_partida(). Nesse fluxo não chamamos /encerrar outra
+        # vez com um snapshot local possivelmente atrasado.
+        if bool(
+            resposta_ponto.get("fim_jogo")
+            or resposta_ponto.get("partida_finalizada")
+            or resposta_ponto.get("encerrado")
+            or str(resposta_ponto.get("status_jogo") or "").strip().lower() in {"finalizada", "encerrado"}
+        ):
+            resposta_ponto["fim_jogo"] = True
+            resposta_ponto["partida_finalizada"] = True
+            resposta_ponto["encerrado"] = True
+            resposta_ponto["abrir_observacoes"] = True
+            resposta_ponto["url_observacoes"] = url_for(
+                "apontadores.observacoes_view",
+                competicao=competicao,
+                partida_id=partida_id,
+            )
+
+        return _json_no_cache(resposta_ponto)
 
     except Exception as e:
         print("ERRO ponto_view:", e, flush=True)
