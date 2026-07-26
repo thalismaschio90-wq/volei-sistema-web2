@@ -3797,9 +3797,23 @@ def salvar_papeleta_view(competicao, partida_id):
     ]
 
     try:
-        inicializar_jogo_partida(partida_id, competicao)
+        partida_inicializada = inicializar_jogo_partida(partida_id, competicao)
+        # A inicialização pode atualizar set_atual, placar de sets, saque e lados.
+        # Nunca monte o cache com a linha lida antes dessa atualização.
+        partida = partida_inicializada or buscar_partida_operacional(partida_id, competicao) or partida
     except Exception as e:
         print("ERRO inicializar_jogo_partida:", repr(e), flush=True)
+        try:
+            partida = buscar_partida_operacional(partida_id, competicao) or partida
+        except Exception:
+            pass
+
+    # Reconfirma a ordem operacional após a inicialização. O placar de sets
+    # continua pertencendo às equipes originais do confronto; apenas os lados
+    # visuais mudam entre os sets.
+    equipe_a = partida.get("equipe_a_operacional") or partida.get("equipe_a") or equipe_a
+    equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b") or equipe_b
+    set_atual = int(partida.get("set_atual") or set_atual or 1)
 
     estado = {
         "ok": True,
@@ -3807,6 +3821,10 @@ def salvar_papeleta_view(competicao, partida_id):
         "partida_id": partida_id,
         "equipe_a": equipe_a or "",
         "equipe_b": equipe_b or "",
+        "equipe_a_operacional": equipe_a or "",
+        "equipe_b_operacional": equipe_b or "",
+        "equipe_a_cadastro": partida.get("equipe_a") or equipe_a or "",
+        "equipe_b_cadastro": partida.get("equipe_b") or equipe_b or "",
         "pontos_a": int(partida.get("pontos_a") or 0),
         "pontos_b": int(partida.get("pontos_b") or 0),
         "placar_a": int(partida.get("pontos_a") or 0),
@@ -4052,6 +4070,8 @@ def jogo_view(competicao, partida_id):
     estado["equipe_b"] = equipe_b_op
     estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
 
+    # Estes campos são autoritativos no banco. Um cache do set anterior não pode
+    # fazer a tela voltar para o 1º set nem zerar o placar acumulado.
     for campo, padrao in (
         ("pontos_a", partida.get("pontos_a") or 0),
         ("pontos_b", partida.get("pontos_b") or 0),
@@ -4059,8 +4079,7 @@ def jogo_view(competicao, partida_id):
         ("sets_b", partida.get("sets_b") or 0),
         ("set_atual", partida.get("set_atual") or 1),
     ):
-        if estado.get(campo) in (None, ""):
-            estado[campo] = padrao
+        estado[campo] = padrao
 
     estado["placar_a"] = estado.get("placar_a", estado.get("pontos_a", 0))
     estado["placar_b"] = estado.get("placar_b", estado.get("pontos_b", 0))
@@ -4688,6 +4707,65 @@ def salvar_estado_manual_view(competicao, partida_id):
         }, 500)
 
 
+def _garantir_tabela_eventos_sincronizados():
+    """Registra IDs locais já persistidos para tornar lotes idempotentes."""
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS apontador_eventos_sincronizados (
+                    partida_id INTEGER NOT NULL,
+                    competicao TEXT NOT NULL,
+                    id_local TEXT NOT NULL,
+                    set_numero INTEGER,
+                    sincronizado_em TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (partida_id, competicao, id_local)
+                )
+            """)
+        conn.commit()
+
+
+def _ids_eventos_ja_sincronizados(partida_id, competicao, ids_locais):
+    ids = [str(x).strip() for x in (ids_locais or []) if str(x).strip()]
+    if not ids:
+        return set()
+    _garantir_tabela_eventos_sincronizados()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id_local
+                FROM apontador_eventos_sincronizados
+                WHERE partida_id = %s AND competicao = %s AND id_local = ANY(%s)
+            """, (partida_id, competicao, ids))
+            return {str(row.get("id_local") or "") for row in (cur.fetchall() or [])}
+
+
+def _marcar_eventos_sincronizados(partida_id, competicao, eventos):
+    linhas = []
+    for item in eventos or []:
+        if not isinstance(item, dict):
+            continue
+        id_local = str(item.get("id_local") or "").strip()
+        if not id_local:
+            continue
+        try:
+            set_numero = int(item.get("set_numero") or (item.get("payload") or {}).get("set_numero") or 0) or None
+        except Exception:
+            set_numero = None
+        linhas.append((partida_id, competicao, id_local, set_numero))
+    if not linhas:
+        return
+    _garantir_tabela_eventos_sincronizados()
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO apontador_eventos_sincronizados
+                    (partida_id, competicao, id_local, set_numero)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (partida_id, competicao, id_local) DO NOTHING
+            """, linhas)
+        conn.commit()
+
+
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/sincronizar", methods=["POST"])
 @exigir_perfil("apontador")
 def sincronizar_acao_view(competicao, partida_id):
@@ -4696,17 +4774,52 @@ def sincronizar_acao_view(competicao, partida_id):
         if not ok_lock:
             return _erro_operador_json(msg_lock)
 
-        # Offline-first oficial: sincronização intermediária não grava banco.
-        # A fila completa só é persistida em /encerrar.
+        corpo = request.get_json(silent=True) or {}
+        eventos_lote = corpo.get("eventos") if isinstance(corpo.get("eventos"), list) else None
+
+        # No fim de cada set, a tela envia somente o lote daquele set em segundo
+        # plano. A ida para a papeleta não aguarda esta resposta. IDs locais
+        # tornam a operação idempotente em caso de queda ou reenvio.
+        if eventos_lote is not None:
+            ids = [str(item.get("id_local") or "").strip() for item in eventos_lote if isinstance(item, dict)]
+            ja_sincronizados = _ids_eventos_ja_sincronizados(partida_id, competicao, ids)
+            pendentes = [
+                item for item in eventos_lote
+                if isinstance(item, dict)
+                and str(item.get("id_local") or "").strip()
+                and str(item.get("id_local") or "").strip() not in ja_sincronizados
+            ]
+
+            confirmados = list(ja_sincronizados)
+            processados = []
+            confirmados_novos = []
+            for item in pendentes:
+                resultado = _persistir_eventos_finais_partida(partida_id, competicao, [item])
+                processados.extend(resultado or [])
+                if resultado and all(bool(r.get("ok")) for r in resultado if isinstance(r, dict)):
+                    confirmados_novos.append(item)
+                    confirmados.append(str(item.get("id_local") or "").strip())
+
+            _marcar_eventos_sincronizados(partida_id, competicao, confirmados_novos)
+            return _json_no_cache({
+                "ok": True,
+                "lote_sincronizado": True,
+                "set_numero": corpo.get("set_numero"),
+                "eventos_confirmados": confirmados,
+                "quantidade_recebida": len(eventos_lote),
+                "quantidade_processada": len(confirmados_novos),
+                "processados": processados,
+            }, 200)
+
+        # Chamadas unitárias antigas continuam sem persistência automática.
         estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
         return _json_no_cache({
             "ok": True,
             "ignorado": True,
-            "mensagem": "Sincronização intermediária desativada. Banco salva somente ao finalizar a partida.",
+            "mensagem": "Ação unitária mantida localmente; lotes são sincronizados ao fim do set.",
             **estado_atual
         }, 200)
 
-        corpo = request.get_json(silent=True) or {}
         tipo = (corpo.get("tipo") or "").strip().lower()
         equipe = (corpo.get("equipe") or "").strip().upper()
 
@@ -5332,6 +5445,90 @@ def _persistir_pacote_operacao_local(partida_id, competicao, pacote):
     return True
 
 
+def _persistir_estado_final_cliente(partida_id, competicao, estado_final_cliente, pacote_operacao=None):
+    """Grava explicitamente o estado final recebido do apontador antes de validar o encerramento.
+
+    O jogo opera localmente. Por isso o banco pode estar um set atrás quando o último
+    ponto é marcado. Esta função torna o payload final a fonte de verdade do fechamento,
+    grava placar/sets/rotações e confirma a leitura antes de chamar encerrar_partida().
+    """
+    estado_cliente = dict(estado_final_cliente or {})
+    pacote = pacote_operacao if isinstance(pacote_operacao, dict) else {}
+
+    # Compatibilidade com pacotes que também carregam o estado dentro da operação local.
+    estado_pacote = pacote.get("estado_final") or pacote.get("estado") or {}
+    if isinstance(estado_pacote, dict):
+        combinado = dict(estado_pacote)
+        combinado.update(estado_cliente)
+        estado_cliente = combinado
+
+    if not estado_cliente:
+        return buscar_estado_jogo_partida(partida_id, competicao) or {}
+
+    def _int_final(valor, padrao=0):
+        try:
+            if valor in (None, ""):
+                return padrao
+            return int(valor)
+        except Exception:
+            return padrao
+
+    estado_cliente["pontos_a"] = _int_final(
+        estado_cliente.get("pontos_a", estado_cliente.get("placar_a", 0)), 0
+    )
+    estado_cliente["pontos_b"] = _int_final(
+        estado_cliente.get("pontos_b", estado_cliente.get("placar_b", 0)), 0
+    )
+    estado_cliente["placar_a"] = estado_cliente["pontos_a"]
+    estado_cliente["placar_b"] = estado_cliente["pontos_b"]
+    estado_cliente["sets_a"] = _int_final(estado_cliente.get("sets_a"), 0)
+    estado_cliente["sets_b"] = _int_final(estado_cliente.get("sets_b"), 0)
+    estado_cliente["set_atual"] = max(1, _int_final(estado_cliente.get("set_atual"), 1))
+
+    # Persiste o snapshot vivo completo (placar, sets, rotação e disciplina).
+    salvo = salvar_estado_manual_partida(
+        partida_id,
+        competicao,
+        estado_cliente,
+        operador=_login_apontador_sessao(),
+        pausar=False,
+    ) or {}
+
+    # Persiste também as parciais e campos finais que não fazem parte do snapshot manual.
+    valores_extras = {}
+    for numero_set in range(1, 6):
+        for lado in ("a", "b"):
+            campo = f"set{numero_set}_{lado}"
+            if estado_cliente.get(campo) not in (None, ""):
+                valores_extras[campo] = _int_final(estado_cliente.get(campo), 0)
+
+    for campo in ("tipo_encerramento", "sets_tipo", "sets_max", "sets_para_vencer"):
+        if estado_cliente.get(campo) not in (None, ""):
+            valores_extras[campo] = estado_cliente.get(campo)
+
+    if valores_extras:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                _atualizar_partida_campos_existentes(
+                    cur, partida_id, competicao, valores_extras
+                )
+            conn.commit()
+
+    confirmado = buscar_estado_jogo_partida(partida_id, competicao) or salvo or {}
+    esperado_a = estado_cliente["sets_a"]
+    esperado_b = estado_cliente["sets_b"]
+    confirmado_a = _int_final(confirmado.get("sets_a"), -1)
+    confirmado_b = _int_final(confirmado.get("sets_b"), -1)
+
+    if confirmado_a != esperado_a or confirmado_b != esperado_b:
+        raise RuntimeError(
+            "O estado final não foi confirmado no banco "
+            f"(esperado {esperado_a} x {esperado_b}, confirmado {confirmado_a} x {confirmado_b})."
+        )
+
+    return confirmado
+
+
 @apontadores_bp.route("/apontador/jogo/<competicao>/<int:partida_id>/encerrar", methods=["POST"])
 @exigir_perfil("apontador")
 def encerrar_partida_view(competicao, partida_id):
@@ -5354,12 +5551,33 @@ def encerrar_partida_view(competicao, partida_id):
         eventos = corpo.get("eventos") if isinstance(corpo, dict) else []
         estado_final_cliente = corpo.get("estado_final") if isinstance(corpo.get("estado_final"), dict) else {}
 
-        # ÚNICO MOMENTO EM QUE A FILA LOCAL DO APONTADOR VAI PARA O BANCO.
-        processados = _persistir_eventos_finais_partida(partida_id, competicao, eventos)
+        # Sets anteriores podem já ter sido sincronizados em segundo plano.
+        # No encerramento processamos somente os IDs ainda pendentes.
+        ids_eventos = [str(item.get("id_local") or "").strip() for item in eventos if isinstance(item, dict)]
+        ja_sincronizados = _ids_eventos_ja_sincronizados(partida_id, competicao, ids_eventos)
+        eventos_pendentes = [
+            item for item in eventos
+            if not isinstance(item, dict)
+            or not str(item.get("id_local") or "").strip()
+            or str(item.get("id_local") or "").strip() not in ja_sincronizados
+        ]
+        processados = _persistir_eventos_finais_partida(partida_id, competicao, eventos_pendentes)
+        eventos_ok = []
+        for item, resultado in zip(eventos_pendentes, processados):
+            if isinstance(item, dict) and isinstance(resultado, dict) and resultado.get("ok"):
+                eventos_ok.append(item)
+        _marcar_eventos_sincronizados(partida_id, competicao, eventos_ok)
 
-        estado = buscar_estado_jogo_partida(partida_id, competicao)
-        if not estado:
-            estado = dict(obter_estado_cache(partida_id) or estado_final_cliente or {})
+        # O apontador é a fonte de verdade no modo local. Grava e confirma o
+        # placar final ANTES de pedir ao banco que valide o encerramento.
+        if estado_final_cliente:
+            estado = _persistir_estado_final_cliente(
+                partida_id, competicao, estado_final_cliente, pacote_operacao
+            )
+        else:
+            estado = buscar_estado_jogo_partida(partida_id, competicao)
+            if not estado:
+                estado = dict(obter_estado_cache(partida_id) or {})
 
         ok_encerrar, msg_encerrar = encerrar_partida(partida_id, competicao, observacoes)
         estado = buscar_estado_jogo_partida(partida_id, competicao) or estado or {}

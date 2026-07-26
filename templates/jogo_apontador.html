@@ -3175,7 +3175,10 @@ function montarPayloadTempoReal(extra = {}) {
             cartoes_verdes_a: Array.isArray(estadoAtual?.cartoes_verdes_a) ? estadoAtual.cartoes_verdes_a : verdesA,
             cartoes_verdes_b: Array.isArray(estadoAtual?.cartoes_verdes_b) ? estadoAtual.cartoes_verdes_b : verdesB,
             timestamp_local: Date.now(),
-            scout_por_lado: scoutLocalPorLado
+            scout_por_lado: scoutLocalPorLado,
+            lados_invertidos_apontador: !!ladosInvertidos,
+            lados_invertidos: !!ladosInvertidos,
+            quadra_invertida: !!ladosInvertidos
         };
     }
 
@@ -4409,8 +4412,7 @@ function inverterLadosVisual() {
                         try { return JSON.parse(localStorage.getItem(`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`) || "{}"); }
                         catch (e) { return {}; }
                     })()
-                }),
-                keepalive: true
+                })
             });
             const retorno = await resposta.json().catch(() => ({}));
             if (!resposta.ok || retorno.ok === false) {
@@ -4584,6 +4586,18 @@ function inverterLadosVisual() {
         const totalNovo = novoA + novoB;
 
         const setNovo = numeroInteiro(dados.set_atual ?? setAnterior, setAnterior);
+
+        // Nunca aceita eco atrasado de um set anterior. No modo local, ao abrir o
+        // set seguinte o cache/banco pode ainda estar no set 1/2/3 por alguns segundos.
+        // Esse retorno antigo era o responsável por a tela "zerar" no primeiro ponto.
+        const fontePodeEstarAtrasada = fonteEstado.includes("socket")
+            || fonteEstado.includes("sync")
+            || fonteEstado.includes("banco")
+            || fonteEstado.includes("poll");
+        if (!ehDesfazer && fontePodeEstarAtrasada && setNovo < setAnterior) {
+            return;
+        }
+
         const setsNovoA = numeroInteiro(dados.sets_a ?? setsAnteriorA, setsAnteriorA);
         const setsNovoB = numeroInteiro(dados.sets_b ?? setsAnteriorB, setsAnteriorB);
         const mudouSetOuPlacarDeSets = setNovo > setAnterior || setsNovoA > setsAnteriorA || setsNovoB > setsAnteriorB || !!dados.fim_set || !!dados.set_finalizado;
@@ -4631,6 +4645,10 @@ function inverterLadosVisual() {
 
         estadoAtual.rotacao_a = rotA;
         estadoAtual.rotacao_b = rotB;
+
+        // Os escudos pertencem às equipes, não às colunas visuais. Recalcula após
+        // qualquer estado ou troca de lado para acompanharem nome, rotação e placar.
+        atualizarEscudosDoJogo(estadoAtual);
         if (setAtual) setAtual.textContent = `${estadoAtual.set_atual ?? 1}º SET`;
 
         if (dados.saque_atual !== undefined && dados.saque_atual !== null) {
@@ -4685,6 +4703,8 @@ function inverterLadosVisual() {
 
         if (dados.fim_set && !dados.partida_finalizada) {
             atualizarUltimaAcao(dados.ultima_acao || "Set finalizado");
+            // Dispara o lote do set encerrado sem bloquear a ida para a papeleta.
+            sincronizarSetEmSegundoPlano(setAnterior, true);
             travarBotoes(true);
 
             const destinoFluxo = dados.url_redirecionamento
@@ -4708,11 +4728,27 @@ function inverterLadosVisual() {
         if (partidaFinalizada) {
             salvarSnapshotLocalAutomatico("partida_finalizada");
 
-            // Se o servidor ou o socket avisar que a partida acabou, mantém o mesmo fluxo:
-            // ir para observações, não ficar parado na tela do jogo.
-            if (dados?.abrir_observacoes || dados?.partida_finalizada || dados?.encerrado) {
-                abrirObservacoesAutomaticamente(dados);
-            }
+            // A própria tela já confirmou que alguém atingiu o número de sets
+            // necessário. Não dependemos mais de flags opcionais do payload,
+            // porque algumas respostas de ponto trazem apenas sets/status.
+            // Sintetizamos as flags finais e iniciamos o único envio definitivo.
+            const estadoFinalParaEncerrar = {
+                ...estadoAtual,
+                ...(dados && typeof dados === "object" ? dados : {}),
+                partida_finalizada: true,
+                fim_jogo: true,
+                encerrado: true,
+                abrir_observacoes: true,
+                status_jogo: String(dados?.status_jogo || estadoAtual?.status_jogo || "finalizada"),
+                fase_partida: String(dados?.fase_partida || estadoAtual?.fase_partida || "encerrado")
+            };
+
+            // Libera o ciclo atual de renderização antes do POST final. Isso
+            // evita que a resposta do último ponto ainda esteja atualizando a
+            // interface quando o navegador inicia o redirecionamento.
+            window.setTimeout(() => {
+                abrirObservacoesAutomaticamente(estadoFinalParaEncerrar);
+            }, 80);
         } else {
             salvarJogoOfflineLocal(true);
             salvarSnapshotLocalAutomatico("estado_aplicado");
@@ -6327,10 +6363,12 @@ function salvarFilaOffline(fila) {
 
 function adicionarFilaOffline(tipo, payload) {
     const fila = carregarFilaOffline();
+    const setNumeroEvento = numeroInteiro(estadoAtual?.set_atual ?? 1, 1);
     fila.push({
         id_local: (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random(),
         tipo,
-        payload,
+        payload: { ...(payload || {}), set_numero: setNumeroEvento },
+        set_numero: setNumeroEvento,
         criada_em: new Date().toISOString()
     });
     salvarFilaOffline(fila);
@@ -6517,15 +6555,68 @@ async function enviarAcaoRapida(tipo, payload, aoSucesso) {
     return true;
 }
 
-async function sincronizarFilaOffline() {
-    // Intencionalmente vazio durante o jogo.
-    // A fila fica local e deve ser enviada apenas no fechamento/finalização da partida.
-    return;
+let sincronizacaoSetEmAndamento = false;
+
+async function sincronizarSetEmSegundoPlano(setNumero, usarKeepalive = false) {
+    setNumero = numeroInteiro(setNumero, 0);
+    if (!setNumero || sincronizacaoSetEmAndamento || !navigator.onLine) return false;
+
+    const fila = carregarFilaOffline();
+    const lote = fila.filter(item => numeroInteiro(item?.set_numero ?? item?.payload?.set_numero, 0) === setNumero);
+    if (!lote.length) return true;
+
+    sincronizacaoSetEmAndamento = true;
+    try {
+        const resposta = await fetch(URLS_ACAO.sincronizar, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+            body: JSON.stringify({ set_numero: setNumero, eventos: lote }),
+            keepalive: !!usarKeepalive
+        });
+        const dados = await resposta.json().catch(() => ({}));
+        if (!resposta.ok || dados.ok === false) throw new Error(dados.mensagem || "Falha ao sincronizar set.");
+
+        const confirmados = new Set((dados.eventos_confirmados || []).map(String));
+        if (confirmados.size) {
+            salvarFilaOffline(carregarFilaOffline().filter(item => !confirmados.has(String(item?.id_local || ""))));
+        }
+        return true;
+    } catch (erro) {
+        console.warn(`Set ${setNumero} ficou pendente para nova tentativa.`, erro);
+        return false;
+    } finally {
+        sincronizacaoSetEmAndamento = false;
+    }
 }
 
-// Sem sincronização automática durante a partida.
-window.addEventListener("online", () => {});
+async function sincronizarFilaOffline() {
+    const sets = [...new Set(carregarFilaOffline().map(item => numeroInteiro(item?.set_numero ?? item?.payload?.set_numero, 0)).filter(Boolean))];
+    for (const setNumero of sets) await sincronizarSetEmSegundoPlano(setNumero, false);
+}
 
+window.addEventListener("online", () => { sincronizarFilaOffline(); });
+
+
+function inverterLadosAutomaticamenteParaNovoSet(setEncerrado) {
+    const numeroSet = numeroInteiro(setEncerrado, 0);
+    if (!numeroSet) return;
+
+    // Cada encerramento de set troca os lados uma única vez. A marca fica no
+    // estado local para impedir inversão duplicada em clique/reload/reconexão.
+    const ultima = numeroInteiro(estadoAtual?.ultima_inversao_automatica_set, 0);
+    if (ultima >= numeroSet) return;
+
+    ladosInvertidos = !ladosInvertidos;
+    window.ladosInvertidos = ladosInvertidos;
+    estadoAtual.ultima_inversao_automatica_set = numeroSet;
+    estadoAtual.lados_invertidos_apontador = !!ladosInvertidos;
+    estadoAtual.lados_invertidos = !!ladosInvertidos;
+    estadoAtual.quadra_invertida = !!ladosInvertidos;
+
+    localStorage.setItem(CHAVE_INVERSAO_QUADRA, ladosInvertidos ? "1" : "0");
+    avisarPlacarAoVivoSobreInversao();
+    atualizarEscudosVisuais();
+}
 
 async function registrarPonto(equipe, scout) {
     if (enviando || partidaFinalizada) return;
@@ -6584,6 +6675,7 @@ async function registrarPonto(equipe, scout) {
                     estadoAtual.partida_finalizada = true;
                     await abrirObservacoesAutomaticamente(estadoAtual);
                 } else {
+                    inverterLadosAutomaticamenteParaNovoSet(setAtualLocal);
                     estadoAtual.set_atual = setAtualLocal + 1;
                     estadoAtual.pontos_a = estadoAtual.placar_a = 0;
                     estadoAtual.pontos_b = estadoAtual.placar_b = 0;

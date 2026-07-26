@@ -1037,6 +1037,23 @@ def estado_avulso_local_socket(data):
     data["modo_avulso"] = True
     data["competicao"] = data.get("competicao") or "JOGO AVULSO"
     payload = _normalizar_payload(partida_id, data)
+
+    # Proteção contra regressão de set: após a troca local para o próximo set,
+    # uma aba/reconexão atrasada não pode recolocar o cache no set anterior e
+    # retransmitir 0x0/1º set para apontador, árbitros e telão.
+    cache_anterior = _ESTADO_PARTIDAS.get(_room(partida_id)) or {}
+    set_cache = _to_int(cache_anterior.get("set_atual"), 1)
+    set_recebido = _to_int(payload.get("set_atual"), 1)
+    permite_regressao = _to_bool(data.get("permitir_regressao_set"), False)
+    if cache_anterior and set_recebido < set_cache and not permite_regressao:
+        socketio.emit("estado_partida_local_ok", {
+            "ok": True,
+            "ignorado_por_estado_antigo": True,
+            "partida_id": partida_id,
+            "set_atual": set_cache,
+        }, room=request.sid)
+        return
+
     _ESTADO_PARTIDAS[_room(partida_id)] = payload
 
     eventos = (

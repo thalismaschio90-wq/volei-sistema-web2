@@ -543,10 +543,20 @@ function boolInversao(valor) {
 }
 
 function getInvertidoVisual(dados) {
-    // 100% visual e local desta tela.
-    // Não usa lados_invertidos_apontador/lados_invertidos vindos do socket,
-    // para o telão não mexer e não seguir a lógica do apontador.
-    return localStorage.getItem(chaveInversao(dados || {})) === "1";
+    dados = dados || {};
+
+    // Por padrão, o placar acompanha exatamente a troca de lados do apontador,
+    // inclusive a troca automática entre sets. Só usa uma preferência local se
+    // o operador do próprio telão tiver clicado manualmente em "Inverter".
+    const chave = chaveInversao(dados);
+    const override = localStorage.getItem(chave);
+    if (override === "0" || override === "1") return override === "1";
+
+    return boolInversao(
+        dados.lados_invertidos_apontador ??
+        dados.lados_invertidos ??
+        dados.quadra_invertida
+    );
 }
 
 function setInvertidoVisual(dados, valor) {
@@ -566,9 +576,19 @@ socket.on("connect", () => {
     }
 });
 
-socket.on("inversao_lados_apontador", () => {
-    // O telão agora ignora a inversão do apontador.
-    // A inversão desta tela é somente visual/local e permanece salva no localStorage.
+socket.on("inversao_lados_apontador", (dados) => {
+    if (!dados || typeof dados !== "object") return;
+    ultimoEstado = {
+        ...(ultimoEstado || {}),
+        lados_invertidos_apontador: boolInversao(dados.lados_invertidos_apontador ?? dados.invertido),
+        lados_invertidos: boolInversao(dados.lados_invertidos_apontador ?? dados.invertido),
+        quadra_invertida: boolInversao(dados.lados_invertidos_apontador ?? dados.invertido)
+    };
+
+    // Remove override antigo para a troca oficial do apontador voltar a comandar
+    // nomes, pontos, cores e escudos no placar profissional.
+    localStorage.removeItem(chaveInversao(ultimoEstado));
+    aplicarEstado(ultimoEstado);
 });
 
 window.addEventListener("storage", (ev) => {

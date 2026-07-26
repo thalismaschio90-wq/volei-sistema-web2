@@ -627,6 +627,33 @@ document.getElementById("form-papeleta").addEventListener("submit", function(e) 
     btn.disabled = true;
     btn.innerText = "Iniciando jogo...";
 });
+
+
+// Enquanto o apontador prepara a nova papeleta, sincroniza em segundo plano
+// os lotes dos sets anteriores. O formulário não espera por esta operação.
+(function sincronizarSetsAnterioresNaPapeleta(){
+    const filaKey = `fila_offline_jogo_{{ partida.id }}`;
+    const setAtualPagina = Number({{ (partida.set_atual or 1)|tojson }}) || 1;
+    let fila = [];
+    try { fila = JSON.parse(localStorage.getItem(filaKey) || "[]"); } catch (e) { fila = []; }
+    const lote = fila.filter(item => Number(item?.set_numero ?? item?.payload?.set_numero ?? 0) < setAtualPagina);
+    if (!lote.length || !navigator.onLine) return;
+
+    fetch("{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+        body: JSON.stringify({ set_numero: setAtualPagina - 1, eventos: lote })
+    }).then(r => r.json().then(d => ({ ok: r.ok, dados: d })))
+      .then(({ok, dados}) => {
+          if (!ok || dados.ok === false) return;
+          const confirmados = new Set((dados.eventos_confirmados || []).map(String));
+          if (!confirmados.size) return;
+          let atual = [];
+          try { atual = JSON.parse(localStorage.getItem(filaKey) || "[]"); } catch (e) {}
+          localStorage.setItem(filaKey, JSON.stringify(atual.filter(item => !confirmados.has(String(item?.id_local || "")))));
+      })
+      .catch(err => console.warn("Sincronização do set anterior continuará pendente.", err));
+})();
 </script>
 
 {% endblock %}
