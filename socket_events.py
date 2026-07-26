@@ -299,8 +299,8 @@ def _validar_operador_socket(partida_id, competicao, data):
 # CACHE
 # =========================
 def obter_estado_cache(partida_id):
-    # Nunca entrega a referência interna do cache. Listas/dicionários de rotação
-    # e status eram alterados por uma requisição enquanto outra os emitia.
+    # Nunca entrega a referência interna. Uma substituição que alterasse um
+    # dict/lista aninhado podia modificar o cache inteiro sem intenção.
     with _ESTADO_PARTIDAS_LOCK:
         estado = _ESTADO_PARTIDAS.get(_room(partida_id))
         return copy.deepcopy(estado) if estado is not None else None
@@ -312,9 +312,10 @@ def atualizar_estado_cache(partida_id, dados):
     if not sala:
         return
 
-    payload = _normalizar_payload(partida_id, copy.deepcopy(dados or {}))
+
+    normalizado = _normalizar_payload(partida_id, copy.deepcopy(dados or {}))
     with _ESTADO_PARTIDAS_LOCK:
-        _ESTADO_PARTIDAS[sala] = payload
+        _ESTADO_PARTIDAS[sala] = normalizado
 
 
 def limpar_estado_cache(partida_id):

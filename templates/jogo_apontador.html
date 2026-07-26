@@ -4561,6 +4561,16 @@ function inverterLadosVisual() {
     }
 
 
+
+function haSubstituicaoLocalPendente(setNumero) {
+    setNumero = numeroInteiro(setNumero, 0);
+    return carregarFilaOffline().some(item => {
+        const tipo = String(item?.tipo || "").toLowerCase();
+        const setItem = numeroInteiro(item?.set_numero ?? item?.payload?.set_numero, 0);
+        return setItem === setNumero && (tipo === "substituicao" || tipo === "substituicao_excepcional");
+    });
+}
+
     function aplicarEstado(dados, opcoes = {}) {
         if (!dados) return;
         dados = normalizarRespostaJogo(dados);
@@ -4614,9 +4624,22 @@ function inverterLadosVisual() {
         const fezPontoA = podeAtualizarPlacar && novoA > atualA;
         const fezPontoB = podeAtualizarPlacar && novoB > atualB;
 
+        // Enquanto houver substituição local ainda não consolidada no fim do set,
+        // uma resposta antiga do banco/socket não pode restaurar a formação inicial.
+        const preservarFormacaoLocal = !mudouSetOuPlacarDeSets && haSubstituicaoLocalPendente(setAnterior);
+        const formacaoLocalProtegida = preservarFormacaoLocal ? {
+            rotacao_a: Array.isArray(rotA) ? [...rotA] : [],
+            rotacao_b: Array.isArray(rotB) ? [...rotB] : [],
+            subs_a: numeroInteiro(estadoAtual?.subs_a, 0),
+            subs_b: numeroInteiro(estadoAtual?.subs_b, 0),
+            status_jogadores_a: structuredClone(estadoAtual?.status_jogadores_a || statusJogadoresA || {}),
+            status_jogadores_b: structuredClone(estadoAtual?.status_jogadores_b || statusJogadoresB || {})
+        } : null;
+
         estadoAtual = {
             ...(estadoAtual || {}),
             ...dados,
+            ...(formacaoLocalProtegida || {}),
             pontos_a: pontosAplicadosA,
             pontos_b: pontosAplicadosB,
             placar_a: pontosAplicadosA,
@@ -4671,8 +4694,13 @@ function inverterLadosVisual() {
         if (subsLimiteEl && dados.limite_substituicoes !== undefined && dados.limite_substituicoes !== null) {
             subsLimiteEl.textContent = dados.limite_substituicoes;
         }
-        if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) statusJogadoresA = dados.status_jogadores_a;
-        if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) statusJogadoresB = dados.status_jogadores_b;
+        if (preservarFormacaoLocal) {
+            statusJogadoresA = estadoAtual.status_jogadores_a || statusJogadoresA;
+            statusJogadoresB = estadoAtual.status_jogadores_b || statusJogadoresB;
+        } else {
+            if (dados.status_jogadores_a !== undefined && dados.status_jogadores_a !== null) statusJogadoresA = dados.status_jogadores_a;
+            if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) statusJogadoresB = dados.status_jogadores_b;
+        }
         if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) sancoesA = Array.isArray(dados.sancoes_a) ? dados.sancoes_a : sancoesA;
         if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) sancoesB = Array.isArray(dados.sancoes_b) ? dados.sancoes_b : sancoesB;
         if (dados.cartoes_vermelhos_a !== undefined && dados.cartoes_vermelhos_a !== null) vermelhosA = Array.isArray(dados.cartoes_vermelhos_a) ? dados.cartoes_vermelhos_a : vermelhosA;

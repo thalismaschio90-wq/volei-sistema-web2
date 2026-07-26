@@ -228,12 +228,29 @@ def _erro_conexao_quebrada(exc):
         "server closed the connection",
         "terminating connection",
         "the connection is lost",
-        "couldn't get a connection",
-        "pooltimeout",
         "pool closed",
+        "network is unreachable",
+        "connection timeout expired",
+        "could not translate host name",
     )
     return any(t in mensagem for t in termos)
 
+
+
+def _erro_pool_saturado(exc):
+    """Distingue fila cheia de conexão realmente quebrada.
+
+    PoolTimeout não significa que o pool morreu; significa apenas que todas as
+    conexões estavam ocupadas. Fechar/recriar o pool nessa situação cria novos
+    workers internos e agrava a indisponibilidade no Render/Neon.
+    """
+    mensagem = repr(exc).lower()
+    return any(t in mensagem for t in (
+        "pooltimeout",
+        "couldn't get a connection",
+        "could not get a connection",
+        "pool is full",
+    ))
 
 def _conexao_fechada_ou_ruim(conn):
     if conn is None:
@@ -328,7 +345,9 @@ def conectar():
         except Exception as e:
             print("AVISO: pool do banco indisponível:", repr(e), flush=True)
 
-            if _erro_conexao_quebrada(e):
+            # PoolTimeout é saturação momentânea, não corrupção do pool.
+            # Só recriamos o pool quando a conexão está realmente quebrada.
+            if _erro_conexao_quebrada(e) and not _erro_pool_saturado(e):
                 _fechar_pool_quebrado()
 
             fallback_ligado = str(
@@ -372,7 +391,7 @@ def conectar():
     # =====================================================
     limite_fallback = _env_int(
         "DB_DIRECT_FALLBACK_MAX",
-        2,
+        1,
         minimo=0,
         maximo=6,
     )
