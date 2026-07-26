@@ -2425,7 +2425,7 @@ body {
         <div class="pc-team-info">
             <div id="nome-a" class="pc-team-name">{{ nome_equipe_a_jogo }}</div>
             <div class="pc-team-icons">
-                <span title="Tempos restantes">🕒<strong id="tempo-restante-a">{{ estado.tempos_restantes_a if estado.tempos_restantes_a is defined else 2 }}</strong></span>
+                <span title="Tempos restantes">🕒<strong id="tempo-restante-a">{{ estado.tempos_restantes_a if estado.tempos_restantes_a is defined else (estado.limite_tempos if estado.limite_tempos is defined else 2) }}</strong></span>
                 <span title="Substituições">🔁<strong id="subs-a">{{ estado.subs_a if estado.subs_a is defined else 0 }}</strong></span>
                 <span title="Cartões amarelos">🟨<strong id="sancoes-a">{{ estado.sancoes_a|length if estado.sancoes_a is defined else 0 }}</strong></span>
                 <span title="Cartões vermelhos">🟥<strong id="vermelhos-a">{{ estado.cartoes_vermelhos_a|length if estado.cartoes_vermelhos_a is defined else 0 }}</strong></span>
@@ -2443,7 +2443,7 @@ body {
         <div class="pc-team-info pc-team-info-right">
             <div id="nome-b" class="pc-team-name">{{ nome_equipe_b_jogo }}</div>
             <div class="pc-team-icons">
-                <span title="Tempos restantes">🕒<strong id="tempo-restante-b">{{ estado.tempos_restantes_b if estado.tempos_restantes_b is defined else 2 }}</strong></span>
+                <span title="Tempos restantes">🕒<strong id="tempo-restante-b">{{ estado.tempos_restantes_b if estado.tempos_restantes_b is defined else (estado.limite_tempos if estado.limite_tempos is defined else 2) }}</strong></span>
                 <span title="Substituições">🔁<strong id="subs-b">{{ estado.subs_b if estado.subs_b is defined else 0 }}</strong></span>
                 <span title="Cartões amarelos">🟨<strong id="sancoes-b">{{ estado.sancoes_b|length if estado.sancoes_b is defined else 0 }}</strong></span>
                 <span title="Cartões vermelhos">🟥<strong id="vermelhos-b">{{ estado.cartoes_vermelhos_b|length if estado.cartoes_vermelhos_b is defined else 0 }}</strong></span>
@@ -2858,6 +2858,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     const sancoesBEl = document.getElementById("sancoes-b");
     const verdesAEl = document.getElementById("verdes-a");
     const verdesBEl = document.getElementById("verdes-b");
+    const vermelhosAEl = document.getElementById("vermelhos-a");
+    const vermelhosBEl = document.getElementById("vermelhos-b");
     const quadraAEl = document.getElementById("quadra-a");
     const quadraBEl = document.getElementById("quadra-b");
     const tituloQuadraEsquerdaEl = document.getElementById("titulo-quadra-esquerda");
@@ -2931,7 +2933,9 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
         pontos_set: {{ (estado.get('pontos_set') or estado.get('ponto_alvo_set') or estado.get('pontos_para_vencer_set') or partida.get('pontos_set') or 25) | tojson }},
         pontos_tiebreak: {{ (estado.get('pontos_tiebreak') or partida.get('pontos_tiebreak') or 15) | tojson }},
         diferenca_minima: {{ (estado.get('diferenca_minima') or partida.get('diferenca_minima') or 2) | tojson }},
-        sets_para_vencer: {{ (estado.get('sets_para_vencer') or partida.get('sets_para_vencer') or 0) | tojson }}
+        sets_para_vencer: {{ (estado.get('sets_para_vencer') or partida.get('sets_para_vencer') or 0) | tojson }},
+        limite_tempos: {{ (estado.get('limite_tempos') if estado.get('limite_tempos') is not none else (estado.get('tempos_por_set') if estado.get('tempos_por_set') is not none else (partida.get('tempos_por_set') if partida.get('tempos_por_set') is not none else 2))) | tojson }},
+        limite_substituicoes: {{ (estado.get('limite_substituicoes') if estado.get('limite_substituicoes') is not none else (estado.get('substituicoes_por_set') if estado.get('substituicoes_por_set') is not none else (partida.get('substituicoes_por_set') if partida.get('substituicoes_por_set') is not none else 6))) | tojson }}
     };
 
     atualizarEscudosDoJogo({
@@ -2989,6 +2993,8 @@ const btnSubExConfirmar = document.getElementById("btn-subex-confirmar");
     let statusJogadoresB = {{ (estado.status_jogadores_b if estado.status_jogadores_b is defined else {}) | tojson }};
     let sancoesA = {{ (estado.sancoes_a if estado.sancoes_a is defined else []) | tojson }};
     let sancoesB = {{ (estado.sancoes_b if estado.sancoes_b is defined else []) | tojson }};
+    let vermelhosA = {{ (estado.cartoes_vermelhos_a if estado.cartoes_vermelhos_a is defined else []) | tojson }};
+    let vermelhosB = {{ (estado.cartoes_vermelhos_b if estado.cartoes_vermelhos_b is defined else []) | tojson }};
     let verdesA = {{ (estado.cartoes_verdes_a if estado.cartoes_verdes_a is defined else []) | tojson }};
     let verdesB = {{ (estado.cartoes_verdes_b if estado.cartoes_verdes_b is defined else []) | tojson }};
 
@@ -3162,6 +3168,10 @@ function montarPayloadTempoReal(extra = {}) {
             subs_b: numeroInteiro(estadoAtual?.subs_b ?? 0, 0),
             sancoes_a: Array.isArray(estadoAtual?.sancoes_a) ? estadoAtual.sancoes_a : sancoesA,
             sancoes_b: Array.isArray(estadoAtual?.sancoes_b) ? estadoAtual.sancoes_b : sancoesB,
+            cartoes_vermelhos_a: Array.isArray(estadoAtual?.cartoes_vermelhos_a) ? estadoAtual.cartoes_vermelhos_a : vermelhosA,
+            cartoes_vermelhos_b: Array.isArray(estadoAtual?.cartoes_vermelhos_b) ? estadoAtual.cartoes_vermelhos_b : vermelhosB,
+            vinculos_substituicao: estadoAtual?.vinculos_substituicao || {A:{},B:{}},
+            substituidos_finalizados: estadoAtual?.substituidos_finalizados || {A:[],B:[]},
             cartoes_verdes_a: Array.isArray(estadoAtual?.cartoes_verdes_a) ? estadoAtual.cartoes_verdes_a : verdesA,
             cartoes_verdes_b: Array.isArray(estadoAtual?.cartoes_verdes_b) ? estadoAtual.cartoes_verdes_b : verdesB,
             timestamp_local: Date.now(),
@@ -3513,6 +3523,19 @@ function montarPayloadTempoReal(extra = {}) {
     }
     estadoAtual.rotacao_a = rotA;
     estadoAtual.rotacao_b = rotB;
+    // Regra oficial carregada no início sempre ganha de snapshots antigos com padrão 2/6.
+    estadoAtual.limite_tempos = numeroInteiro(REGRAS_JOGO_INICIAIS.limite_tempos ?? estadoAtual.limite_tempos ?? 2, 2);
+    estadoAtual.tempos_por_set = estadoAtual.limite_tempos;
+    estadoAtual.limite_substituicoes = numeroInteiro(REGRAS_JOGO_INICIAIS.limite_substituicoes ?? estadoAtual.limite_substituicoes ?? 6, 6);
+    estadoAtual.substituicoes_por_set = estadoAtual.limite_substituicoes;
+    estadoAtual.titulares_iniciais_a = Array.isArray(estadoAtual.titulares_iniciais_a) && estadoAtual.titulares_iniciais_a.length ? estadoAtual.titulares_iniciais_a.map(String) : [...rotA].map(String);
+    estadoAtual.titulares_iniciais_b = Array.isArray(estadoAtual.titulares_iniciais_b) && estadoAtual.titulares_iniciais_b.length ? estadoAtual.titulares_iniciais_b.map(String) : [...rotB].map(String);
+    if (!estadoAtual.vinculos_substituicao || typeof estadoAtual.vinculos_substituicao !== "object") estadoAtual.vinculos_substituicao = { A: {}, B: {} };
+    if (!estadoAtual.vinculos_substituicao.A) estadoAtual.vinculos_substituicao.A = {};
+    if (!estadoAtual.vinculos_substituicao.B) estadoAtual.vinculos_substituicao.B = {};
+    if (!estadoAtual.substituidos_finalizados || typeof estadoAtual.substituidos_finalizados !== "object") estadoAtual.substituidos_finalizados = { A: [], B: [] };
+    if (!Array.isArray(estadoAtual.substituidos_finalizados.A)) estadoAtual.substituidos_finalizados.A = [];
+    if (!Array.isArray(estadoAtual.substituidos_finalizados.B)) estadoAtual.substituidos_finalizados.B = [];
     saqueAtual = ladoPorEquipeOuNome(saqueAtual) || ladoPorEquipeOuNome(estadoAtual.saque_atual) || "";
     estadoAtual.saque_atual = saqueAtual;
 
@@ -3871,10 +3894,14 @@ function montarPayloadTempoReal(extra = {}) {
 
         const sancEsq = valorEquipe(dados, equipeEsq, "sancoes_a", "sancoes_b", []);
         const sancDir = valorEquipe(dados, equipeDir, "sancoes_a", "sancoes_b", []);
+        const vermEsq = valorEquipe(dados, equipeEsq, "cartoes_vermelhos_a", "cartoes_vermelhos_b", []);
+        const vermDir = valorEquipe(dados, equipeDir, "cartoes_vermelhos_a", "cartoes_vermelhos_b", []);
         const verdEsq = valorEquipe(dados, equipeEsq, "cartoes_verdes_a", "cartoes_verdes_b", []);
         const verdDir = valorEquipe(dados, equipeDir, "cartoes_verdes_a", "cartoes_verdes_b", []);
         if (sancoesAEl) sancoesAEl.textContent = Array.isArray(sancEsq) ? sancEsq.length : (sancEsq || 0);
         if (sancoesBEl) sancoesBEl.textContent = Array.isArray(sancDir) ? sancDir.length : (sancDir || 0);
+        if (vermelhosAEl) vermelhosAEl.textContent = Array.isArray(vermEsq) ? vermEsq.length : (vermEsq || 0);
+        if (vermelhosBEl) vermelhosBEl.textContent = Array.isArray(vermDir) ? vermDir.length : (vermDir || 0);
         if (verdesAEl) verdesAEl.textContent = Array.isArray(verdEsq) ? verdEsq.length : (verdEsq || 0);
         if (verdesBEl) verdesBEl.textContent = Array.isArray(verdDir) ? verdDir.length : (verdDir || 0);
         atualizarTextoBotoesVisual();
@@ -4353,16 +4380,55 @@ function inverterLadosVisual() {
         const statusFinal = status === "finalizada" || status === "encerrado" || fase === "encerrado";
         const placarFinal = Math.max(setsA, setsB) >= Math.max(1, alvo);
         const woFinal = tipoEncerramento === "wo" && statusFinal;
-        return Boolean(statusFinal && (placarFinal || woFinal || dados.fim_jogo === true));
+        const flagFinalExplicita = dados.partida_finalizada === true
+            || dados.encerrado === true
+            || dados.fim_jogo === true
+            || dados.abrir_observacoes === true;
+
+        // A confirmação explícita do backend/local deve ganhar de qualquer
+        // contador antigo carregado no cache (ex.: set único ainda com alvo 2).
+        // Sem isso, a tela podia ficar travada em "Partida finalizada" sem
+        // avançar para observações.
+        return Boolean(flagFinalExplicita || (statusFinal && (placarFinal || woFinal)));
     }
 
-    function abrirObservacoesAutomaticamente(dados) {
+    async function abrirObservacoesAutomaticamente(dados) {
         if (!estadoConfirmaPartidaFinalizada(dados || estadoAtual)) return;
         if (observacoesAbrindo) return;
         observacoesAbrindo = true;
-        setTimeout(() => {
-            window.location.href = "{{ url_for('apontadores.observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}";
-        }, 700);
+
+        try {
+            const resposta = await fetch(URLS_ACAO.encerrar, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Requested-With": "fetch" },
+                body: JSON.stringify({
+                    observacoes: "",
+                    eventos: carregarFilaOffline(),
+                    estado_final: montarEstadoManualParaBanco(),
+                    pacote_operacao: (() => {
+                        try { return JSON.parse(localStorage.getItem(`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`) || "{}"); }
+                        catch (e) { return {}; }
+                    })()
+                }),
+                keepalive: true
+            });
+            const retorno = await resposta.json().catch(() => ({}));
+            if (!resposta.ok || retorno.ok === false) {
+                throw new Error(retorno.mensagem || "Não foi possível salvar o encerramento.");
+            }
+            salvarFilaOffline([]);
+            try { localStorage.removeItem(`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`); } catch (e) {}
+            removerJogoOfflineSeFinalizado();
+
+            // Usa primeiro a URL devolvida pela rota. Mantém fallback fixo
+            // para compatibilidade com versões anteriores do backend.
+            const destinoObservacoes = retorno.url_observacoes
+                || "{{ url_for('apontadores.observacoes_view', competicao=competicao_nome, partida_id=partida.id) }}";
+            window.location.replace(destinoObservacoes);
+        } catch (e) {
+            observacoesAbrindo = false;
+            mostrarErro((e && e.message) || "Falha ao salvar a partida final. A fila continua guardada neste dispositivo.");
+        }
     }
 
     function mostrarAnimacaoPonto(lado) {
@@ -4591,10 +4657,14 @@ function inverterLadosVisual() {
         if (dados.status_jogadores_b !== undefined && dados.status_jogadores_b !== null) statusJogadoresB = dados.status_jogadores_b;
         if (dados.sancoes_a !== undefined && dados.sancoes_a !== null) sancoesA = Array.isArray(dados.sancoes_a) ? dados.sancoes_a : sancoesA;
         if (dados.sancoes_b !== undefined && dados.sancoes_b !== null) sancoesB = Array.isArray(dados.sancoes_b) ? dados.sancoes_b : sancoesB;
+        if (dados.cartoes_vermelhos_a !== undefined && dados.cartoes_vermelhos_a !== null) vermelhosA = Array.isArray(dados.cartoes_vermelhos_a) ? dados.cartoes_vermelhos_a : vermelhosA;
+        if (dados.cartoes_vermelhos_b !== undefined && dados.cartoes_vermelhos_b !== null) vermelhosB = Array.isArray(dados.cartoes_vermelhos_b) ? dados.cartoes_vermelhos_b : vermelhosB;
         if (dados.cartoes_verdes_a !== undefined && dados.cartoes_verdes_a !== null) verdesA = Array.isArray(dados.cartoes_verdes_a) ? dados.cartoes_verdes_a : verdesA;
         if (dados.cartoes_verdes_b !== undefined && dados.cartoes_verdes_b !== null) verdesB = Array.isArray(dados.cartoes_verdes_b) ? dados.cartoes_verdes_b : verdesB;
         estadoAtual.sancoes_a = sancoesA;
         estadoAtual.sancoes_b = sancoesB;
+        estadoAtual.cartoes_vermelhos_a = vermelhosA;
+        estadoAtual.cartoes_vermelhos_b = vermelhosB;
         estadoAtual.cartoes_verdes_a = verdesA;
         estadoAtual.cartoes_verdes_b = verdesB;
 
@@ -4637,8 +4707,6 @@ function inverterLadosVisual() {
 
         if (partidaFinalizada) {
             salvarSnapshotLocalAutomatico("partida_finalizada");
-            enviarSnapshotBancoAutomatico({ pausar: false, finalizar: true, motivo: "partida_finalizada", forcar: true }).catch(() => {});
-            removerJogoOfflineSeFinalizado();
 
             // Se o servidor ou o socket avisar que a partida acabou, mantém o mesmo fluxo:
             // ir para observações, não ficar parado na tela do jogo.
@@ -4648,7 +4716,6 @@ function inverterLadosVisual() {
         } else {
             salvarJogoOfflineLocal(true);
             salvarSnapshotLocalAutomatico("estado_aplicado");
-            agendarAutosaveBancoAutomatico(1600, "estado_aplicado");
         }
     }
 
@@ -4965,7 +5032,12 @@ function inverterLadosVisual() {
         const elenco = mesclarAtletasComRotacao(atletasEquipePorLado(lado), rotacao);
         const emQuadra = new Set((rotacao || []).map((n) => numeroAtletaOperacional(n)).filter(Boolean));
 
+        const mapaStatus = statusMapaPorLado(lado);
         return Array.from(emQuadra)
+            .filter((numero) => {
+                const st = mapaStatus[numero] || {};
+                return !(st.tipo === "titular_retorno" || st.substituicao_encerrada || st.tipo === "bloqueado_excepcional");
+            })
             .map((numero) => {
                 const atleta = elenco.find((a) => numeroAtletaOperacional(a.numero) === numero) || { numero, nome: "Atleta" };
                 return {
@@ -4996,7 +5068,20 @@ function inverterLadosVisual() {
         }
 
         return elenco
-            .filter((a) => !emQuadra.has(numeroAtletaOperacional(a.numero)))
+            .filter((a) => {
+                const numero = numeroAtletaOperacional(a.numero);
+                if (!numero || emQuadra.has(numero)) return false;
+
+                const statusEntrada = mapaStatus[numero] || {};
+                // Reserva já vinculada a outro titular não pode aparecer.
+                if (statusEntrada.tipo === "substituto" || statusEntrada.tipo === "titular_substituido") return false;
+                if (statusEntrada.tipo === "vinculo_encerrado" || statusEntrada.substituicao_encerrada) return false;
+                if (statusEntrada.tipo === "bloqueado_excepcional") return false;
+
+                const vinculoEntrada = String(statusEntrada.vinculo || "").trim();
+                if (vinculoEntrada && vinculoEntrada !== String(numeroSai || "").trim()) return false;
+                return true;
+            })
             .map((a) => ({
                 valor: numeroAtletaOperacional(a.numero),
                 label: numeroAtletaOperacional(a.numero),
@@ -5836,7 +5921,8 @@ const URLS_ACAO = {
     cartao_verde: "{{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) }}",
     sincronizar: "{{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) }}",
     estado: "{{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) }}",
-    salvar_estado: "{{ url_for('apontadores.salvar_estado_manual_view', competicao=competicao_nome, partida_id=partida.id) }}"
+    salvar_estado: "{{ url_for('apontadores.salvar_estado_manual_view', competicao=competicao_nome, partida_id=partida.id) }}",
+    encerrar: "{{ url_for('apontadores.encerrar_partida_view', competicao=competicao_nome, partida_id=partida.id) }}"
 };
 
 
@@ -6261,6 +6347,49 @@ function descricaoLocal(tipo, payload) {
     return "Ação registrada";
 }
 
+function dadosSubstituicaoLado(lado) {
+    lado = String(lado || "").toUpperCase();
+    const vinculos = estadoAtual.vinculos_substituicao || (estadoAtual.vinculos_substituicao = {A:{},B:{}});
+    const finalizados = estadoAtual.substituidos_finalizados || (estadoAtual.substituidos_finalizados = {A:[],B:[]});
+    if (!vinculos[lado]) vinculos[lado] = {};
+    if (!Array.isArray(finalizados[lado])) finalizados[lado] = [];
+    const titulares = (lado === "A" ? estadoAtual.titulares_iniciais_a : estadoAtual.titulares_iniciais_b) || [];
+    return { vinculos: vinculos[lado], finalizados: finalizados[lado], titulares: titulares.map(String) };
+}
+
+function validarSubstituicaoRegularLocal(lado, sai, entra) {
+    lado = String(lado || "").toUpperCase(); sai = String(sai || ""); entra = String(entra || "");
+    const d = dadosSubstituicaoLado(lado);
+    if (d.finalizados.includes(sai) || d.finalizados.includes(entra)) return {ok:false, mensagem:"Essa dupla já completou a substituição neste set. Use substituição excepcional quando a regra permitir."};
+    const vincSai = d.vinculos[sai];
+    const vincEntra = d.vinculos[entra];
+    if (vincSai || vincEntra) {
+        const v = vincSai || vincEntra;
+        if (v.estado !== "reserva_em_quadra" || sai !== String(v.reserva) || entra !== String(v.titular)) {
+            return {ok:false, mensagem:`A substituição deve respeitar a dupla: ${v.reserva} só pode sair para o retorno de ${v.titular}.`};
+        }
+        return {ok:true, retorno:true, vinculo:v};
+    }
+    if (!d.titulares.includes(sai)) return {ok:false, mensagem:"Uma nova substituição regular deve começar com a saída de um titular inicial deste set."};
+    if (d.titulares.includes(entra)) return {ok:false, mensagem:"O atleta que entra deve ser reserva e ficará vinculado somente ao titular substituído."};
+    return {ok:true, retorno:false, vinculo:{titular:sai,reserva:entra,estado:"reserva_em_quadra"}};
+}
+
+function registrarVinculoSubstituicaoLocal(lado, sai, entra) {
+    const d = dadosSubstituicaoLado(lado);
+    const validacao = validarSubstituicaoRegularLocal(lado, sai, entra);
+    if (!validacao.ok) return validacao;
+    const v = validacao.vinculo;
+    if (validacao.retorno) {
+        v.estado = "finalizado";
+        d.finalizados.push(String(v.titular), String(v.reserva));
+        delete d.vinculos[String(v.titular)]; delete d.vinculos[String(v.reserva)];
+    } else {
+        d.vinculos[String(v.titular)] = v; d.vinculos[String(v.reserva)] = v;
+    }
+    return {ok:true};
+}
+
 function acaoOperacionalPermitida(tipo, payload) {
     const lado = payload?.equipe;
 
@@ -6280,11 +6409,15 @@ function acaoOperacionalPermitida(tipo, payload) {
         atualizarTravasOperacionais();
         return false;
     }
+    if (tipo === "substituicao") {
+        const v = validarSubstituicaoRegularLocal(lado, payload.numero_sai, payload.numero_entra);
+        if (!v.ok) { mostrarErro(v.mensagem); return false; }
+    }
 
     return true;
 }
 
-function aplicarAcaoLocal(tipo, payload) {
+function aplicarAcaoLocal(tipo, payload, opcoes = {}) {
     jogoTeveAcaoLocal = true;
     payload = payload || {};
     const descricao = descricaoLocal(tipo, payload);
@@ -6304,14 +6437,18 @@ function aplicarAcaoLocal(tipo, payload) {
         const lado = payload.equipe;
         const sai = String(payload.numero_sai || "").trim();
         const entra = String(payload.numero_entra || "").trim();
-        const elSubs = lado === equipeVisual("esquerda") ? subsAEl : subsBEl;
+        if (tipo === "substituicao") registrarVinculoSubstituicaoLocal(lado, sai, entra);
         if (lado === "A" && rotA.length === 6) {
             rotA = rotA.map(n => String(n) === sai ? entra : n);
-            estadoAtual.subs_a = numeroInteiro(estadoAtual.subs_a, 0) + 1;
+            if (tipo === "substituicao") estadoAtual.subs_a = numeroInteiro(estadoAtual.subs_a, 0) + 1;
         }
         if (lado === "B" && rotB.length === 6) {
             rotB = rotB.map(n => String(n) === sai ? entra : n);
-            estadoAtual.subs_b = numeroInteiro(estadoAtual.subs_b, 0) + 1;
+            if (tipo === "substituicao") estadoAtual.subs_b = numeroInteiro(estadoAtual.subs_b, 0) + 1;
+        }
+        if (tipo === "substituicao_excepcional") {
+            const campo = lado === "A" ? "substituicoes_excepcionais_a" : "substituicoes_excepcionais_b";
+            estadoAtual[campo] = [...(Array.isArray(estadoAtual[campo]) ? estadoAtual[campo] : []), payload];
         }
         estadoAtual.rotacao_a = rotA;
         estadoAtual.rotacao_b = rotB;
@@ -6319,11 +6456,25 @@ function aplicarAcaoLocal(tipo, payload) {
         renderQuadra();
     }
 
-    if (tipo === "sancao" || tipo === "retardamento") {
-        const campo = payload.equipe === "A" ? "sancoes_a" : "sancoes_b";
-        const lista = Array.isArray(estadoAtual[campo]) ? estadoAtual[campo].slice() : [];
-        lista.push(payload);
-        estadoAtual[campo] = lista;
+    if (tipo === "sancao") {
+        const categoria = String(payload.tipo_sancao || payload.sancao || "").toLowerCase();
+        if (categoria === "advertencia") {
+            const campo = payload.equipe === "A" ? "sancoes_a" : "sancoes_b";
+            estadoAtual[campo] = [...(Array.isArray(estadoAtual[campo]) ? estadoAtual[campo] : []), payload];
+        } else if (categoria === "penalidade") {
+            const campo = payload.equipe === "A" ? "cartoes_vermelhos_a" : "cartoes_vermelhos_b";
+            estadoAtual[campo] = [...(Array.isArray(estadoAtual[campo]) ? estadoAtual[campo] : []), payload];
+            const adversario = payload.equipe === "A" ? "B" : "A";
+            aplicarPontoOtimista(adversario, { tipo_lance:"penalidade", detalhe_lance:"penalidade", equipe_responsavel:payload.equipe });
+        } else {
+            const campo = payload.equipe === "A" ? "outras_sancoes_a" : "outras_sancoes_b";
+            estadoAtual[campo] = [...(Array.isArray(estadoAtual[campo]) ? estadoAtual[campo] : []), payload];
+        }
+        renderPainelVisual(estadoAtual);
+    }
+    if (tipo === "retardamento") {
+        const campo = payload.equipe === "A" ? "retardamentos_a" : "retardamentos_b";
+        estadoAtual[campo] = [...(Array.isArray(estadoAtual[campo]) ? estadoAtual[campo] : []), payload];
         renderPainelVisual(estadoAtual);
     }
 
@@ -6341,84 +6492,28 @@ function aplicarAcaoLocal(tipo, payload) {
     atualizarTravasOperacionais();
 
     salvarSnapshotLocalAutomatico(tipo || "acao");
-    agendarAutosaveBancoAutomatico(1200, tipo || "acao");
+    // Ação operacional fica somente no dispositivo até o encerramento.
+    // Não agendar autosave no banco aqui.
 }
+
+let filaConfirmacaoAcoes = Promise.resolve();
+let sequenciaAcaoOtimista = 0;
 
 async function enviarAcaoRapida(tipo, payload, aoSucesso) {
     payload = payload || {};
     limparErro();
 
-    if (!acaoOperacionalPermitida(tipo, payload)) {
-        return false;
-    }
+    if (!acaoOperacionalPermitida(tipo, payload)) return false;
 
-    const exigeConfirmacaoBackend = ["tempo", "substituicao", "substituicao_excepcional", "sancao", "cartao_verde", "retardamento"].includes(String(tipo || ""));
-
-    if (exigeConfirmacaoBackend) {
-        const url = URLS_ACAO[tipo];
-        if (!url) {
-            mostrarErro("Rota da ação não encontrada.");
-            return false;
-        }
-
-        try {
-            travarBotoes(true);
-            const resp = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload || {})
-            });
-            const dados = await resp.json().catch(() => ({}));
-
-            if (!resp.ok || dados.ok === false) {
-                throw new Error(dados.mensagem || dados.erro || "Ação recusada pela regra da partida.");
-            }
-
-            // O pedido de tempo do apontador inicia o cronômetro logo após a
-            // confirmação HTTP. Fazemos isso ANTES de aplicar o estado completo,
-            // evitando que qualquer falha de renderização posterior impeça o relógio.
-            if (tipo === "tempo") {
-                const equipeTempo = payload.equipe || dados.equipe || "";
-                const segundosTempo = Number(dados.duracao || dados.segundos || dados.restante || 30);
-                iniciarCronometro(segundosTempo, equipeTempo);
-                atualizarUltimaAcao(dados.ultima_acao || `Pedido de tempo de ${nomeEquipePorLado(equipeTempo)}.`);
-            }
-
-            aplicarEstado(normalizarRespostaJogo({ ...dados, fonte: `${tipo}_fetch`, origem: "backend" }), { fonte: `${tipo}_fetch` });
-            if (tipo !== "tempo" && dados.ultima_acao) atualizarUltimaAcao(dados.ultima_acao);
-
-            // Expulsão/desqualificação de atleta em quadra exige substituição imediata.
-            // Atleta no banco não gera abertura automática.
-            const forçada = dados.substituicao_forcada || dados.substituicao_forcada_atual;
-            if (forçada && forçada.equipe && forçada.numero) {
-                setTimeout(function () {
-                    abrirModalSubstituicao(String(forçada.equipe).toUpperCase());
-                    numeroSaiSub = String(forçada.numero || "");
-                    renderModalSubstituicao();
-                }, 80);
-            }
-
-            if (typeof aoSucesso === "function") {
-                try { aoSucesso(dados); } catch (e) {}
-            }
-            return true;
-        } catch (e) {
-            mostrarErro((e && e.message) ? e.message : "Falha ao registrar ação.");
-            return false;
-        } finally {
-            travarBotoes(false);
-        }
-    }
-
-    // Sanções/cartão verde continuam leves, mas não entram no desfazer nem nas últimas ações de ponto.
-    aplicarAcaoLocal(tipo, payload);
-    adicionarFilaOffline(tipo, payload || {});
+    // Offline-first real: aplica, transmite por Socket.IO e guarda na fila local.
+    // Nenhuma rota HTTP e nenhum acesso ao banco ocorre durante a partida.
+    aplicarAcaoLocal(tipo, payload, { semAutosave: true });
+    adicionarFilaOffline(tipo, payload);
     placarProtegidoAte = Date.now() + 6000;
 
     if (typeof aoSucesso === "function") {
-        try { aoSucesso({ ok: true, local: true }); } catch (e) {}
+        try { aoSucesso({ ok: true, local: true, persistencia: "encerramento" }); } catch (e) {}
     }
-
     return true;
 }
 
@@ -6451,8 +6546,61 @@ async function registrarPonto(equipe, scout) {
         aplicarPontoOtimista(equipe, scoutSeguro);
         fecharModalPonto();
 
-        // 2) Salva o ponto na rota oficial. Ela é a fonte da verdade para:
-        // rotação, saque, scout, set point, match point, fim de set e fim de jogo.
+        const modoOperacaoIntegralLocal = new URLSearchParams(window.location.search).get("local") === "1";
+        if (modoOperacaoIntegralLocal) {
+            adicionarFilaOffline("ponto", {
+                equipe: equipe,
+                fundamento: scoutSeguro.fundamento || scoutSeguro.detalhe_lance || "",
+                resultado: scoutSeguro.resultado || scoutSeguro.tipo_lance || "",
+                tipo_lance: scoutSeguro.tipo_lance || scoutSeguro.resultado || "",
+                detalhe_lance: scoutSeguro.detalhe_lance || scoutSeguro.fundamento || "",
+                tipo_erro: scoutSeguro.tipo_erro || "",
+                atleta_numero: scoutSeguro.atleta_numero || "",
+                atleta_nome: scoutSeguro.atleta_nome || "",
+                atleta_label: scoutSeguro.atleta_label || ""
+            });
+            estadoAtual.ultima_acao = `Ponto para ${nomeEquipePorLado(equipe)}`;
+            atualizarUltimaAcao(estadoAtual.ultima_acao);
+            emitirEstadoTempoReal({ ...estadoAtual, tipo_evento: "ponto", origem: "apontador_local" });
+            salvarSnapshotLocalAutomatico("ponto");
+
+            const pa = numeroInteiro(estadoAtual.pontos_a ?? estadoAtual.placar_a, 0);
+            const pb = numeroInteiro(estadoAtual.pontos_b ?? estadoAtual.placar_b, 0);
+            const setAtualLocal = numeroInteiro(estadoAtual.set_atual, 1);
+            const alvo = (String(estadoAtual.sets_tipo || "").toLowerCase() !== "set_unico" &&
+                          setAtualLocal >= (String(estadoAtual.sets_tipo || "").toLowerCase() === "melhor_de_5" ? 5 : 3))
+                          ? numeroInteiro(estadoAtual.pontos_tiebreak, 15)
+                          : numeroInteiro(estadoAtual.pontos_set, 25);
+            const diferenca = Math.abs(pa - pb);
+            if (Math.max(pa, pb) >= alvo && diferenca >= numeroInteiro(estadoAtual.diferenca_minima, 2)) {
+                const vencedor = pa > pb ? "A" : "B";
+                estadoAtual[vencedor === "A" ? "sets_a" : "sets_b"] = numeroInteiro(estadoAtual[vencedor === "A" ? "sets_a" : "sets_b"], 0) + 1;
+                adicionarFilaOffline("fim_set", { equipe: vencedor, set_numero: setAtualLocal, pontos_a: pa, pontos_b: pb });
+                const venceuJogo = numeroInteiro(estadoAtual[vencedor === "A" ? "sets_a" : "sets_b"], 0) >= numeroInteiro(estadoAtual.sets_para_vencer, 2);
+                if (venceuJogo) {
+                    estadoAtual.status_jogo = "finalizada";
+                    estadoAtual.fase_partida = "encerrado";
+                    estadoAtual.fim_jogo = true;
+                    estadoAtual.partida_finalizada = true;
+                    await abrirObservacoesAutomaticamente(estadoAtual);
+                } else {
+                    estadoAtual.set_atual = setAtualLocal + 1;
+                    estadoAtual.pontos_a = estadoAtual.placar_a = 0;
+                    estadoAtual.pontos_b = estadoAtual.placar_b = 0;
+                    estadoAtual.tempos_a = estadoAtual.tempos_b = 0;
+                    estadoAtual.subs_a = estadoAtual.subs_b = 0;
+                    try {
+                        const chave=`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`;
+                        const pacote=JSON.parse(localStorage.getItem(chave)||"{}"); pacote.set_atual=estadoAtual.set_atual; pacote.estado=estadoAtual; localStorage.setItem(chave,JSON.stringify(pacote));
+                        const eq=pacote.equipes_operacionais||{};
+                        window.location.href=`{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}?local=1&set=${estadoAtual.set_atual}&equipe_a=${encodeURIComponent(eq.A||estadoAtual.equipe_a||'')}&equipe_b=${encodeURIComponent(eq.B||estadoAtual.equipe_b||'')}`;
+                    } catch(e) {}
+                }
+            }
+            return;
+        }
+
+        // Compatibilidade do fluxo antigo: fora do modo local integral, usa a rota oficial.
         const resp = await fetch(URLS_ACAO.ponto, {
             method: "POST",
             headers: {
@@ -10459,4 +10607,59 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 }
 </style>
+
+<script id="watchdog-fluxo-final-observacoes">
+(() => {
+    let tentativas = 0;
+    const maxTentativas = 40;
+
+    const verificarFluxoFinal = () => {
+        tentativas += 1;
+        try {
+            if (typeof abrirObservacoesAutomaticamente !== "function") {
+                if (tentativas < maxTentativas) setTimeout(verificarFluxoFinal, 250);
+                return;
+            }
+
+            const atual = (typeof estadoAtual === "object" && estadoAtual) ? estadoAtual : {};
+            const status = String(atual.status_jogo || atual.status || "").trim().toLowerCase();
+            const fase = String(atual.fase_partida || "").trim().toLowerCase();
+            const textoTela = String(document.body?.innerText || "").toLowerCase();
+            const finalNaTela = textoTela.includes("a partida já está finalizada")
+                || textoTela.includes("partida finalizada");
+
+            const finalExplicito = atual.partida_finalizada === true
+                || atual.encerrado === true
+                || atual.fim_jogo === true
+                || atual.abrir_observacoes === true
+                || status === "finalizada"
+                || status === "encerrado"
+                || fase === "encerrado"
+                || finalNaTela;
+
+            if (finalExplicito) {
+                abrirObservacoesAutomaticamente({
+                    ...atual,
+                    partida_finalizada: true,
+                    fim_jogo: true,
+                    abrir_observacoes: true,
+                    status_jogo: status || "finalizada",
+                    fase_partida: fase || "encerrado"
+                });
+                return;
+            }
+        } catch (e) {
+            console.warn("watchdog fluxo final:", e);
+        }
+
+        if (tentativas < maxTentativas) setTimeout(verificarFluxoFinal, 250);
+    };
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => setTimeout(verificarFluxoFinal, 150));
+    } else {
+        setTimeout(verificarFluxoFinal, 150);
+    }
+})();
+</script>
 {% endblock %}

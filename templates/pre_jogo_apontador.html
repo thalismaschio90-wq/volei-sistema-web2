@@ -1,6 +1,38 @@
 {% extends "base.html" %}
 
-{% block titulo %}Pré-jogo{% endblock %}
+{% block titulo %}Pré-jogo
+<script>
+(function(){
+  const chave = `voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`;
+  const equipeOriginalA = {{ (partida.equipe_a or '')|tojson }};
+  const equipeOriginalB = {{ (partida.equipe_b or '')|tojson }};
+  function ler(){ try{return JSON.parse(localStorage.getItem(chave)||'{}')}catch(e){return{}} }
+  function salvar(v){ v.atualizado_em=Date.now(); localStorage.setItem(chave,JSON.stringify(v)); }
+  const form = Array.from(document.querySelectorAll('form')).find(f => (f.action||'').includes('/salvar'));
+  if (!form) return;
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    const fd=new FormData(form);
+    const ladoEsquerdo=String(fd.get('lado_esquerdo')||'');
+    const equipeA=ladoEsquerdo || equipeOriginalA;
+    const equipeB=equipeA===equipeOriginalA ? equipeOriginalB : equipeOriginalA;
+    const pacote=ler();
+    pacote.versao=2; pacote.partida_id={{ partida.id }}; pacote.competicao={{ competicao_nome|tojson }};
+    pacote.etapa='conferencia_A';
+    pacote.equipes_originais={A:equipeOriginalA,B:equipeOriginalB};
+    pacote.equipes_operacionais={A:equipeA,B:equipeB};
+    pacote.pre_jogo={};
+    for(const [k,v] of fd.entries()) pacote.pre_jogo[k]=String(v);
+    pacote.pre_jogo.equipe_a_operacional=equipeA;
+    pacote.pre_jogo.equipe_b_operacional=equipeB;
+    salvar(pacote);
+    const destino=`{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='A') }}?local=1&equipe=${encodeURIComponent(equipeA)}`;
+    window.location.href=destino;
+  });
+})();
+</script>
+
+{% endblock %}
 
 {% block conteudo %}
 <style>

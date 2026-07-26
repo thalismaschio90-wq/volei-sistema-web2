@@ -400,6 +400,7 @@
                                 <tr>
                                     <th style="width:70px;">Nº</th>
                                     <th>Atleta</th>
+                                    <th style="width:110px;">Pontos</th>
                                     <th style="width:120px;">Status</th>
                                 </tr>
                             </thead>
@@ -418,6 +419,7 @@
                                             data-equipe="{{ equipe.nome }}">
                                             <td><strong>{{ atleta.numero or '-' }}</strong></td>
                                             <td>{{ atleta.nome }}</td>
+                                            <td><strong>{{ atleta.pontos_partida or 0 }}</strong></td>
                                             <td>
                                                 {% if atleta.ja_eleito %}
                                                     <span class="badge-status ja-eleito">Já eleito</span>
@@ -429,7 +431,7 @@
                                     {% endfor %}
                                 {% else %}
                                     <tr>
-                                        <td colspan="3">Nenhum atleta encontrado para esta equipe.</td>
+                                        <td colspan="4">Nenhum atleta encontrado para esta equipe.</td>
                                     </tr>
                                 {% endif %}
                             </tbody>

@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 
-{% block titulo %}Papeleta{% endblock %}
+{% block titulo %}Papeleta
+<script>
+(function(){
+ const chave=`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`;
+ function ler(){try{return JSON.parse(localStorage.getItem(chave)||'{}')}catch(e){return{}}}
+ function salvar(v){v.atualizado_em=Date.now();localStorage.setItem(chave,JSON.stringify(v));}
+ const form=document.getElementById('form-papeleta'); if(!form)return;
+ // Captura antes do listener antigo e impede qualquer POST ao banco.
+ form.addEventListener('submit',async function(ev){
+   const params=new URLSearchParams(location.search); if(params.get('local')!=='1')return;
+   ev.preventDefault(); ev.stopImmediatePropagation();
+   if(!validarPapeleta())return;
+   const pacote=ler(); pacote.set_atual=Number(new URLSearchParams(location.search).get('set')||pacote.set_atual||1);
+   pacote.papeletas={A:{},B:{}};
+   for(const lado of ['A','B']) for(let pos=1;pos<=6;pos++) pacote.papeletas[lado][pos]=document.getElementById(`input_${lado}_${pos}`).value;
+   pacote.papeletas_por_set=pacote.papeletas_por_set||{}; pacote.papeletas_por_set[String(pacote.set_atual)]=JSON.parse(JSON.stringify(pacote.papeletas));
+   pacote.etapa='jogo'; salvar(pacote);
+   const rot=(lado)=>[4,3,2,5,6,1].map(pos=>pacote.papeletas[lado][pos]);
+   const eq=pacote.equipes_operacionais||{A:{{ equipe_a|tojson }},B:{{ equipe_b|tojson }}};
+   const pre=pacote.pre_jogo||{};
+   const estado={equipe_a:eq.A,equipe_b:eq.B,equipe_a_operacional:eq.A,equipe_b_operacional:eq.B,pontos_a:0,pontos_b:0,placar_a:0,placar_b:0,sets_a:0,sets_b:0,set_atual:pacote.set_atual||1,saque_atual:(pre.saque_inicial===eq.A?'A':'B'),rotacao_a:rot('A'),rotacao_b:rot('B'),historico:[{descricao:'Jogo iniciado localmente'}],ultima_acao:'Jogo iniciado localmente'};
+   const btn=document.getElementById('btn-iniciar-jogo'); if(btn){btn.disabled=true;btn.textContent='Abrindo jogo...';}
+   try{
+    const r=await fetch(`{{ url_for('apontadores.iniciar_jogo_local_view', competicao=competicao_nome, partida_id=partida.id) }}`,{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'fetch'},body:JSON.stringify({estado,pacote})});
+    const d=await r.json(); if(!r.ok||!d.ok)throw new Error(d.mensagem||'Falha ao iniciar localmente.');
+    location.href=d.url;
+   }catch(e){if(btn){btn.disabled=false;btn.textContent='Iniciar jogo';}alert(e.message||'Falha ao iniciar o jogo.');}
+ },true);
+ const pacote=ler(); const pap=pacote.papeletas||{};
+ for(const lado of ['A','B'])for(let pos=1;pos<=6;pos++){const v=((pap[lado]||{})[pos]||'');if(v){document.getElementById(`input_${lado}_${pos}`).value=v;document.getElementById(`num_${lado}_${pos}`).textContent=v;}}
+})();
+</script>
+
+{% endblock %}
 
 {% block conteudo %}
 <div class="topo-secao papeleta-topo">

@@ -8764,26 +8764,60 @@ def resumir_fluxo_oficial_partida(partida_id, competicao, partida=None):
 def inicializar_sets_partida(partida_id, competicao):
     criar_campos_sets_partida()
 
-    comp = buscar_competicao_por_nome(competicao) or {}
-    formato = _normalizar_formato_sets(comp.get("sets_tipo"))
-    sets_max = calcular_sets_max(formato)
-    sets_para_vencer = calcular_sets_para_vencer(formato)
+    partida_atual = buscar_partida_operacional(partida_id, competicao) or {}
+    formato, sets_max, sets_para_vencer = _sets_config_partida_seguro(
+        partida_atual,
+        competicao,
+    )
+
+    sets_a_atual = int(partida_atual.get("sets_a") or 0)
+    sets_b_atual = int(partida_atual.get("sets_b") or 0)
+    partida_ja_decidida = max(sets_a_atual, sets_b_atual) >= sets_para_vencer
 
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE partidas
-                SET set_atual = COALESCE(set_atual, 1),
+                SET set_atual = CASE
+                        WHEN %s THEN LEAST(GREATEST(COALESCE(set_atual, 1), 1), %s)
+                        ELSE GREATEST(COALESCE(set_atual, 1), 1)
+                    END,
                     sets_a = COALESCE(sets_a, 0),
                     sets_b = COALESCE(sets_b, 0),
-                    sets_max = COALESCE(sets_max, %s),
-                    sets_para_vencer = COALESCE(sets_para_vencer, %s),
-                    fase_partida = COALESCE(fase_partida, 'pre_jogo'),
-                    status_operacao = CASE WHEN COALESCE(status_operacao, 'livre') IN ('reservado', 'pre_jogo') THEN 'em_andamento' ELSE status_operacao END,
+                    sets_max = %s,
+                    sets_para_vencer = %s,
+                    fase_partida = CASE
+                        WHEN %s THEN 'encerrado'
+                        ELSE COALESCE(fase_partida, 'pre_jogo')
+                    END,
+                    status = CASE WHEN %s THEN 'finalizada' ELSE status END,
+                    status_jogo = CASE WHEN %s THEN 'finalizada' ELSE status_jogo END,
+                    status_operacao = CASE
+                        WHEN %s THEN 'finalizada'
+                        WHEN COALESCE(status_operacao, 'livre') IN ('reservado', 'pre_jogo') THEN 'em_andamento'
+                        ELSE status_operacao
+                    END,
+                    vencedor = CASE
+                        WHEN %s AND COALESCE(sets_a, 0) > COALESCE(sets_b, 0) THEN COALESCE(equipe_a, equipe_a_operacional)
+                        WHEN %s AND COALESCE(sets_b, 0) > COALESCE(sets_a, 0) THEN COALESCE(equipe_b, equipe_b_operacional)
+                        ELSE vencedor
+                    END,
+                    data_fim = CASE WHEN %s THEN COALESCE(data_fim, NOW()) ELSE data_fim END,
                     operador_heartbeat = NOW()
                 WHERE id = %s
                   AND competicao = %s
-            """, (sets_max, sets_para_vencer, partida_id, competicao))
+            """, (
+                formato == "set_unico", sets_max,
+                sets_max, sets_para_vencer,
+                partida_ja_decidida,
+                partida_ja_decidida,
+                partida_ja_decidida,
+                partida_ja_decidida,
+                partida_ja_decidida,
+                partida_ja_decidida,
+                partida_ja_decidida,
+                partida_id, competicao,
+            ))
         conn.commit()
 
     sincronizar_status_competicao(competicao)
@@ -8811,12 +8845,12 @@ def inicializar_sets_partida(partida_id, competicao):
 
 
 def _sets_config_partida_seguro(partida=None, competicao=None):
-    """Resolve a regra real de sets da partida sem cair para set único por engano.
+    """Resolve a regra efetiva de sets da partida.
 
-    Prioridade:
-    1) campos gravados na própria partida (sets_max/sets_para_vencer), quando válidos;
-    2) configuração da competição;
-    3) padrão seguro melhor_de_3.
+    Partidas comuns seguem a regra atual da competição. Regras próprias são
+    respeitadas apenas quando a partida possui ``sets_tipo`` explícito ou vem
+    do avanço/chaveamento, evitando que os defaults antigos ``3/2`` gravados
+    em ``partidas`` transformem uma competição de set único em melhor de 3.
     """
     partida = partida or {}
 
@@ -8827,11 +8861,6 @@ def _sets_config_partida_seguro(partida=None, competicao=None):
             valor = padrao
         return valor if valor > 0 else padrao
 
-    sets_max_partida = _int_pos(partida.get("sets_max"), 0)
-    sets_para_partida = _int_pos(partida.get("sets_para_vencer"), 0)
-
-    sets_tipo = str(partida.get("sets_tipo") or "").strip().lower()
-
     comp = {}
     if competicao:
         try:
@@ -8839,30 +8868,34 @@ def _sets_config_partida_seguro(partida=None, competicao=None):
         except Exception:
             comp = {}
 
-    if not sets_tipo:
-        sets_tipo = str(comp.get("sets_tipo") or "melhor_de_3").strip().lower()
+    formato_competicao = _normalizar_formato_sets(
+        comp.get("sets_tipo") or "melhor_de_3"
+    )
 
-    sets_tipo = _normalizar_formato_sets(sets_tipo)
-    sets_max_cfg = calcular_sets_max(sets_tipo)
-    sets_para_cfg = calcular_sets_para_vencer(sets_tipo)
+    formato_explicito = str(partida.get("sets_tipo") or "").strip().lower()
+    origem = str(partida.get("origem") or "").strip().lower()
+    regra_propria = formato_explicito in {"set_unico", "melhor_de_3", "melhor_de_5"}
 
-    sets_max = sets_max_partida or sets_max_cfg
-    sets_para_vencer = sets_para_partida or sets_para_cfg
+    if regra_propria:
+        formato = _normalizar_formato_sets(formato_explicito)
+        return formato, calcular_sets_max(formato), calcular_sets_para_vencer(formato)
 
-    # Corrige combinações inválidas que causavam melhor_de_3 finalizar com 1 set.
-    if sets_max >= 5:
-        sets_tipo = "melhor_de_5"
-        sets_max = 5
-        sets_para_vencer = 3
-    elif sets_max == 3:
-        sets_tipo = "melhor_de_3"
-        sets_para_vencer = 2
-    else:
-        sets_tipo = "set_unico"
-        sets_max = 1
-        sets_para_vencer = 1
+    # Compatibilidade com bancos antigos nos quais partidas do avanço não
+    # possuíam a coluna sets_tipo, mas já tinham sets_max/sets_para_vencer.
+    if origem.startswith("avanco:"):
+        sets_max_partida = _int_pos(partida.get("sets_max"), 0)
+        if sets_max_partida == 5:
+            return "melhor_de_5", 5, 3
+        if sets_max_partida == 1:
+            return "set_unico", 1, 1
+        if sets_max_partida == 3:
+            return "melhor_de_3", 3, 2
 
-    return sets_tipo, sets_max, sets_para_vencer
+    return (
+        formato_competicao,
+        calcular_sets_max(formato_competicao),
+        calcular_sets_para_vencer(formato_competicao),
+    )
 
 
 def _partida_tem_sets_para_finalizar(partida=None, estado=None, competicao=None):
@@ -11607,6 +11640,10 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
     # Substituição normal tem vínculo fechado: titular ↔ reserva.
     # Reserva não pode entrar em outro titular e, quando o titular volta, esse vínculo encerra.
     if sai_titular and not entra_titular:
+        # Depois que o titular retorna, o ciclo normal da dupla está encerrado
+        # para todo o set. Ele permanece em quadra, mas não pode sair novamente.
+        if status_sai.get('tipo') in {'titular_retorno', 'vinculo_encerrado', 'encerrado'} or status_sai.get('substituicao_encerrada'):
+            return False, f'O titular #{numero_sai} já retornou e não pode sair novamente neste set.'
         if status_entra.get('tipo') in {'encerrado', 'vinculo_encerrado'} or status_entra.get('substituicao_encerrada'):
             return False, f'O atleta #{numero_entra} já teve o vínculo de substituição encerrado neste set.'
         reserva_vinculada = str(vinc_tit_res.get(numero_sai) or '').strip()
@@ -11644,6 +11681,7 @@ def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, n
         status_entra['em_quadra'] = True
         status_entra['tipo'] = 'titular_retorno'
         status_entra['vinculo'] = numero_sai
+        status_entra['substituicao_encerrada'] = True
     else:
         return False, 'Substituição normal deve ser titular por reserva ou retorno do titular. Para exceções, use substituição excepcional.'
 
@@ -12934,6 +12972,59 @@ def _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_nome, lado, 
     return sorted(saida, key=ordem)
 
 
+
+def _pontuacao_atletas_finalizacao(partida_id, competicao):
+    """Soma ataque, bloqueio e ace por lado/número para apoiar a escolha do destaque."""
+    totais = {}
+    try:
+        eventos = listar_eventos_partida(partida_id, competicao, limite=5000) or []
+    except Exception as e:
+        print('AVISO finalização/pontuação atletas:', repr(e), flush=True)
+        return totais
+
+    for ev in eventos:
+        tipo = str(ev.get('tipo') or ev.get('tipo_evento') or '').strip().lower()
+        if tipo not in {'ponto', 'pontuacao', 'ponto_normal'}:
+            continue
+
+        detalhes = ev.get('detalhes')
+        if isinstance(detalhes, str):
+            try:
+                detalhes = json.loads(detalhes)
+            except Exception:
+                detalhes = {}
+        if not isinstance(detalhes, dict):
+            detalhes = {}
+
+        fundamento = str(
+            detalhes.get('detalhe_lance')
+            or detalhes.get('fundamento')
+            or ev.get('fundamento')
+            or ''
+        ).strip().lower()
+        if fundamento not in {'ataque', 'bloqueio', 'ace'}:
+            continue
+
+        numero = str(
+            detalhes.get('atleta_numero')
+            or detalhes.get('numero_atleta')
+            or ev.get('numero')
+            or ''
+        ).strip()
+        lado = str(
+            detalhes.get('equipe_scout')
+            or detalhes.get('responsavel_lado')
+            or detalhes.get('equipe_pontuadora')
+            or ev.get('equipe')
+            or ''
+        ).strip().upper()
+        if lado not in {'A', 'B'} or not numero:
+            continue
+        chave = (lado, numero)
+        totais[chave] = int(totais.get(chave, 0)) + 1
+    return totais
+
+
 def listar_dados_finalizacao_partida(partida_id, competicao):
     criar_tabela_destaques_partida()
     criar_tabelas_premiacao_destaques_competicao()
@@ -12968,20 +13059,28 @@ def listar_dados_finalizacao_partida(partida_id, competicao):
                 if int(row.get('partida_id') or 0) == int(partida_id):
                     destaques_partida.append(row)
 
+    pontuacao_atletas = _pontuacao_atletas_finalizacao(partida_id, competicao)
+    atletas_a = _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_a, 'A', eleitos_por_id, eleitos_por_chave)
+    atletas_b = _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_b, 'B', eleitos_por_id, eleitos_por_chave)
+    for atleta in atletas_a:
+        atleta['pontos_partida'] = int(pontuacao_atletas.get(('A', str(atleta.get('numero') or '').strip()), 0))
+    for atleta in atletas_b:
+        atleta['pontos_partida'] = int(pontuacao_atletas.get(('B', str(atleta.get('numero') or '').strip()), 0))
+
     equipes = [
         {
             'lado': 'A',
             'nome': equipe_a,
             'resultado': 'vencedora' if vencedor_lado == 'A' else ('perdedora' if perdedor_lado == 'A' else ''),
             'pode_selecionar': vencedor_lado == 'A',
-            'atletas': _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_a, 'A', eleitos_por_id, eleitos_por_chave),
+            'atletas': atletas_a,
         },
         {
             'lado': 'B',
             'nome': equipe_b,
             'resultado': 'vencedora' if vencedor_lado == 'B' else ('perdedora' if perdedor_lado == 'B' else ''),
             'pode_selecionar': vencedor_lado == 'B',
-            'atletas': _montar_atletas_lado_finalizacao(partida_id, competicao, equipe_b, 'B', eleitos_por_id, eleitos_por_chave),
+            'atletas': atletas_b,
         },
     ]
 

@@ -1,6 +1,57 @@
 {% extends "base.html" %}
 
-{% block titulo %}Conferência da Equipe {{ lado }}{% endblock %}
+{% block titulo %}Conferência da Equipe {{ lado }}
+<script>
+(function(){
+  const chave=`voleitable_operacao_local_{{ competicao_nome|e }}_{{ partida.id }}`;
+  function ler(){try{return JSON.parse(localStorage.getItem(chave)||'{}')}catch(e){return{}}}
+  function salvar(v){v.atualizado_em=Date.now();localStorage.setItem(chave,JSON.stringify(v));}
+  const lado={{ lado|tojson }};
+  const equipe={{ equipe_nome|tojson }};
+  const principal=document.getElementById('form-conferencia-equipe');
+  if(principal){
+    principal.addEventListener('submit',function(ev){
+      ev.preventDefault();
+      if(document.querySelectorAll('input[name="libero_id"]:checked').length>2){alert('Cada equipe pode ter no máximo 2 líberos.');return;}
+      const atletas=[];
+      principal.querySelectorAll('input[name="atleta_id"]').forEach(idEl=>{
+        const id=String(idEl.value); const row=idEl.closest('tr');
+        const numero=principal.querySelector(`[name="numero_${CSS.escape(id)}"]`);
+        const libero=principal.querySelector(`input[name="libero_id"][value="${CSS.escape(id)}"]`);
+        atletas.push({id,numero:numero&&numero.value!==''?Number(numero.value):null,libero:Boolean(libero&&libero.checked)});
+      });
+      const pacote=ler(); pacote.conferencia=pacote.conferencia||{};
+      pacote.conferencia[lado]={equipe,atletas,conferida:true};
+      pacote.etapa=lado==='A'?'conferencia_B':'papeleta'; salvar(pacote);
+      if(lado==='A'){
+        const outra=(pacote.equipes_operacionais||{}).B||'';
+        window.location.href=`{{ url_for('apontadores.conferencia_equipe_view', competicao=competicao_nome, partida_id=partida.id, lado='B') }}?local=1&equipe=${encodeURIComponent(outra)}`;
+      }else{
+        const eq=pacote.equipes_operacionais||{};
+        window.location.href=`{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}?local=1&equipe_a=${encodeURIComponent(eq.A||'')}&equipe_b=${encodeURIComponent(eq.B||'')}`;
+      }
+    });
+  }
+  document.querySelectorAll('.modal-atleta form').forEach(form=>{
+    form.addEventListener('submit',function(ev){
+      ev.preventDefault();
+      const modal=form.closest('.modal-atleta'); const id=(modal&&modal.id||'').replace('modal-atleta-','');
+      const num=form.querySelector('[name="numero"]'); const lib=form.querySelector('[name="libero"]');
+      const linha=principal&&principal.querySelector(`input[name="atleta_id"][value="${CSS.escape(id)}"]`)?.closest('tr');
+      if(linha&&num){const alvo=linha.querySelector(`[name="numero_${CSS.escape(id)}"]`);if(alvo)alvo.value=num.value;}
+      if(linha&&lib){const alvo=linha.querySelector(`input[name="libero_id"][value="${CSS.escape(id)}"]`);if(alvo)alvo.checked=lib.checked;}
+      fecharModalAtleta(id);
+    });
+  });
+  const pacote=ler(); const salvo=((pacote.conferencia||{})[lado]||{}).atletas||[];
+  salvo.forEach(a=>{
+    const n=principal&&principal.querySelector(`[name="numero_${CSS.escape(String(a.id))}"]`); if(n)n.value=a.numero??'';
+    const l=principal&&principal.querySelector(`input[name="libero_id"][value="${CSS.escape(String(a.id))}"]`); if(l)l.checked=Boolean(a.libero);
+  });
+})();
+</script>
+
+{% endblock %}
 
 {% block conteudo %}
 <div class="topo-secao">
