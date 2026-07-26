@@ -12752,18 +12752,23 @@ def encerrar_partida(partida_id, competicao, observacoes):
                     status_jogo = 'finalizada',
                     status_operacao = 'finalizada',
                     fase_partida = 'encerrado',
-                    observacoes = CASE
-                        WHEN %s IS NULL OR BTRIM(%s) = '' THEN COALESCE(observacoes, '')
-                        ELSE %s
-                    END,
-                    vencedor = COALESCE(%s, vencedor),
+                    observacoes = COALESCE(
+                        NULLIF(BTRIM(%s::text), ''),
+                        observacoes,
+                        ''
+                    ),
+                    vencedor = COALESCE(%s::text, vencedor),
                     tipo_encerramento = COALESCE(NULLIF(tipo_encerramento, ''), 'normal'),
-                    fim_partida_real = COALESCE(fim_partida_real, %s),
-                    data_fim = COALESCE(data_fim, %s)
+                    fim_partida_real = COALESCE(fim_partida_real, %s::timestamp),
+                    data_fim = COALESCE(data_fim, %s::timestamp)
                 WHERE id = %s AND competicao = %s
             """, (
-                observacoes, observacoes, observacoes,
-                vencedor, agora, agora, partida_id, competicao,
+                observacoes,
+                vencedor,
+                agora,
+                agora,
+                partida_id,
+                competicao,
             ))
         conn.commit()
 
