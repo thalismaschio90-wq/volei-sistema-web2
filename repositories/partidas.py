@@ -368,3 +368,28 @@ def inserir_partidas_em_lote(partidas, *, buscar_colunas_tabela=None):
         conn.commit()
 
     return len(valores)
+
+
+def listar_estados_resumidos_partidas(competicao):
+    """Retorna apenas os campos necessários para detectar partidas ao vivo.
+
+    Evita carregar agenda completa, escudos, quadras, eventos e demais colunas
+    em cada verificação periódica do visualizador público.
+    """
+    competicao = texto(competicao)
+    if not competicao:
+        return []
+    with conectar() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    id, competicao, status, status_jogo, status_operacao,
+                    fase_partida, pre_jogo_iniciado_em, pre_jogo_finalizado,
+                    sets_a, sets_b, pontos_a, pontos_b,
+                    set1_a, set1_b, set2_a, set2_b, set3_a, set3_b,
+                    set4_a, set4_b, set5_a, set5_b
+                FROM partidas
+                WHERE competicao = %s
+                ORDER BY id
+            """, (competicao,))
+            return cur.fetchall() or []

@@ -344,46 +344,9 @@
         <span>PA = Pontos Average</span><span>DP = Saldo de Pontos</span><span>PF = Pontos Feitos</span><span>PC = Pontos Cedidos</span>
     </div>
 
-    {% if classificacao %}
-    <div class="grid">
-        {% for grupo, linhas in classificacao.items() %}
-            <div class="card">
-                <h3>Grupo {{ grupo }}</h3>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th title="Posição">Pos</th>
-                                <th>Equipe</th>
-                                {% for coluna in colunas_classificacao %}
-                                    <th title="{{ coluna.descricao or coluna.titulo }}">{{ coluna.titulo }}</th>
-                                {% endfor %}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for l in linhas %}
-                            <tr>
-                                <td><span class="posicao {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span></td>
-                                <td class="equipe">
-                                    <div class="equipe-inline">
-                                        <img class="escudo-mini" src="{{ l.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
-                                        <span>{{ l.equipe }}</span>
-                                    </div>
-                                </td>
-                                {% for coluna in colunas_classificacao %}
-                                    <td class="{% if coluna.campo == 'pontos' %}valor-principal{% endif %}">{{ l[coluna.campo] }}</td>
-                                {% endfor %}
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        {% endfor %}
+    <div id="classificacaoConteudo" aria-live="polite">
+        <div class="card vazio">Carregando classificação...</div>
     </div>
-    {% else %}
-    <div class="card vazio">Nenhum grupo criado ainda para exibir classificação.</div>
-    {% endif %}
 
     {% set lista_ao_vivo = partidas_ao_vivo or [] %}
 
@@ -436,181 +399,48 @@
     </section>
     {% endif %}
 
-    {% if avanco_espelho is defined and avanco_espelho %}
-    <section class="bracket-publico">
-        <h2>Avanço / Chaveamento</h2>
-        <div class="hint">O quadro mostra como a próxima fase foi configurada. Enquanto a classificatória não estiver totalmente finalizada e o organizador não gerar os jogos, aparecem apenas os placeholders das regras, como “1º Grupo A”.</div>
-        {% for serie in avanco_espelho %}
-            <div class="bracket-serie">
-                <h3>{{ serie.nome }}</h3>
-                <div class="bracket-scroll">
-                    <div class="bracket-board">
-                        {% for fase in serie.fases %}
-                            <div class="bracket-col">
-                                <div class="bracket-fase">{{ fase.nome }}</div>
-                                {% for jogo in fase.jogos %}
-                                <div
-                                    class="bracket-card {% if jogo.ao_vivo %}ao-vivo-card{% elif jogo.finalizada %}finalizado-card{% endif %}"
-                                    {% if jogo.partida_id %}
-                                        data-partida-id="{{ jogo.partida_id }}"
-                                        data-competicao="{{ competicao_nome }}"
-                                        data-ao-vivo="{{ '1' if jogo.ao_vivo else '0' }}"
-                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=jogo.partida_id) }}"{% endif %}
-                                    {% endif %}
-                                >
-                                    <div class="bracket-card-top">
-                                        <span>{{ jogo.id }}</span>
-                                        <span data-status-badge class="badge {% if jogo.finalizada %}finalizado{% elif jogo.ao_vivo %}ao-vivo{% else %}status-neutro{% endif %}">
-                                            {% if jogo.finalizada %}FINALIZADO{% elif jogo.ao_vivo %}AO VIVO{% else %}{{ jogo.status_exibicao }}{% endif %}
-                                        </span>
-                                    </div>
-                                    <div class="bracket-team">
-                                        <span>A</span>
-                                        <img data-escudo-a src="{{ jogo.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
-                                        <strong data-equipe-a>{{ jogo.equipe_a or jogo.origem_a_label }}</strong>
-                                    </div>
-                                    <div class="bracket-team">
-                                        <span>B</span>
-                                        <img data-escudo-b src="{{ jogo.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
-                                        <strong data-equipe-b>{{ jogo.equipe_b or jogo.origem_b_label }}</strong>
-                                    </div>
-                                    {% if jogo.finalizada or jogo.ao_vivo %}
-                                        <div class="bracket-score" data-placar-wrap>
-                                            <span class="bracket-score-num" data-pontos-a>{{ jogo.placar_exibicao_a or 0 }}</span>
-                                            <span>×</span>
-                                            <span class="bracket-score-num" data-pontos-b>{{ jogo.placar_exibicao_b or 0 }}</span>
-                                        </div>
-                                        {% if not jogo.set_unico %}
-                                            <div class="bracket-sets" data-sets-wrap>
-                                                Sets: <span data-sets-a>{{ jogo.sets_a or 0 }}</span> × <span data-sets-b>{{ jogo.sets_b or 0 }}</span>{% if jogo.ao_vivo %} • Set atual: <span data-set-atual>{{ jogo.set_atual or 1 }}</span>{% endif %}
-                                            </div>
-                                        {% else %}
-                                            <div class="bracket-sets" data-sets-wrap style="display:none;"></div>
-                                        {% endif %}
-                                        <div class="bracket-parciais" data-parciais>
-                                            {% if jogo.finalizada %}Parciais: {{ jogo.parciais_formatadas }}{% elif jogo.ao_vivo %}Placar do set atual em tempo real{% endif %}
-                                        </div>
-                                        {% if jogo.ao_vivo or jogo.finalizada %}<div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>{% endif %}
-                                    {% endif %}
-                                    {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
-                                        <div class="bracket-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
-                                    {% endif %}
-                                </div>
-                                {% endfor %}
-                            </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        {% endfor %}
+    {% if exibir_chaveamento %}
+    <section class="bracket-publico" data-bracket-lazy>
+        <div class="card">
+            <h2 style="margin-top:0;">Avanço / Chaveamento</h2>
+            <div class="hint">O chaveamento será carregado somente quando você abrir esta seção.</div>
+            <button type="button" class="rodada-tab" data-carregar-chaveamento>Carregar chaveamento</button>
+            <div data-bracket-conteudo></div>
+        </div>
     </section>
     {% endif %}
 
     <h2>Jogos</h2>
 
-    {% if partidas %}
-        {% set ns_rodadas = namespace(lista=[]) %}
-        {% set ns_quadras = namespace(lista=[]) %}
-        {% for p in partidas %}
-            {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
-            {% if rodada_chave not in ns_rodadas.lista %}
-                {% set ns_rodadas.lista = ns_rodadas.lista + [rodada_chave] %}
-            {% endif %}
-            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
-            {% if q_label != 'Sem quadra' and q_label not in ns_quadras.lista %}
-                {% set ns_quadras.lista = ns_quadras.lista + [q_label] %}
-            {% endif %}
-        {% endfor %}
-
+    {% if rodadas_disponiveis %}
         <div class="filtros-jogos">
             <div class="filtro-grupo">
                 <div class="filtro-titulo">Rodadas</div>
                 <div class="rodada-tabs" data-rodada-tabs>
-                    {% for rodada_chave in ns_rodadas.lista %}
-                        <button type="button" class="rodada-tab {% if loop.first %}ativa{% endif %}" data-rodada-filter="{{ rodada_chave }}">
-                            {{ 'Sem rodada' if rodada_chave == '__sem_rodada__' else 'Rodada ' ~ rodada_chave }}
-                        </button>
+                    {% for rodada_chave in rodadas_disponiveis %}
+                        <button type="button" class="rodada-tab {% if rodada_chave == rodada_inicial %}ativa{% endif %}" data-rodada-filter="{{ rodada_chave }}">{{ 'Sem rodada' if rodada_chave == '__sem_rodada__' else 'Rodada ' ~ rodada_chave }}</button>
                     {% endfor %}
                 </div>
             </div>
-
-            {% if ns_quadras.lista|length > 1 %}
+            {% if quadras_disponiveis|length > 1 %}
             <div class="filtro-grupo" data-quadra-area>
                 <div class="filtro-titulo">Quadras</div>
                 <div class="quadra-tabs" data-quadra-tabs>
                     <button type="button" class="quadra-tab ativa" data-quadra-filter="__todos__">Todas</button>
-                    {% for q_label in ns_quadras.lista %}
-                        <button type="button" class="quadra-tab" data-quadra-filter="{{ q_label }}">{{ q_label }}</button>
-                    {% endfor %}
+                    {% for q_label in quadras_disponiveis %}<button type="button" class="quadra-tab" data-quadra-filter="{{ q_label }}">{{ q_label }}</button>{% endfor %}
                 </div>
             </div>
             {% endif %}
         </div>
-
         <div class="jogos-grid" data-jogos-grid>
-        {% for p in partidas %}
-            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
-            {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
-            <div
-                class="jogo {% if p.ao_vivo %}ao-vivo-card{% endif %}"
-                data-partida-id="{{ p.id }}"
-                data-competicao="{{ competicao_nome }}"
-                data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
-                data-quadra-label="{{ q_label }}"
-                data-rodada="{{ rodada_chave }}"
-                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=p.id) }}"{% endif %}
-            >
-                <div class="jogo-topo">
-                    <div>
-                        <div class="confronto">
-                            <span class="time-jogo">
-                                <img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
-                                <span data-equipe-a>{{ p.equipe_a }}</span>
-                            </span>
-                            <span class="versus">x</span>
-                            <span class="time-jogo">
-                                <img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
-                                <span data-equipe-b>{{ p.equipe_b }}</span>
-                            </span>
-                        </div>
-                        <div class="agenda-jogo">
-                            <span class="agenda-chip">{{ 'Rodada ' ~ p.rodada if p.rodada else 'Sem rodada' }}</span>
-                            {% if p.data_hora_label %}<span class="agenda-chip">📅 {{ p.data_hora_label }}</span>{% endif %}
-                            {% if q_label != 'Sem quadra' %}<span class="agenda-chip">🏐 {{ q_label }}</span>{% endif %}
-                        </div>
-                        <div class="meta">
-                            {% if p.fase_normalizada == 'grupos' %}Grupo {{ p.grupo }}{% else %}{{ p.fase_normalizada|capitalize }}{% endif %}
-                        </div>
-                    </div>
-                    <span data-status-badge class="badge {% if p.finalizada %}finalizado{% elif p.ao_vivo %}ao-vivo{% else %}status-neutro{% endif %}">
-                        {% if p.finalizada %}FINALIZADO{% elif p.ao_vivo %}AO VIVO{% else %}{{ p.status_exibicao }}{% endif %}
-                    </span>
-                </div>
-
-                <div class="placar" data-placar-wrap {% if not p.finalizada and not p.ao_vivo %}style="display:none;"{% endif %}>
-                    <span class="placar-numero" data-pontos-a>{{ p.placar_exibicao_a if p.placar_exibicao_a is defined else 0 }}</span>
-                    <span>×</span>
-                    <span class="placar-numero" data-pontos-b>{{ p.placar_exibicao_b if p.placar_exibicao_b is defined else 0 }}</span>
-                </div>
-
-                <div class="sets-live" data-sets-wrap {% if not p.ao_vivo or p.set_unico %}style="display:none;"{% endif %}>
-                    Sets: <span data-sets-a>{{ p.sets_a or 0 }}</span> × <span data-sets-b>{{ p.sets_b or 0 }}</span>
-                    <span>•</span> Set atual: <span data-set-atual>{{ p.set_atual or 1 }}</span>
-                </div>
-
-                <div class="parciais" data-parciais>
-                    {% if p.finalizada %}Parciais: {{ p.parciais_formatadas }}
-                    {% elif p.ao_vivo %}Placar {{ 'da partida' if p.set_unico else 'do set atual' }} em tempo real
-                    {% else %}Aguardando início da partida.{% endif %}
-                </div>
-                {% if p.ao_vivo or p.finalizada %}<div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>{% endif %}
-            </div>
-        {% endfor %}
+            {% set partidas = partidas_iniciais %}
+            {% include 'partials/visualizador_publico_jogos.html' with context %}
         </div>
         <div class="card vazio jogos-vazio-filtro" data-jogos-vazio-filtro>Nenhum jogo encontrado nesta rodada ou quadra.</div>
     {% else %}
         <div class="card vazio">Nenhum jogo cadastrado.</div>
     {% endif %}
+
 </div>
 
 <script>
@@ -628,22 +458,90 @@
     const AO_VIVO_STATUS_URL = {{ (url_for('tabela.visualizador_publico_ao_vivo_dados_curta', codigo_publico=codigo_publico) if codigo_publico else url_for('tabela.visualizador_publico_ao_vivo_dados', competicao_nome=competicao_nome))|tojson }};
     const IDS_AO_VIVO_INICIAIS = new Set({{ (partidas_ao_vivo or [])|map(attribute='id')|list|tojson }}.map(String));
     let consultaAoVivoEmAndamento = false;
-    const cards = Array.from(document.querySelectorAll('[data-partida-id]'));
+    let cards = Array.from(document.querySelectorAll('[data-partida-id]'));
     const tabsRodada = Array.from(document.querySelectorAll('[data-rodada-filter]'));
     const tabsQuadra = Array.from(document.querySelectorAll('[data-quadra-filter]'));
+    const jogosGrid = document.querySelector('[data-jogos-grid]');
+    const RODADA_URL_BASE = {{ (url_for('tabela.visualizador_publico_rodada_fragmento_curta', codigo_publico=codigo_publico, rodada_chave='__RODADA__') if codigo_publico else url_for('tabela.visualizador_publico_rodada_fragmento', competicao_nome=competicao_nome, rodada_chave='__RODADA__'))|tojson }};
+    const CHAVEAMENTO_URL = {{ (url_for('tabela.visualizador_publico_chaveamento_fragmento_curta', codigo_publico=codigo_publico) if codigo_publico else url_for('tabela.visualizador_publico_chaveamento_fragmento', competicao_nome=competicao_nome))|tojson }};
+    const CLASSIFICACAO_URL = {{ (url_for('tabela.visualizador_publico_classificacao_fragmento_curta', codigo_publico=codigo_publico) if codigo_publico else url_for('tabela.visualizador_publico_classificacao_fragmento', competicao_nome=competicao_nome))|tojson }};
     const avisoVazioFiltro = document.querySelector('[data-jogos-vazio-filtro]');
     let filtroRodadaAtual = tabsRodada.length ? (tabsRodada[0].dataset.rodadaFilter || '__sem_rodada__') : '__todos__';
     let filtroQuadraAtual = '__todos__';
     let reloadFinalizacaoAgendado = false;
+    const cacheRodadasHtml = new Map();
+    let requisicaoRodadaAtual = null;
+    let etagAoVivo = '';
 
-    cards.forEach((card) => {
-        card.addEventListener('click', function (ev) {
-            const url = this.dataset.urlPartida;
-            if (!url) return;
-            if (ev.target && ev.target.closest && ev.target.closest('button, a, input, select, textarea')) return;
-            window.location.href = url;
-        });
+    async function carregarClassificacao() {
+        const alvo = document.getElementById('classificacaoConteudo');
+        if (!alvo || alvo.dataset.carregado === '1') return;
+        try {
+            const resposta = await fetch(CLASSIFICACAO_URL, {
+                cache: 'default',
+                headers: { 'Accept': 'text/html' }
+            });
+            if (!resposta.ok) throw new Error('Falha ao carregar classificação');
+            alvo.innerHTML = await resposta.text();
+            alvo.dataset.carregado = '1';
+        } catch (erro) {
+            alvo.innerHTML = '<div class="card vazio">Não foi possível carregar a classificação. <button type="button" onclick="carregarClassificacao()">Tentar novamente</button></div>';
+        }
+    }
+
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(carregarClassificacao, { timeout: 1200 });
+    } else {
+        setTimeout(carregarClassificacao, 150);
+    }
+
+    function atualizarListaCards() {
+        cards = Array.from(document.querySelectorAll('[data-partida-id]'));
+    }
+
+    document.addEventListener('click', function (ev) {
+        const card = ev.target && ev.target.closest ? ev.target.closest('[data-url-partida]') : null;
+        if (!card || ev.target.closest('button, a, input, select, textarea')) return;
+        const url = card.dataset.urlPartida;
+        if (url) window.location.href = url;
     });
+
+    async function carregarRodada(rodada) {
+        if (!jogosGrid) return;
+
+        if (cacheRodadasHtml.has(rodada)) {
+            jogosGrid.innerHTML = cacheRodadasHtml.get(rodada);
+            atualizarListaCards();
+            aplicarFiltrosJogos();
+            entrarNasPartidas();
+            return;
+        }
+
+        if (requisicaoRodadaAtual) requisicaoRodadaAtual.abort();
+        requisicaoRodadaAtual = new AbortController();
+        jogosGrid.innerHTML = '<div class="card vazio">Carregando jogos...</div>';
+        try {
+            const url = RODADA_URL_BASE.replace('__RODADA__', encodeURIComponent(rodada));
+            const resposta = await fetch(url, {
+                cache: 'default',
+                signal: requisicaoRodadaAtual.signal,
+                headers: { 'Accept': 'text/html' }
+            });
+            if (!resposta.ok) throw new Error('Falha ao carregar rodada');
+            const html = await resposta.text();
+            cacheRodadasHtml.set(rodada, html);
+            if (filtroRodadaAtual !== rodada) return;
+            jogosGrid.innerHTML = html;
+            atualizarListaCards();
+            aplicarFiltrosJogos();
+            entrarNasPartidas();
+        } catch (erro) {
+            if (erro && erro.name === 'AbortError') return;
+            jogosGrid.innerHTML = '<div class="card vazio">Não foi possível carregar esta rodada.</div>';
+        } finally {
+            requisicaoRodadaAtual = null;
+        }
+    }
 
 
     function aplicarFiltrosJogos() {
@@ -670,7 +568,7 @@
                 filtroRodadaAtual = this.dataset.rodadaFilter || '__sem_rodada__';
                 tabsRodada.forEach((outra) => outra.classList.remove('ativa'));
                 this.classList.add('ativa');
-                aplicarFiltrosJogos();
+                carregarRodada(filtroRodadaAtual);
             });
         });
 
@@ -825,8 +723,12 @@
         if (consultaAoVivoEmAndamento) return;
         consultaAoVivoEmAndamento = true;
         try {
-            const resposta = await fetch(AO_VIVO_STATUS_URL, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
+            const headers = { 'Accept': 'application/json' };
+            if (etagAoVivo) headers['If-None-Match'] = etagAoVivo;
+            const resposta = await fetch(AO_VIVO_STATUS_URL, { cache: 'no-cache', headers });
+            if (resposta.status === 304) return;
             if (!resposta.ok) return;
+            etagAoVivo = resposta.headers.get('ETag') || etagAoVivo;
             const dados = await resposta.json();
             const atuais = new Set((dados.partidas_ao_vivo || []).map(String));
             const mudouQuantidade = atuais.size !== IDS_AO_VIVO_INICIAIS.size;
@@ -841,8 +743,37 @@
         }
     }
 
+    const botaoChaveamento = document.querySelector('[data-carregar-chaveamento]');
+    if (botaoChaveamento) {
+        botaoChaveamento.addEventListener('click', async function () {
+            const alvo = document.querySelector('[data-bracket-conteudo]');
+            this.disabled = true;
+            this.textContent = 'Carregando...';
+            try {
+                const resposta = await fetch(CHAVEAMENTO_URL, { cache: 'default', headers: { 'Accept': 'text/html' } });
+                if (!resposta.ok && resposta.status !== 204) throw new Error('Falha');
+                alvo.innerHTML = resposta.status === 204 ? '<div class="vazio">Chaveamento ainda não disponível.</div>' : await resposta.text();
+                atualizarListaCards();
+                this.remove();
+            } catch (erro) {
+                this.disabled = false;
+                this.textContent = 'Tentar carregar novamente';
+            }
+        });
+    }
+
     configurarAbasJogos();
-    setInterval(verificarMudancaPartidasAoVivo, document.hidden ? 30000 : 8000);
+    let timerAoVivo = null;
+    function agendarVerificacaoAoVivo() {
+        clearTimeout(timerAoVivo);
+        const atraso = document.hidden ? 60000 : 15000;
+        timerAoVivo = setTimeout(async () => {
+            await verificarMudancaPartidasAoVivo();
+            agendarVerificacaoAoVivo();
+        }, atraso);
+    }
+    document.addEventListener('visibilitychange', agendarVerificacaoAoVivo);
+    agendarVerificacaoAoVivo();
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) verificarMudancaPartidasAoVivo();
     });

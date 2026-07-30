@@ -31,6 +31,7 @@ from services.competicoes.partidas import (
     criar_partida as _criar_partida,
     listar_partidas as _listar_partidas,
     listar_partidas_leve as _listar_partidas_leve,
+    listar_estados_resumidos_partidas as _listar_estados_resumidos_partidas,
     buscar_partida_por_id as _buscar_partida_por_id,
     limpar_partidas,
     limpar_partidas_por_fase,
@@ -67,6 +68,10 @@ def listar_partidas_leve(competicao, *, limite=500, offset=0, incluir_escudos=Tr
         competicao, limite=limite, offset=offset,
         incluir_escudos=incluir_escudos, formatar_quadra=formatar_quadra_exibicao,
     )
+
+
+def listar_estados_resumidos_partidas(competicao):
+    return _listar_estados_resumidos_partidas(competicao)
 
 
 def buscar_partida_por_id(partida_id, competicao):

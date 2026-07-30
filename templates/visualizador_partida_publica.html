@@ -43,11 +43,11 @@
 
   <div class="grid">
     <main>
-      <section id="timelineCard" class="card timeline-card{% if partida.finalizada %} timeline-collapsed{% endif %}">
+      <section id="timelineCard" class="card timeline-card timeline-collapsed">
         <div class="timeline-header">
           <h2 class="timeline-title">{% if scout_ativo %}Ponto a ponto da partida{% else %}Evolução dos pontos{% endif %}</h2>
-          <button id="timelineToggle" class="timeline-toggle" type="button" aria-controls="timelineContent" aria-expanded="{{ 'false' if partida.finalizada else 'true' }}">
-            <span id="timelineToggleText">{{ 'Ver todos os pontos' if partida.finalizada else 'Minimizar' }}</span>
+          <button id="timelineToggle" class="timeline-toggle" type="button" aria-controls="timelineContent" aria-expanded="false">
+            <span id="timelineToggleText">Ver todos os pontos</span>
             <span class="timeline-chevron" aria-hidden="true">⌄</span>
           </button>
         </div>
@@ -95,6 +95,8 @@ let ultimaVersaoDestaque = null;
 let consultaEmAndamento = false;
 let timerConsulta = null;
 let timelineUsuarioInteragiu = false;
+let detalhesCarregados = false;
+let detalhesEmAndamento = false;
 let partidaJaEstavaFinalizada = {{ partida.finalizada|tojson }};
 let estadoSocketAtual = {};
 let estadoVersaoSocket = 0;
@@ -174,9 +176,13 @@ function configurarTimeline(){
   const card = document.getElementById('timelineCard');
   const botao = document.getElementById('timelineToggle');
   if(!card || !botao) return;
-  botao.addEventListener('click', () => {
+  botao.addEventListener('click', async () => {
     timelineUsuarioInteragiu = true;
-    aplicarEstadoTimeline(!card.classList.contains('timeline-collapsed'));
+    const vaiAbrir = card.classList.contains('timeline-collapsed');
+    aplicarEstadoTimeline(!vaiAbrir);
+    if(vaiAbrir && !detalhesCarregados){
+      await carregarDetalhes(null);
+    }
   });
 }
 
@@ -289,6 +295,8 @@ function atualizarTopo(p, origem='polling'){
   if(parciaisInfo && p.parciais_formatadas) parciaisInfo.textContent = `Parciais: ${p.parciais_formatadas}`;
 }
 async function carregarDetalhes(partidaAtual){
+  if(detalhesEmAndamento) return;
+  detalhesEmAndamento = true;
   try{
     const resp = await fetch(DETALHES_URL, {cache:'no-store'});
     if(!resp.ok) return;
@@ -298,8 +306,11 @@ async function carregarDetalhes(partidaAtual){
     renderEvolucao(data.evolucao_sets);
     renderStats(data.stats);
     renderMvp(data.destaque, partidaAtual);
+    detalhesCarregados = true;
   }catch(e){
     console.debug('Visualizador: detalhes indisponíveis temporariamente.', e);
+  }finally{
+    detalhesEmAndamento = false;
   }
 }
 
@@ -361,7 +372,10 @@ async function carregar(){
       ultimaVersaoEventos = versaoEventos;
       ultimaVersaoEstado = versaoEstado;
       ultimaVersaoDestaque = versaoDestaque;
-      await carregarDetalhes(partidaAtual);
+      const timelineAberta = !document.getElementById('timelineCard')?.classList.contains('timeline-collapsed');
+      if(detalhesCarregados || timelineAberta){
+        await carregarDetalhes(partidaAtual);
+      }
     }
   }catch(e){
     if(guardaConexao) guardaConexao.registrarFalha();
@@ -454,7 +468,9 @@ function configurarSocketTempoReal(){
     // imediatamente quando chega uma ação nova, sem esperar o polling.
     clearTimeout(timerConsulta);
     clearTimeout(window.__timerDetalhesSocket);
-    window.__timerDetalhesSocket = setTimeout(() => carregarDetalhes(payload), 700);
+    if(detalhesCarregados || !document.getElementById('timelineCard')?.classList.contains('timeline-collapsed')){
+      window.__timerDetalhesSocket = setTimeout(() => carregarDetalhes(payload), 700);
+    }
     timerConsulta = setTimeout(carregar, 900);
   };
 

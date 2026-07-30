@@ -1,0 +1,31 @@
+{% if classificacao %}
+<div class="grid">
+    {% for grupo, linhas in classificacao.items() %}
+        <div class="card">
+            <h3>Grupo {{ grupo }}</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr>
+                        <th title="Posição">Pos</th><th>Equipe</th>
+                        {% for coluna in colunas_classificacao %}<th title="{{ coluna.descricao or coluna.titulo }}">{{ coluna.titulo }}</th>{% endfor %}
+                    </tr></thead>
+                    <tbody>
+                    {% for l in linhas %}
+                        <tr>
+                            <td><span class="posicao {% if loop.index == 1 %}top1{% endif %}">{{ loop.index }}</span></td>
+                            <td class="equipe"><div class="equipe-inline">
+                                <img class="escudo-mini" src="{{ l.escudo or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ l.equipe }}" loading="lazy" decoding="async">
+                                <span>{{ l.equipe }}</span>
+                            </div></td>
+                            {% for coluna in colunas_classificacao %}<td class="{% if coluna.campo == 'pontos' %}valor-principal{% endif %}">{{ l[coluna.campo] }}</td>{% endfor %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card vazio">Nenhum grupo criado ainda para exibir classificação.</div>
+{% endif %}

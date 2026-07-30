@@ -59,6 +59,8 @@ def montar_contexto_partida_publica(
     competicao_nome: str,
     partida_id: int,
     preparar_partidas: Callable,
+    *,
+    incluir_detalhes: bool = False,
 ):
     """Monta o contexto completo usado na página e nos detalhes sob demanda."""
     competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
@@ -72,9 +74,11 @@ def montar_contexto_partida_publica(
     }
     preparada = (preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
     estado = obter_estado_publico(partida_id, competicao_nome)
-    eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
     scout_ativo = modo_scout_ativo_publico(partida, competicao)
-    timeline, evolucao_sets, stats = montar_linha_ponto_publico(partida, eventos, scout_ativo)
+    timeline, evolucao_sets, stats = [], [], {}
+    if incluir_detalhes:
+        eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
+        timeline, evolucao_sets, stats = montar_linha_ponto_publico(partida, eventos, scout_ativo)
 
     return {
         "competicao": competicao,

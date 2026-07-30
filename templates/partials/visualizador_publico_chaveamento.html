@@ -1,0 +1,67 @@
+    <section class="bracket-publico">
+        <h2>Avanço / Chaveamento</h2>
+        <div class="hint">O quadro mostra como a próxima fase foi configurada. Enquanto a classificatória não estiver totalmente finalizada e o organizador não gerar os jogos, aparecem apenas os placeholders das regras, como “1º Grupo A”.</div>
+        {% for serie in avanco_espelho %}
+            <div class="bracket-serie">
+                <h3>{{ serie.nome }}</h3>
+                <div class="bracket-scroll">
+                    <div class="bracket-board">
+                        {% for fase in serie.fases %}
+                            <div class="bracket-col">
+                                <div class="bracket-fase">{{ fase.nome }}</div>
+                                {% for jogo in fase.jogos %}
+                                <div
+                                    class="bracket-card {% if jogo.ao_vivo %}ao-vivo-card{% elif jogo.finalizada %}finalizado-card{% endif %}"
+                                    {% if jogo.partida_id %}
+                                        data-partida-id="{{ jogo.partida_id }}"
+                                        data-competicao="{{ competicao_nome }}"
+                                        data-ao-vivo="{{ '1' if jogo.ao_vivo else '0' }}"
+                                        {% if jogo.ao_vivo or jogo.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=jogo.partida_id) }}"{% endif %}
+                                    {% endif %}
+                                >
+                                    <div class="bracket-card-top">
+                                        <span>{{ jogo.id }}</span>
+                                        <span data-status-badge class="badge {% if jogo.finalizada %}finalizado{% elif jogo.ao_vivo %}ao-vivo{% else %}status-neutro{% endif %}">
+                                            {% if jogo.finalizada %}FINALIZADO{% elif jogo.ao_vivo %}AO VIVO{% else %}{{ jogo.status_exibicao }}{% endif %}
+                                        </span>
+                                    </div>
+                                    <div class="bracket-team">
+                                        <span>A</span>
+                                        <img data-escudo-a src="{{ jogo.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_a or jogo.origem_a_label }}" loading="lazy" decoding="async">
+                                        <strong data-equipe-a>{{ jogo.equipe_a or jogo.origem_a_label }}</strong>
+                                    </div>
+                                    <div class="bracket-team">
+                                        <span>B</span>
+                                        <img data-escudo-b src="{{ jogo.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ jogo.equipe_b or jogo.origem_b_label }}" loading="lazy" decoding="async">
+                                        <strong data-equipe-b>{{ jogo.equipe_b or jogo.origem_b_label }}</strong>
+                                    </div>
+                                    {% if jogo.finalizada or jogo.ao_vivo %}
+                                        <div class="bracket-score" data-placar-wrap>
+                                            <span class="bracket-score-num" data-pontos-a>{{ jogo.placar_exibicao_a or 0 }}</span>
+                                            <span>×</span>
+                                            <span class="bracket-score-num" data-pontos-b>{{ jogo.placar_exibicao_b or 0 }}</span>
+                                        </div>
+                                        {% if not jogo.set_unico %}
+                                            <div class="bracket-sets" data-sets-wrap>
+                                                Sets: <span data-sets-a>{{ jogo.sets_a or 0 }}</span> × <span data-sets-b>{{ jogo.sets_b or 0 }}</span>{% if jogo.ao_vivo %} • Set atual: <span data-set-atual>{{ jogo.set_atual or 1 }}</span>{% endif %}
+                                            </div>
+                                        {% else %}
+                                            <div class="bracket-sets" data-sets-wrap style="display:none;"></div>
+                                        {% endif %}
+                                        <div class="bracket-parciais" data-parciais>
+                                            {% if jogo.finalizada %}Parciais: {{ jogo.parciais_formatadas }}{% elif jogo.ao_vivo %}Placar do set atual em tempo real{% endif %}
+                                        </div>
+                                        {% if jogo.ao_vivo or jogo.finalizada %}<div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>{% endif %}
+                                    {% endif %}
+                                    {% if jogo.proximo_vencedor or jogo.proximo_perdedor %}
+                                        <div class="bracket-meta">{% if jogo.proximo_vencedor %}Vencedor → {{ jogo.proximo_vencedor }}{% endif %}{% if jogo.proximo_perdedor %}{% if jogo.proximo_vencedor %}<br>{% endif %}Perdedor → {{ jogo.proximo_perdedor }}{% endif %}</div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </section>

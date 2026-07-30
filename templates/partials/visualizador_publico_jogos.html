@@ -1,0 +1,95 @@
+        {% for p in partidas %}
+            {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
+            {% if rodada_chave not in ns_rodadas.lista %}
+                {% set ns_rodadas.lista = ns_rodadas.lista + [rodada_chave] %}
+            {% endif %}
+            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
+            {% if q_label != 'Sem quadra' and q_label not in ns_quadras.lista %}
+                {% set ns_quadras.lista = ns_quadras.lista + [q_label] %}
+            {% endif %}
+        {% endfor %}
+
+        <div class="filtros-jogos">
+            <div class="filtro-grupo">
+                <div class="filtro-titulo">Rodadas</div>
+                <div class="rodada-tabs" data-rodada-tabs>
+                    {% for rodada_chave in ns_rodadas.lista %}
+                        <button type="button" class="rodada-tab {% if loop.first %}ativa{% endif %}" data-rodada-filter="{{ rodada_chave }}">
+                            {{ 'Sem rodada' if rodada_chave == '__sem_rodada__' else 'Rodada ' ~ rodada_chave }}
+                        </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {% if ns_quadras.lista|length > 1 %}
+            <div class="filtro-grupo" data-quadra-area>
+                <div class="filtro-titulo">Quadras</div>
+                <div class="quadra-tabs" data-quadra-tabs>
+                    <button type="button" class="quadra-tab ativa" data-quadra-filter="__todos__">Todas</button>
+                    {% for q_label in ns_quadras.lista %}
+                        <button type="button" class="quadra-tab" data-quadra-filter="{{ q_label }}">{{ q_label }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="jogos-grid" data-jogos-grid>
+        {% for p in partidas %}
+            {% set q_label = p.quadra_label or p.quadra_nome or (('Quadra ' ~ p.quadra) if p.quadra else 'Sem quadra') %}
+            {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
+            <div
+                class="jogo {% if p.ao_vivo %}ao-vivo-card{% endif %}"
+                data-partida-id="{{ p.id }}"
+                data-competicao="{{ competicao_nome }}"
+                data-ao-vivo="{{ '1' if p.ao_vivo else '0' }}"
+                data-quadra-label="{{ q_label }}"
+                data-rodada="{{ rodada_chave }}"
+                {% if p.ao_vivo or p.finalizada %}data-url-partida="{{ url_for('tabela.visualizador_publico_partida_curta', codigo_publico=codigo_publico, partida_id=p.id) }}"{% endif %}
+            >
+                <div class="jogo-topo">
+                    <div>
+                        <div class="confronto">
+                            <span class="time-jogo">
+                                <img data-escudo-a src="{{ p.escudo_a or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_a }}" loading="lazy" decoding="async">
+                                <span data-equipe-a>{{ p.equipe_a }}</span>
+                            </span>
+                            <span class="versus">x</span>
+                            <span class="time-jogo">
+                                <img data-escudo-b src="{{ p.escudo_b or '/static/img/escudo_padrao.svg' }}" alt="Escudo {{ p.equipe_b }}" loading="lazy" decoding="async">
+                                <span data-equipe-b>{{ p.equipe_b }}</span>
+                            </span>
+                        </div>
+                        <div class="agenda-jogo">
+                            <span class="agenda-chip">{{ 'Rodada ' ~ p.rodada if p.rodada else 'Sem rodada' }}</span>
+                            {% if p.data_hora_label %}<span class="agenda-chip">📅 {{ p.data_hora_label }}</span>{% endif %}
+                            {% if q_label != 'Sem quadra' %}<span class="agenda-chip">🏐 {{ q_label }}</span>{% endif %}
+                        </div>
+                        <div class="meta">
+                            {% if p.fase_normalizada == 'grupos' %}Grupo {{ p.grupo }}{% else %}{{ p.fase_normalizada|capitalize }}{% endif %}
+                        </div>
+                    </div>
+                    <span data-status-badge class="badge {% if p.finalizada %}finalizado{% elif p.ao_vivo %}ao-vivo{% else %}status-neutro{% endif %}">
+                        {% if p.finalizada %}FINALIZADO{% elif p.ao_vivo %}AO VIVO{% else %}{{ p.status_exibicao }}{% endif %}
+                    </span>
+                </div>
+
+                <div class="placar" data-placar-wrap {% if not p.finalizada and not p.ao_vivo %}style="display:none;"{% endif %}>
+                    <span class="placar-numero" data-pontos-a>{{ p.placar_exibicao_a if p.placar_exibicao_a is defined else 0 }}</span>
+                    <span>×</span>
+                    <span class="placar-numero" data-pontos-b>{{ p.placar_exibicao_b if p.placar_exibicao_b is defined else 0 }}</span>
+                </div>
+
+                <div class="sets-live" data-sets-wrap {% if not p.ao_vivo or p.set_unico %}style="display:none;"{% endif %}>
+                    Sets: <span data-sets-a>{{ p.sets_a or 0 }}</span> × <span data-sets-b>{{ p.sets_b or 0 }}</span>
+                    <span>•</span> Set atual: <span data-set-atual>{{ p.set_atual or 1 }}</span>
+                </div>
+
+                <div class="parciais" data-parciais>
+                    {% if p.finalizada %}Parciais: {{ p.parciais_formatadas }}
+                    {% elif p.ao_vivo %}Placar {{ 'da partida' if p.set_unico else 'do set atual' }} em tempo real
+                    {% else %}Aguardando início da partida.{% endif %}
+                </div>
+                {% if p.ao_vivo or p.finalizada %}<div class="abrir-partida"><span>Clicar no placar abre a tela da partida</span></div>{% endif %}
+            </div>
+        {% endfor %}

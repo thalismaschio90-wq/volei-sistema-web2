@@ -1,0 +1,145 @@
+{
+  "generated_at": "2026-07-30T18:18:17.022333+00:00",
+  "config": {
+    "base_url": "https://volleytablepro.com.br",
+    "competicao": "Superliga Panazzolo - Edição 2026",
+    "partida_id": 448,
+    "public_code": "RD8QQX",
+    "viewers": 10,
+    "duration_seconds": 30,
+    "point_interval_seconds": 2.0,
+    "request_timeout_seconds": 10.0,
+    "session_cookie": "",
+    "operator_token": "",
+    "allow_writes": false,
+    "socket_enabled": false,
+    "report_dir": "load_reports",
+    "socket_viewers": 2,
+    "warmup_seconds": 5,
+    "readiness_interval_seconds": 10.0,
+    "collect_admin_metrics": false,
+    "max_public_p95_ms": 1000.0,
+    "max_point_p95_ms": 500.0,
+    "max_socket_p95_ms": 300.0,
+    "max_error_rate_percent": 1.0,
+    "min_socket_events_per_probe": 1,
+    "max_pending_socket_markers": 0
+  },
+  "preflight": {
+    "health_status": 200,
+    "ready_status": 200,
+    "ready_payload": {
+      "checked_at": 1785435455.915394,
+      "database": {
+        "detail": "ok",
+        "ok": true
+      },
+      "duration_ms": 227.15,
+      "ok": true,
+      "realtime": {
+        "backend": "local",
+        "detail": "ok",
+        "ok": true
+      },
+      "runtime": {
+        "errors": [],
+        "redis_required": false,
+        "redis_url_configured": false,
+        "resolved_state_backend": "local",
+        "socket_queue_enabled": false,
+        "state_backend": "local",
+        "threads": 4,
+        "valid": true,
+        "warnings": [],
+        "workers": 1
+      }
+    }
+  },
+  "metrics": {
+    "http_healthz": {
+      "count": 1,
+      "ok": 1,
+      "failed": 0,
+      "error_rate_percent": 0.0,
+      "min_ms": 707.231,
+      "avg_ms": 707.231,
+      "p50_ms": 707.231,
+      "p95_ms": 707.231,
+      "p99_ms": 707.231,
+      "max_ms": 707.231
+    },
+    "http_public_view": {
+      "count": 33,
+      "ok": 25,
+      "failed": 8,
+      "error_rate_percent": 24.242,
+      "min_ms": 1300.016,
+      "avg_ms": 7531.533,
+      "p50_ms": 8043.704,
+      "p95_ms": 10062.411,
+      "p99_ms": 10995.68,
+      "max_ms": 10995.68
+    },
+    "http_readyz": {
+      "count": 1,
+      "ok": 1,
+      "failed": 0,
+      "error_rate_percent": 0.0,
+      "min_ms": 502.415,
+      "avg_ms": 502.415,
+      "p50_ms": 502.415,
+      "p95_ms": 502.415,
+      "p99_ms": 502.415,
+      "max_ms": 502.415
+    },
+    "http_readyz_during_load": {
+      "count": 3,
+      "ok": 3,
+      "failed": 0,
+      "error_rate_percent": 0.0,
+      "min_ms": 271.54,
+      "avg_ms": 3564.391,
+      "p50_ms": 4403.604,
+      "p95_ms": 6018.03,
+      "p99_ms": 6018.03,
+      "max_ms": 6018.03
+    }
+  },
+  "socket_observations": [],
+  "admin_metrics": {
+    "before": {},
+    "after": {},
+    "delta": {},
+    "runtime_before": {
+      "ok": false,
+      "backend_estado": "",
+      "workers": 0,
+      "threads": 0,
+      "pool": {
+        "abertas": 0,
+        "em_uso": 0,
+        "espera_ms": 0,
+        "fallbacks": 0
+      }
+    },
+    "runtime_after": {
+      "ok": false,
+      "backend_estado": "",
+      "workers": 0,
+      "threads": 0,
+      "pool": {
+        "abertas": 0,
+        "em_uso": 0,
+        "espera_ms": 0,
+        "fallbacks": 0
+      }
+    }
+  },
+  "conclusions": {
+    "approved": false,
+    "reasons": [
+      "P95 de http_public_view ficou acima de 1000 ms.",
+      "Taxa de erro de http_public_view ultrapassou 1.00%."
+    ]
+  }
+}

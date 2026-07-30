@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify, make_response
 from functools import wraps
 import json
 import os
@@ -15,6 +15,7 @@ from services.competicoes.tabela_gateway import (
     criar_partida,
     listar_partidas,
     listar_partidas_leve,
+    listar_estados_resumidos_partidas,
     proxima_ordem_partida,
     buscar_partida_por_id,
     limpar_partidas_por_fase,
@@ -376,6 +377,14 @@ def _buscar_competicao_organizador_cache(usuario):
     return _cache_set_tabela(chave, buscar_competicao_por_organizador(usuario))
 
 
+def _buscar_competicao_nome_cache(competicao_nome):
+    chave = _cache_key("competicao_nome", competicao_nome)
+    cached = _cache_get_tabela(chave, ttl=30)
+    if cached is not None:
+        return cached
+    return _cache_set_tabela(chave, buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome})
+
+
 def _listar_grupos_cache(competicao_nome):
     chave = _cache_key("grupos", competicao_nome)
     cached = _cache_get_tabela(chave)
@@ -397,7 +406,7 @@ def _listar_partidas_cache(competicao_nome):
     cached = _cache_get_tabela(chave)
     if cached is not None:
         return cached
-    return _cache_set_tabela(chave, listar_partidas(competicao_nome) or [])
+    return _cache_set_tabela(chave, listar_partidas_leve(competicao_nome, limite=2000) or [])
 
 
 def _quadras_cache(competicao_nome, qtd_quadras=1):
@@ -1045,12 +1054,13 @@ def _inserir_partidas_em_lote(partidas):
 # Regras de apresentação do visualizador público foram extraídas para um
 # módulo puro e testável. Os aliases preservam os nomes internos existentes.
 
-def _contexto_partida_publica(competicao_nome, partida_id):
+def _contexto_partida_publica(competicao_nome, partida_id, *, incluir_detalhes=False):
     """Fachada temporária para o serviço do visualizador público."""
     return _montar_contexto_partida_publica_service(
         competicao_nome,
         partida_id,
         _preparar_partidas,
+        incluir_detalhes=incluir_detalhes,
     )
 
 
@@ -1059,14 +1069,11 @@ def _contexto_partida_publica(competicao_nome, partida_id):
 # =========================================================
 @tabela_bp.route("/visualizador/<competicao_nome>")
 def visualizador_publico(competicao_nome):
-    try:
-        normalizar_vinculos_quadras_competicao(competicao_nome)
-    except Exception as e:
-        print("AVISO visualizador/normalizar_quadras:", repr(e))
-
+    # Abertura pública deve ser estritamente de leitura. A normalização dos
+    # vínculos de quadra pertence ao fluxo administrativo/migrações.
     grupos_raw = _listar_grupos_cache(competicao_nome)
     # Visualizador público também precisa de partidas frescas para abrir já com o placar atual.
-    partidas = listar_partidas(competicao_nome) or []
+    partidas = _listar_partidas_cache(competicao_nome) or []
     equipes_competicao = _listar_equipes_competicao_cache(competicao_nome)
     mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
 
@@ -1077,10 +1084,9 @@ def visualizador_publico(competicao_nome):
     }
 
     partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-    classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparadas, grupos, competicao, mapa_escudos)
-    regras_classificacao = _obter_regras_classificacao(competicao)
-    criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
-    colunas_classificacao = _colunas_classificacao_publica(competicao)
+    # A classificação é carregada em endpoint próprio depois que a estrutura
+    # principal já apareceu. Isso evita calcular e serializar todas as linhas
+    # antes de entregar o primeiro byte do visualizador público.
     set_unico = _competicao_eh_set_unico_tabela(competicao)
     avanco = _avanco_cache(competicao_nome)
     status_avanco = _status_avanco_cache(competicao_nome)
@@ -1092,11 +1098,7 @@ def visualizador_publico(competicao_nome):
     # encerramento completo das classificatórias e da geração oficial dos jogos.
     # Antes disso, não mostramos placeholders nem antecipamos cruzamentos.
     exibir_avanco_publico = bool(status_avanco.get("fechada")) and bool(avanco_gerado)
-    avanco_espelho = (
-        _montar_espelho_avanco(avanco, partidas_preparadas, True)
-        if exibir_avanco_publico
-        else []
-    )
+    # O espelho completo é montado somente no endpoint lazy do chaveamento.
 
     # Organização exclusiva do visualizador público: rodada -> data/hora ->
     # ordem definida pelo organizador. Não altera a ordem usada nas telas
@@ -1118,37 +1120,125 @@ def visualizador_publico(competicao_nome):
         if bool(p.get("ao_vivo")) and not bool(p.get("finalizada"))
     ]
 
+    rodadas_disponiveis = []
+    quadras_disponiveis = []
+    for p in partidas_preparadas:
+        rodada_chave = str(p.get("rodada")) if p.get("rodada") else "__sem_rodada__"
+        if rodada_chave not in rodadas_disponiveis:
+            rodadas_disponiveis.append(rodada_chave)
+        q_label = p.get("quadra_label") or p.get("quadra_nome") or (f"Quadra {p.get('quadra')}" if p.get("quadra") else "Sem quadra")
+        if q_label != "Sem quadra" and q_label not in quadras_disponiveis:
+            quadras_disponiveis.append(q_label)
+
+    rodada_inicial = rodadas_disponiveis[0] if rodadas_disponiveis else "__sem_rodada__"
+    partidas_iniciais = [
+        p for p in partidas_preparadas
+        if (str(p.get("rodada")) if p.get("rodada") else "__sem_rodada__") == rodada_inicial
+    ]
+
     return render_template(
         "visualizador_publico.html",
         competicao_nome=competicao_nome,
         codigo_publico=codigo_publico,
         grupos=grupos,
-        classificacao=classificacao,
-        partidas=partidas_preparadas,
+        partidas_iniciais=partidas_iniciais,
+        rodadas_disponiveis=rodadas_disponiveis,
+        quadras_disponiveis=quadras_disponiveis,
+        rodada_inicial=rodada_inicial,
         partidas_ao_vivo=partidas_ao_vivo,
-        criterios_classificacao=criterios_classificacao,
-        colunas_classificacao=colunas_classificacao,
         set_unico=set_unico,
-        avanco=avanco,
-        avanco_status=status_avanco,
-        avanco_espelho=avanco_espelho,
-        fase_labels=FASES_AVANCO_LABELS,
+        exibir_chaveamento=exibir_avanco_publico,
     )
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/classificacao/fragmento")
+def visualizador_publico_classificacao_fragmento(competicao_nome):
+    """Renderiza a classificação sob demanda, fora do bootstrap inicial."""
+    competicao = _buscar_competicao_nome_cache(competicao_nome)
+    grupos_raw = _listar_grupos_cache(competicao_nome)
+    grupos = _grupos_com_equipes_cacheados(competicao_nome, grupos_raw)
+    partidas = _listar_partidas_cache(competicao_nome) or []
+    equipes = _listar_equipes_competicao_cache(competicao_nome)
+    mapa_escudos = _mapa_escudos_equipes(equipes)
+    preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
+    classificacao, _do_cache = _calcular_ou_obter_classificacao_cacheada(
+        competicao_nome, preparadas, grupos, competicao, mapa_escudos
+    )
+    colunas = _colunas_classificacao_publica(competicao)
+    html = render_template(
+        "partials/visualizador_publico_classificacao.html",
+        classificacao=classificacao,
+        colunas_classificacao=colunas,
+    )
+    resposta = make_response(html)
+    resposta.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=45"
+    resposta.add_etag()
+    return resposta.make_conditional(request)
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/rodada/<rodada_chave>/fragmento")
+def visualizador_publico_rodada_fragmento(competicao_nome, rodada_chave):
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partidas = _listar_partidas_cache(competicao_nome) or []
+    equipes = _listar_equipes_competicao_cache(competicao_nome)
+    mapa_escudos = _mapa_escudos_equipes(equipes)
+    preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
+    filtradas = [
+        p for p in preparadas
+        if (str(p.get("rodada")) if p.get("rodada") else "__sem_rodada__") == str(rodada_chave)
+    ]
+    filtradas = sorted(filtradas, key=lambda p: (p.get("data_hora_valor") or "9999-12-31 23:59", int(p.get("ordem") or 0), int(p.get("id") or 0)))
+    codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
+    html = render_template(
+        "partials/visualizador_publico_jogos.html",
+        partidas=filtradas, competicao_nome=competicao_nome, codigo_publico=codigo_publico,
+    )
+    resposta = make_response(html)
+    resposta.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=30"
+    resposta.add_etag()
+    return resposta.make_conditional(request)
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/chaveamento/fragmento")
+def visualizador_publico_chaveamento_fragmento(competicao_nome):
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partidas = _listar_partidas_cache(competicao_nome) or []
+    equipes = _listar_equipes_competicao_cache(competicao_nome)
+    mapa_escudos = _mapa_escudos_equipes(equipes)
+    preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
+    avanco = _avanco_cache(competicao_nome)
+    status_avanco = _status_avanco_cache(competicao_nome)
+    gerado = _avanco_gerado_cache(competicao_nome)
+    if not (bool(status_avanco.get("fechada")) and bool(gerado)):
+        return "", 204
+    espelho = _montar_espelho_avanco(avanco, preparadas, True)
+    codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
+    html = render_template(
+        "partials/visualizador_publico_chaveamento.html",
+        avanco_espelho=espelho, competicao_nome=competicao_nome, codigo_publico=codigo_publico,
+    )
+    resposta = make_response(html)
+    resposta.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=30"
+    resposta.add_etag()
+    return resposta.make_conditional(request)
 
 
 @tabela_bp.route("/visualizador/<competicao_nome>/ao-vivo/dados")
 def visualizador_publico_ao_vivo_dados(competicao_nome):
     """Lista leve dos jogos ao vivo para fazer o destaque aparecer sozinho."""
-    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
-    partidas = listar_partidas_leve(competicao_nome, limite=500, incluir_escudos=False) or []
+    competicao = _buscar_competicao_nome_cache(competicao_nome)
+    partidas = listar_estados_resumidos_partidas(competicao_nome) or []
     preparadas = _preparar_partidas(partidas, {}, competicao)
     ids = sorted(
         int(p.get("id")) for p in preparadas
         if p.get("id") and p.get("ao_vivo") and not p.get("finalizada")
     )
     resposta = jsonify({"ok": True, "partidas_ao_vivo": ids})
-    resposta.headers["Cache-Control"] = "no-store, max-age=0"
-    return resposta
+    # Revalidação por ETag: quando os IDs não mudam, o servidor responde 304
+    # sem reenviar JSON a cada consulta de cada espectador.
+    resposta.headers["Cache-Control"] = "public, max-age=5, must-revalidate"
+    resposta.add_etag()
+    return resposta.make_conditional(request)
 
 
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>")
@@ -1179,7 +1269,7 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados/detalhes")
 def visualizador_publico_partida_detalhes(competicao_nome, partida_id):
     """Dados completos, consultados apenas quando eventos/destaque mudam."""
-    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    contexto = _contexto_partida_publica(competicao_nome, partida_id, incluir_detalhes=True)
     if not contexto:
         return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
     resposta = jsonify({
@@ -1212,6 +1302,30 @@ def visualizador_publico_ao_vivo_dados_curta(codigo_publico):
     if not competicao:
         return jsonify({"ok": False, "erro": "Competição não encontrada."}), 404
     return visualizador_publico_ao_vivo_dados(competicao.get("nome"))
+
+
+@tabela_bp.route("/v/<codigo_publico>/classificacao/fragmento")
+def visualizador_publico_classificacao_fragmento_curta(codigo_publico):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    return visualizador_publico_classificacao_fragmento(competicao.get("nome"))
+
+
+@tabela_bp.route("/v/<codigo_publico>/rodada/<rodada_chave>/fragmento")
+def visualizador_publico_rodada_fragmento_curta(codigo_publico, rodada_chave):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    return visualizador_publico_rodada_fragmento(competicao.get("nome"), rodada_chave)
+
+
+@tabela_bp.route("/v/<codigo_publico>/chaveamento/fragmento")
+def visualizador_publico_chaveamento_fragmento_curta(codigo_publico):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    return visualizador_publico_chaveamento_fragmento(competicao.get("nome"))
 
 
 @tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>")
