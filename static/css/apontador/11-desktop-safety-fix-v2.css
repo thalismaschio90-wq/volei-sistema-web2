@@ -1,0 +1,49 @@
+/* Correção de precedência: regras de tablet com !important estavam vencendo no desktop
+   porque usavam seletores mais específicos (main > ...). */
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
+    main > #mobile-apontador-ui,
+    main > .mobile-apontador-ui,
+    #mobile-apontador-ui,
+    .mobile-apontador-ui,
+    main > .mobile-orientacao-bloqueio,
+    .mobile-orientacao-bloqueio {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    main > .card-painel.pc-scoreboard-card,
+    body > .card-painel.pc-scoreboard-card,
+    .card-painel.pc-scoreboard-card,
+    .pc-scoreboard-card {
+        display: flex !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+
+    main > #ultima-acao.ultima-acao-barra,
+    body > #ultima-acao.ultima-acao-barra,
+    main > .ultima-acao-barra,
+    body > .ultima-acao-barra,
+    #ultima-acao.ultima-acao-barra,
+    .ultima-acao-barra {
+        display: block !important;
+        visibility: visible !important;
+    }
+
+    main > .jogo-area-central,
+    body > .jogo-area-central,
+    .jogo-area-central {
+        display: grid !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+
+    main > .card-painel.jogo-rodape-card,
+    body > .card-painel.jogo-rodape-card,
+    .jogo-rodape-card {
+        display: flex !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
+    }
+}

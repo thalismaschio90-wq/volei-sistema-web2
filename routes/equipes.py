@@ -2,64 +2,38 @@ print(">>> CARREGOU O ARQUIVO EQUIPES.PY CERTO <<<")
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, current_app, jsonify
 import os
 import time
-from banco import (
+from services.equipes.route_gateway import (
     buscar_competicao_por_organizador,
     buscar_competicao_por_nome,
-    listar_equipes_da_competicao,
     equipe_existe_na_competicao,
-    criar_equipe_com_credenciais,
-    criar_nova_equipe_com_credenciais,
     buscar_equipes_globais_por_nome,
     buscar_atleta_global_por_cpf,
-    vincular_equipe_existente_competicao,
     listar_competicoes_da_equipe_por_login,
-    salvar_perfil_equipe_por_login,
-    perfil_equipe_incompleto_por_login,
     redefinir_senha_da_equipe,
     excluir_equipe,
-    buscar_config_conferencia_atletas,
-    listar_atletas_para_conferencia,
-    criar_campos_conferencia_atletas,
     conectar,
-
-    # ATLETAS - EQUIPE
     cadastrar_atleta,
-    listar_atletas_da_equipe,
     excluir_atleta,
     atualizar_numero_atleta,
     atualizar_atleta_equipe,
     controle_inscricao_para_equipe,
-
-    # ATLETAS - ORGANIZADOR
     listar_atletas_da_competicao,
     atualizar_status_atleta,
     aprovar_todos_atletas_pendentes,
-
-    # EQUIPE - GERENCIAMENTO
-    buscar_equipe_por_nome_e_competicao,
-    buscar_equipe_por_login,
-    atualizar_nome_equipe,
     atualizar_quadro_tecnico_equipe,
     salvar_liberacao_extra_equipe,
-
-    # USUÁRIO
     buscar_usuario_por_login,
     competicao_esta_travada,
     validar_edicao_atletas_equipe,
     equipe_tem_partida_iniciada,
     listar_partidas,
     listar_partidas_da_equipe,
-    listar_grupos,
-    listar_equipes_por_grupo,
-    listar_equipes_por_grupos_competicao,
-    atualizar_escudo_equipe_por_login,
     atualizar_dados_conta_usuario,
     escudo_padrao_equipe,
     criar_solicitacao_equipe,
     listar_solicitacoes_equipes,
     responder_solicitacao_equipe,
     listar_notificacoes_sistema,
-    listar_rodadas_competicao,
     contar_notificacoes_nao_lidas,
     criar_notificacao_sistema,
     competicao_eh_rapida,
@@ -68,6 +42,39 @@ from banco import (
     atualizar_atleta_temporario,
     excluir_atleta_temporario,
     excluir_equipe_temporaria_competicao,
+)
+from services.competicoes.grupos import (
+    listar_grupos,
+    listar_equipes_por_grupo,
+    listar_equipes_por_grupos_competicao,
+)
+from services.competicoes.rodadas import listar_rodadas_competicao
+from services.equipes.consultas import (
+    listar_equipes_da_competicao,
+    buscar_equipe_por_nome_e_competicao,
+    buscar_equipe_por_login,
+)
+from services.equipes.cadastro import (
+    criar_nova as criar_nova_equipe_com_credenciais,
+    vincular_por_login as vincular_equipe_existente_competicao,
+)
+from services.equipes.perfil import (
+    atualizar_escudo as atualizar_escudo_equipe_por_login,
+    perfil_incompleto as perfil_equipe_incompleto_por_login,
+    renomear as atualizar_nome_equipe,
+    salvar_perfil as salvar_perfil_equipe_por_login,
+)
+from services.atletas.consultas import listar_atletas_da_equipe, resumir_atletas_da_equipe
+from services.equipes.painel import montar_resumo_painel
+from services.equipes.minha_competicao import (
+    montar_contexto_minha_equipe,
+    montar_contexto_minhas_partidas,
+)
+from services.equipes.conferencia import (
+    montar_contexto_conferencia,
+    atualizar_configuracao as atualizar_configuracao_conferencia,
+    liberar as liberar_conferencia_service,
+    encerrar as encerrar_conferencia_service,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
 from routes.tabela import (
@@ -112,6 +119,7 @@ _CACHE_CLASSIFICACAO_EQUIPE = {}
 _CACHE_ATLETAS_EQUIPE = {}
 _CACHE_ATLETAS_COMPETICAO_AGRUPADOS = {}
 _CACHE_CONTROLE_INSCRICAO = {}
+_CACHE_AVISOS_EQUIPE = {}
 
 
 def _cache_agora():
@@ -160,6 +168,7 @@ def _limpar_cache_equipes(competicao=None, equipe=None, login=None):
             _CACHE_ATLETAS_EQUIPE,
             _CACHE_ATLETAS_COMPETICAO_AGRUPADOS,
             _CACHE_CONTROLE_INSCRICAO,
+            _CACHE_AVISOS_EQUIPE,
         ]:
             cache.clear()
         return
@@ -176,13 +185,13 @@ def _limpar_cache_equipes(competicao=None, equipe=None, login=None):
         ]:
             cache.pop(competicao, None)
 
-        for cache in [_CACHE_PARTIDAS_EQUIPE, _CACHE_ATLETAS_EQUIPE, _CACHE_CONTROLE_INSCRICAO]:
+        for cache in [_CACHE_PARTIDAS_EQUIPE, _CACHE_ATLETAS_EQUIPE, _CACHE_CONTROLE_INSCRICAO, _CACHE_AVISOS_EQUIPE]:
             for chave in list(cache.keys()):
                 if isinstance(chave, tuple) and chave and chave[0] == competicao:
                     cache.pop(chave, None)
 
     if equipe:
-        for cache in [_CACHE_PARTIDAS_EQUIPE, _CACHE_ATLETAS_EQUIPE, _CACHE_CONTROLE_INSCRICAO]:
+        for cache in [_CACHE_PARTIDAS_EQUIPE, _CACHE_ATLETAS_EQUIPE, _CACHE_CONTROLE_INSCRICAO, _CACHE_AVISOS_EQUIPE]:
             for chave in list(cache.keys()):
                 if isinstance(chave, tuple) and len(chave) > 1 and chave[1] == equipe:
                     cache.pop(chave, None)
@@ -315,6 +324,16 @@ def _listar_atletas_equipe_cache(nome_equipe, nome_competicao):
     return _cache_set(_CACHE_ATLETAS_EQUIPE, chave, atletas)
 
 
+def _resumo_atletas_equipe_cache(nome_equipe, nome_competicao):
+    chave = ((nome_competicao or "").strip(), (nome_equipe or "").strip())
+    cache_chave = ("resumo",) + chave
+    cached = _cache_get(_CACHE_ATLETAS_EQUIPE, cache_chave)
+    if cached is not None:
+        return cached
+    resumo = resumir_atletas_da_equipe(chave[1], chave[0]) or {}
+    return _cache_set(_CACHE_ATLETAS_EQUIPE, cache_chave, resumo)
+
+
 def _controle_inscricao_cache(nome_competicao, nome_equipe):
     chave = ((nome_competicao or "").strip(), (nome_equipe or "").strip())
     cached = _cache_get(_CACHE_CONTROLE_INSCRICAO, chave)
@@ -322,6 +341,33 @@ def _controle_inscricao_cache(nome_competicao, nome_equipe):
         return cached
     controle = controle_inscricao_para_equipe(chave[0], chave[1]) or {}
     return _cache_set(_CACHE_CONTROLE_INSCRICAO, chave, controle)
+
+
+def _avisos_equipe_cache(nome_competicao, nome_equipe, login, limite_notificacoes=8, limite_solicitacoes=10):
+    """Carrega avisos da equipe uma vez por janela curta de navegação."""
+    chave = (
+        (nome_competicao or "").strip(),
+        (nome_equipe or "").strip(),
+        (login or "").strip(),
+        int(limite_notificacoes or 8),
+        int(limite_solicitacoes or 10),
+    )
+    cached = _cache_get(_CACHE_AVISOS_EQUIPE, chave, ttl=min(_CACHE_TTL_SEGUNDOS, 15))
+    if cached is not None:
+        return cached
+
+    notificacoes = listar_notificacoes_sistema(
+        chave[0], "equipe", chave[2], chave[1], limite=chave[3]
+    ) or []
+    solicitacoes = listar_solicitacoes_equipes(
+        chave[0], equipe=chave[1], limite=chave[4]
+    ) or []
+    nao_lidas = contar_notificacoes_nao_lidas(chave[0], "equipe", chave[2], chave[1]) or 0
+    return _cache_set(_CACHE_AVISOS_EQUIPE, chave, {
+        "notificacoes_equipe": notificacoes,
+        "solicitacoes_equipe": solicitacoes,
+        "notificacoes_nao_lidas": nao_lidas,
+    })
 
 
 def _chaves_numeracao_equipe(equipe):
@@ -364,7 +410,22 @@ def _listar_atletas_competicao_agrupados(nome_competicao):
         with conectar() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT *
+                    SELECT
+                        id,
+                        nome,
+                        cpf,
+                        data_nascimento,
+                        numero,
+                        equipe,
+                        competicao,
+                        status,
+                        equipe_login,
+                        equipe_id,
+                        foto_atleta,
+                        instagram,
+                        temporario,
+                        capitao_padrao,
+                        libero
                     FROM atletas
                     WHERE competicao = %s
                     ORDER BY
@@ -963,25 +1024,6 @@ def perfil_equipe_view():
 @equipes_bp.route("/minha-equipe", methods=["GET", "POST"])
 @exigir_perfil("equipe")
 def minha_equipe():
-
-    # ===== CORREÇÃO =====
-    notificacoes_equipe = []
-    solicitacoes_equipe = [] # <--- Adicione esta linha
-    qtd_notificacoes = 0
-    try:
-        usuario = session.get("usuario")
-        if usuario:
-            notificacoes_equipe = listar_notificacoes_sistema(usuario) or []
-            qtd_notificacoes = contar_notificacoes_nao_lidas(usuario) or 0
-            
-            # Adicione a busca das solicitações:
-            equipe_data = _equipe_logada_com_competicao()
-            if equipe_data:
-                solicitacoes_equipe = listar_solicitacoes_equipes(equipe_data["competicao"], equipe=equipe_data["nome"], limite=10) or []
-    except Exception:
-        pass
-    # ====================
-
     usuario = session.get("usuario")
     equipe = _equipe_logada_com_competicao()
 
@@ -998,26 +1040,32 @@ def minha_equipe():
             erro = mensagem_edicao
         else:
             atualizar_quadro_tecnico_equipe(
-            equipe["nome"],
-            equipe["competicao"],
-            request.form.get("treinador", "").strip(),
-            request.form.get("auxiliar_tecnico", "").strip(),
-            request.form.get("preparador_fisico", "").strip(),
-            request.form.get("medico", "").strip(),
+                equipe["nome"],
+                equipe["competicao"],
+                request.form.get("treinador", "").strip(),
+                request.form.get("auxiliar_tecnico", "").strip(),
+                request.form.get("preparador_fisico", "").strip(),
+                request.form.get("medico", "").strip(),
             )
+            _limpar_cache_equipes(competicao=equipe["competicao"], equipe=equipe["nome"], login=usuario)
             sucesso = "Quadro técnico atualizado com sucesso."
             equipe = _equipe_logada_com_competicao()
 
-    return render_template(
-        "minha_equipe.html",
+    avisos = _avisos_equipe_cache(
+        equipe["competicao"],
+        equipe["nome"],
+        usuario,
+        limite_notificacoes=10,
+        limite_solicitacoes=10,
+    )
+    contexto = montar_contexto_minha_equipe(
         equipe=equipe,
         erro=erro,
         sucesso=sucesso,
         escudo_padrao=escudo_padrao_equipe(),
-        notificacoes_equipe=notificacoes_equipe,
-        solicitacoes_equipe=solicitacoes_equipe, # Agora a variável existe!
-        notificacoes_nao_lidas=contar_notificacoes_nao_lidas(equipe["competicao"], "equipe", usuario, equipe["nome"]),
+        avisos=avisos,
     )
+    return render_template("minha_equipe.html", **contexto)
 
 
 
@@ -1383,8 +1431,7 @@ def minhas_partidas_view():
         mapa_escudos,
     )
 
-    return render_template(
-        "minhas_partidas.html",
+    contexto = montar_contexto_minhas_partidas(
         equipe=equipe,
         partidas=partidas,
         rodadas_partidas=_agrupar_partidas_por_rodada_equipe(nome_competicao, partidas),
@@ -1394,6 +1441,7 @@ def minhas_partidas_view():
         criterios_classificacao=dados_classificacao.get("criterios_classificacao") or [],
         colunas_classificacao=dados_classificacao.get("colunas_classificacao") or [],
     )
+    return render_template("minhas_partidas.html", **contexto)
 
 
 # =========================
@@ -1448,73 +1496,37 @@ def painel_equipe_inicio_view():
         flash("Não foi possível carregar essa competição para a equipe. Escolha novamente.", "erro")
         return redirect(url_for("equipes.painel_equipe_inicio_view"))
 
-    atletas = _listar_atletas_equipe_cache(equipe["nome"], equipe["competicao"])
+    resumo_atletas = _resumo_atletas_equipe_cache(equipe["nome"], equipe["competicao"])
     controle_inscricao = _controle_inscricao_cache(equipe["competicao"], equipe["nome"])
     # HOME leve: traz só os jogos da própria equipe, sem carregar a competição inteira.
     partidas = _preparar_partidas_home_equipe(equipe, limite=50)
 
-    total_atletas = len(atletas)
-    atletas_aprovados = [
-        a for a in atletas
-        if (a.get("status") or "").strip().lower() == "aprovado"
-    ]
-    atletas_pendentes = [
-        a for a in atletas
-        if (a.get("status") or "").strip().lower()
-        in {"", "pendente", "aguardando", "em análise", "em analise", "em_analise"}
-    ]
-    atletas_reprovados = [
-        a for a in atletas
-        if (a.get("status") or "").strip().lower() == "reprovado"
-    ]
-
-    limite_atletas = 12
-    try:
-        if controle_inscricao and controle_inscricao.get("limite_atletas"):
-            limite_atletas = int(controle_inscricao.get("limite_atletas"))
-    except Exception:
-        limite_atletas = 12
-
-    percentual_atletas = 0
-    if limite_atletas > 0:
-        percentual_atletas = min(100, round((total_atletas / limite_atletas) * 100))
-
-    minhas_partidas = [p for p in partidas if p.get("minha_partida")]
-    proxima_partida = _proxima_partida_da_equipe(partidas)
-
-    status_equipe = "Equipe em andamento"
-    status_classe = "tag-info"
-
-    if total_atletas >= limite_atletas and len(atletas_pendentes) == 0 and len(atletas_reprovados) == 0:
-        status_equipe = "Equipe completa"
-        status_classe = "tag-aprovado"
-    elif len(atletas_pendentes) > 0:
-        status_equipe = "Aguardando conferência"
-        status_classe = "tag-pendente"
-    elif len(atletas_reprovados) > 0:
-        status_equipe = "Possui atleta reprovado"
-        status_classe = "tag-reprovado"
-
-    notificacoes_equipe = listar_notificacoes_sistema(equipe["competicao"], "equipe", usuario, equipe["nome"], limite=8)
-    solicitacoes_equipe = listar_solicitacoes_equipes(equipe["competicao"], equipe=equipe["nome"], limite=10)
+    resumo_painel = montar_resumo_painel(resumo_atletas, partidas, controle_inscricao)
+    avisos = _avisos_equipe_cache(
+        equipe["competicao"], equipe["nome"], usuario,
+        limite_notificacoes=8, limite_solicitacoes=10,
+    )
 
     return render_template(
         "painel_equipe_inicio.html",
         equipe=equipe,
         competicoes_equipe=competicoes_equipe,
-        atletas=atletas,
-        total_atletas=total_atletas,
-        limite_atletas=limite_atletas,
-        percentual_atletas=percentual_atletas,
-        atletas_aprovados=len(atletas_aprovados),
-        atletas_pendentes=len(atletas_pendentes),
-        atletas_reprovados=len(atletas_reprovados),
+        atletas=[],
+        total_atletas=resumo_painel["total_atletas"],
+        limite_atletas=resumo_painel["limite_atletas"],
+        percentual_atletas=resumo_painel["percentual_atletas"],
+        atletas_aprovados=resumo_painel["atletas_aprovados"],
+        atletas_pendentes=resumo_painel["atletas_pendentes"],
+        atletas_reprovados=resumo_painel["atletas_reprovados"],
         controle_inscricao=controle_inscricao,
         partidas=partidas,
-        minhas_partidas=minhas_partidas,
-        proxima_partida=proxima_partida,
-        status_equipe=status_equipe,
-        status_classe=status_classe,
+        minhas_partidas=resumo_painel["minhas_partidas"],
+        proxima_partida=resumo_painel["proxima_partida"],
+        status_equipe=resumo_painel["status_equipe"],
+        status_classe=resumo_painel["status_classe"],
+        notificacoes_equipe=avisos["notificacoes_equipe"],
+        solicitacoes_equipe=avisos["solicitacoes_equipe"],
+        notificacoes_nao_lidas=avisos["notificacoes_nao_lidas"],
         escudo_padrao=escudo_padrao_equipe(),
     )
 
@@ -1538,14 +1550,18 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
     atletas_aprovados = []
 
     if carregar_atletas:
-        atletas = _listar_atletas_equipe_cache(equipe["nome"], equipe["competicao"])
+        resumo_atletas = _resumo_atletas_equipe_cache(equipe["nome"], equipe["competicao"])
         atletas_aprovados = [
             a for a in atletas
             if (a.get("status") or "").lower() == "aprovado"
         ]
 
-    solicitacoes_equipe = listar_solicitacoes_equipes(equipe.get("competicao"), equipe=equipe.get("nome"), limite=20) if equipe.get("competicao") and equipe.get("nome") else []
-    notificacoes_equipe = listar_notificacoes_sistema(equipe.get("competicao"), "equipe", session.get("usuario"), equipe.get("nome"), limite=10) if equipe.get("competicao") else []
+    avisos = _avisos_equipe_cache(
+        equipe.get("competicao"), equipe.get("nome"), session.get("usuario"),
+        limite_notificacoes=10, limite_solicitacoes=20,
+    ) if equipe.get("competicao") and equipe.get("nome") else {
+        "solicitacoes_equipe": [], "notificacoes_equipe": [], "notificacoes_nao_lidas": 0,
+    }
 
     return {
         "equipe": equipe,
@@ -1558,9 +1574,9 @@ def _montar_contexto_atletas_equipe(equipe, erro=None, sucesso=None, modo_tela="
         "erro": erro,
         "sucesso": sucesso,
         "modo_tela": modo_tela,
-        "solicitacoes_equipe": solicitacoes_equipe,
-        "notificacoes_equipe": notificacoes_equipe,
-        "notificacoes_nao_lidas": contar_notificacoes_nao_lidas(equipe.get("competicao"), "equipe", session.get("usuario"), equipe.get("nome")) if equipe.get("competicao") else 0,
+        "solicitacoes_equipe": avisos["solicitacoes_equipe"],
+        "notificacoes_equipe": avisos["notificacoes_equipe"],
+        "notificacoes_nao_lidas": avisos["notificacoes_nao_lidas"],
     }
 
 
@@ -1985,9 +2001,6 @@ def excluir_atleta_organizador(id):
 @equipes_bp.route("/conferencia-atletas")
 @exigir_perfil("equipe")
 def conferencia_atletas():
-    criar_campos_conferencia_atletas()
-
-    usuario = session.get("usuario")
     equipe = _equipe_logada_com_competicao()
 
     if not equipe:
@@ -1995,7 +2008,8 @@ def conferencia_atletas():
         return redirect(url_for("painel.inicio"))
 
     competicao = equipe["competicao"]
-    comp = buscar_config_conferencia_atletas(competicao)
+    contexto = montar_contexto_conferencia(competicao)
+    comp = contexto.get("configuracao")
 
     if not comp or not comp.get("conferencia_liberada"):
         flash("Conferência de atletas ainda não liberada pela organização.", "erro")
@@ -2005,80 +2019,52 @@ def conferencia_atletas():
         flash("Conferência de atletas encerrada pela organização.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    atletas = listar_atletas_para_conferencia(competicao)
-
-    equipes = {}
-    for a in atletas:
-        nome_equipe = a.get("equipe") or "Sem equipe"
-        equipes.setdefault(nome_equipe, []).append(a)
-
     return render_template(
         "conferencia_atletas.html",
-        equipes=equipes,
+        equipes=contexto.get("equipes") or {},
+        resumo_documentacao=contexto.get("resumo_documentacao") or {},
         prazo=comp.get("conferencia_prazo"),
         link=comp.get("conferencia_link"),
         encerrado=comp.get("conferencia_encerrada"),
-        competicao=comp
+        competicao=comp,
     )
 
 
 @equipes_bp.route("/conferencia-atletas/config/<competicao>", methods=["POST"])
 @exigir_perfil("organizador")
 def salvar_config_conferencia(competicao):
-    prazo = request.form.get("prazo", "").strip()
-    link = request.form.get("link", "").strip()
-    aprovacao_automatica = request.form.get("aprovacao_automatica_atletas") == "on"
-    criar_campos_conferencia_atletas()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE competicoes
-                SET conferencia_prazo = %s,
-                    conferencia_link = %s,
-                    aprovacao_automatica_atletas = %s
-                WHERE nome = %s
-            """, (prazo, link, aprovacao_automatica, competicao))
-        conn.commit()
-
-    flash("Configuração da conferência salva com sucesso.", "sucesso")
+    ok = atualizar_configuracao_conferencia(
+        competicao,
+        prazo=request.form.get("prazo", ""),
+        link=request.form.get("link", ""),
+        aprovacao_automatica=request.form.get("aprovacao_automatica_atletas") == "on",
+    )
+    flash(
+        "Configuração da conferência salva com sucesso." if ok else "Competição não encontrada.",
+        "sucesso" if ok else "erro",
+    )
     return redirect(url_for("equipes.listar_atletas_organizador"))
 
 
 @equipes_bp.route("/conferencia-atletas/liberar/<competicao>", methods=["POST"])
 @exigir_perfil("organizador")
 def liberar_conferencia(competicao):
-    criar_campos_conferencia_atletas()
-    
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE competicoes
-                SET conferencia_liberada = TRUE,
-                    conferencia_encerrada = FALSE
-                WHERE nome = %s
-            """, (competicao,))
-        conn.commit()
-
-    flash("Conferência de atletas liberada para as equipes.", "sucesso")
+    ok = liberar_conferencia_service(competicao)
+    flash(
+        "Conferência de atletas liberada para as equipes." if ok else "Competição não encontrada.",
+        "sucesso" if ok else "erro",
+    )
     return redirect(url_for("equipes.listar_atletas_organizador"))
 
 
 @equipes_bp.route("/conferencia-atletas/encerrar/<competicao>", methods=["POST"])
 @exigir_perfil("organizador")
 def encerrar_conferencia(competicao):
-    criar_campos_conferencia_atletas()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE competicoes
-                SET conferencia_encerrada = TRUE
-                WHERE nome = %s
-            """, (competicao,))
-        conn.commit()
-
-    flash("Conferência de atletas encerrada.", "sucesso")
+    ok = encerrar_conferencia_service(competicao)
+    flash(
+        "Conferência de atletas encerrada." if ok else "Competição não encontrada.",
+        "sucesso" if ok else "erro",
+    )
     return redirect(url_for("equipes.listar_atletas_organizador"))
 
 

@@ -5,12 +5,11 @@ import time
 from banco import (
     buscar_competicao_por_organizador,
     listar_equipes_da_competicao,
-    listar_partidas,
     listar_grupos,
     conectar,
-    criar_tabela_atletas,
 )
 from routes.utils import exigir_perfil
+from services.competicoes.partidas import listar_partidas_leve
 
 bootstrap_bp = Blueprint("bootstrap", __name__)
 
@@ -41,7 +40,6 @@ def _cache_set(chave, valor):
 
 
 def _listar_atletas_competicao_leve(nome_competicao):
-    criar_tabela_atletas()
     """Uma consulta só para os atletas que o painel do organizador usa.
 
     Não traz eventos ponto-a-ponto nem dados pesados; é só o essencial para
@@ -114,7 +112,7 @@ def bootstrap_organizador():
         "competicao": competicao,
         "equipes": listar_equipes_da_competicao(nome_competicao) or [],
         "atletas": _listar_atletas_competicao_leve(nome_competicao),
-        "partidas": listar_partidas(nome_competicao) or [],
+        "partidas": listar_partidas_leve(nome_competicao, limite=500) or [],
         "grupos": listar_grupos(nome_competicao) or [],
         "quadras": _listar_quadras_competicao_leve(nome_competicao),
     }

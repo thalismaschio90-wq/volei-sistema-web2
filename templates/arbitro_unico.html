@@ -852,6 +852,11 @@
     <div id="alertaPoint" class="alerta-point-arbitro" aria-live="assertive"></div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/realtime/delta_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/realtime/render_scheduler.js') }}"></script>
+    <script src=\"{{ url_for('static', filename='js/realtime/render_plan.js') }}\"></script>
+    <script src="{{ url_for('static', filename='js/realtime/connection_guard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/realtime/heartbeat_client.js') }}"></script>
     <script>
         const PARTIDA_ID = {{ partida_id }};
         const COMPETICAO = {{ competicao|tojson }};
@@ -860,6 +865,81 @@
         const STANDBY_PROXIMA_URL = "{{ url_for('acessos_pin.proxima_partida_arbitro_unico') }}";
 
         let estadoAtual = ESTADO_INICIAL || {};
+        let estadoVersaoAplicada = Number(
+            (ESTADO_INICIAL && (ESTADO_INICIAL.estado_versao ?? ESTADO_INICIAL.versao_estado)) || 0
+        ) || 0;
+
+        function extrairVersaoEstado(dados) {
+            if (!dados || typeof dados !== "object") return 0;
+            const interno = dados.estado && typeof dados.estado === "object" ? dados.estado : {};
+            return Number(
+                dados.estado_versao ?? dados.versao_estado ??
+                interno.estado_versao ?? interno.versao_estado ?? 0
+            ) || 0;
+        }
+
+        function permiteEstadoRegressivo(dados) {
+            if (!dados || typeof dados !== "object") return false;
+            const interno = dados.estado && typeof dados.estado === "object" ? dados.estado : {};
+            return Boolean(
+                dados.permitir_regressao_estado || dados.correcao_autorizada ||
+                dados.desfazer_ponto || dados.transicao_set || dados.fim_set ||
+                interno.permitir_regressao_estado || interno.correcao_autorizada ||
+                interno.desfazer_ponto || interno.transicao_set || interno.fim_set
+            );
+        }
+
+        function aceitarVersaoEstado(dados) {
+            const recebida = extrairVersaoEstado(dados);
+            if (!recebida) return true; // compatibilidade com payloads legados
+            if (recebida < estadoVersaoAplicada && !permiteEstadoRegressivo(dados)) return false;
+            if (recebida > estadoVersaoAplicada) estadoVersaoAplicada = recebida;
+            return true;
+        }
+
+        function aceitarSnapshotLegado(dados) {
+            const recebida = extrairVersaoEstado(dados);
+            if (!recebida) return true;
+            // O delta já aplicou esta versão. Ignora snapshots/eventos legados
+            // equivalentes para evitar renderização repetida da mesma ação.
+            return recebida > estadoVersaoAplicada || permiteEstadoRegressivo(dados);
+        }
+        const agendadorRenderDelta = (window.VTPRealtimeRenderScheduler && typeof window.VTPRealtimeRenderScheduler.create === "function")
+            ? window.VTPRealtimeRenderScheduler.create({
+            telemetryClientType: "arbitro_unico",
+                render: (novoEstado) => aplicarEstado(novoEstado, false)
+            })
+            : null;
+        const clienteDeltaEstado = (window.VTPRealtimeDelta && typeof window.VTPRealtimeDelta.create === "function")
+            ? window.VTPRealtimeDelta.create({
+                partidaId: String(PARTIDA_ID),
+                clientType: "arbitro_unico",
+                getState: () => estadoAtual || {},
+                getVersion: () => estadoVersaoAplicada,
+                setState: (novoEstado) => { estadoAtual = novoEstado || {}; },
+                setVersion: (versao) => {
+                    if (versao > estadoVersaoAplicada) estadoVersaoAplicada = versao;
+                },
+                onApplied: (novoEstado, delta) => {
+                    if (agendadorRenderDelta) {
+                        agendadorRenderDelta.schedule(novoEstado, {
+                            chaves: Object.keys((delta && delta.patch) || {}),
+                            removidas: (delta && delta.chaves_removidas) || []
+                        });
+                    } else {
+                        aplicarEstado(novoEstado, false);
+                    }
+                },
+                onRecoveryRequired: (info) => {
+                    if (socket && socket.connected) {
+                        socket.emit("recuperar_eventos_partida", { partida_id: String(PARTIDA_ID), ultima_versao: Number(info?.versao_atual || 0) });
+                    return true;
+                    }
+                return false;
+                },
+                onSnapshotRequired: () => carregarEstado(true, true)
+            })
+            : null;
         const CHAVE_INVERSAO_VISUAL = `arbitro_unico_invertido_visual_${COMPETICAO}_${PARTIDA_ID}`;
         let invertido = localStorage.getItem(CHAVE_INVERSAO_VISUAL) === "1";
         let ultimoSaqueChave = "";
@@ -871,6 +951,15 @@
         let socket = null;
         let pollingRapido = null;
         let ultimaBuscaMs = 0;
+        const guardaConexaoRealtime = (window.VTPRealtimeConnectionGuard && typeof window.VTPRealtimeConnectionGuard.criar === "function")
+            ? window.VTPRealtimeConnectionGuard.criar({
+                minDelay: 2500,
+                connectedDelay: 15000,
+                hiddenDelay: 30000,
+                maxDelay: 30000,
+                jitter: 0.35
+            })
+            : null;
         let ultimoCronometroChave = "";
 
         function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
@@ -1217,6 +1306,7 @@
         function aplicarEstado(dados, silencioso = false) {
             if (!dados || typeof dados !== "object") return;
             if (!payloadDaPartida(dados)) return;
+            if (!aceitarVersaoEstado(dados)) return;
 
             const seguro = { ...dados };
             if (seguro.estado && typeof seguro.estado === "object") Object.assign(seguro, seguro.estado);
@@ -1340,7 +1430,7 @@
 
             const pid = String(PARTIDA_ID);
             const comp = String(COMPETICAO || "");
-            const payload = { partida_id: pid, competicao: comp, tela: "arbitro", mobile: true };
+            const payload = { partida_id: pid, competicao: comp, tela: "arbitro", mobile: true, suporta_delta: true, perfil: "arbitro_unico" };
 
             // Entra em todos os eventos/salas usados pelo sistema. Isso corrige
             // celular que reconecta e fica escutando uma sala diferente do PC.
@@ -1525,18 +1615,32 @@
                 reconnectionAttempts: Infinity,
                 reconnectionDelay: 250,
                 reconnectionDelayMax: 1500,
+                randomizationFactor: 0.5,
                 timeout: 4500,
                 forceNew: true,
                 autoConnect: true
             });
 
+            if (window.VTPRealtimeHeartbeat) {
+                window.VTPRealtimeHeartbeat.iniciar(socket, {
+                    partidaId: String(PARTIDA_ID),
+                    competicao: String(COMPETICAO || ""),
+                    perfil: "arbitro_unico",
+                    obterVersao: () => Number(typeof estadoVersaoAplicada !== "undefined" ? estadoVersaoAplicada : 0) || 0
+                });
+            }
+
             socket.on("connect", async () => {
                 setSocketStatus(true);
+                if (guardaConexaoRealtime) guardaConexaoRealtime.registrarConexao();
                 entrarNaSala();
                 await carregarEstado(true, true);
             });
 
-            socket.on("disconnect", () => setSocketStatus(false));
+            socket.on("disconnect", () => {
+                setSocketStatus(false);
+                if (guardaConexaoRealtime) guardaConexaoRealtime.registrarDesconexao();
+            });
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
@@ -1566,9 +1670,20 @@
                     // SOCKET-FIRST: não busca /estado a cada ponto.
                     // A tela atualiza na hora com o payload vivo enviado pelo apontador.
                     if (!payloadDaPartida(dados)) return;
+                    if (!aceitarSnapshotLegado(dados)) return;
                     aplicarEstado(dados, false);
                 });
             });
+
+            socket.on("estado_partida_delta", dados => {
+                if (!clienteDeltaEstado || !payloadDaPartida(dados)) return;
+                clienteDeltaEstado.receber(dados);
+            });
+
+socket.on("recuperacao_partida", function (dados) {
+    if (!clienteDeltaEstado || !dados || String(dados.partida_id || "") !== String(PARTIDA_ID || "")) return;
+    clienteDeltaEstado.receberRecuperacao(dados);
+});
 
             socket.on("saque_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;
@@ -1611,14 +1726,32 @@
         }
 
         function iniciarPollingRapido() {
-            if (pollingRapido) clearInterval(pollingRapido);
-            // Fallback de segurança: só consulta o backend se o socket cair.
-            // Não fica atualizando a página nem consultando /estado durante o jogo ao vivo.
-            pollingRapido = setInterval(() => {
-                if (document.visibilityState === "visible" && (!socket || !socket.connected)) {
-                    carregarEstado(true, false);
-                }
-            }, 5000);
+            if (pollingRapido) clearTimeout(pollingRapido);
+
+            const agendar = () => {
+                const conectado = !!(socket && socket.connected);
+                const atraso = guardaConexaoRealtime
+                    ? guardaConexaoRealtime.proximoAtraso({
+                        conectado,
+                        oculto: document.visibilityState !== "visible",
+                        aoVivo: true
+                    })
+                    : (conectado ? 15000 : 5000);
+
+                pollingRapido = setTimeout(async () => {
+                    if (document.visibilityState === "visible" && (!socket || !socket.connected)) {
+                        try {
+                            await carregarEstado(true, false);
+                            if (guardaConexaoRealtime) guardaConexaoRealtime.registrarSucesso();
+                        } catch (e) {
+                            if (guardaConexaoRealtime) guardaConexaoRealtime.registrarFalha();
+                        }
+                    }
+                    agendar();
+                }, atraso);
+            };
+
+            agendar();
         }
 
         function acordarTelaMobile() {

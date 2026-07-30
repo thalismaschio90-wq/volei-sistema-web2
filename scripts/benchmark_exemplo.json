@@ -1,0 +1,13 @@
+{
+  "titulo": "Baseline VolleyTablePro - Homologação",
+  "benchmarks": [
+    {
+      "nome": "normalização de fingerprint",
+      "tipo": "callable",
+      "callable": "core.sql_performance:fingerprint_sql",
+      "args": ["SELECT id, nome FROM equipes WHERE competicao = %s"],
+      "iteracoes": 50,
+      "aquecimentos": 5
+    }
+  ]
+}

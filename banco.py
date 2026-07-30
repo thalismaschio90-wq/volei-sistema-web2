@@ -8,22 +8,31 @@ import math
 import time
 from io import BytesIO
 from datetime import datetime
-from threading import Lock, BoundedSemaphore
+from threading import Lock
 from contextlib import contextmanager
+
+from rules.atletas import (
+    mensagem_pendencias_obrigatorias,
+    pendencias_obrigatorias,
+    validar_campos_basicos_cadastro,
+    validar_campos_basicos_edicao,
+)
+from services.atletas.dados import preparar_dados_atleta
+from core.request_cache import obter as cache_requisicao_obter, armazenar as cache_requisicao_armazenar
+from core.audit_context import enriquecer_detalhes_auditoria
+from core.security import gerar_hash_senha, verificar_senha
+from rules.substituicoes import (
+    ErroSubstituicao,
+    aplicar_substituicao_excepcional,
+    aplicar_substituicao_normal,
+)
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from psycopg import connect
-from psycopg.rows import dict_row
-try:
-    from psycopg_pool import ConnectionPool
-except Exception:
-    ConnectionPool = None
 
-# --- ESSA LINHA ABAIXO É A QUE ESTÁ FALTANDO ---
-_CACHE_COLUNAS = {} 
-# -----------------------------------------------
+# Cache de metadados de colunas usado pelas rotinas de compatibilidade.
+_CACHE_COLUNAS = {}
 
 DATABASE_URL_PADRAO = ""
 
@@ -31,46 +40,11 @@ DATABASE_URL_PADRAO = ""
 ARQUIVO_DADOS = "dados.json"
 
 
-_SCHEMA_FLAGS = {
-    "campos_sets_partida": False,
-    "campos_jogo_partida": False,
-    "campos_rotacao_partidas": False,
-    "tabela_eventos": False,
-    "tabela_historico_rotacao": False,
-    "indices_desempenho": False,
-    "campos_quadro_tecnico_equipes": False,
-    "campos_liberacao_extra_equipes": False,
-    "campos_controle_inscricao_competicoes": False,
-    "tabela_atletas": False,
-    "tabela_competicao_quadras": False,
-    "tabela_competicao_agenda_config": False,
-    "tabela_competicao_rodadas": False,
-    "campos_trava_operacional_partida": False,
-    "codigo_publico_competicoes": False,
-}
-_SCHEMA_LOCK = Lock()
-_POOL_LOCK = Lock()
-_DB_POOL = None
-_DIRECT_FALLBACK_SEMAPHORE = None
-_PINS_OPERACIONAIS_SCHEMA_OK = False
-
-
-def _schema_ja_pronto(chave, force=False):
-    if force:
-        return False
-
-    if _SCHEMA_FLAGS.get(chave):
-        return True
-
-    with _SCHEMA_LOCK:
-        if _SCHEMA_FLAGS.get(chave):
-            return True
-        return False
-
-
-def _marcar_schema_pronto(chave):
-    with _SCHEMA_LOCK:
-        _SCHEMA_FLAGS[chave] = True
+from core.runtime_schema import (
+    marcar_schema_pronto as _marcar_schema_pronto,
+    schema_ja_pronto as _schema_ja_pronto,
+    schema_lock as _SCHEMA_LOCK,
+)
 
 
 
@@ -103,531 +77,29 @@ def salvar_dados(dados):
 
 
 # =========================================================
-# CONEXÃO
+# CONEXÃO (compatibilidade)
 # =========================================================
-def _obter_database_url():
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL não configurada no ambiente.")
-    return url
-
-
-def _env_int(nome, padrao, minimo=None, maximo=None):
-    try:
-        valor = int(os.environ.get(nome, padrao))
-    except Exception:
-        valor = int(padrao)
-    if minimo is not None:
-        valor = max(minimo, valor)
-    if maximo is not None:
-        valor = min(maximo, valor)
-    return valor
-
-
-def _env_float(nome, padrao, minimo=None, maximo=None):
-    try:
-        valor = float(os.environ.get(nome, padrao))
-    except Exception:
-        valor = float(padrao)
-    if minimo is not None:
-        valor = max(minimo, valor)
-    if maximo is not None:
-        valor = min(maximo, valor)
-    return valor
-
-
-def _pool_habilitado():
-    """Define se o pool local do psycopg deve ser usado.
-
-    Correção para Render/Neon:
-    - o pool fica LIGADO por padrão;
-    - só desliga se DB_POOL_ENABLED=0/false/no/off;
-    - não desliga automaticamente por causa de URL contendo "pooler".
-
-    O problema do 502 vinha de várias requisições caindo direto no fallback
-    fora do pool, abrindo conexões novas em sequência.
-    """
-    valor_env = os.environ.get("DB_POOL_ENABLED")
-
-    if valor_env is None:
-        return True
-
-    valor = str(valor_env).strip().lower()
-    return valor not in {"0", "false", "no", "off", "nao", "não"}
-
-
-def _conexao_direta():
-    return connect(
-        _obter_database_url(),
-        row_factory=dict_row,
-        sslmode="require",
-        connect_timeout=_env_int("DB_CONNECT_TIMEOUT", 8, minimo=3, maximo=30),
-        prepare_threshold=None,
-    )
-
-
-def _obter_pool():
-    global _DB_POOL
-
-    if ConnectionPool is None or not _pool_habilitado():
-        return None
-
-    if _DB_POOL is not None:
-        return _DB_POOL
-
-    with _POOL_LOCK:
-        if _DB_POOL is not None:
-            return _DB_POOL
-
-        # O sistema tem telas que disparam várias leituras seguidas (apontador,
-        # relatórios e painel da equipe). Com max_size=5 o Render/Neon entra em
-        # fila muito rápido e cada request pode esperar vários segundos.
-        # Pode ajustar no Render por ENV, mas o padrão novo já é mais adequado.
-        min_size = _env_int("DB_POOL_MIN_SIZE", 1, minimo=0, maximo=10)
-        max_size = _env_int("DB_POOL_MAX_SIZE", 8, minimo=2, maximo=20)
-        if max_size < min_size:
-            max_size = min_size or 1
-
-        _DB_POOL = ConnectionPool(
-            conninfo=_obter_database_url(),
-            kwargs={
-                "row_factory": dict_row,
-                "sslmode": "require",
-                "connect_timeout": _env_int("DB_CONNECT_TIMEOUT", 8, minimo=3, maximo=30),
-                "prepare_threshold": None,
-            },
-            min_size=min_size,
-            max_size=max_size,
-            timeout=_env_float("DB_POOL_TIMEOUT", 10, minimo=2, maximo=60),
-            max_idle=_env_float("DB_POOL_MAX_IDLE", 120, minimo=20, maximo=600),
-            max_lifetime=_env_float("DB_POOL_MAX_LIFETIME", 600, minimo=60, maximo=1800),
-            reconnect_timeout=_env_float("DB_POOL_RECONNECT_TIMEOUT", 15, minimo=3, maximo=60),
-            open=True,
-        )
-
-        return _DB_POOL
-
-
-def _erro_conexao_quebrada(exc):
-    """Identifica erros típicos de conexão SSL/Neon/psycopg quebrada.
-
-    Quando isso acontece, não adianta devolver a conexão para o pool: ela deve
-    ser descartada e o pool recriado. Isso evita reutilizar conexão BAD em
-    rotas como login e painel da equipe.
-    """
-    mensagem = repr(exc).lower()
-    termos = (
-        "ssl syscall error",
-        "ssl error",
-        "eof detected",
-        "bad record mac",
-        "consuming input failed",
-        "connection bad",
-        "connection is closed",
-        "closed connection",
-        "server closed the connection",
-        "terminating connection",
-        "the connection is lost",
-        "pool closed",
-        "network is unreachable",
-        "connection timeout expired",
-        "could not translate host name",
-    )
-    return any(t in mensagem for t in termos)
-
-
-
-def _erro_pool_saturado(exc):
-    """Distingue fila cheia de conexão realmente quebrada.
-
-    PoolTimeout não significa que o pool morreu; significa apenas que todas as
-    conexões estavam ocupadas. Fechar/recriar o pool nessa situação cria novos
-    workers internos e agrava a indisponibilidade no Render/Neon.
-    """
-    mensagem = repr(exc).lower()
-    return any(t in mensagem for t in (
-        "pooltimeout",
-        "couldn't get a connection",
-        "could not get a connection",
-        "pool is full",
-    ))
-
-def _conexao_fechada_ou_ruim(conn):
-    if conn is None:
-        return True
-    try:
-        if bool(getattr(conn, "closed", False)):
-            return True
-    except Exception:
-        return True
-    try:
-        if bool(getattr(conn, "broken", False)):
-            return True
-    except Exception:
-        pass
-    return False
-
-
-def _validar_conexao_pool(conn):
-    """Faz um ping curto na conexão recebida do pool.
-
-    O Neon pode encerrar conexões SSL antigas. Sem esse teste, o pool entrega a
-    conexão aparentemente livre, mas o primeiro SELECT real explode com
-    "SSL SYSCALL error: EOF detected" ou "bad record mac".
-    """
-    if _conexao_fechada_ou_ruim(conn):
-        return False
-
-    testar = str(os.environ.get("DB_POOL_PING", "1")).strip().lower()
-    if testar in {"0", "false", "no", "off", "nao", "não"}:
-        return True
-
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.fetchone()
-        return True
-    except Exception as e:
-        print("AVISO: conexão do pool falhou no ping:", repr(e), flush=True)
-        return False
-
-
-def _fechar_pool_quebrado():
-    global _DB_POOL
-
-    pool = _DB_POOL
-    _DB_POOL = None
-
-    try:
-        if pool is not None:
-            pool.close(timeout=1)
-    except Exception:
-        pass
-
-
-@contextmanager
-def conectar():
-    """Abre conexão com o banco usando pool com fallback seguro.
-
-    Ajuste importante para Render/Neon:
-    - valida a conexão antes de entregar para a rota;
-    - se detectar SSL EOF/BAD/bad record mac, fecha o pool inteiro;
-    - cai para conexão direta controlada;
-    - evita reutilizar conexão quebrada em login, painel da equipe e apontador.
-    """
-    global _DIRECT_FALLBACK_SEMAPHORE
-
-    pool = _obter_pool()
-    timeout_pool = _env_float("DB_POOL_TIMEOUT", 10, minimo=1, maximo=30)
-
-    # =====================================================
-    # 1) TENTA PEGAR UMA CONEXÃO DO POOL ANTES DO YIELD
-    # =====================================================
-    pool_cm = None
-    conn_pool = None
-
-    if pool is not None:
-        try:
-            pool_cm = pool.connection(timeout=timeout_pool)
-            conn_pool = pool_cm.__enter__()
-
-            if not _validar_conexao_pool(conn_pool):
-                erro_ping = RuntimeError("Conexão inválida recebida do pool.")
-                try:
-                    pool_cm.__exit__(RuntimeError, erro_ping, erro_ping.__traceback__)
-                except Exception:
-                    pass
-                _fechar_pool_quebrado()
-                pool_cm = None
-                conn_pool = None
-                raise erro_ping
-
-        except Exception as e:
-            print("AVISO: pool do banco indisponível:", repr(e), flush=True)
-
-            # PoolTimeout é saturação momentânea, não corrupção do pool.
-            # Só recriamos o pool quando a conexão está realmente quebrada.
-            if _erro_conexao_quebrada(e) and not _erro_pool_saturado(e):
-                _fechar_pool_quebrado()
-
-            fallback_ligado = str(
-                os.environ.get("DB_DIRECT_FALLBACK_ENABLED", "1")
-            ).strip().lower()
-
-            if fallback_ligado in {"0", "false", "no", "off", "nao", "não"}:
-                raise
-        else:
-            erro_do_bloco = None
-            try:
-                yield conn_pool
-            except BaseException as exc:
-                erro_do_bloco = exc
-                if _erro_conexao_quebrada(exc):
-                    try:
-                        if conn_pool is not None:
-                            conn_pool.close()
-                    except Exception:
-                        pass
-                    _fechar_pool_quebrado()
-                raise
-            finally:
-                try:
-                    if erro_do_bloco is None:
-                        pool_cm.__exit__(None, None, None)
-                    else:
-                        pool_cm.__exit__(
-                            type(erro_do_bloco),
-                            erro_do_bloco,
-                            erro_do_bloco.__traceback__,
-                        )
-                except Exception as e:
-                    print("AVISO: erro ao devolver conexão ao pool:", repr(e), flush=True)
-                    if _erro_conexao_quebrada(e):
-                        _fechar_pool_quebrado()
-            return
-
-    # =====================================================
-    # 2) FALLBACK DIRETO CONTROLADO
-    # =====================================================
-    limite_fallback = _env_int(
-        "DB_DIRECT_FALLBACK_MAX",
-        1,
-        minimo=0,
-        maximo=6,
-    )
-
-    if limite_fallback <= 0:
-        raise RuntimeError(
-            "Pool do banco indisponível e fallback direto desativado."
-        )
-
-    if _DIRECT_FALLBACK_SEMAPHORE is None:
-        with _POOL_LOCK:
-            if _DIRECT_FALLBACK_SEMAPHORE is None:
-                _DIRECT_FALLBACK_SEMAPHORE = BoundedSemaphore(limite_fallback)
-
-    adquiriu = _DIRECT_FALLBACK_SEMAPHORE.acquire(
-        timeout=_env_float(
-            "DB_DIRECT_FALLBACK_TIMEOUT",
-            3,
-            minimo=0.2,
-            maximo=10,
-        )
-    )
-
-    if not adquiriu:
-        raise RuntimeError(
-            "Banco ocupado: pool indisponível e limite de conexões diretas atingido."
-        )
-
-    conn = None
-
-    try:
-        print(
-            "AVISO: usando conexão direta controlada fora do pool",
-            flush=True,
-        )
-
-        conn = _conexao_direta()
-        yield conn
-
-    except BaseException as exc:
-        if _erro_conexao_quebrada(exc):
-            _fechar_pool_quebrado()
-        raise
-
-    finally:
-        try:
-            if conn is not None:
-                conn.close()
-        except Exception:
-            pass
-
-        try:
-            _DIRECT_FALLBACK_SEMAPHORE.release()
-        except Exception:
-            pass
+# A implementação do pool/Neon foi extraída para repositories.conexao.
+# Estes aliases preservam todos os imports antigos de ``banco.conectar``
+# durante a migração gradual dos demais domínios.
+from repositories.conexao import (
+    conectar,
+    fechar_pool as _fechar_pool_quebrado,
+    obter_estatisticas_pool,
+)
 
 # =========================================================
-# CACHE DE CLASSIFICAÇÃO
+# CACHE DE CLASSIFICAÇÃO (fachada de compatibilidade)
 # =========================================================
-def criar_tabela_cache_classificacao():
-    """Tabela pequena para guardar a classificação pronta por competição.
-
-    A assinatura muda quando partidas/grupos/equipes do grupo mudam. Assim a
-    tela usa cache quando nada mudou e recalcula automaticamente quando houve
-    alteração relevante.
-    """
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS classificacao_cache (
-                        competicao TEXT PRIMARY KEY,
-                        assinatura TEXT NOT NULL,
-                        payload_json JSONB NOT NULL,
-                        atualizado_em TIMESTAMP DEFAULT NOW()
-                    )
-                """)
-            conn.commit()
-    except Exception as e:
-        print("AVISO criar_tabela_cache_classificacao:", repr(e))
-
-
-def assinatura_classificacao_competicao(competicao):
-    """Assinatura leve dos dados que afetam a classificação.
-
-    Evita transferir todas as partidas só para saber se o cache continua válido.
-    O PostgreSQL calcula um MD5 dos campos relevantes.
-    """
-    try:
-        criar_tabela_cache_classificacao()
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    WITH partidas_sig AS (
-                        SELECT COALESCE(
-                            md5(string_agg(
-                                CONCAT_WS('|',
-                                    id,
-                                    COALESCE(grupo, ''),
-                                    COALESCE(fase, ''),
-                                    COALESCE(equipe_a, ''),
-                                    COALESCE(equipe_b, ''),
-                                    COALESCE(status, ''),
-                                    COALESCE(status_jogo, ''),
-                                    COALESCE(fase_partida, ''),
-                                    COALESCE(vencedor, ''),
-                                    COALESCE(sets_a::TEXT, ''),
-                                    COALESCE(sets_b::TEXT, ''),
-                                    COALESCE(set1_a::TEXT, ''),
-                                    COALESCE(set1_b::TEXT, ''),
-                                    COALESCE(set2_a::TEXT, ''),
-                                    COALESCE(set2_b::TEXT, ''),
-                                    COALESCE(set3_a::TEXT, ''),
-                                    COALESCE(set3_b::TEXT, ''),
-                                    COALESCE(set4_a::TEXT, ''),
-                                    COALESCE(set4_b::TEXT, ''),
-                                    COALESCE(set5_a::TEXT, ''),
-                                    COALESCE(set5_b::TEXT, ''),
-                                    COALESCE(pontos_a::TEXT, ''),
-                                    COALESCE(pontos_b::TEXT, ''),
-                                    COALESCE(origem_resultado, ''),
-                                    COALESCE(tipo_encerramento, '')
-                                ), '§' ORDER BY id
-                            )), 'sem_partidas') AS sig
-                        FROM partidas
-                        WHERE competicao = %s
-                    ), grupos_sig AS (
-                        SELECT COALESCE(
-                            md5(string_agg(
-                                CONCAT_WS('|',
-                                    COALESCE(g.id::TEXT, ''),
-                                    COALESCE(g.nome, ''),
-                                    COALESCE(ge.equipe, '')
-                                ), '§' ORDER BY g.id, ge.equipe
-                            )), 'sem_grupos') AS sig
-                        FROM grupos g
-                        LEFT JOIN grupos_equipes ge
-                               ON ge.grupo_id = g.id
-                              AND ge.competicao = g.competicao
-                        WHERE g.competicao = %s
-                    )
-                    SELECT md5((SELECT sig FROM partidas_sig) || '::' || (SELECT sig FROM grupos_sig)) AS assinatura
-                """, (competicao, competicao))
-                row = cur.fetchone() or {}
-                return row.get("assinatura") or "sem_assinatura"
-    except Exception as e:
-        print("AVISO assinatura_classificacao_competicao:", repr(e))
-        return None
-
-
-def obter_cache_classificacao(competicao, assinatura):
-    if not assinatura:
-        return None
-    try:
-        criar_tabela_cache_classificacao()
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT payload_json
-                    FROM classificacao_cache
-                    WHERE competicao = %s
-                      AND assinatura = %s
-                    LIMIT 1
-                """, (competicao, assinatura))
-                row = cur.fetchone()
-                if not row:
-                    return None
-                payload = row.get("payload_json")
-                if isinstance(payload, str):
-                    return json.loads(payload)
-                return payload
-    except Exception as e:
-        print("AVISO obter_cache_classificacao:", repr(e))
-        return None
-
-
-
-def _sanitizar_json_postgres(valor):
-    """Converte valores não aceitos pelo JSON/JSONB do PostgreSQL.
-
-    Python aceita NaN e Infinity em json.dumps por padrão, mas o PostgreSQL
-    rejeita esses tokens. Mantém a estrutura original e converte somente
-    números não finitos para None.
-    """
-    if isinstance(valor, float):
-        return valor if math.isfinite(valor) else None
-
-    if isinstance(valor, dict):
-        return {
-            str(chave): _sanitizar_json_postgres(item)
-            for chave, item in valor.items()
-        }
-
-    if isinstance(valor, (list, tuple, set)):
-        return [_sanitizar_json_postgres(item) for item in valor]
-
-    return valor
-
-def salvar_cache_classificacao(competicao, assinatura, payload):
-    if not assinatura:
-        return False
-    try:
-        criar_tabela_cache_classificacao()
-        payload_limpo = _sanitizar_json_postgres(payload)
-        payload_json = json.dumps(payload_limpo, ensure_ascii=False, default=str, allow_nan=False)
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO classificacao_cache (competicao, assinatura, payload_json, atualizado_em)
-                    VALUES (%s, %s, %s::jsonb, NOW())
-                    ON CONFLICT (competicao)
-                    DO UPDATE SET
-                        assinatura = EXCLUDED.assinatura,
-                        payload_json = EXCLUDED.payload_json,
-                        atualizado_em = NOW()
-                """, (competicao, assinatura, payload_json))
-            conn.commit()
-        return True
-    except Exception as e:
-        print("AVISO salvar_cache_classificacao:", repr(e))
-        return False
-
-
-def invalidar_cache_classificacao(competicao):
-    if not competicao:
-        return False
-    try:
-        criar_tabela_cache_classificacao()
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM classificacao_cache WHERE competicao = %s", (competicao,))
-            conn.commit()
-        return True
-    except Exception as e:
-        print("AVISO invalidar_cache_classificacao:", repr(e))
-        return False
+# A persistência foi extraída para repositories.classificacao_cache. Estes
+# aliases preservam os imports antigos durante a migração das rotas.
+from repositories.classificacao_cache import (
+    assinatura_classificacao_competicao,
+    criar_tabela_cache_classificacao,
+    invalidar_cache_classificacao,
+    obter_cache_classificacao,
+    salvar_cache_classificacao,
+)
 
 
 # =========================================================
@@ -730,187 +202,13 @@ def _buscar_colunas_tabela(nome_tabela):
 
 
 def _campo_ou_alias(colunas, campo, alias_sql):
-    if campo in colunas:
-        return campo
-    return alias_sql
+    from repositories.competicoes_campos import campo_ou_alias
+    return campo_ou_alias(colunas, campo, alias_sql)
 
 
 def _campos_competicao(prefixo="", incluir_senha_organizador=False):
-    colunas = _buscar_colunas_tabela("competicoes")
-    p = f"{prefixo}." if prefixo else ""
-
-    campos = [
-        f"{p}nome",
-        f"{p}data",
-        f"{p}status",
-        f"{p}organizador_login",
-        _campo_ou_alias(colunas, "codigo_publico", "NULL::text AS codigo_publico") if not prefixo else (
-            f"{p}codigo_publico" if "codigo_publico" in colunas else "NULL::text AS codigo_publico"
-        ),
-        _campo_ou_alias(colunas, "cidade", "'' AS cidade") if not prefixo else (
-            f"{p}cidade" if "cidade" in colunas else "'' AS cidade"
-        ),
-        _campo_ou_alias(colunas, "ginasio", "'' AS ginasio") if not prefixo else (
-            f"{p}ginasio" if "ginasio" in colunas else "'' AS ginasio"
-        ),
-        _campo_ou_alias(colunas, "categoria", "'' AS categoria") if not prefixo else (
-            f"{p}categoria" if "categoria" in colunas else "'' AS categoria"
-        ),
-        _campo_ou_alias(colunas, "sexo", "'' AS sexo") if not prefixo else (
-            f"{p}sexo" if "sexo" in colunas else "'' AS sexo"
-        ),
-        _campo_ou_alias(colunas, "divisao", "'' AS divisao") if not prefixo else (
-            f"{p}divisao" if "divisao" in colunas else "'' AS divisao"
-        ),
-        _campo_ou_alias(colunas, "qtd_equipes", "0 AS qtd_equipes") if not prefixo else (
-            f"{p}qtd_equipes" if "qtd_equipes" in colunas else "0 AS qtd_equipes"
-        ),
-        _campo_ou_alias(colunas, "formato", "'' AS formato") if not prefixo else (
-            f"{p}formato" if "formato" in colunas else "'' AS formato"
-        ),
-        _campo_ou_alias(colunas, "tem_grupos", "FALSE AS tem_grupos") if not prefixo else (
-            f"{p}tem_grupos" if "tem_grupos" in colunas else "FALSE AS tem_grupos"
-        ),
-        _campo_ou_alias(colunas, "qtd_grupos", "0 AS qtd_grupos") if not prefixo else (
-            f"{p}qtd_grupos" if "qtd_grupos" in colunas else "0 AS qtd_grupos"
-        ),
-        _campo_ou_alias(colunas, "qtd_quadras", "1 AS qtd_quadras") if not prefixo else (
-            f"{p}qtd_quadras" if "qtd_quadras" in colunas else "1 AS qtd_quadras"
-        ),
-        _campo_ou_alias(colunas, "modo_operacao", "'simples' AS modo_operacao") if not prefixo else (
-            f"{p}modo_operacao" if "modo_operacao" in colunas else "'simples' AS modo_operacao"
-        ),
-        _campo_ou_alias(colunas, "sets_tipo", "'melhor_de_3' AS sets_tipo") if not prefixo else (
-            f"{p}sets_tipo" if "sets_tipo" in colunas else "'melhor_de_3' AS sets_tipo"
-        ),
-        _campo_ou_alias(colunas, "pontos_set", "25 AS pontos_set") if not prefixo else (
-            f"{p}pontos_set" if "pontos_set" in colunas else "25 AS pontos_set"
-        ),
-        _campo_ou_alias(colunas, "tem_tiebreak", "TRUE AS tem_tiebreak") if not prefixo else (
-            f"{p}tem_tiebreak" if "tem_tiebreak" in colunas else "TRUE AS tem_tiebreak"
-        ),
-        _campo_ou_alias(colunas, "pontos_tiebreak", "15 AS pontos_tiebreak") if not prefixo else (
-            f"{p}pontos_tiebreak" if "pontos_tiebreak" in colunas else "15 AS pontos_tiebreak"
-        ),
-        _campo_ou_alias(colunas, "diferenca_minima", "2 AS diferenca_minima") if not prefixo else (
-            f"{p}diferenca_minima" if "diferenca_minima" in colunas else "2 AS diferenca_minima"
-        ),
-        _campo_ou_alias(colunas, "tempos_por_set", "2 AS tempos_por_set") if not prefixo else (
-            f"{p}tempos_por_set" if "tempos_por_set" in colunas else "2 AS tempos_por_set"
-        ),
-        _campo_ou_alias(colunas, "substituicoes_por_set", "6 AS substituicoes_por_set") if not prefixo else (
-            f"{p}substituicoes_por_set" if "substituicoes_por_set" in colunas else "6 AS substituicoes_por_set"
-        ),
-        _campo_ou_alias(colunas, "vitoria_set_unico", "2 AS vitoria_set_unico") if not prefixo else (
-            f"{p}vitoria_set_unico" if "vitoria_set_unico" in colunas else "2 AS vitoria_set_unico"
-        ),
-        _campo_ou_alias(colunas, "derrota_set_unico", "0 AS derrota_set_unico") if not prefixo else (
-            f"{p}derrota_set_unico" if "derrota_set_unico" in colunas else "0 AS derrota_set_unico"
-        ),
-        _campo_ou_alias(colunas, "vitoria_2x0", "3 AS vitoria_2x0") if not prefixo else (
-            f"{p}vitoria_2x0" if "vitoria_2x0" in colunas else "3 AS vitoria_2x0"
-        ),
-        _campo_ou_alias(colunas, "vitoria_2x1", "2 AS vitoria_2x1") if not prefixo else (
-            f"{p}vitoria_2x1" if "vitoria_2x1" in colunas else "2 AS vitoria_2x1"
-        ),
-        _campo_ou_alias(colunas, "derrota_1x2", "1 AS derrota_1x2") if not prefixo else (
-            f"{p}derrota_1x2" if "derrota_1x2" in colunas else "1 AS derrota_1x2"
-        ),
-        _campo_ou_alias(colunas, "derrota_0x2", "0 AS derrota_0x2") if not prefixo else (
-            f"{p}derrota_0x2" if "derrota_0x2" in colunas else "0 AS derrota_0x2"
-        ),
-        _campo_ou_alias(colunas, "vitoria_3x0", "3 AS vitoria_3x0") if not prefixo else (
-            f"{p}vitoria_3x0" if "vitoria_3x0" in colunas else "3 AS vitoria_3x0"
-        ),
-        _campo_ou_alias(colunas, "vitoria_3x1", "3 AS vitoria_3x1") if not prefixo else (
-            f"{p}vitoria_3x1" if "vitoria_3x1" in colunas else "3 AS vitoria_3x1"
-        ),
-        _campo_ou_alias(colunas, "vitoria_3x2", "2 AS vitoria_3x2") if not prefixo else (
-            f"{p}vitoria_3x2" if "vitoria_3x2" in colunas else "2 AS vitoria_3x2"
-        ),
-        _campo_ou_alias(colunas, "derrota_2x3", "1 AS derrota_2x3") if not prefixo else (
-            f"{p}derrota_2x3" if "derrota_2x3" in colunas else "1 AS derrota_2x3"
-        ),
-        _campo_ou_alias(colunas, "derrota_1x3", "0 AS derrota_1x3") if not prefixo else (
-            f"{p}derrota_1x3" if "derrota_1x3" in colunas else "0 AS derrota_1x3"
-        ),
-        _campo_ou_alias(colunas, "derrota_0x3", "0 AS derrota_0x3") if not prefixo else (
-            f"{p}derrota_0x3" if "derrota_0x3" in colunas else "0 AS derrota_0x3"
-        ),
-        _campo_ou_alias(
-            colunas,
-            "criterios_desempate",
-            "'vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio' AS criterios_desempate"
-        ) if not prefixo else (
-            f"{p}criterios_desempate" if "criterios_desempate" in colunas else
-            "'vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio' AS criterios_desempate"
-        ),
-        _campo_ou_alias(colunas, "limite_atletas", "0 AS limite_atletas") if not prefixo else (
-            f"{p}limite_atletas" if "limite_atletas" in colunas else "0 AS limite_atletas"
-        ),
-        _campo_ou_alias(colunas, "permitir_edicao_pos_prazo", "FALSE AS permitir_edicao_pos_prazo") if not prefixo else (
-            f"{p}permitir_edicao_pos_prazo" if "permitir_edicao_pos_prazo" in colunas else "FALSE AS permitir_edicao_pos_prazo"
-        ),
-        _campo_ou_alias(colunas, "exigir_foto_atleta", "FALSE AS exigir_foto_atleta") if not prefixo else (
-            f"{p}exigir_foto_atleta" if "exigir_foto_atleta" in colunas else "FALSE AS exigir_foto_atleta"
-        ),
-        _campo_ou_alias(colunas, "exigir_instagram_atleta", "FALSE AS exigir_instagram_atleta") if not prefixo else (
-            f"{p}exigir_instagram_atleta" if "exigir_instagram_atleta" in colunas else "FALSE AS exigir_instagram_atleta"
-        ),
-        _campo_ou_alias(colunas, "aprovacao_automatica_atletas", "FALSE AS aprovacao_automatica_atletas") if not prefixo else (
-            f"{p}aprovacao_automatica_atletas" if "aprovacao_automatica_atletas" in colunas else "FALSE AS aprovacao_automatica_atletas"
-        ),
-        _campo_ou_alias(colunas, "travada", "FALSE AS travada") if not prefixo else (
-            f"{p}travada" if "travada" in colunas else "FALSE AS travada"
-        ),
-        _campo_ou_alias(colunas, "motivo_travamento", "'' AS motivo_travamento") if not prefixo else (
-            f"{p}motivo_travamento" if "motivo_travamento" in colunas else "'' AS motivo_travamento"
-        ),
-        _campo_ou_alias(colunas, "travada_em", "NULL::timestamp AS travada_em") if not prefixo else (
-            f"{p}travada_em" if "travada_em" in colunas else "NULL::timestamp AS travada_em"
-        ),
-    ]
-
-    campos.extend([
-        _campo_ou_alias(colunas, "tipo_classificacao", "'grupo' AS tipo_classificacao") if not prefixo else (
-            f"{p}tipo_classificacao" if "tipo_classificacao" in colunas else "'grupo' AS tipo_classificacao"
-        ),
-        _campo_ou_alias(colunas, "qtd_classificados", "0 AS qtd_classificados") if not prefixo else (
-            f"{p}qtd_classificados" if "qtd_classificados" in colunas else "0 AS qtd_classificados"
-        ),
-        _campo_ou_alias(colunas, "formato_finais", "'mata_mata' AS formato_finais") if not prefixo else (
-            f"{p}formato_finais" if "formato_finais" in colunas else "'mata_mata' AS formato_finais"
-        ),
-        _campo_ou_alias(colunas, "possui_bye", "FALSE AS possui_bye") if not prefixo else (
-            f"{p}possui_bye" if "possui_bye" in colunas else "FALSE AS possui_bye"
-        ),
-        _campo_ou_alias(colunas, "qtd_bye", "0 AS qtd_bye") if not prefixo else (
-            f"{p}qtd_bye" if "qtd_bye" in colunas else "0 AS qtd_bye"
-        ),
-        _campo_ou_alias(colunas, "fases_config", "'{}' AS fases_config") if not prefixo else (
-            f"{p}fases_config" if "fases_config" in colunas else "'{}' AS fases_config"
-        ),
-        _campo_ou_alias(colunas, "tipo_confronto", "'grupo_interno' AS tipo_confronto") if not prefixo else (
-            f"{p}tipo_confronto" if "tipo_confronto" in colunas else "'grupo_interno' AS tipo_confronto"
-        ),
-        _campo_ou_alias(colunas, "cruzamentos_grupos", "'' AS cruzamentos_grupos") if not prefixo else (
-            f"{p}cruzamentos_grupos" if "cruzamentos_grupos" in colunas else "'' AS cruzamentos_grupos"
-        ),
-        _campo_ou_alias(colunas, "data_limite_inscricao", "NULL AS data_limite_inscricao") if not prefixo else (
-            f"{p}data_limite_inscricao" if "data_limite_inscricao" in colunas else "NULL AS data_limite_inscricao"
-        ),
-        _campo_ou_alias(colunas, "hora_limite_inscricao", "NULL AS hora_limite_inscricao") if not prefixo else (
-            f"{p}hora_limite_inscricao" if "hora_limite_inscricao" in colunas else "NULL AS hora_limite_inscricao"
-        ),
-        _campo_ou_alias(colunas, "bloquear_apos_inicio", "FALSE AS bloquear_apos_inicio") if not prefixo else (
-            f"{p}bloquear_apos_inicio" if "bloquear_apos_inicio" in colunas else "FALSE AS bloquear_apos_inicio"
-        ),
-    ])
-
-    if incluir_senha_organizador:
-        campos.append("u.senha AS organizador_senha")
-
-    return campos
+    from repositories.competicoes_campos import campos_competicao
+    return campos_competicao(prefixo, incluir_senha_organizador)
 
 
 # =========================================================
@@ -925,12 +223,23 @@ def _gerar_codigo_publico_aleatorio(tamanho=_CODIGO_PUBLICO_TAMANHO):
 
 
 def garantir_schema_codigo_publico_competicoes(force=False):
-    """Cria a coluna e o índice único usados pelos links /v/CODIGO.
+    """Valida o schema do link público sem executar DDL nas requisições.
 
-    É idempotente e executa uma única vez por processo. O ALTER TABLE usa
-    IF NOT EXISTS, portanto também é seguro após deploys repetidos.
+    Em operação normal, a estrutura deve ter sido criada pelo sistema de
+    migrações antes do Gunicorn iniciar. ``force=True`` fica reservado ao
+    executor explícito de migrações e tarefas administrativas controladas.
     """
-    if _schema_ja_pronto("codigo_publico_competicoes", force=force):
+    if not force:
+        from core.schema_requirements import require_schema
+        require_schema(
+            tables=("competicoes",),
+            columns={"competicoes": ("codigo_publico",)},
+            context="link público das competições",
+        )
+        _marcar_schema_pronto("codigo_publico_competicoes")
+        return True
+
+    if _schema_ja_pronto("codigo_publico_competicoes", force=True):
         return True
 
     with conectar() as conn:
@@ -947,7 +256,6 @@ def garantir_schema_codigo_publico_competicoes(force=False):
             """)
         conn.commit()
 
-    # A coluna pode ter sido consultada antes do ALTER e estar no cache antigo.
     _CACHE_COLUNAS.pop("competicoes", None)
     _marcar_schema_pronto("codigo_publico_competicoes")
     return True
@@ -1036,19 +344,6 @@ def buscar_competicao_por_codigo_publico(codigo_publico):
 # =========================================================
 # USUÁRIOS
 # =========================================================
-def buscar_usuario_por_login(login, conn=None):
-    if conn is not None:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT login, nome, senha, perfil, ativo, equipe, competicao_vinculada
-                FROM usuarios
-                WHERE login = %s
-                LIMIT 1
-            """, (login,))
-            return cur.fetchone()
-
-    with conectar() as conn:
-        return buscar_usuario_por_login(login, conn)
 
 
 def usuario_existe(login, conn=None):
@@ -1105,19 +400,20 @@ def atualizar_login_usuario(login_atual, novo_login):
 
 
 def atualizar_senha_usuario(login, nova_senha):
+    senha_hash = gerar_hash_senha(nova_senha)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE usuarios
                 SET senha = %s
                 WHERE login = %s
-            """, (nova_senha, login))
+            """, (senha_hash, login))
 
             cur.execute("""
                 UPDATE equipes
                 SET senha = %s
                 WHERE login = %s
-            """, (nova_senha, login))
+            """, (senha_hash, login))
 
         conn.commit()
 
@@ -1390,330 +686,24 @@ def criar_campos_conferencia_atletas():
         pass
 
 
-def sincronizar_status_competicoes(nome_competicao=None):
-    """
-    Atualiza automaticamente o status da competição olhando o estado das partidas.
-
-    Regra:
-    - Sem partida iniciada/finalizada: Em preparação
-    - Alguma partida iniciada e ainda não finalizada: Em andamento
-    - Todas as partidas existentes finalizadas: Finalizada
-    """
-    filtro = ""
-    params = []
-
-    if nome_competicao:
-        filtro = "WHERE c.nome = %s"
-        params.append(nome_competicao)
-
-    sql = f"""
-        WITH resumo AS (
-            SELECT
-                c.nome,
-                COUNT(p.id) AS total_partidas,
-                SUM(
-                    CASE
-                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, ''))
-                             IN ('finalizada', 'finalizado', 'encerrada', 'encerrado')
-                        THEN 1 ELSE 0
-                    END
-                ) AS finalizadas,
-                SUM(
-                    CASE
-                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, p.fase_partida, ''))
-                             IN (
-                                'pre_jogo', 'sorteio', 'papeleta', 'papeleta_pronta',
-                                'ao_vivo', 'em_andamento', 'andamento', 'jogo',
-                                'entre_sets', 'intervalo_set', 'tiebreak_sorteio',
-                                'pausada', 'pausado'
-                             )
-                        THEN 1 ELSE 0
-                    END
-                ) AS iniciadas
-            FROM competicoes c
-            LEFT JOIN partidas p
-                ON p.competicao = c.nome
-            {filtro}
-            GROUP BY c.nome
-        ), calculado AS (
-            SELECT
-                nome,
-                CASE
-                    WHEN total_partidas > 0 AND finalizadas = total_partidas THEN 'Finalizada'
-                    WHEN iniciadas > 0 THEN 'Em andamento'
-                    ELSE 'Em preparação'
-                END AS novo_status
-            FROM resumo
-        )
-        UPDATE competicoes c
-        SET status = calculado.novo_status
-        FROM calculado
-        WHERE c.nome = calculado.nome
-          AND COALESCE(c.status, '') <> calculado.novo_status
-    """
-
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, tuple(params))
-            conn.commit()
-    except Exception as e:
-        print("AVISO sincronizar_status_competicoes:", repr(e), flush=True)
 
 
-def sincronizar_status_competicao(nome_competicao):
-    return sincronizar_status_competicoes(nome_competicao)
 
 
-def listar_competicoes():
-    sincronizar_status_competicoes()
-
-    campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
-
-    sql = f"""
-        SELECT {", ".join(campos)}
-        FROM competicoes c
-        LEFT JOIN usuarios u
-            ON u.login = c.organizador_login
-        ORDER BY
-            CASE
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
-                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
-                ELSE 4
-            END,
-            c.nome
-    """
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql)
-            return cur.fetchall()
 
 
-def listar_competicoes_do_organizador(login_organizador):
-    campos = _campos_competicao()
-
-    sql = f"""
-        SELECT {", ".join(campos)}
-        FROM competicoes
-        WHERE organizador_login = %s
-        ORDER BY nome
-    """
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, (login_organizador,))
-            return cur.fetchall()
 
 
-def buscar_competicao_por_organizador(login_organizador):
-    campos = _campos_competicao()
-
-    sql = f"""
-        SELECT {", ".join(campos)}
-        FROM competicoes
-        WHERE organizador_login = %s
-        LIMIT 1
-    """
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, (login_organizador,))
-            return cur.fetchone()
 
 
-def competicao_existe(nome):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT nome
-                FROM competicoes
-                WHERE nome = %s
-                LIMIT 1
-            """, (nome,))
-            return cur.fetchone() is not None
 
 
-def criar_competicao_com_organizador(nome, data, status, modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6):
-    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
-    senha_organizador = _gerar_senha_aleatoria(8)
-
-    colunas = _buscar_colunas_tabela("competicoes")
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO usuarios (
-                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                login_organizador,
-                f"Organizador - {nome}",
-                senha_organizador,
-                "organizador",
-                True,
-                None,
-                nome
-            ))
-
-            campos = ["nome", "data", "status", "organizador_login"]
-            valores = [nome, data, status, login_organizador]
-
-            mapa_defaults = {
-                "cidade": "",
-                "ginasio": "",
-                "categoria": "",
-                "sexo": "",
-                "divisao": "",
-                "qtd_equipes": 0,
-                "formato": "grupos",
-                "tem_grupos": False,
-                "qtd_grupos": 0,
-                "qtd_quadras": 1,
-                "modo_operacao": modo_operacao or "simples",
-                "tempos_por_set": tempos_por_set,
-                "substituicoes_por_set": substituicoes_por_set,
-                "sets_tipo": "melhor_de_3",
-                "pontos_set": 25,
-                "tem_tiebreak": True,
-                "pontos_tiebreak": 15,
-                "diferenca_minima": 2,
-                "vitoria_set_unico": 2,
-                "derrota_set_unico": 0,
-                "vitoria_2x0": 3,
-                "vitoria_2x1": 2,
-                "derrota_1x2": 1,
-                "derrota_0x2": 0,
-                "vitoria_3x0": 3,
-                "vitoria_3x1": 3,
-                "vitoria_3x2": 2,
-                "derrota_2x3": 1,
-                "derrota_1x3": 0,
-                "derrota_0x3": 0,
-                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
-                "tipo_classificacao": "grupo",
-                "qtd_classificados": 0,
-                "formato_finais": "mata_mata",
-                "possui_bye": False,
-                "qtd_bye": 0,
-                "fases_config": json.dumps({}, ensure_ascii=False),
-                "tipo_confronto": "grupo_interno",
-                "cruzamentos_grupos": "",
-                "data_limite_inscricao": None,
-                "hora_limite_inscricao": None,
-                "bloquear_apos_inicio": False,
-                "limite_atletas": 0,
-                "permitir_edicao_pos_prazo": False,
-                "aprovacao_automatica_atletas": False,
-                "travada": False,
-                "motivo_travamento": "",
-                "travada_em": None,
-            }
-
-            for campo, default in mapa_defaults.items():
-                if campo in colunas:
-                    campos.append(campo)
-                    valores.append(default)
-
-            placeholders = ", ".join(["%s"] * len(valores))
-
-            cur.execute(
-                f"""
-                INSERT INTO competicoes ({", ".join(campos)})
-                VALUES ({placeholders})
-                """,
-                tuple(valores)
-            )
-
-        conn.commit()
-
-    try:
-        garantir_quadras_competicao(nome, 1)
-    except Exception as e:
-        print("AVISO: não foi possível criar quadra padrão da competição:", e)
-
-    return {
-        "login": login_organizador,
-        "senha": senha_organizador
-    }
 
 
-def competicao_esta_travada(nome_competicao):
-    colunas = _buscar_colunas_tabela("competicoes")
-    if "travada" not in colunas:
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT COALESCE(travada, FALSE) AS travada
-                FROM competicoes
-                WHERE nome = %s
-                LIMIT 1
-            """, (nome_competicao,))
-            row = cur.fetchone()
-            return bool(row and row.get("travada"))
 
 
-def travar_competicao(nome_competicao, motivo="primeiro_ponto"):
-    colunas = _buscar_colunas_tabela("competicoes")
-    if "travada" not in colunas:
-        criar_campos_travamento_competicoes()
-        colunas = _buscar_colunas_tabela("competicoes")
-
-    sets = []
-    if "travada" in colunas:
-        sets.append("travada = TRUE")
-    if "motivo_travamento" in colunas:
-        sets.append("motivo_travamento = %s")
-    if "travada_em" in colunas:
-        sets.append("travada_em = NOW()")
-
-    if not sets:
-        return False
-
-    valores = []
-    if "motivo_travamento" in colunas:
-        valores.append((motivo or "primeiro_ponto").strip())
-    valores.append(nome_competicao)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"""
-                UPDATE competicoes
-                SET {', '.join(sets)}
-                WHERE nome = %s
-                  AND COALESCE(travada, FALSE) = FALSE
-            """, tuple(valores))
-            alteradas = cur.rowcount
-        conn.commit()
-
-    return alteradas > 0
 
 
-def destravar_competicao(nome_competicao):
-    colunas = _buscar_colunas_tabela("competicoes")
-    if "travada" not in colunas:
-        return True
-
-    sets = ["travada = FALSE"]
-    if "motivo_travamento" in colunas:
-        sets.append("motivo_travamento = ''")
-    if "travada_em" in colunas:
-        sets.append("travada_em = NULL")
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"""
-                UPDATE competicoes
-                SET {', '.join(sets)}
-                WHERE nome = %s
-            """, (nome_competicao,))
-        conn.commit()
-
-    return True
 
 
 def equipe_tem_partida_iniciada(nome_competicao, nome_equipe):
@@ -1746,560 +736,21 @@ def validar_edicao_atletas_equipe(nome_competicao, nome_equipe):
 
 
 def validar_competicao_editavel(nome_competicao, escopo="alteração"):
-    if competicao_esta_travada(nome_competicao):
-        return False, f"A competição está travada. Não é permitido realizar esta {escopo}."
-    return True, ""
+    from repositories.competicoes_ciclo import validar_competicao_editavel_persistencia
+    return validar_competicao_editavel_persistencia(nome_competicao, escopo)
 
 
-def atualizar_dados_competicao(nome_original, dados):
-    ok_edicao, _ = validar_competicao_editavel(nome_original, "edição")
-    if not ok_edicao:
-        return False
-
-    colunas = _buscar_colunas_tabela("competicoes")
-
-    sets = []
-    valores = []
-
-    mapa = {
-        "nome": dados.get("nome"),
-        "data": dados.get("data"),
-        "status": dados.get("status"),
-    }
-
-    if "cidade" in colunas:
-        mapa["cidade"] = dados.get("cidade", "")
-    if "ginasio" in colunas:
-        mapa["ginasio"] = dados.get("ginasio", "")
-    if "categoria" in colunas:
-        mapa["categoria"] = dados.get("categoria", "")
-    if "sexo" in colunas:
-        mapa["sexo"] = dados.get("sexo", "")
-    if "divisao" in colunas:
-        mapa["divisao"] = dados.get("divisao", "")
-
-    for campo, valor in mapa.items():
-        sets.append(f"{campo} = %s")
-        valores.append(valor)
-
-    valores.append(nome_original)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE competicoes
-                SET {", ".join(sets)}
-                WHERE nome = %s
-                """,
-                tuple(valores)
-            )
-
-            novo_nome = dados.get("nome")
-            if novo_nome and novo_nome != nome_original:
-                cur.execute("""
-                    UPDATE usuarios
-                    SET competicao_vinculada = %s
-                    WHERE competicao_vinculada = %s
-                """, (novo_nome, nome_original))
-
-                cur.execute("""
-                    UPDATE equipes
-                    SET competicao = %s
-                    WHERE competicao = %s
-                """, (novo_nome, nome_original))
-
-        conn.commit()
-
-    return True
 
 
-def atualizar_estrutura_competicao(nome_competicao, dados):
-    """Atualiza SOMENTE os campos enviados da estrutura.
-
-    Correção importante:
-    Algumas rotas salvam apenas uma parte da competição, por exemplo:
-        atualizar_estrutura_competicao(nome, {"qtd_quadras": 1})
-
-    A versão anterior preenchia todos os campos ausentes com valores padrão
-    (qtd_equipes=0, qtd_grupos=0, tem_grupos=False etc.). Isso fazia a
-    competição "esquecer" configurações já salvas sempre que o organizador
-    salvava quadras, inscrições ou outra parte isolada da estrutura.
-
-    Agora o UPDATE é parcial: campo ausente não é alterado.
-    """
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
-    if not ok_edicao:
-        return False
-
-    dados = dados or {}
-    if not isinstance(dados, dict):
-        return False
-
-    colunas = _buscar_colunas_tabela("competicoes")
-    sets = []
-    valores = []
-
-    campos_permitidos = [
-        "qtd_equipes",
-        "formato",
-        "tem_grupos",
-        "qtd_grupos",
-        "qtd_quadras",
-        "modo_operacao",
-        "tipo_confronto",
-        "tipo_classificacao",
-        "cruzamentos_grupos",
-        "data_limite_inscricao",
-        "hora_limite_inscricao",
-        "bloquear_apos_inicio",
-        "limite_atletas",
-        "permitir_edicao_pos_prazo",
-        "exigir_foto_atleta",
-        "exigir_instagram_atleta",
-    ]
-
-    for campo in campos_permitidos:
-        if campo not in colunas or campo not in dados:
-            continue
-
-        sets.append(f"{campo} = %s")
-        if campo in {"data_limite_inscricao", "hora_limite_inscricao"}:
-            valores.append(dados.get(campo) or None)
-        else:
-            valores.append(dados.get(campo))
-
-    if not sets:
-        return True
-
-    valores.append(nome_competicao)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE competicoes
-                SET {", ".join(sets)}
-                WHERE nome = %s
-                """,
-                tuple(valores)
-            )
-        conn.commit()
-
-    return True
-
-def atualizar_regras_jogo(nome_competicao, dados):
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração de regras")
-    if not ok_edicao:
-        return False
-
-    colunas = _buscar_colunas_tabela("competicoes")
-    sets = []
-    valores = []
-
-    if "sets_tipo" in colunas:
-        sets.append("sets_tipo = %s")
-        valores.append(dados.get("sets_tipo"))
-    if "pontos_set" in colunas:
-        sets.append("pontos_set = %s")
-        valores.append(dados.get("pontos_set"))
-    if "tem_tiebreak" in colunas:
-        sets.append("tem_tiebreak = %s")
-        valores.append(dados.get("tem_tiebreak"))
-    if "pontos_tiebreak" in colunas:
-        sets.append("pontos_tiebreak = %s")
-        valores.append(dados.get("pontos_tiebreak"))
-    if "diferenca_minima" in colunas:
-        sets.append("diferenca_minima = %s")
-        valores.append(dados.get("diferenca_minima"))
-    if "tempos_por_set" in colunas and "tempos_por_set" in dados:
-        sets.append("tempos_por_set = %s")
-        valores.append(dados.get("tempos_por_set"))
-    if "substituicoes_por_set" in colunas and "substituicoes_por_set" in dados:
-        sets.append("substituicoes_por_set = %s")
-        valores.append(dados.get("substituicoes_por_set"))
-
-    if not sets:
-        return True
-
-    valores.append(nome_competicao)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE competicoes
-                SET {", ".join(sets)}
-                WHERE nome = %s
-                """,
-                tuple(valores)
-            )
-        conn.commit()
-
-    return True
 
 
-def atualizar_pontuacao_desempate(nome_competicao, dados):
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração de pontuação e desempate")
-    if not ok_edicao:
-        return False
 
-    colunas = _buscar_colunas_tabela("competicoes")
-    sets = []
-    valores = []
-
-    campos_pontuacao = [
-        "vitoria_set_unico", "derrota_set_unico", "vitoria_2x0", "vitoria_2x1",
-        "derrota_1x2", "derrota_0x2", "vitoria_3x0", "vitoria_3x1",
-        "vitoria_3x2", "derrota_2x3", "derrota_1x3", "derrota_0x3",
-    ]
-
-    for campo in campos_pontuacao:
-        if campo in colunas and campo in dados:
-            sets.append(f"{campo} = %s")
-            valores.append(dados.get(campo))
-
-    if "criterios_desempate" in colunas:
-        sets.append("criterios_desempate = %s")
-        valores.append(
-            dados.get(
-                "criterios_desempate",
-                "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio"
-            )
-        )
-
-    if not sets:
-        return True
-
-    valores.append(nome_competicao)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE competicoes
-                SET {", ".join(sets)}
-                WHERE nome = %s
-                """,
-                tuple(valores)
-            )
-        conn.commit()
-
-    return True
 
 
 def excluir_competicao(nome):
-    """Exclui uma competição sem apagar cadastros permanentes.
-
-    Mantém:
-    - atletas cadastrados;
-    - equipes cadastradas;
-    - usuários superadmin, equipe e apontador;
-    - oficiais/apontadores globais.
-
-    Remove:
-    - competição principal;
-    - partidas;
-    - grupos;
-    - vínculos da competição;
-    - papeletas;
-    - eventos;
-    - scouts/destaques/sanções/históricos/pins/quadras/configurações da competição.
-
-    Importante:
-    O usuário organizador NÃO pode ser apagado antes da linha de competicoes,
-    porque competicoes.organizador_login pode referenciar usuarios.login.
-    Por isso primeiro limpamos os dados operacionais, depois apagamos
-    competicoes e só no final removemos o organizador daquela competição.
-    """
-    if not nome:
-        return False
-
-    def _valor_linha(linha, chave, indice=0):
-        return linha.get(chave) if isinstance(linha, dict) else linha[indice]
-
-    def _identificador(nome_identificador):
-        """Aspas seguras para nomes vindos do information_schema."""
-        nome_identificador = str(nome_identificador or "")
-        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", nome_identificador):
-            raise ValueError(f"Identificador SQL inválido: {nome_identificador}")
-        return '"' + nome_identificador.replace('"', '""') + '"'
-
-    def _tabela_existe(tabelas, tabela):
-        return tabela in tabelas
-
-    def _tem_coluna(colunas_por_tabela, tabela, coluna):
-        return coluna in colunas_por_tabela.get(tabela, set())
-
-    def _delete_por_coluna(cur, tabelas_existentes, colunas_por_tabela, tabela, coluna, valor):
-        if _tabela_existe(tabelas_existentes, tabela) and _tem_coluna(colunas_por_tabela, tabela, coluna):
-            cur.execute(
-                f"DELETE FROM {_identificador(tabela)} WHERE {_identificador(coluna)} = %s",
-                (valor,),
-            )
-
-    def _update_vinculo_null(cur, tabelas_existentes, colunas_por_tabela, tabela, coluna_filtro, valor_filtro, campos_null):
-        if not _tabela_existe(tabelas_existentes, tabela):
-            return
-        if not _tem_coluna(colunas_por_tabela, tabela, coluna_filtro):
-            return
-
-        campos_validos = [c for c in campos_null if _tem_coluna(colunas_por_tabela, tabela, c)]
-        if not campos_validos:
-            return
-
-        # IMPORTANTE:
-        # No banco atual, atletas.equipe e atletas.competicao são NOT NULL.
-        # Por isso não podemos remover o vínculo usando NULL nesses campos.
-        # Usamos string vazia para soltar o atleta/equipe da competição sem
-        # apagar o cadastro permanente.
-        sets_partes = []
-        valores_update = []
-
-        for c in campos_validos:
-            if tabela == "atletas" and c in {"competicao", "equipe"}:
-                sets_partes.append(f"{_identificador(c)} = %s")
-                valores_update.append("")
-            elif tabela == "equipes" and c == "competicao":
-                sets_partes.append(f"{_identificador(c)} = %s")
-                valores_update.append("")
-            else:
-                sets_partes.append(f"{_identificador(c)} = NULL")
-
-        valores_update.append(valor_filtro)
-        sets = ", ".join(sets_partes)
-        cur.execute(
-            f"UPDATE {_identificador(tabela)} SET {sets} WHERE {_identificador(coluna_filtro)} = %s",
-            tuple(valores_update),
-        )
-
-    # Tabelas que NUNCA devem ser apagadas inteiras nesta rotina.
-    # Elas só podem receber UPDATE/limpeza de vínculo quando necessário.
-    tabelas_preservadas = {
-        "atletas",
-        "equipes",
-        "usuarios",
-        "oficiais",
-        "apontadores_acesso",
-        "demos_temporarias",
-        "configuracoes_sistema",
-    }
-
-    # Alguns bancos antigos/novos usam nomes diferentes para a coluna da competição.
-    colunas_competicao_possiveis = (
-        "competicao",
-        "nome_competicao",
-        "competicao_nome",
-    )
-
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                print(">>> EXCLUINDO COMPETIÇÃO COMPLETA:", nome, flush=True)
-
-                cur.execute("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                      AND table_type = 'BASE TABLE'
-                """)
-                tabelas_existentes = {
-                    _valor_linha(linha, "table_name")
-                    for linha in cur.fetchall()
-                }
-
-                cur.execute("""
-                    SELECT table_name, column_name
-                    FROM information_schema.columns
-                    WHERE table_schema = 'public'
-                """)
-                colunas_por_tabela = {}
-                for linha in cur.fetchall():
-                    tabela = _valor_linha(linha, "table_name", 0)
-                    coluna = _valor_linha(linha, "column_name", 1)
-                    colunas_por_tabela.setdefault(tabela, set()).add(coluna)
-
-                # Corrige a trava única de atletas antes de soltar os vínculos.
-                # Bancos antigos podem ter o índice antigo que não permite vários atletas
-                # com competicao vazia. A exclusão precisa preservar atletas e limpar o
-                # vínculo, então o índice deve valer somente para atletas vinculados a
-                # uma competição real.
-                if _tabela_existe(tabelas_existentes, "atletas"):
-                    cur.execute("DROP INDEX IF EXISTS uq_atletas_cpf_competicao")
-                    cur.execute("""
-                        CREATE UNIQUE INDEX IF NOT EXISTS uq_atletas_cpf_competicao
-                        ON atletas (
-                            REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g'),
-                            COALESCE(competicao, '')
-                        )
-                        WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') <> ''
-                          AND COALESCE(competicao, '') <> ''
-                    """)
-
-                # No modo rápido, atletas são descartáveis; no modo normal, permanecem.
-                competicao_rapida = False
-                if _tabela_existe(tabelas_existentes, "competicoes") and _tem_coluna(colunas_por_tabela, "competicoes", "tipo_competicao"):
-                    cur.execute("SELECT COALESCE(tipo_competicao, 'normal') AS tipo FROM competicoes WHERE nome=%s LIMIT 1", (nome,))
-                    row_tipo = cur.fetchone() or {}
-                    competicao_rapida = str(_valor_linha(row_tipo, "tipo") or "normal").lower() == "rapida"
-
-                # Guarda o login do organizador antes de apagar a competição.
-                organizador_login = None
-                if _tabela_existe(tabelas_existentes, "competicoes"):
-                    col_competicoes = colunas_por_tabela.get("competicoes", set())
-                    if "organizador_login" in col_competicoes:
-                        cur.execute("""
-                            SELECT organizador_login
-                            FROM competicoes
-                            WHERE nome = %s
-                            LIMIT 1
-                        """, (nome,))
-                        row_org = cur.fetchone()
-                        if row_org:
-                            organizador_login = _valor_linha(row_org, "organizador_login")
-
-                # IDs das partidas da competição. Isso permite apagar primeiro tudo
-                # que depende de partida_id, antes de remover partidas.
-                partida_ids = []
-                if _tabela_existe(tabelas_existentes, "partidas") and _tem_coluna(colunas_por_tabela, "partidas", "competicao"):
-                    cur.execute("SELECT id FROM partidas WHERE competicao = %s", (nome,))
-                    partida_ids = [_valor_linha(linha, "id") for linha in cur.fetchall()]
-
-                # Usuários permanentes ficam. Só perdem o vínculo com a competição.
-                # NÃO apagar o organizador aqui, porque competicoes.organizador_login
-                # ainda pode estar apontando para usuarios.login.
-                if _tabela_existe(tabelas_existentes, "usuarios"):
-                    col_usuarios = colunas_por_tabela.get("usuarios", set())
-                    if "competicao_vinculada" in col_usuarios:
-                        cur.execute("""
-                            UPDATE usuarios
-                            SET competicao_vinculada = NULL
-                            WHERE competicao_vinculada = %s
-                              AND COALESCE(perfil, '') IN ('apontador', 'equipe')
-                        """, (nome,))
-
-                # Atletas rápidos são apagados; atletas normais apenas perdem o vínculo.
-                if competicao_rapida:
-                    _delete_por_coluna(cur, tabelas_existentes, colunas_por_tabela, "atletas", "competicao", nome)
-                else:
-                    _update_vinculo_null(
-                        cur, tabelas_existentes, colunas_por_tabela, "atletas", "competicao", nome,
-                        ["competicao", "equipe", "equipe_login", "equipe_id", "numero"],
-                    )
-
-                # Equipes ficam cadastradas. Se ainda houver coluna antiga competicao,
-                # remove só o vínculo antigo sem apagar a equipe global.
-                _update_vinculo_null(
-                    cur,
-                    tabelas_existentes,
-                    colunas_por_tabela,
-                    "equipes",
-                    "competicao",
-                    nome,
-                    ["competicao"],
-                )
-
-                # 1) Apaga primeiro qualquer tabela filha que tenha partida_id.
-                # Isso cobre eventos, scouts, papeletas, sanções, destaques,
-                # histórico de rotação e tabelas novas que forem criadas depois.
-                if partida_ids:
-                    for tabela in sorted(tabelas_existentes):
-                        if tabela in tabelas_preservadas or tabela in {"partidas", "competicoes"}:
-                            continue
-                        colunas = colunas_por_tabela.get(tabela, set())
-                        if "partida_id" not in colunas:
-                            continue
-                        cur.execute(
-                            f"DELETE FROM {_identificador(tabela)} WHERE partida_id = ANY(%s)",
-                            (partida_ids,),
-                        )
-
-                # 2) Ordem explícita para tabelas que podem ter dependência entre si.
-                # Ex.: grupos_equipes pode depender de grupos; por isso sai antes.
-                ordem_explicita = [
-                    "eventos_partida",
-                    "eventos",
-                    "historico_rotacao",
-                    "sancoes_partida",
-                    "destaques_partida",
-                    "papeletas_sets",
-                    "papeletas",
-                    "classificacao_cache",
-                    "equipe_conferencia",
-                    "grupo_equipes",
-                    "grupos_equipes",
-                    "grupos",
-                    "competicao_quadras",
-                    "competicao_agenda_config",
-                    "competicao_oficiais",
-                    "competicao_pins_operacionais",
-                    "solicitacoes_treinador",
-                    "equipes_competicoes",
-                    "partidas",
-                ]
-
-                tabelas_ja_limpas = set()
-                for tabela in ordem_explicita:
-                    if tabela in tabelas_preservadas or tabela == "competicoes":
-                        continue
-                    if not _tabela_existe(tabelas_existentes, tabela):
-                        continue
-                    colunas = colunas_por_tabela.get(tabela, set())
-                    for coluna_comp in colunas_competicao_possiveis:
-                        if coluna_comp in colunas:
-                            cur.execute(
-                                f"DELETE FROM {_identificador(tabela)} WHERE {_identificador(coluna_comp)} = %s",
-                                (nome,),
-                            )
-                            tabelas_ja_limpas.add(tabela)
-                            break
-
-                # 3) Apaga tudo que possui coluna de competição, exceto cadastros preservados,
-                # competicoes e tabelas já limpas acima. Isso deixa a rotina preparada para
-                # tabelas novas criadas no futuro.
-                for tabela in sorted(tabelas_existentes):
-                    if tabela in tabelas_preservadas or tabela == "competicoes" or tabela in tabelas_ja_limpas:
-                        continue
-                    colunas = colunas_por_tabela.get(tabela, set())
-                    for coluna_comp in colunas_competicao_possiveis:
-                        if coluna_comp in colunas:
-                            cur.execute(
-                                f"DELETE FROM {_identificador(tabela)} WHERE {_identificador(coluna_comp)} = %s",
-                                (nome,),
-                            )
-                            break
-
-                # 4) Remove a competição principal.
-                if _tabela_existe(tabelas_existentes, "competicoes"):
-                    cur.execute("DELETE FROM competicoes WHERE nome = %s", (nome,))
-
-                # 5) Agora sim remove o usuário organizador gerado para a competição.
-                # SUPERADMIN, equipe e apontador continuam preservados.
-                if _tabela_existe(tabelas_existentes, "usuarios"):
-                    col_usuarios = colunas_por_tabela.get("usuarios", set())
-
-                    if "competicao_vinculada" in col_usuarios:
-                        cur.execute("""
-                            DELETE FROM usuarios
-                            WHERE competicao_vinculada = %s
-                              AND COALESCE(perfil, '') NOT IN ('superadmin', 'apontador', 'equipe')
-                        """, (nome,))
-
-                    if organizador_login and "login" in col_usuarios:
-                        cur.execute("""
-                            DELETE FROM usuarios
-                            WHERE login = %s
-                              AND COALESCE(perfil, '') NOT IN ('superadmin', 'apontador', 'equipe')
-                        """, (organizador_login,))
-
-            conn.commit()
-
-        print(">>> COMPETIÇÃO EXCLUÍDA COMPLETAMENTE", flush=True)
-        return True
-
-    except Exception as e:
-        print("ERRO REAL AO EXCLUIR COMPETIÇÃO:", repr(e), flush=True)
-        return False
+    """Fachada compatível para exclusão segura da competição."""
+    from services.competicoes.exclusao import excluir_competicao as _fn
+    return _fn(nome)
 
 
 # =========================================================
@@ -2309,74 +760,9 @@ DEMO_PREFIXO = "DEMO-VTP-"
 
 
 def criar_tabela_demos():
-    """
-    Cria/atualiza a tabela que controla as demonstrações temporárias.
-
-    Regras:
-    - A demo dura 4 horas por padrão.
-    - A competição gerada sempre começa com DEMO-VTP-.
-    - O histórico de CPF/WhatsApp permanece salvo para evitar abuso.
-    - Os dados operacionais da demo podem ser apagados sem apagar o histórico.
-    """
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS demos_temporarias (
-                    id SERIAL PRIMARY KEY,
-                    codigo TEXT UNIQUE NOT NULL,
-                    nome TEXT DEFAULT '',
-                    cpf TEXT DEFAULT '',
-                    whatsapp TEXT DEFAULT '',
-                    competicao TEXT UNIQUE NOT NULL,
-                    login TEXT UNIQUE NOT NULL,
-                    senha TEXT NOT NULL,
-                    criado_em TIMESTAMP DEFAULT NOW(),
-                    expira_em TIMESTAMP NOT NULL,
-                    encerrada BOOLEAN DEFAULT FALSE,
-                    motivo_encerramento TEXT DEFAULT '',
-                    whatsapp_enviado BOOLEAN DEFAULT FALSE,
-                    liberado_novo_teste BOOLEAN DEFAULT FALSE
-                )
-            """)
-
-            cur.execute("""
-                ALTER TABLE demos_temporarias
-                ADD COLUMN IF NOT EXISTS nome TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS cpf TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS whatsapp TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS motivo_encerramento TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS whatsapp_enviado BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS liberado_novo_teste BOOLEAN DEFAULT FALSE
-            """)
-
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_cpf_limpo
-                ON demos_temporarias (
-                    REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g')
-                )
-            """)
-
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_whatsapp_limpo
-                ON demos_temporarias (
-                    REGEXP_REPLACE(COALESCE(whatsapp, ''), '\\D', '', 'g')
-                )
-            """)
-
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_login
-                ON demos_temporarias (login)
-            """)
-
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_demos_temporarias_competicao
-                ON demos_temporarias (competicao)
-            """)
-
-        conn.commit()
-
-    return True
-
+    """Compatibilidade com chamadas legadas; DDL centralizado no startup."""
+    from repositories.runtime_schema import garantir_schema_runtime
+    garantir_schema_runtime()
 
 def _buscar_tabelas_publicas(cur):
     cur.execute("""
@@ -3066,20 +1452,6 @@ def salvar_controle_inscricao_competicao(
     return True
 
 
-def competicao_tem_partida_iniciada(nome_competicao):
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT id
-                    FROM partidas
-                    WHERE competicao = %s
-                      AND LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado')
-                    LIMIT 1
-                """, (nome_competicao,))
-                return cur.fetchone() is not None
-    except Exception:
-        return False
 
 
 
@@ -3271,315 +1643,13 @@ def criar_campos_quadro_tecnico_equipes(force=False):
     _marcar_schema_pronto(chave)
 
 
-def criar_tabela_equipes_competicoes(force=False):
-    """
-    Cria a tabela de vínculo entre equipe global e competição.
-
-    Mantém compatibilidade com o modelo antigo, onde equipes.competicao
-    guardava uma única competição. Depois da criação, migra os vínculos
-    antigos para equipes_competicoes sem apagar login/senha da equipe.
-    """
-    chave = "tabela_equipes_competicoes"
-    if _schema_ja_pronto(chave, force=force):
-        return
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS equipes_competicoes (
-                    id SERIAL PRIMARY KEY,
-                    equipe_id INTEGER,
-                    equipe_login TEXT,
-                    equipe_nome TEXT NOT NULL,
-                    competicao TEXT NOT NULL,
-                    status TEXT DEFAULT 'ativa',
-                    grupo TEXT,
-                    criado_em TIMESTAMP DEFAULT NOW(),
-                    UNIQUE (equipe_nome, competicao)
-                )
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_competicao
-                ON equipes_competicoes (competicao)
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_equipes_competicoes_login
-                ON equipes_competicoes (equipe_login)
-            """)
-
-            colunas_equipes = _buscar_colunas_tabela("equipes")
-            if "competicao" in colunas_equipes:
-                cur.execute("""
-                    INSERT INTO equipes_competicoes (equipe_id, equipe_login, equipe_nome, competicao, status)
-                    SELECT
-                        NULL,
-                        e.login,
-                        e.nome,
-                        e.competicao,
-                        'ativa'
-                    FROM equipes e
-                    WHERE COALESCE(e.competicao, '') <> ''
-                    ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                    SET equipe_id = EXCLUDED.equipe_id,
-                        equipe_login = EXCLUDED.equipe_login,
-                        status = 'ativa'
-                """)
-        conn.commit()
-
-    _CACHE_COLUNAS.pop("equipes_competicoes", None)
-    _marcar_schema_pronto(chave)
 
 
-def buscar_equipe_global_por_nome(nome_equipe, conn=None):
-    criar_campos_quadro_tecnico_equipes()
-    criar_campos_liberacao_extra_equipes()
-    criar_campos_perfil_equipe()
-    criar_campo_escudo_equipes()
-
-    sql = """
-        SELECT
-            nome,
-            login,
-            senha,
-            competicao,
-            treinador,
-            auxiliar_tecnico,
-            preparador_fisico,
-            medico,
-            liberacao_extra_inscricao,
-            liberacao_extra_data,
-            liberacao_extra_hora,
-            cidade,
-            responsavel,
-            telefone,
-            email,
-            instagram,
-            COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
-            escudo_blob,
-            COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
-            COALESCE(perfil_completo, FALSE) AS perfil_completo
-        FROM equipes
-        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
-        ORDER BY nome ASC
-        LIMIT 1
-    """
-
-    if conn is not None:
-        with conn.cursor() as cur:
-            cur.execute(sql, (nome_equipe,))
-            return cur.fetchone()
-
-    with conectar() as conn2:
-        return buscar_equipe_global_por_nome(nome_equipe, conn2)
 
 
-def buscar_equipes_globais_por_nome(termo, limite=20):
-    """
-    Busca no cadastro GLOBAL de equipes, sem limitar pela competição atual.
-    Usado pelo organizador ao adicionar equipe: digita um nome e o sistema
-    mostra possíveis equipes já cadastradas, com cidade/responsável/telefone
-    para conferência antes de vincular.
-    """
-    termo = (termo or "").strip()
-    if not termo:
-        return []
-
-    criar_campos_quadro_tecnico_equipes()
-    criar_campos_liberacao_extra_equipes()
-    criar_campos_perfil_equipe()
-    criar_campo_escudo_equipes()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    nome,
-                    login,
-                    senha,
-                    competicao,
-                    treinador,
-                    auxiliar_tecnico,
-                    preparador_fisico,
-                    medico,
-                    liberacao_extra_inscricao,
-                    liberacao_extra_data,
-                    liberacao_extra_hora,
-                    cidade,
-                    responsavel,
-                    telefone,
-                    email,
-                    instagram,
-                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
-                    escudo_blob,
-                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
-                    COALESCE(perfil_completo, FALSE) AS perfil_completo
-                FROM equipes
-                WHERE LOWER(TRIM(nome)) LIKE LOWER(TRIM(%s))
-                ORDER BY
-                    CASE WHEN LOWER(TRIM(nome)) = LOWER(TRIM(%s)) THEN 0 ELSE 1 END,
-                    nome ASC,
-                    login ASC
-                LIMIT %s
-            """, (f"%{termo}%", termo, limite))
-            return cur.fetchall()
-
-def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
-    criar_tabela_equipes_competicoes()
-
-    def _executar(cnx):
-        equipe = buscar_equipe_global_por_nome(nome_equipe, cnx)
-        if not equipe:
-            return None
-
-        with cnx.cursor() as cur:
-            cur.execute("""
-                SELECT id
-                FROM equipes_competicoes
-                WHERE equipe_login = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (equipe["login"], nome_competicao))
-            ja_vinculada = cur.fetchone() is not None
-
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
-                VALUES (%s, %s, %s, 'ativa')
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login,
-                    status = 'ativa'
-            """, (equipe["login"], equipe["nome"], nome_competicao))
-
-            colunas_equipes = _buscar_colunas_tabela("equipes")
-            if "competicao" in colunas_equipes and not (equipe.get("competicao") if isinstance(equipe, dict) else None):
-                cur.execute("""
-                    UPDATE equipes
-                    SET competicao = COALESCE(NULLIF(competicao, ''), %s)
-                    WHERE login = %s
-                """, (nome_competicao, equipe["login"]))
-
-            cur.execute("""
-                UPDATE usuarios
-                SET competicao_vinculada = COALESCE(NULLIF(competicao_vinculada, ''), %s),
-                    equipe = %s
-                WHERE login = %s
-                  AND perfil = 'equipe'
-            """, (nome_competicao, equipe["nome"], equipe["login"]))
-
-        return {
-            "login": equipe["login"],
-            "senha": equipe["senha"],
-            "nome": equipe["nome"],
-            "escudo": equipe.get("escudo") if isinstance(equipe, dict) else None,
-            "escudo_blob": equipe.get("escudo_blob") if isinstance(equipe, dict) else None,
-            "escudo_exibicao": equipe.get("escudo_exibicao") if isinstance(equipe, dict) else None,
-            "ja_vinculada": ja_vinculada,
-            "vinculada": True,
-        }
-
-    if conn is not None:
-        return _executar(conn)
-
-    with conectar() as conn2:
-        resultado = _executar(conn2)
-        conn2.commit()
-        return resultado
 
 
-def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=None):
-    """
-    Vincula uma equipe global existente à competição atual pelo LOGIN.
-    Isso evita erro quando existem equipes com nomes parecidos ou duplicados.
-    """
-    login_equipe = (login_equipe or "").strip()
-    nome_competicao = (nome_competicao or "").strip()
 
-    if not login_equipe or not nome_competicao:
-        return None
-
-    criar_campos_quadro_tecnico_equipes()
-    criar_campos_liberacao_extra_equipes()
-    criar_campos_perfil_equipe()
-    criar_campo_escudo_equipes()
-    criar_tabela_equipes_competicoes()
-
-    def _executar(cnx):
-        with cnx.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    nome,
-                    login,
-                    senha,
-                    competicao,
-                    cidade,
-                    responsavel,
-                    telefone,
-                    email,
-                    instagram,
-                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
-                    escudo_blob,
-                    COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
-                    COALESCE(perfil_completo, FALSE) AS perfil_completo
-                FROM equipes
-                WHERE login = %s
-                LIMIT 1
-            """, (login_equipe,))
-            equipe = cur.fetchone()
-
-            if not equipe:
-                return None
-
-            cur.execute("""
-                SELECT id
-                FROM equipes_competicoes
-                WHERE equipe_login = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (equipe["login"], nome_competicao))
-            ja_vinculada = cur.fetchone() is not None
-
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
-                VALUES (%s, %s, %s, 'ativa')
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login,
-                    equipe_nome = EXCLUDED.equipe_nome,
-                    status = 'ativa'
-            """, (equipe["login"], equipe["nome"], nome_competicao))
-
-            colunas_equipes = _buscar_colunas_tabela("equipes")
-            if "competicao" in colunas_equipes:
-                cur.execute("""
-                    UPDATE equipes
-                    SET competicao = COALESCE(NULLIF(competicao, ''), %s)
-                    WHERE login = %s
-                """, (nome_competicao, equipe["login"]))
-
-            cur.execute("""
-                UPDATE usuarios
-                SET equipe = %s,
-                    competicao_vinculada = COALESCE(NULLIF(competicao_vinculada, ''), %s)
-                WHERE login = %s
-                  AND perfil = 'equipe'
-            """, (equipe["nome"], nome_competicao, equipe["login"]))
-
-            return {
-                "login": equipe["login"],
-                "senha": equipe["senha"],
-                "nome": equipe["nome"],
-                "escudo": equipe.get("escudo") if isinstance(equipe, dict) else None,
-                "escudo_exibicao": equipe.get("escudo_exibicao") if isinstance(equipe, dict) else None,
-                "ja_existia": True,
-                "ja_vinculada": ja_vinculada,
-                "vinculada": True,
-            }
-
-    if conn is not None:
-        return _executar(conn)
-
-    with conectar() as conn2:
-        resultado = _executar(conn2)
-        conn2.commit()
-        return resultado
 
 def listar_competicoes_da_equipe_por_login(login):
     criar_tabela_equipes_competicoes()
@@ -3918,31 +1988,12 @@ def buscar_equipe_por_login(login, competicao_atual=None):
 
 
 def atualizar_quadro_tecnico_equipe(nome_equipe, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico):
-    criar_campos_quadro_tecnico_equipes()
+    """Fachada legada; persistência migrada para repositories.equipes_escrita."""
+    from repositories.equipes_escrita import atualizar_quadro_tecnico_equipe_persistencia
+    return atualizar_quadro_tecnico_equipe_persistencia(
+        nome_equipe, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico
+    )
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE equipes
-                SET treinador = %s,
-                    auxiliar_tecnico = %s,
-                    preparador_fisico = %s,
-                    medico = %s
-                WHERE nome = %s
-                  AND competicao = %s
-            """, (
-                treinador,
-                auxiliar_tecnico,
-                preparador_fisico,
-                medico,
-                nome_equipe,
-                competicao
-            ))
-        conn.commit()
-
-    return True, "Atualizado com sucesso!"
-    # ou
-    return False, "Erro ao atualizar."
 
 
 def equipe_existe_na_competicao(nome_equipe, nome_competicao):
@@ -3970,469 +2021,27 @@ def equipe_existe_na_competicao(nome_equipe, nome_competicao):
             return cur.fetchone() is not None
 
 
-def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
-    criar_campos_quadro_tecnico_equipes()
-    criar_campos_liberacao_extra_equipes()
-    criar_tabela_equipes_competicoes()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            equipe_existente = buscar_equipe_global_por_nome(nome_equipe, conn)
-
-            if equipe_existente:
-                resultado = vincular_equipe_a_competicao(equipe_existente["nome"], nome_competicao, conn)
-                conn.commit()
-                return {
-                    "login": resultado["login"],
-                    "senha": resultado["senha"],
-                    "nome": resultado["nome"],
-                    "vinculada": True,
-                    "ja_existia": True,
-                    "ja_vinculada": resultado.get("ja_vinculada", False),
-                }
-
-            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
-            senha_equipe = _gerar_senha_aleatoria(8)
-
-            cur.execute("""
-                INSERT INTO equipes (
-                    nome, login, senha, competicao,
-                    treinador, auxiliar_tecnico, preparador_fisico, medico,
-                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                nome_equipe,
-                login_equipe,
-                senha_equipe,
-                nome_competicao,
-                "",
-                "",
-                "",
-                "",
-                False,
-                None,
-                None
-            ))
-
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
-                VALUES (%s, %s, %s, 'ativa')
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login,
-                    status = 'ativa'
-            """, (login_equipe, nome_equipe, nome_competicao))
-
-            cur.execute("""
-                INSERT INTO usuarios (
-                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                login_equipe,
-                nome_equipe,
-                senha_equipe,
-                "equipe",
-                True,
-                nome_equipe,
-                nome_competicao
-            ))
-
-        conn.commit()
-
-    return {
-        "login": login_equipe,
-        "senha": senha_equipe,
-        "nome": nome_equipe,
-        "vinculada": True,
-        "ja_existia": False,
-        "ja_vinculada": False,
-    }
 
 
 
-def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
-    """
-    Cria uma NOVA equipe global mesmo que já exista outra com nome parecido.
-    Usado quando o organizador conferiu os resultados e escolheu criar uma nova.
-    """
-    criar_campos_quadro_tecnico_equipes()
-    criar_campos_liberacao_extra_equipes()
-    criar_campos_perfil_equipe()
-    criar_tabela_equipes_competicoes()
-
-    nome_equipe = (nome_equipe or "").strip()
-    nome_competicao = (nome_competicao or "").strip()
-
-    if not nome_equipe or not nome_competicao:
-        return None
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
-            senha_equipe = _gerar_senha_aleatoria(8)
-
-            cur.execute("""
-                INSERT INTO equipes (
-                    nome, login, senha, competicao,
-                    treinador, auxiliar_tecnico, preparador_fisico, medico,
-                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora,
-                    cidade, responsavel, telefone, email, instagram, escudo, perfil_completo
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)
-            """, (
-                nome_equipe,
-                login_equipe,
-                senha_equipe,
-                nome_competicao,
-                "",
-                "",
-                "",
-                "",
-                False,
-                None,
-                None,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-            ))
-
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status)
-                VALUES (%s, %s, %s, 'ativa')
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login,
-                    status = 'ativa'
-            """, (login_equipe, nome_equipe, nome_competicao))
-
-            cur.execute("""
-                INSERT INTO usuarios (
-                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                login_equipe,
-                nome_equipe,
-                senha_equipe,
-                "equipe",
-                True,
-                nome_equipe,
-                nome_competicao,
-            ))
-
-        conn.commit()
-
-    return {
-        "login": login_equipe,
-        "senha": senha_equipe,
-        "nome": nome_equipe,
-        "vinculada": True,
-        "ja_existia": False,
-        "ja_vinculada": False,
-    }
 
 def atualizar_nome_equipe(nome_atual, nome_competicao, novo_nome):
-    """
-    Atualiza o nome de exibição da equipe mantendo todos os vínculos antigos.
-
-    Ponto importante: várias partes antigas do sistema ainda guardam o nome da
-    equipe como texto (partidas.equipe_a/equipe_b, grupos_equipes.equipe,
-    atletas.equipe, vencedor etc.). Quando o organizador renomeava a equipe,
-    somente equipes/equipes_competicoes/usuarios eram atualizadas, e a tabela
-    continuava mostrando o nome antigo. Aqui atualizamos todos os campos legados
-    que dependem do nome para que tabela, jogos, visualizador público e escudos
-    passem a apontar para o cadastro atual.
-    """
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
-    if not ok_edicao:
-        return False
-
-    nome_atual = (nome_atual or "").strip()
-    novo_nome = (novo_nome or "").strip()
-    nome_competicao = (nome_competicao or "").strip()
-
-    if not nome_atual or not novo_nome or not nome_competicao:
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    e.login,
-                    e.nome AS nome_global,
-                    ec.equipe_nome AS nome_vinculo
-                FROM equipes_competicoes ec
-                JOIN equipes e
-                  ON e.login = ec.equipe_login
-                  OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
-                WHERE ec.competicao = %s
-                  AND (
-                        LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(%s))
-                     OR LOWER(TRIM(e.nome)) = LOWER(TRIM(%s))
-                     OR LOWER(TRIM(e.login)) = LOWER(TRIM(%s))
-                  )
-                LIMIT 1
-            """, (nome_competicao, nome_atual, nome_atual, nome_atual))
-            equipe = cur.fetchone()
-
-            if not equipe:
-                return False
-
-            login_equipe = (equipe.get("login") or "").strip()
-            nome_global_antigo = (equipe.get("nome_global") or "").strip()
-            nome_vinculo_antigo = (equipe.get("nome_vinculo") or "").strip()
-
-            nomes_antigos = []
-            for valor in (nome_atual, nome_global_antigo, nome_vinculo_antigo):
-                valor = (valor or "").strip()
-                if valor and valor.lower() not in {v.lower() for v in nomes_antigos}:
-                    nomes_antigos.append(valor)
-
-            cur.execute("""
-                UPDATE equipes
-                SET nome = %s
-                WHERE login = %s
-            """, (novo_nome, login_equipe))
-
-            cur.execute("""
-                UPDATE equipes_competicoes
-                SET equipe_nome = %s,
-                    equipe_login = %s
-                WHERE competicao = %s
-                  AND (
-                        equipe_login = %s
-                     OR LOWER(TRIM(equipe_nome)) = ANY(%s)
-                  )
-            """, (novo_nome, login_equipe, nome_competicao, login_equipe, [n.lower() for n in nomes_antigos]))
-
-            cur.execute("""
-                UPDATE usuarios
-                SET nome = %s,
-                    equipe = %s
-                WHERE login = %s
-                  AND perfil = 'equipe'
-            """, (novo_nome, novo_nome, login_equipe))
-
-            # Campos legados que guardam o NOME da equipe como texto.
-            # Mantém a tabela/jogos/público coerentes logo após renomear.
-            for nome_antigo in nomes_antigos:
-                cur.execute("""
-                    UPDATE grupos_equipes
-                    SET equipe = %s
-                    WHERE competicao = %s
-                      AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                """, (novo_nome, nome_competicao, nome_antigo))
-
-                cur.execute("""
-                    UPDATE partidas
-                    SET equipe_a = CASE WHEN LOWER(TRIM(COALESCE(equipe_a, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_a END,
-                        equipe_b = CASE WHEN LOWER(TRIM(COALESCE(equipe_b, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_b END,
-                        equipe_a_operacional = CASE WHEN LOWER(TRIM(COALESCE(equipe_a_operacional, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_a_operacional END,
-                        equipe_b_operacional = CASE WHEN LOWER(TRIM(COALESCE(equipe_b_operacional, ''))) = LOWER(TRIM(%s)) THEN %s ELSE equipe_b_operacional END,
-                        lado_esquerdo = CASE WHEN LOWER(TRIM(COALESCE(lado_esquerdo, ''))) = LOWER(TRIM(%s)) THEN %s ELSE lado_esquerdo END,
-                        saque_inicial = CASE WHEN LOWER(TRIM(COALESCE(saque_inicial, ''))) = LOWER(TRIM(%s)) THEN %s ELSE saque_inicial END,
-                        sorteio_vencedor = CASE WHEN LOWER(TRIM(COALESCE(sorteio_vencedor, ''))) = LOWER(TRIM(%s)) THEN %s ELSE sorteio_vencedor END,
-                        vencedor = CASE WHEN LOWER(TRIM(COALESCE(vencedor, ''))) = LOWER(TRIM(%s)) THEN %s ELSE vencedor END
-                    WHERE competicao = %s
-                      AND (
-                            LOWER(TRIM(COALESCE(equipe_a, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(equipe_b, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(equipe_a_operacional, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(equipe_b_operacional, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(lado_esquerdo, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(saque_inicial, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(sorteio_vencedor, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(vencedor, ''))) = LOWER(TRIM(%s))
-                      )
-                """, (
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_antigo, novo_nome,
-                    nome_competicao,
-                    nome_antigo, nome_antigo, nome_antigo, nome_antigo,
-                    nome_antigo, nome_antigo, nome_antigo, nome_antigo,
-                ))
-
-                cur.execute("""
-                    UPDATE atletas
-                    SET equipe = %s
-                    WHERE competicao = %s
-                      AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                """, (novo_nome, nome_competicao, nome_antigo))
-
-                # Papeletas/ações antigas podem existir em bancos que já têm essas tabelas.
-                # Usa try para não quebrar bancos sem as tabelas/colunas.
-                for tabela, campo in (
-                    ("papeletas", "equipe"),
-                    ("papeleta", "equipe"),
-                    ("eventos_partida", "equipe"),
-                    ("eventos", "equipe"),
-                    ("historico_rotacao", "equipe"),
-                ):
-                    try:
-                        colunas = _buscar_colunas_tabela(tabela)
-                        if campo in colunas and "competicao" in colunas:
-                            cur.execute(
-                                f"""
-                                UPDATE {tabela}
-                                SET {campo} = %s
-                                WHERE competicao = %s
-                                  AND LOWER(TRIM({campo})) = LOWER(TRIM(%s))
-                                """,
-                                (novo_nome, nome_competicao, nome_antigo),
-                            )
-                    except Exception as e:
-                        print(f"AVISO atualizar_nome_equipe/{tabela}.{campo}:", repr(e))
-
-        conn.commit()
-
-    return True, "Atualizado com sucesso!"
+    """Fachada legada; persistência migrada para repositories.equipes_perfil."""
+    from services.equipes.perfil import renomear
+    return renomear(nome_atual, nome_competicao, novo_nome)
 
 def redefinir_senha_da_equipe(nome_equipe, nome_competicao):
-    nova_senha = _gerar_senha_aleatoria(8)
+    """Fachada legada; persistência migrada para repositories.equipes_escrita."""
+    from repositories.equipes_escrita import redefinir_senha_da_equipe_persistencia
+    return redefinir_senha_da_equipe_persistencia(nome_equipe, nome_competicao)
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            equipe = buscar_equipe_por_nome_e_competicao(nome_equipe, nome_competicao)
-
-            if not equipe:
-                return None
-
-            login_equipe = equipe["login"]
-
-            cur.execute("""
-                UPDATE equipes
-                SET senha = %s
-                WHERE login = %s
-            """, (nova_senha, login_equipe))
-
-            cur.execute("""
-                UPDATE usuarios
-                SET senha = %s
-                WHERE login = %s
-                  AND perfil = 'equipe'
-            """, (nova_senha, login_equipe))
-
-        conn.commit()
-
-    return {
-        "login": login_equipe,
-        "senha": nova_senha
-    }
 
 
 def excluir_equipe(nome_equipe, nome_competicao):
-    """
-    Remove a equipe somente da competição atual.
+    """Fachada legada; persistência migrada para repositories.equipes_escrita."""
+    from repositories.equipes_escrita import excluir_equipe_persistencia
+    return excluir_equipe_persistencia(nome_equipe, nome_competicao)
 
-    IMPORTANTE:
-    - Não apaga o cadastro global da equipe.
-    - Não apaga login/senha da equipe.
-    - Remove o vínculo correto mesmo quando o nome exibido vem de equipes.nome
-      e o vínculo antigo em equipes_competicoes.equipe_nome está diferente.
-    """
-    nome_equipe = (nome_equipe or "").strip()
-    nome_competicao = (nome_competicao or "").strip()
-
-    if not nome_equipe or not nome_competicao:
-        return False
-
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração estrutural")
-    if not ok_edicao:
-        return False
-
-    criar_tabela_equipes_competicoes()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            # Localiza o vínculo real da equipe nesta competição.
-            # Usa ec.equipe_nome E e.nome porque o nome pode ter sido alterado
-            # depois do vínculo ter sido criado.
-            cur.execute("""
-                SELECT
-                    ec.id,
-                    ec.equipe_login,
-                    ec.equipe_nome,
-                    e.login AS login_global,
-                    e.nome AS nome_global
-                FROM equipes_competicoes ec
-                LEFT JOIN equipes e
-                  ON e.login = ec.equipe_login
-                  OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
-                WHERE ec.competicao = %s
-                  AND (
-                        LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(%s))
-                     OR LOWER(TRIM(e.nome)) = LOWER(TRIM(%s))
-                  )
-                ORDER BY ec.id
-                LIMIT 1
-            """, (nome_competicao, nome_equipe, nome_equipe))
-            vinculo = cur.fetchone()
-
-            if not vinculo:
-                return False
-
-            vinculo_id = vinculo.get("id")
-            login_equipe = (vinculo.get("equipe_login") or vinculo.get("login_global") or "").strip()
-            nome_vinculo = (vinculo.get("equipe_nome") or "").strip()
-            nome_global = (vinculo.get("nome_global") or nome_equipe).strip()
-
-            # Remove exatamente o vínculo encontrado.
-            cur.execute("""
-                DELETE FROM equipes_competicoes
-                WHERE id = %s
-                  AND competicao = %s
-            """, (vinculo_id, nome_competicao))
-            removidas = cur.rowcount
-
-            if removidas <= 0:
-                conn.rollback()
-                return False
-
-            # Remove atletas somente dessa competição, tentando os nomes antigo/atual.
-            cur.execute("""
-                DELETE FROM atletas
-                WHERE competicao = %s
-                  AND (
-                        LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                     OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                     OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                  )
-            """, (nome_competicao, nome_equipe, nome_vinculo, nome_global))
-
-            # Limpa vínculo antigo do usuário apenas se ele apontava para essa competição.
-            if login_equipe:
-                cur.execute("""
-                    UPDATE usuarios
-                    SET competicao_vinculada = NULL
-                    WHERE perfil = 'equipe'
-                      AND login = %s
-                      AND competicao_vinculada = %s
-                """, (login_equipe, nome_competicao))
-            else:
-                cur.execute("""
-                    UPDATE usuarios
-                    SET competicao_vinculada = NULL
-                    WHERE perfil = 'equipe'
-                      AND competicao_vinculada = %s
-                      AND (
-                            LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                      )
-                """, (nome_competicao, nome_equipe, nome_vinculo, nome_global))
-
-        conn.commit()
-
-    return True
 
 
 # =========================================================
@@ -4543,40 +2152,10 @@ def excluir_mesario(nome_mesario, nome_competicao):
 # =========================================================
 # DASHBOARD
 # =========================================================
-def contar_competicoes():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) AS total
-                FROM competicoes
-            """)
-            row = cur.fetchone()
-            return row["total"] if row else 0
 
 
-def contar_equipes():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) AS total
-                FROM equipes
-            """)
-            row = cur.fetchone()
-            return row["total"] if row else 0
 
 
-def contar_partidas():
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT COUNT(*) AS total
-                    FROM partidas
-                """)
-                row = cur.fetchone()
-                return row["total"] if row else 0
-    except Exception:
-        return 0
 
 
 def criar_indices_desempenho(force=False):
@@ -4743,51 +2322,6 @@ def atleta_existe_por_cpf(cpf):
 
 
 
-def buscar_atleta_global_por_cpf(cpf):
-    """
-    Busca um atleta global pelo CPF.
-    Primeiro usa atletas_globais, que não é apagada quando o vínculo com a
-    competição é removido. Se ainda não existir, usa a tabela atletas como fallback.
-    """
-    cpf_limpo = somente_digitos(cpf)
-    if not cpf_limpo:
-        return None
-
-    criar_tabela_atletas()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    nome,
-                    cpf,
-                    data_nascimento,
-                    foto_atleta,
-                    instagram
-                FROM atletas_globais
-                WHERE cpf_limpo = %s
-                LIMIT 1
-            """, (cpf_limpo,))
-            row = cur.fetchone()
-            if row:
-                return row
-
-            cur.execute(f"""
-                SELECT
-                    nome,
-                    cpf,
-                    data_nascimento,
-                    foto_atleta,
-                    instagram
-                FROM atletas
-                WHERE {_cpf_sql_limpo('cpf')} = %s
-                ORDER BY
-                    CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
-                    CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
-                    id DESC
-                LIMIT 1
-            """, (cpf_limpo,))
-            return cur.fetchone()
 
 
 def _salvar_atleta_global(cur, nome, cpf, data_nascimento, foto_atleta=None, instagram=None):
@@ -4855,214 +2389,24 @@ def atleta_existe_na_competicao_por_cpf(cpf, competicao):
             return cur.fetchone() is not None
 
 def cadastrar_atleta(nome, cpf, data_nascimento, numero, equipe, competicao, foto_atleta=None, instagram=None):
-    nome = (nome or "").strip()
-    cpf_limpo = somente_digitos(cpf)
-    cpf = formatar_cpf(cpf_limpo)
-    data_nascimento = (data_nascimento or "").strip()
-    equipe = (equipe or "").strip()
-    competicao = (competicao or "").strip()
-    foto_atleta = (foto_atleta or "").strip()
-    instagram = (instagram or "").strip()
-    if instagram and not instagram.startswith("@"):
-        instagram = "@" + instagram.lstrip("@")
+    """Fachada legada; persistência migrada para repositories.atletas_escrita."""
+    from repositories.atletas_escrita import cadastrar_atleta_persistencia
 
-    if not nome or not cpf_limpo:
-        return False, "Informe nome e CPF do atleta."
-
-    if not data_nascimento:
-        return False, "Informe a data de nascimento do atleta."
-
-    if not cpf_valido(cpf_limpo):
-        return False, "CPF inválido. Informe um CPF real no formato 000.000.000-00."
-
-    numero_final = None
-    if numero not in (None, ""):
-        try:
-            numero_final = int(numero)
-        except (TypeError, ValueError):
-            return False, "Número inválido."
-
-    criar_tabela_atletas()
-    criar_campos_controle_inscricao_competicoes()
-    criar_campos_liberacao_extra_equipes()
-    criar_campos_conferencia_atletas()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"""
-                SELECT id
-                FROM atletas
-                WHERE {_cpf_sql_limpo('cpf')} = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (cpf_limpo, competicao))
-            if cur.fetchone() is not None:
-                return False, "Este atleta já está cadastrado nesta competição."
-
-            cur.execute("""
-                SELECT
-                    c.nome,
-                    c.data_limite_inscricao,
-                    c.hora_limite_inscricao,
-                    COALESCE(c.bloquear_apos_inicio, TRUE) AS bloquear_apos_inicio,
-                    COALESCE(c.limite_atletas, 0) AS limite_atletas,
-                    COALESCE(c.exigir_foto_atleta, FALSE) AS exigir_foto_atleta,
-                    COALESCE(c.exigir_instagram_atleta, FALSE) AS exigir_instagram_atleta,
-                    COALESCE(c.aprovacao_automatica_atletas, FALSE) AS aprovacao_automatica_atletas,
-                    COALESCE(c.travada, FALSE) AS travada,
-                    COALESCE(e.liberacao_extra_inscricao, FALSE) AS liberacao_extra_inscricao,
-                    e.liberacao_extra_data,
-                    e.liberacao_extra_hora
-                FROM competicoes c
-                LEFT JOIN equipes e
-                  ON e.competicao = c.nome
-                 AND e.nome = %s
-                WHERE c.nome = %s
-                LIMIT 1
-            """, (equipe, competicao))
-            controle = cur.fetchone() or {}
-
-            if controle.get("travada"):
-                cur.execute("""
-                    SELECT id
-                    FROM partidas
-                    WHERE competicao = %s
-                      AND (equipe_a = %s OR equipe_b = %s OR equipe_a_operacional = %s OR equipe_b_operacional = %s)
-                      AND (
-                            COALESCE(pontos_a, 0) > 0
-                         OR COALESCE(pontos_b, 0) > 0
-                         OR LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'encerrado')
-                         OR LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada')
-                      )
-                    LIMIT 1
-                """, (competicao, equipe, equipe, equipe, equipe))
-                if cur.fetchone() is not None:
-                    return False, "A competição está travada e esta equipe já iniciou seus jogos. Alterações de atletas foram bloqueadas."
-
-            prazo_liberado_por_extra = False
-            if bool(controle.get("liberacao_extra_inscricao")):
-                data_extra = (controle.get("liberacao_extra_data") or "").strip()
-                hora_extra = (controle.get("liberacao_extra_hora") or "").strip() or "23:59"
-                if not data_extra:
-                    prazo_liberado_por_extra = True
-                else:
-                    try:
-                        prazo_liberado_por_extra = datetime.now() <= datetime.strptime(f"{data_extra} {hora_extra}", "%Y-%m-%d %H:%M")
-                    except ValueError:
-                        prazo_liberado_por_extra = True
-
-            if not prazo_liberado_por_extra:
-                if bool(controle.get("bloquear_apos_inicio")):
-                    cur.execute("""
-                        SELECT id
-                        FROM partidas
-                        WHERE competicao = %s
-                          AND LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado')
-                        LIMIT 1
-                    """, (competicao,))
-                    if cur.fetchone() is not None:
-                        return False, "Inscrições e edições bloqueadas porque a competição já iniciou."
-
-                data_limite = (controle.get("data_limite_inscricao") or "").strip()
-                hora_limite = (controle.get("hora_limite_inscricao") or "").strip() or "23:59"
-                if data_limite:
-                    try:
-                        if datetime.now() > datetime.strptime(f"{data_limite} {hora_limite}", "%Y-%m-%d %H:%M"):
-                            return False, "O prazo de inscrição e edição de atletas já foi encerrado."
-                    except ValueError:
-                        pass
-
-            limite = int(controle.get("limite_atletas") or 0)
-            if limite > 0:
-                cur.execute("""
-                    SELECT COUNT(*) AS total
-                    FROM atletas
-                    WHERE equipe = %s
-                      AND competicao = %s
-                """, (equipe, competicao))
-                row = cur.fetchone() or {}
-                if int(row.get("total") or 0) >= limite:
-                    return False, "O limite de atletas da equipe já foi atingido."
-
-            if numero_final is not None:
-                cur.execute("""
-                    SELECT id
-                    FROM atletas
-                    WHERE equipe = %s
-                      AND competicao = %s
-                      AND numero = %s
-                    LIMIT 1
-                """, (equipe, competicao, numero_final))
-                if cur.fetchone() is not None:
-                    return False, "Já existe outro atleta com essa numeração nesta equipe."
-
-            # Se o atleta já existe em outra competição, reaproveita foto/Instagram globais.
-            cur.execute(f"""
-                SELECT foto_atleta, instagram
-                FROM atletas
-                WHERE {_cpf_sql_limpo('cpf')} = %s
-                  AND (COALESCE(foto_atleta, '') <> '' OR COALESCE(instagram, '') <> '')
-                ORDER BY
-                    CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
-                    CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
-                    id DESC
-                LIMIT 1
-            """, (cpf_limpo,))
-            atleta_global_dados = cur.fetchone() or {}
-            if not foto_atleta:
-                foto_atleta = (atleta_global_dados.get("foto_atleta") or "").strip()
-            if not instagram:
-                instagram = (atleta_global_dados.get("instagram") or "").strip()
-
-            # Salva as alterações do cadastro global ANTES de vincular.
-            # Assim, mesmo que a equipe exclua o atleta desta competição depois,
-            # foto/Instagram/nome/data continuam guardados para a próxima busca por CPF.
-            _salvar_atleta_global(cur, nome, cpf, data_nascimento, foto_atleta, instagram)
-
-            pendencias_obrigatorias = []
-            if bool(controle.get("exigir_foto_atleta")) and not foto_atleta:
-                pendencias_obrigatorias.append("foto")
-            if bool(controle.get("exigir_instagram_atleta")) and not instagram:
-                pendencias_obrigatorias.append("Instagram")
-            if pendencias_obrigatorias:
-                return False, "Esta competição exige " + " e ".join(pendencias_obrigatorias) + " dos atletas. Preencha antes de concluir a inscrição."
-
-            status_inicial = "aprovado" if bool(controle.get("aprovacao_automatica_atletas")) else "pendente"
-
-            equipe_login_vinculo = None
-            equipe_id_vinculo = None
-            try:
-                cur.execute("""
-                    SELECT ec.equipe_login, ec.equipe_id
-                    FROM equipes_competicoes ec
-                    LEFT JOIN equipes e
-                      ON e.login = ec.equipe_login
-                      OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
-                    WHERE ec.competicao = %s
-                      AND (
-                            LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(e.nome, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(ec.equipe_login, ''))) = LOWER(TRIM(%s))
-                         OR LOWER(TRIM(COALESCE(e.login, ''))) = LOWER(TRIM(%s))
-                      )
-                    ORDER BY ec.id DESC
-                    LIMIT 1
-                """, (competicao, equipe, equipe, equipe, equipe))
-                vinculo_equipe = cur.fetchone() or {}
-                equipe_login_vinculo = vinculo_equipe.get("equipe_login")
-                equipe_id_vinculo = vinculo_equipe.get("equipe_id")
-            except Exception as e:
-                print("AVISO cadastrar_atleta/vinculo_equipe:", repr(e), flush=True)
-
-            cur.execute("""
-                INSERT INTO atletas (
-                    nome, cpf, data_nascimento, numero, equipe, competicao, status, equipe_login, equipe_id, foto_atleta, instagram
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (nome, cpf, data_nascimento, numero_final, equipe, competicao, status_inicial, equipe_login_vinculo, equipe_id_vinculo, foto_atleta or None, instagram or None))
-        conn.commit()
-
-    return True, "Atleta cadastrado com sucesso."
+    return cadastrar_atleta_persistencia(
+        nome, cpf, data_nascimento, numero, equipe, competicao, foto_atleta, instagram,
+        deps={
+            "conectar": conectar,
+            "somente_digitos": somente_digitos,
+            "formatar_cpf": formatar_cpf,
+            "cpf_valido": cpf_valido,
+            "criar_tabela_atletas": criar_tabela_atletas,
+            "criar_campos_controle_inscricao_competicoes": criar_campos_controle_inscricao_competicoes,
+            "criar_campos_liberacao_extra_equipes": criar_campos_liberacao_extra_equipes,
+            "criar_campos_conferencia_atletas": criar_campos_conferencia_atletas,
+            "cpf_sql_limpo": _cpf_sql_limpo,
+            "salvar_atleta_global": _salvar_atleta_global,
+        },
+    )
 
 def listar_atletas_da_equipe(equipe, competicao):
     with conectar() as conn:
@@ -5078,174 +2422,45 @@ def listar_atletas_da_equipe(equipe, competicao):
 
 
 def atualizar_atleta_equipe(id_atleta, equipe, competicao, nome, cpf, data_nascimento, foto_atleta=None, instagram=None):
-    """
-    Atualiza dados básicos do atleta pela própria equipe.
-    Regras:
-    - Só permite editar atleta da própria equipe/competição.
-    - Atleta reprovado não pode ser editado pela equipe; só excluído.
-    - CPF não pode duplicar dentro da mesma competição em outro atleta.
-    - Respeita o travamento da competição quando a equipe já iniciou jogos.
-    """
-    nome = (nome or "").strip()
-    cpf = (cpf or "").strip()
-    data_nascimento = (data_nascimento or "").strip()
-    foto_atleta = (foto_atleta or "").strip()
-    instagram = (instagram or "").strip()
-    if instagram and not instagram.startswith("@"):
-        instagram = "@" + instagram.lstrip("@")
-    cpf_limpo = somente_digitos(cpf)
+    """Fachada legada; persistência migrada para repositories.atletas_escrita."""
+    from repositories.atletas_escrita import atualizar_atleta_equipe_persistencia
 
-    if not nome or not cpf or not data_nascimento:
-        return False, "Preencha nome, CPF e data de nascimento."
-
-    if not cpf_valido(cpf):
-        return False, "CPF inválido. Informe um CPF real."
-
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT id, equipe, competicao, status, foto_atleta, instagram
-                    FROM atletas
-                    WHERE id = %s
-                    LIMIT 1
-                """, (id_atleta,))
-                atleta = cur.fetchone()
-
-                if not atleta:
-                    return False, "Atleta não encontrado."
-
-                if atleta.get("equipe") != equipe or atleta.get("competicao") != competicao:
-                    return False, "Este atleta não pertence a esta equipe."
-
-                status = (atleta.get("status") or "").strip().lower()
-                if status == "reprovado":
-                    return False, "Atleta reprovado não pode ser editado. Só é possível excluir."
-
-                cur.execute("""
-                    SELECT
-                        COALESCE(travada, FALSE) AS travada,
-                        COALESCE(exigir_foto_atleta, FALSE) AS exigir_foto_atleta,
-                        COALESCE(exigir_instagram_atleta, FALSE) AS exigir_instagram_atleta
-                    FROM competicoes
-                    WHERE nome = %s
-                    LIMIT 1
-                """, (competicao,))
-                comp = cur.fetchone()
-
-                if comp and comp.get("travada"):
-                    cur.execute("""
-                        SELECT id
-                        FROM partidas
-                        WHERE competicao = %s
-                          AND (equipe_a = %s OR equipe_b = %s OR equipe_a_operacional = %s OR equipe_b_operacional = %s)
-                          AND (
-                              COALESCE(pontos_a, 0) > 0 OR COALESCE(pontos_b, 0) > 0
-                              OR LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'encerrado')
-                              OR LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada')
-                          )
-                        LIMIT 1
-                    """, (competicao, equipe, equipe, equipe, equipe))
-
-                    if cur.fetchone():
-                        return False, "Competição travada: esta equipe já iniciou jogos. Edição bloqueada."
-
-                cur.execute(f"""
-                    SELECT id
-                    FROM atletas
-                    WHERE {_cpf_sql_limpo('cpf')} = %s
-                      AND COALESCE(competicao, '') = COALESCE(%s, '')
-                      AND id <> %s
-                    LIMIT 1
-                """, (cpf_limpo, competicao, id_atleta))
-                if cur.fetchone():
-                    return False, "Já existe outro atleta com este CPF nesta competição."
-
-                foto_final = foto_atleta or (atleta.get("foto_atleta") or "")
-                instagram_final = instagram or (atleta.get("instagram") or "")
-
-                pendencias = []
-                if comp and bool(comp.get("exigir_foto_atleta")) and not foto_final:
-                    pendencias.append("foto")
-                if comp and bool(comp.get("exigir_instagram_atleta")) and not instagram_final:
-                    pendencias.append("Instagram")
-                if pendencias:
-                    return False, "Esta competição exige " + " e ".join(pendencias) + " dos atletas. Preencha antes de salvar."
-
-                cur.execute("""
-                    UPDATE atletas
-                    SET nome = %s,
-                        cpf = %s,
-                        data_nascimento = %s,
-                        foto_atleta = COALESCE(NULLIF(%s, ''), foto_atleta),
-                        instagram = COALESCE(NULLIF(%s, ''), instagram)
-                    WHERE id = %s
-                """, (nome, cpf, data_nascimento, foto_atleta, instagram, id_atleta))
-
-                _salvar_atleta_global(cur, nome, cpf, data_nascimento, foto_final, instagram_final)
-
-            conn.commit()
-
-        return True, "Atleta atualizado com sucesso."
-
-    except Exception as e:
-        return False, f"Erro ao atualizar atleta: {str(e)}"
+    return atualizar_atleta_equipe_persistencia(
+        id_atleta, equipe, competicao, nome, cpf, data_nascimento, foto_atleta, instagram,
+        deps={
+            "conectar": conectar,
+            "somente_digitos": somente_digitos,
+            "formatar_cpf": formatar_cpf,
+            "cpf_valido": cpf_valido,
+            "criar_tabela_atletas": criar_tabela_atletas,
+            "criar_campos_controle_inscricao_competicoes": criar_campos_controle_inscricao_competicoes,
+            "criar_campos_liberacao_extra_equipes": criar_campos_liberacao_extra_equipes,
+            "criar_campos_conferencia_atletas": criar_campos_conferencia_atletas,
+            "cpf_sql_limpo": _cpf_sql_limpo,
+            "salvar_atleta_global": _salvar_atleta_global,
+        },
+    )
 
 
 def excluir_atleta(id_atleta):
-    try:
-        # Abre UMA ÚNICA conexão para fazer todo o trabalho
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                # 1. Busca os dados do atleta
-                cur.execute("SELECT equipe, competicao FROM atletas WHERE id = %s", (id_atleta,))
-                atleta = cur.fetchone()
-                
-                if not atleta:
-                    return False, "Atleta não encontrado."
+    """Fachada legada; persistência migrada para repositories.atletas_escrita."""
+    from repositories.atletas_escrita import excluir_atleta_persistencia
 
-                nome_equipe = atleta["equipe"]
-                nome_competicao = atleta["competicao"]
-
-                # 2. Verifica se a competição está travada direto no banco (sem abrir outra conexão)
-                cur.execute("""
-                    SELECT COALESCE(travada, FALSE) AS travada
-                    FROM competicoes
-                    WHERE nome = %s
-                """, (nome_competicao,))
-                comp = cur.fetchone()
-
-                if comp and comp.get("travada"):
-                    # 3. Se estiver travada, verifica se a equipe já jogou (sem abrir outra conexão)
-                    cur.execute("""
-                        SELECT id FROM partidas
-                        WHERE competicao = %s
-                          AND (equipe_a = %s OR equipe_b = %s OR equipe_a_operacional = %s OR equipe_b_operacional = %s)
-                          AND (
-                              COALESCE(pontos_a, 0) > 0 OR COALESCE(pontos_b, 0) > 0
-                              OR LOWER(COALESCE(status_jogo, '')) IN ('em_andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'encerrado')
-                              OR LOWER(COALESCE(status, '')) IN ('em_andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada')
-                          )
-                        LIMIT 1
-                    """, (nome_competicao, nome_equipe, nome_equipe, nome_equipe, nome_equipe))
-                    
-                    if cur.fetchone():
-                        return False, "Competição travada: esta equipe já iniciou jogos. Exclusão bloqueada."
-
-                # 4. Passou nas validações? Deleta o atleta!
-                cur.execute("DELETE FROM atletas WHERE id = %s", (id_atleta,))
-            
-            # Salva as alterações no banco!
-            conn.commit()
-
-        return True, "Atleta removido com sucesso."
-    
-    except Exception as e:
-        # 5. Captura erros do banco (ex: atleta que já tem ponto na súmula)
-        erro_str = str(e).lower()
-        if "foreign key" in erro_str or "violates foreign key" in erro_str:
-            return False, "Este atleta já jogou ou está em uma súmula e não pode ser excluído."
-        return False, f"Erro ao excluir atleta: {str(e)}"
+    return excluir_atleta_persistencia(
+        id_atleta,
+        deps={
+            "conectar": conectar,
+            "somente_digitos": somente_digitos,
+            "formatar_cpf": formatar_cpf,
+            "cpf_valido": cpf_valido,
+            "criar_tabela_atletas": criar_tabela_atletas,
+            "criar_campos_controle_inscricao_competicoes": criar_campos_controle_inscricao_competicoes,
+            "criar_campos_liberacao_extra_equipes": criar_campos_liberacao_extra_equipes,
+            "criar_campos_conferencia_atletas": criar_campos_conferencia_atletas,
+            "cpf_sql_limpo": _cpf_sql_limpo,
+            "salvar_atleta_global": _salvar_atleta_global,
+        },
+    )
 
 
 # =========================================================
@@ -5321,579 +2536,102 @@ def aprovar_todos_atletas_pendentes(nome_competicao):
 
 
 # =========================================================
-# TABELA - GRUPOS
+# TABELA - GRUPOS (fachadas de compatibilidade)
 # =========================================================
-def criar_tabelas_grupos():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS grupos (
-                    id SERIAL PRIMARY KEY,
-                    nome VARCHAR(10),
-                    competicao TEXT
-                )
-            """)
+from services.competicoes import grupos as _grupos_service
 
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS grupos_equipes (
-                    id SERIAL PRIMARY KEY,
-                    grupo_id INTEGER,
-                    equipe TEXT,
-                    competicao TEXT
-                )
-            """)
 
-            cur.execute("ALTER TABLE grupos ADD COLUMN IF NOT EXISTS quadra_id INTEGER")
-            cur.execute("ALTER TABLE grupos ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''")
-
-        conn.commit()
-
-    _CACHE_COLUNAS.pop("grupos", None)
+def criar_tabelas_grupos(force=False):
+    return _grupos_service.criar_tabelas_grupos(cache_colunas=_CACHE_COLUNAS, force=force)
 
 
 def listar_grupos(competicao):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT *
-                FROM grupos
-                WHERE competicao = %s
-                ORDER BY nome
-            """, (competicao,))
-            return cur.fetchall()
+    return _grupos_service.listar_grupos(competicao)
 
 
 def criar_grupo(nome, competicao):
-    if fase_grupos_esta_travada_por_jogo(competicao):
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id
-                FROM grupos
-                WHERE UPPER(nome) = UPPER(%s)
-                  AND competicao = %s
-                LIMIT 1
-            """, (nome, competicao))
-            existente = cur.fetchone()
-            if existente:
-                return False
-
-            cur.execute("""
-                INSERT INTO grupos (nome, competicao)
-                VALUES (%s, %s)
-            """, (nome, competicao))
-        conn.commit()
-    return True
+    return _grupos_service.criar_grupo(
+        nome, competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo(competicao),
+    )
 
 
 def adicionar_equipe_no_grupo(grupo_id, equipe, competicao):
-    if fase_grupos_esta_travada_por_jogo(competicao):
-        return False
-
-    equipe = str(equipe or "").strip()
-    if not grupo_id or not equipe or not competicao:
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            # Regra firme: dentro da mesma competição uma equipe só pode estar
-            # em UM grupo. Ao salvar manualmente ou por sorteio, removemos o
-            # vínculo antigo antes de inserir o novo. Isso evita duplicidade e
-            # impede a classificação de contar o mesmo time em grupos diferentes.
-            cur.execute("""
-                DELETE FROM grupos_equipes
-                WHERE competicao = %s
-                  AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                  AND grupo_id <> %s
-            """, (competicao, equipe, grupo_id))
-
-            cur.execute("""
-                SELECT id
-                FROM grupos_equipes
-                WHERE grupo_id = %s
-                  AND LOWER(TRIM(equipe)) = LOWER(TRIM(%s))
-                  AND competicao = %s
-                LIMIT 1
-            """, (grupo_id, equipe, competicao))
-            if cur.fetchone():
-                return False
-
-            cur.execute("""
-                INSERT INTO grupos_equipes (grupo_id, equipe, competicao)
-                VALUES (%s, %s, %s)
-            """, (grupo_id, equipe, competicao))
-        conn.commit()
-    return True
+    return _grupos_service.adicionar_equipe_no_grupo(
+        grupo_id, equipe, competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo(competicao),
+    )
 
 
 def listar_equipes_por_grupo(grupo_id):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT *
-                FROM grupos_equipes
-                WHERE grupo_id = %s
-            """, (grupo_id,))
-            return cur.fetchall()
+    return _grupos_service.listar_equipes_por_grupo(grupo_id)
 
 
 def listar_equipes_por_grupos_competicao(competicao):
-    """
-    Retorna todas as equipes de todos os grupos da competição em uma única consulta.
-
-    Antes, várias telas chamavam listar_equipes_por_grupo() dentro de loop,
-    gerando uma ida ao Neon para cada grupo. Em competições com muitos grupos,
-    isso deixava tabela, visualizador público e painel da equipe bem mais lentos.
-
-    Formato de retorno:
-        {grupo_id: [linhas_de_grupos_equipes]}
-    """
-    resultado = {}
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT ge.*
-                FROM grupos_equipes ge
-                JOIN grupos g ON g.id = ge.grupo_id
-                WHERE ge.competicao = %s
-                  AND g.competicao = %s
-                ORDER BY g.nome, ge.equipe
-            """, (competicao, competicao))
-            for row in cur.fetchall() or []:
-                gid = row.get("grupo_id")
-                resultado.setdefault(gid, []).append(row)
-    return resultado
+    return _grupos_service.listar_equipes_por_grupos_competicao(competicao)
 
 
 def buscar_grupo_por_id(grupo_id, competicao):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT *
-                FROM grupos
-                WHERE id = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (grupo_id, competicao))
-            return cur.fetchone()
+    return _grupos_service.buscar_grupo_por_id(grupo_id, competicao)
 
 
 def atualizar_grupo(grupo_id, novo_nome, competicao):
-    grupo_atual = buscar_grupo_por_id(grupo_id, competicao)
-    if not grupo_atual:
-        return False
-
-    nome_antigo = grupo_atual["nome"]
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id
-                FROM grupos
-                WHERE UPPER(nome) = UPPER(%s)
-                  AND competicao = %s
-                  AND id <> %s
-                LIMIT 1
-            """, (novo_nome, competicao, grupo_id))
-            if cur.fetchone():
-                return False
-
-            cur.execute("""
-                UPDATE grupos
-                SET nome = %s
-                WHERE id = %s
-                  AND competicao = %s
-            """, (novo_nome, grupo_id, competicao))
-
-            cur.execute("""
-                UPDATE partidas
-                SET grupo = %s
-                WHERE competicao = %s
-                  AND grupo = %s
-            """, (novo_nome, competicao, nome_antigo))
-        conn.commit()
-    return True
+    return _grupos_service.atualizar_grupo(grupo_id, novo_nome, competicao)
 
 
 def remover_equipe_do_grupo(grupo_id, equipe, competicao):
-    if fase_grupos_esta_travada_por_jogo(competicao):
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM grupos_equipes
-                WHERE grupo_id = %s
-                  AND equipe = %s
-                  AND competicao = %s
-            """, (grupo_id, equipe, competicao))
-
-            grupo = buscar_grupo_por_id(grupo_id, competicao)
-            if grupo:
-                cur.execute("""
-                    DELETE FROM partidas
-                    WHERE competicao = %s
-                      AND grupo = %s
-                      AND (equipe_a = %s OR equipe_b = %s)
-                """, (competicao, grupo["nome"], equipe, equipe))
-        conn.commit()
-    return True
+    return _grupos_service.remover_equipe_do_grupo(
+        grupo_id, equipe, competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo(competicao),
+    )
 
 
 def excluir_grupo(grupo_id, competicao):
-    if fase_grupos_esta_travada_por_jogo(competicao):
-        return False
-
-    grupo = buscar_grupo_por_id(grupo_id, competicao)
-    if not grupo:
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM partidas
-                WHERE competicao = %s
-                  AND grupo = %s
-            """, (competicao, grupo["nome"]))
-
-            cur.execute("""
-                DELETE FROM grupos_equipes
-                WHERE grupo_id = %s
-                  AND competicao = %s
-            """, (grupo_id, competicao))
-
-            cur.execute("""
-                DELETE FROM grupos
-                WHERE id = %s
-                  AND competicao = %s
-            """, (grupo_id, competicao))
-        conn.commit()
-    return True
-
+    return _grupos_service.excluir_grupo(
+        grupo_id, competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo(competicao),
+    )
 
 # =========================================================
 # PARTIDAS (TABELA DE JOGOS)
 # =========================================================
-def criar_tabela_partidas():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS partidas (
-                    id SERIAL PRIMARY KEY,
-                    competicao TEXT NOT NULL,
-                    grupo TEXT,
-                    equipe_a TEXT,
-                    equipe_b TEXT,
-                    fase TEXT DEFAULT 'grupos',
-                    ordem INTEGER,
-                    status TEXT DEFAULT 'aguardando'
-                )
-            """)
-
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS rodada INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS quadra TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS quadra_id INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS data_hora TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS origem TEXT DEFAULT 'manual'")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS sets_a INTEGER DEFAULT 0")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS sets_b INTEGER DEFAULT 0")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set1_a INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set1_b INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set2_a INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set2_b INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set3_a INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set3_b INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set4_a INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set4_b INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set5_a INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS set5_b INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS origem_resultado TEXT DEFAULT 'apontada'")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS scout_preenchido BOOLEAN DEFAULT FALSE")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS vencedor TEXT")
-
-            # operação do apontador / pré-jogo
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_login TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS operador_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS status_operacao TEXT DEFAULT 'livre'")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS reservado_em TIMESTAMP")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS pre_jogo_iniciado_em TIMESTAMP")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_login TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS apontador_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS arbitro_1_cpf TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS arbitro_1_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS arbitro_2_cpf TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS arbitro_2_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS sorteio_vencedor TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS sorteio_escolha TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS saque_inicial TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS lado_esquerdo TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS equipe_a_operacional TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS equipe_b_operacional TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS capitao_a_id INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS capitao_a_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS capitao_a_numero INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS capitao_b_id INTEGER")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS capitao_b_nome TEXT")
-            cur.execute("ALTER TABLE partidas ADD COLUMN IF NOT EXISTS capitao_b_numero INTEGER")
-
-        conn.commit()
+def criar_tabela_partidas(force=False):
+    from services.competicoes.partidas import criar_tabela_partidas as _fn
+    return _fn(force=force)
 
 
 def listar_partidas(competicao):
-    # Performance: listar partidas precisa ser somente leitura.
-    # Criação de campos/tabelas e normalização de quadras devem rodar no boot/migração
-    # ou em ações administrativas, nunca em toda abertura de painel.
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    p.*,
-                    COALESCE(cq.nome, '') AS quadra_nome_cadastro,
-                    COALESCE(cq.local, '') AS quadra_local_cadastro,
-                    COALESCE(ea.escudo, '') AS escudo_a,
-                    COALESCE(eb.escudo, '') AS escudo_b,
-                    COALESCE(ev.eventos_total, 0) AS eventos_total
-                FROM partidas p
-                LEFT JOIN (
-                    SELECT partida_id, COUNT(*) AS eventos_total
-                    FROM eventos
-                    WHERE competicao = %s
-                    GROUP BY partida_id
-                ) ev ON ev.partida_id = p.id
-                LEFT JOIN competicao_quadras cq
-                  ON cq.competicao = p.competicao
-                 AND cq.id = p.quadra_id
-                LEFT JOIN equipes_competicoes eca
-                  ON eca.competicao = p.competicao
-                 AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
-                LEFT JOIN equipes ea
-                  ON ea.login = eca.equipe_login
-                LEFT JOIN equipes_competicoes ecb
-                  ON ecb.competicao = p.competicao
-                 AND LOWER(TRIM(ecb.equipe_nome)) = LOWER(TRIM(p.equipe_b))
-                LEFT JOIN equipes eb
-                  ON eb.login = ecb.equipe_login
-                WHERE p.competicao = %s
-                ORDER BY COALESCE(p.rodada, 999999), p.ordem, p.id
-            """, (competicao, competicao))
-            linhas = cur.fetchall() or []
-            for linha in linhas:
-                try:
-                    if linha.get("quadra_id") and linha.get("quadra_nome_cadastro"):
-                        linha["quadra_nome"] = formatar_quadra_exibicao({
-                            "nome": linha.get("quadra_nome_cadastro"),
-                            "local": linha.get("quadra_local_cadastro"),
-                            "ordem": linha.get("quadra_id"),
-                        })
-                        linha["quadra_label"] = linha["quadra_nome"]
-                except Exception:
-                    pass
-            return linhas
+    from services.competicoes.partidas import listar_partidas as _fn
+    return _fn(competicao, formatar_quadra=formatar_quadra_exibicao)
 
 
 def listar_partidas_da_equipe(competicao, equipe, limite=50):
-    """Lista somente as partidas de uma equipe em uma competição.
-
-    Versão leve para o painel inicial da equipe.
-    Diferente de listar_partidas(), esta função NÃO conta eventos ponto a ponto
-    e NÃO carrega todos os jogos da competição para depois filtrar em Python.
-    """
-    competicao = (competicao or "").strip()
-    equipe = (equipe or "").strip()
-
-    if not competicao or not equipe:
-        return []
-
-    try:
-        limite_int = int(limite or 50)
-    except Exception:
-        limite_int = 50
-    limite_int = max(1, min(limite_int, 200))
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    p.*,
-                    COALESCE(cq.nome, '') AS quadra_nome_cadastro,
-                    COALESCE(cq.local, '') AS quadra_local_cadastro,
-                    COALESCE(ea.escudo, '') AS escudo_a,
-                    COALESCE(eb.escudo, '') AS escudo_b
-                FROM partidas p
-                LEFT JOIN competicao_quadras cq
-                  ON cq.competicao = p.competicao
-                 AND cq.id = p.quadra_id
-                LEFT JOIN equipes_competicoes eca
-                  ON eca.competicao = p.competicao
-                 AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
-                LEFT JOIN equipes ea
-                  ON ea.login = eca.equipe_login
-                LEFT JOIN equipes_competicoes ecb
-                  ON ecb.competicao = p.competicao
-                 AND LOWER(TRIM(ecb.equipe_nome)) = LOWER(TRIM(p.equipe_b))
-                LEFT JOIN equipes eb
-                  ON eb.login = ecb.equipe_login
-                WHERE p.competicao = %s
-                  AND (
-                        LOWER(TRIM(p.equipe_a)) = LOWER(TRIM(%s))
-                     OR LOWER(TRIM(p.equipe_b)) = LOWER(TRIM(%s))
-                  )
-                ORDER BY
-                    CASE
-                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, '')) IN ('ao_vivo','em_andamento','andamento','jogo') THEN 1
-                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, '')) IN ('pre_jogo','papeleta','papeleta_pronta') THEN 2
-                        WHEN LOWER(COALESCE(p.status_jogo, p.status_operacao, p.status, '')) IN ('finalizada','finalizado','encerrada','encerrado') THEN 4
-                        ELSE 3
-                    END,
-                    COALESCE(p.rodada, 999999),
-                    COALESCE(p.ordem, 999999),
-                    p.id
-                LIMIT %s
-            """, (competicao, equipe, equipe, limite_int))
-
-            linhas = cur.fetchall() or []
-            for linha in linhas:
-                try:
-                    if linha.get("quadra_id") and linha.get("quadra_nome_cadastro"):
-                        linha["quadra_nome"] = formatar_quadra_exibicao({
-                            "nome": linha.get("quadra_nome_cadastro"),
-                            "local": linha.get("quadra_local_cadastro"),
-                            "ordem": linha.get("quadra_id"),
-                        })
-                        linha["quadra_label"] = linha["quadra_nome"]
-                except Exception:
-                    pass
-            return linhas
+    from services.competicoes.partidas import listar_partidas_da_equipe as _fn
+    return _fn(competicao, equipe, limite, formatar_quadra=formatar_quadra_exibicao)
 
 
 def buscar_partida_por_id(partida_id, competicao):
-    # Performance: esta função é chamada por relatórios, apontador e telas de consulta.
-    # Não rode criação/verificação de schema aqui; isso deve acontecer no boot/migração.
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    p.*,
-                    COALESCE(cq.nome, '') AS quadra_nome_cadastro,
-                    COALESCE(cq.local, '') AS quadra_local_cadastro,
-                    COALESCE(ea.escudo, '') AS escudo_a,
-                    COALESCE(eb.escudo, '') AS escudo_b
-                FROM partidas p
-                LEFT JOIN competicao_quadras cq
-                  ON cq.competicao = p.competicao
-                 AND cq.id = p.quadra_id
-                LEFT JOIN equipes_competicoes eca
-                  ON eca.competicao = p.competicao
-                 AND LOWER(TRIM(eca.equipe_nome)) = LOWER(TRIM(p.equipe_a))
-                LEFT JOIN equipes ea
-                  ON ea.login = eca.equipe_login
-                LEFT JOIN equipes_competicoes ecb
-                  ON ecb.competicao = p.competicao
-                 AND LOWER(TRIM(ecb.equipe_nome)) = LOWER(TRIM(p.equipe_b))
-                LEFT JOIN equipes eb
-                  ON eb.login = ecb.equipe_login
-                WHERE p.id = %s
-                  AND p.competicao = %s
-                LIMIT 1
-            """, (partida_id, competicao))
-            linha = cur.fetchone()
-            if linha and linha.get("quadra_id") and linha.get("quadra_nome_cadastro"):
-                linha["quadra_nome"] = formatar_quadra_exibicao({
-                    "nome": linha.get("quadra_nome_cadastro"),
-                    "local": linha.get("quadra_local_cadastro"),
-                    "ordem": linha.get("quadra_id"),
-                })
-                linha["quadra_label"] = linha["quadra_nome"]
-            return linha
+    from services.competicoes.partidas import buscar_partida_por_id as _fn
+    return _fn(partida_id, competicao, formatar_quadra=formatar_quadra_exibicao)
 
 def _normalizar_fase_partida(fase):
-    fase = (fase or "grupos").strip().lower()
-    if fase in {"classificatorias", "classificatória", "classificatorias", "grupo"}:
-        return "grupos"
-    if fase in {"semifinais", "semi", "semis"}:
-        return "semifinal"
-    if fase in {"finais", "finalíssima", "finalissima"}:
-        return "final"
-    return fase or "grupos"
+    from rules.partidas import normalizar_fase
+    return normalizar_fase(fase)
 
 
 def _status_partida_bloqueado(status, status_jogo=None):
-    """Retorna True somente quando a partida realmente saiu do estado inicial.
-
-    IMPORTANTE:
-    "pre_jogo" sozinho NÃO pode bloquear a tabela. Em bases antigas, partidas
-    recém-criadas podem nascer com status_jogo='pre_jogo' por DEFAULT do banco,
-    mesmo sem apontador ter aberto a conferência. Isso fazia a geração
-    automática criar só o primeiro jogo e travar a fase inteira.
-    """
-    status = (status or "").strip().lower().replace("-", "_")
-    status_jogo = (status_jogo or "").strip().lower().replace("-", "_")
-
-    bloqueados = {
-        "em_andamento", "em andamento", "andamento",
-        "entre_sets", "tiebreak_sorteio", "finalizada", "finalizado",
-        "encerrada", "encerrado", "iniciada", "iniciado",
-        "ao_vivo", "ao vivo",
-    }
-
-    return status in bloqueados or status_jogo in bloqueados
+    from rules.partidas import status_bloqueado
+    return status_bloqueado(status, status_jogo)
 
 
 def partida_ja_iniciou_ou_finalizou(partida):
-    if not partida:
-        return False
-    try:
-        pontos_a = int(partida.get("pontos_a") or 0)
-        pontos_b = int(partida.get("pontos_b") or 0)
-        sets_a = int(partida.get("sets_a") or 0)
-        sets_b = int(partida.get("sets_b") or 0)
-    except (TypeError, ValueError):
-        pontos_a = pontos_b = sets_a = sets_b = 0
-
-    return (
-        pontos_a > 0
-        or pontos_b > 0
-        or sets_a > 0
-        or sets_b > 0
-        or bool(partida.get("pre_jogo_iniciado_em"))
-        or bool(partida.get("pre_jogo_finalizado"))
-        or _status_partida_bloqueado(partida.get("status"), partida.get("status_jogo"))
-    )
+    from rules.partidas import partida_iniciada_ou_finalizada
+    return partida_iniciada_ou_finalizada(partida)
 
 
 def competicao_tem_partida_iniciada_por_fase(nome_competicao, fase=None):
-    fase = _normalizar_fase_partida(fase) if fase else None
-    sql_fase = "AND COALESCE(fase, 'grupos') = %s" if fase else ""
-    params = [nome_competicao]
-    if fase:
-        params.append(fase)
-
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"""
-                    SELECT id
-                    FROM partidas
-                    WHERE competicao = %s
-                      {sql_fase}
-                      AND (
-                            COALESCE(pontos_a, 0) > 0
-                         OR COALESCE(pontos_b, 0) > 0
-                         OR COALESCE(sets_a, 0) > 0
-                         OR COALESCE(sets_b, 0) > 0
-                         OR pre_jogo_iniciado_em IS NOT NULL
-                         OR COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                         OR LOWER(REPLACE(COALESCE(status_jogo, ''), '-', '_')) IN ('em_andamento', 'em andamento', 'andamento', 'entre_sets', 'tiebreak_sorteio', 'finalizada', 'finalizado', 'encerrada', 'encerrado', 'ao_vivo', 'ao vivo')
-                         OR LOWER(REPLACE(COALESCE(status, ''), '-', '_')) IN ('em_andamento', 'em andamento', 'andamento', 'iniciada', 'iniciado', 'finalizada', 'finalizado', 'encerrada', 'encerrado', 'ao_vivo', 'ao vivo')
-                      )
-                    LIMIT 1
-                """, tuple(params))
-                return cur.fetchone() is not None
-    except Exception:
-        return False
+    from services.competicoes.partidas import competicao_tem_partida_iniciada_por_fase as _fn
+    return _fn(nome_competicao, fase)
 
 
 def fase_grupos_esta_travada_por_jogo(nome_competicao):
@@ -5905,226 +2643,31 @@ def fase_tem_partida_iniciada(nome_competicao, fase):
 
 
 def fase_partidas_pode_ser_alterada(nome_competicao, fase):
-    fase = _normalizar_fase_partida(fase)
-    if fase == "grupos":
-        return not fase_grupos_esta_travada_por_jogo(nome_competicao)
-    return not fase_tem_partida_iniciada(nome_competicao, fase)
+    from services.competicoes.partidas import fase_pode_ser_alterada
+    return fase_pode_ser_alterada(nome_competicao, fase)
 
 def criar_partida(competicao, grupo, equipe_a, equipe_b, ordem, quadra=None, fase='grupos', data_hora=None, rodada=None, origem='manual', quadra_id=None, quadra_nome=None):
-    fase = _normalizar_fase_partida(fase)
-    # Mantém o grupo existente quando a edição não informa um novo grupo.
-    if fase == "grupos":
-        if grupo is None:
-            partida_existente = buscar_partida_por_id(partida_id, competicao) or {}
-            grupo = partida_existente.get("grupo")
-    else:
-        grupo = None
-
-    if quadra_id:
-        q = buscar_quadra_competicao_por_id(competicao, quadra_id)
-        if q:
-            quadra_id = int(q["id"])
-            quadra_nome = formatar_quadra_exibicao(q)
-            quadra = str(quadra_id)
-    elif quadra_nome or quadra:
-        q = buscar_quadra_competicao_por_texto(competicao, quadra_nome or quadra)
-        if q:
-            quadra_id = int(q["id"])
-            quadra_nome = formatar_quadra_exibicao(q)
-            quadra = str(quadra_id)
-
-    if not fase_partidas_pode_ser_alterada(competicao, fase):
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            colunas_partidas = _buscar_colunas_tabela("partidas")
-
-            campos = [
-                "competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem",
-                "quadra", "quadra_id", "quadra_nome", "data_hora", "rodada",
-                "origem", "status",
-            ]
-            valores = [
-                competicao, grupo, equipe_a, equipe_b, fase, ordem,
-                quadra, quadra_id, quadra_nome or quadra or '', data_hora, rodada,
-                origem, "aguardando",
-            ]
-
-            # Evita que DEFAULT antigo do banco salve partida nova como PRÉ-JOGO.
-            # Jogo gerado/manual deve nascer como AGUARDANDO.
-            if "status_jogo" in colunas_partidas:
-                campos.append("status_jogo")
-                valores.append("aguardando")
-
-            if "fase_partida" in colunas_partidas:
-                campos.append("fase_partida")
-                valores.append("aguardando")
-
-            for campo in ("sets_a", "sets_b"):
-                if campo in colunas_partidas:
-                    campos.append(campo)
-                    valores.append(0)
-
-            for campo in ("set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b"):
-                if campo in colunas_partidas:
-                    campos.append(campo)
-                    valores.append(None)
-
-            placeholders = ", ".join(["%s"] * len(valores))
-            cur.execute(
-                f"""
-                INSERT INTO partidas ({", ".join(campos)})
-                VALUES ({placeholders})
-                """,
-                tuple(valores)
-            )
-        conn.commit()
+    from services.competicoes.partidas import criar_partida as _fn
+    return _fn(competicao, grupo, equipe_a, equipe_b, ordem, quadra, fase, data_hora, rodada, origem, quadra_id, quadra_nome, buscar_colunas=_buscar_colunas_tabela, buscar_quadra_por_id=buscar_quadra_competicao_por_id, buscar_quadra_por_texto=buscar_quadra_competicao_por_texto, formatar_quadra=formatar_quadra_exibicao)
 
 
-def atualizar_partida(
-    partida_id,
-    competicao,
-    grupo,
-    fase,
-    equipe_a,
-    equipe_b,
-    quadra=None,
-    data_hora=None,
-    status='aguardando',
-    rodada=None,
-    quadra_id=None,
-    quadra_nome=None
-):
-    fase = _normalizar_fase_partida(fase)
-
-    # Busca a partida atual
-    partida_atual = buscar_partida_por_id(partida_id, competicao)
-    if not partida_atual:
-        return False
-
-    # Nunca perder o grupo de partidas classificatórias
-    if fase == "grupos":
-        if not grupo:
-            grupo = partida_atual.get("grupo")
-    else:
-        grupo = None
-
-    # Resolve a quadra
-    if quadra_id:
-        q = buscar_quadra_competicao_por_id(competicao, quadra_id)
-        if q:
-            quadra_id = int(q["id"])
-            quadra_nome = formatar_quadra_exibicao(q)
-            quadra = str(quadra_id)
-
-    elif quadra_nome or quadra:
-        q = buscar_quadra_competicao_por_texto(
-            competicao,
-            quadra_nome or quadra
-        )
-        if q:
-            quadra_id = int(q["id"])
-            quadra_nome = formatar_quadra_exibicao(q)
-            quadra = str(quadra_id)
-
-    # Não permite alterar partidas iniciadas
-    if partida_ja_iniciou_ou_finalizou(partida_atual):
-        return False
-
-    # Não permite alterar fases travadas
-    if not fase_partidas_pode_ser_alterada(competicao, fase):
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE partidas
-                SET
-                    grupo = %s,
-                    fase = %s,
-                    equipe_a = %s,
-                    equipe_b = %s,
-                    quadra = %s,
-                    quadra_id = %s,
-                    quadra_nome = %s,
-                    data_hora = %s,
-                    status = %s,
-                    status_jogo = %s,
-                    fase_partida = %s,
-                    rodada = %s
-                WHERE id = %s
-                  AND competicao = %s
-            """, (
-                grupo,
-                fase,
-                equipe_a,
-                equipe_b,
-                quadra,
-                quadra_id,
-                quadra_nome or quadra or "",
-                data_hora,
-                status,
-                status,
-                status,
-                rodada,
-                partida_id,
-                competicao,
-            ))
-
-        conn.commit()
-
-    return True
+def atualizar_partida(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra=None, data_hora=None, status='aguardando', rodada=None, quadra_id=None, quadra_nome=None):
+    from services.competicoes.partidas import atualizar_partida as _fn
+    return _fn(partida_id, competicao, grupo, fase, equipe_a, equipe_b, quadra, data_hora, status, rodada, quadra_id, quadra_nome, buscar_quadra_por_id=buscar_quadra_competicao_por_id, buscar_quadra_por_texto=buscar_quadra_competicao_por_texto, formatar_quadra=formatar_quadra_exibicao)
 
 
 def excluir_partida(partida_id, competicao):
-    partida = buscar_partida_por_id(partida_id, competicao)
-    if not partida:
-        return False, "Partida não encontrada."
-
-    if partida_ja_iniciou_ou_finalizou(partida):
-        return False, "Não é possível excluir uma partida que já iniciou, teve pré-jogo aberto ou foi finalizada."
-
-    fase = _normalizar_fase_partida(partida.get("fase"))
-    if not fase_partidas_pode_ser_alterada(competicao, fase):
-        return False, "Esta fase já iniciou. Não é possível excluir partidas dela."
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM partidas
-                WHERE id = %s
-                  AND competicao = %s
-            """, (partida_id, competicao))
-        conn.commit()
-    return True, "Partida excluída com sucesso."
+    from services.competicoes.partidas import excluir_partida as _fn
+    return _fn(partida_id, competicao, formatar_quadra=formatar_quadra_exibicao)
 
 def limpar_partidas(competicao):
-    if competicao_tem_partida_iniciada_por_fase(competicao):
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM partidas
-                WHERE competicao = %s
-            """, (competicao,))
-        conn.commit()
+    from services.competicoes.partidas import limpar_partidas as _fn
+    return _fn(competicao)
 
 
 def limpar_partidas_por_fase(competicao, fase):
-    fase = _normalizar_fase_partida(fase)
-    if not fase_partidas_pode_ser_alterada(competicao, fase):
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM partidas
-                WHERE competicao = %s
-                  AND COALESCE(fase, 'grupos') = %s
-            """, (competicao, fase))
-            conn.commit()
+    from services.competicoes.partidas import limpar_partidas_por_fase as _fn
+    return _fn(competicao, fase)
 
 
 # =========================================================
@@ -6236,109 +2779,15 @@ def criar_estrutura_rotacao_profissional(force=False):
 # HELPERS
 # ------------------------------
 
-def _normalizar_rotacao_oficial(rotacao):
-    """
-    Normaliza a rotação na ordem visual/oficial do sistema:
-    [IV, III, II, V, VI, I].
-
-    Aceita lista de números, lista de dicts, tuplas ou JSON em texto.
-    Isso evita que um estado parcial/socket/JSON antigo quebre um lado da rotação.
-    """
-    if isinstance(rotacao, str):
-        try:
-            rotacao = json.loads(rotacao or "[]")
-        except Exception:
-            rotacao = []
-
-    if isinstance(rotacao, tuple):
-        rotacao = list(rotacao)
-
-    if not isinstance(rotacao, list):
-        rotacao = []
-
-    normalizada = []
-
-    for item in rotacao[:6]:
-        if isinstance(item, dict):
-            numero = (
-                item.get("numero")
-                or item.get("camisa")
-                or item.get("numero_camisa")
-                or item.get("n")
-                or ""
-            )
-        else:
-            numero = item
-
-        normalizada.append(str(numero or "").strip())
-
-    while len(normalizada) < 6:
-        normalizada.append("")
-
-    return normalizada[:6]
-
-
-def _rotacao_tem_6_validos(rotacao):
-    rotacao = _normalizar_rotacao_oficial(rotacao)
-    preenchidos = [x for x in rotacao if x]
-    return len(preenchidos) == 6 and len(set(preenchidos)) == 6
-
-
-def _rotacao_valida_ou_padrao(rotacao):
-    r = _normalizar_rotacao_oficial(rotacao)
-    if not _rotacao_tem_6_validos(r):
-        return ["", "", "", "", "", ""]
-    return r
-
-
-def girar_rotacao_oficial(rotacao):
-    """
-    Ordem interna/visual usada no sistema:
-    [IV, III, II, V, VI, I]
-
-    Giro oficial:
-    II vai para I (sacador)
-    I vai para VI
-    VI vai para V
-    V vai para IV
-    IV vai para III
-    III vai para II
-    """
-    rotacao = _normalizar_rotacao_oficial(rotacao)
-
-    if not _rotacao_tem_6_validos(rotacao):
-        return rotacao
-
-    return [
-        rotacao[3],  # novo IV  = antigo V
-        rotacao[0],  # novo III = antigo IV
-        rotacao[1],  # novo II  = antigo III
-        rotacao[4],  # novo V   = antigo VI
-        rotacao[5],  # novo VI  = antigo I
-        rotacao[2],  # novo I   = antigo II (sacador)
-    ]
-
-
-def validar_rotacao_oficial(rotacao, atletas_validos=None):
-    rotacao = _normalizar_rotacao_oficial(rotacao)
-    erros = []
-
-    preenchidos = [x for x in rotacao if x]
-
-    if len(preenchidos) != 6:
-        erros.append("A rotação precisa ter 6 atletas.")
-
-    repetidos = sorted({x for x in preenchidos if preenchidos.count(x) > 1})
-    if repetidos:
-        erros.append("Repetidos: " + ", ".join(repetidos))
-
-    if atletas_validos:
-        validos = {str(x).strip() for x in atletas_validos}
-        invalidos = [x for x in preenchidos if x not in validos]
-        if invalidos:
-            erros.append("Inválidos: " + ", ".join(invalidos))
-
-    return {"ok": not erros, "erros": erros}
+# Regras puras extraídas para um módulo único de rotação.
+from rules.rotacao import (
+    normalizar_rotacao as _normalizar_rotacao_oficial,
+    tem_seis_atletas_validos as _rotacao_tem_6_validos,
+    rotacao_valida_ou_vazia as _rotacao_valida_ou_padrao,
+    girar_rotacao as girar_rotacao_oficial,
+    validar_rotacao as validar_rotacao_oficial,
+)
+from services.apontadores.rotacao import transicao_por_ponto as _transicao_rotacao_por_ponto
 
 
 # ------------------------------
@@ -6385,23 +2834,20 @@ def aplicar_rotacao_por_ponto(partida_id, competicao, equipe_ponto):
                 or ""
             ).strip().upper()
 
-            rotacao_a_antes = list(rotacao_a)
-            rotacao_b_antes = list(rotacao_b)
-
-            girou = False
-            equipe_girou = ""
-
-            # 🔥 REGRA OFICIAL
-            if saque_antes != equipe_ponto:
-                girou = True
-                equipe_girou = equipe_ponto
-
-                if equipe_ponto == "A":
-                    rotacao_a = girar_rotacao_oficial(rotacao_a)
-                else:
-                    rotacao_b = girar_rotacao_oficial(rotacao_b)
-
-            saque_depois = equipe_ponto
+            transicao = _transicao_rotacao_por_ponto(
+                partida={**dict(partida), "saque_atual": saque_antes},
+                rotacao_a=rotacao_a,
+                rotacao_b=rotacao_b,
+                equipe_pontuadora=equipe_ponto,
+            )
+            rotacao_a_antes = transicao["rotacao_a_antes"]
+            rotacao_b_antes = transicao["rotacao_b_antes"]
+            rotacao_a = transicao["rotacao_a"]
+            rotacao_b = transicao["rotacao_b"]
+            girou = transicao["girou"]
+            equipe_girou = transicao["equipe_girou"]
+            saque_antes = transicao["saque_antes"]
+            saque_depois = transicao["saque_depois"]
 
             cur.execute("""
                 UPDATE partidas
@@ -6460,60 +2906,11 @@ def aplicar_rotacao_por_ponto(partida_id, competicao, equipe_ponto):
 # =========================================================
 # OFICIAIS (ÁRBITROS E APONTADORES)
 # =========================================================
-def criar_tabelas_oficiais():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS oficiais (
-                id SERIAL PRIMARY KEY,
-                nome TEXT NOT NULL,
-                cpf TEXT UNIQUE NOT NULL,
-                criado_em TIMESTAMP DEFAULT NOW()
-            )
-            """)
-
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS apontadores_acesso (
-                id SERIAL PRIMARY KEY,
-                cpf TEXT UNIQUE NOT NULL,
-                senha TEXT,
-                ativo BOOLEAN DEFAULT TRUE,
-                primeiro_acesso BOOLEAN DEFAULT TRUE
-            )
-            """)
-
-            cur.execute("""
-            CREATE TABLE IF NOT EXISTS competicao_oficiais (
-                id SERIAL PRIMARY KEY,
-                competicao TEXT NOT NULL,
-                cpf TEXT NOT NULL,
-                funcao TEXT NOT NULL,
-                criado_em TIMESTAMP DEFAULT NOW()
-            )
-            """)
-
-            cur.execute("""
-                ALTER TABLE apontadores_acesso
-                ADD COLUMN IF NOT EXISTS primeiro_acesso BOOLEAN DEFAULT TRUE
-            """)
-
-        conn.commit()
 
 
 # =========================================================
 # OFICIAIS - BUSCA E CADASTRO
 # =========================================================
-def buscar_oficial_por_cpf(cpf):
-    cpf_limpo = somente_digitos(cpf)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT *
-                FROM oficiais
-                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
-                LIMIT 1
-            """, (cpf_limpo,))
-            return cur.fetchone()
 
 
 def oficial_existe(cpf):
@@ -6528,17 +2925,6 @@ def oficial_existe(cpf):
             return cur.fetchone() is not None
 
 
-def cadastrar_oficial(nome, cpf):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO oficiais (nome, cpf)
-                VALUES (%s, %s)
-                ON CONFLICT (cpf) DO NOTHING
-            """, (nome, cpf))
-        conn.commit()
-
-    return True
 
 
 # =========================================================
@@ -6557,54 +2943,10 @@ def apontador_existe(cpf):
             return cur.fetchone() is not None
 
 
-def criar_apontador(cpf):
-    cpf_limpo = somente_digitos(cpf)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id
-                FROM apontadores_acesso
-                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
-                LIMIT 1
-            """, (cpf_limpo,))
-            existente = cur.fetchone()
-
-            if not existente:
-                cur.execute("""
-                    INSERT INTO apontadores_acesso (cpf, senha, ativo, primeiro_acesso)
-                    VALUES (%s, NULL, TRUE, TRUE)
-                    ON CONFLICT (cpf) DO NOTHING
-                """, (cpf_limpo,))
-        conn.commit()
-
-    return True
 
 
-def buscar_apontador(cpf):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT a.*, o.nome
-                FROM apontadores_acesso a
-                LEFT JOIN oficiais o ON o.cpf = a.cpf
-                WHERE a.cpf = %s
-                LIMIT 1
-            """, (cpf,))
-            return cur.fetchone()
 
 
-def definir_senha_apontador(cpf, senha):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE apontadores_acesso
-                SET senha = %s,
-                    primeiro_acesso = FALSE
-                WHERE cpf = %s
-            """, (senha, cpf))
-        conn.commit()
-
-    return True
 
 
 def atualizar_status_apontador(cpf, ativo):
@@ -6620,70 +2962,13 @@ def atualizar_status_apontador(cpf, ativo):
     return True
 
 
-def autenticar_apontador(cpf, senha):
-    apontador = buscar_apontador(cpf)
-
-    if not apontador:
-        return None
-
-    if not apontador.get("ativo", True):
-        return None
-
-    senha_salva = apontador.get("senha")
-
-    if not senha_salva:
-        return apontador
-
-    if senha_salva != senha:
-        return False
-
-    return apontador
 
 
 # =========================================================
 # VÍNCULO COM COMPETIÇÃO
 # =========================================================
-def vincular_oficial_competicao(competicao, cpf, funcao):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id
-                FROM competicao_oficiais
-                WHERE TRIM(LOWER(competicao)) = TRIM(LOWER(%s))
-                  AND TRIM(cpf) = TRIM(%s)
-                  AND TRIM(LOWER(funcao)) = TRIM(LOWER(%s))
-                LIMIT 1
-            """, (competicao, cpf, funcao))
-            existente = cur.fetchone()
-
-            if existente:
-                return True
-
-            cur.execute("""
-                INSERT INTO competicao_oficiais (competicao, cpf, funcao)
-                VALUES (%s, %s, %s)
-            """, (competicao, cpf, funcao))
-        conn.commit()
-
-    return True
 
 
-def listar_oficiais_competicao(competicao):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    c.id,
-                    c.competicao,
-                    c.cpf,
-                    c.funcao,
-                    o.nome
-                FROM competicao_oficiais c
-                JOIN oficiais o ON o.cpf = c.cpf
-                WHERE c.competicao = %s
-                ORDER BY c.funcao, o.nome
-            """, (competicao,))
-            return cur.fetchall()
 
 
 def excluir_oficial_competicao(id_vinculo):
@@ -6720,102 +3005,20 @@ def remover_apontador_da_competicao(cpf, competicao):
     return True
 
 
-def excluir_apontador_global(cpf):
-    """
-    Superadmin: exclui o apontador do sistema inteiro.
-    Mantém partidas, eventos e placares históricos intactos.
-    """
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM competicao_oficiais
-                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') =
-                      REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')
-                  AND TRIM(LOWER(funcao)) = 'apontador'
-            """, (cpf,))
-
-            cur.execute("""
-                DELETE FROM apontadores_acesso
-                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') =
-                      REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')
-            """, (cpf,))
-
-            cur.execute("""
-                DELETE FROM oficiais o
-                WHERE REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') =
-                      REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM competicao_oficiais c
-                      WHERE REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g') =
-                            REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g')
-                  )
-            """, (cpf,))
-        conn.commit()
-
-    return True
 # APONTADOR - COMPETIÇÕES ATIVAS
 # =========================================================
 # =========================================================
 # APONTADOR - COMPETIÇÕES ATIVAS
 # =========================================================
-def listar_competicoes_apontador(cpf):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT DISTINCT
-                    c.competicao,
-                    comp.data,
-                    comp.status
-                FROM competicao_oficiais c
-                LEFT JOIN competicoes comp
-                    ON TRIM(LOWER(comp.nome)) = TRIM(LOWER(c.competicao))
-                WHERE REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g')
-                      = REGEXP_REPLACE(COALESCE(%s, ''), '\\D', '', 'g')
-                  AND TRIM(LOWER(c.funcao)) = 'apontador'
-                ORDER BY c.competicao
-            """, (cpf,))
-            return cur.fetchall()
             
 
 # =========================================================
 # CONFIGURAÇÃO AVANÇADA DA COMPETIÇÃO
 # =========================================================
 def buscar_configuracao_avancada_competicao(nome_competicao):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    nome,
-                    tipo_classificacao,
-                    qtd_classificados,
-                    formato_finais,
-                    possui_bye,
-                    qtd_bye,
-                    fases_config,
-                    tipo_confronto,
-                    cruzamentos_grupos,
-                    data_limite_inscricao,
-                    hora_limite_inscricao,
-                    bloquear_apos_inicio
-                FROM competicoes
-                WHERE nome = %s
-                LIMIT 1
-            """, (nome_competicao,))
-            row = cur.fetchone()
+    from services.competicoes.configuracao import buscar_configuracao_avancada
+    return buscar_configuracao_avancada(nome_competicao)
 
-    if not row:
-        return None
-
-    fases_config = row.get("fases_config")
-    if isinstance(fases_config, str):
-        try:
-            fases_config = json.loads(fases_config)
-        except Exception:
-            fases_config = {}
-
-    row["fases_config"] = fases_config or {}
-    return row
 
 
 def atualizar_configuracao_avancada_competicao(
@@ -6832,108 +3035,28 @@ def atualizar_configuracao_avancada_competicao(
     hora_limite_inscricao=None,
     bloquear_apos_inicio=False,
 ):
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração de formato")
-    if not ok_edicao:
-        return False
+    from services.competicoes.configuracao import atualizar_configuracao_avancada
+    return atualizar_configuracao_avancada(
+        nome_competicao,
+        tipo_classificacao=tipo_classificacao,
+        qtd_classificados=qtd_classificados,
+        formato_finais=formato_finais,
+        possui_bye=possui_bye,
+        qtd_bye=qtd_bye,
+        fases_config=fases_config,
+        tipo_confronto=tipo_confronto,
+        cruzamentos_grupos=cruzamentos_grupos,
+        data_limite_inscricao=data_limite_inscricao,
+        hora_limite_inscricao=hora_limite_inscricao,
+        bloquear_apos_inicio=bloquear_apos_inicio,
+    )
 
-    if not isinstance(fases_config, str):
-        fases_config = json.dumps(fases_config or {}, ensure_ascii=False)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE competicoes
-                SET
-                    tipo_classificacao = %s,
-                    qtd_classificados = %s,
-                    formato_finais = %s,
-                    possui_bye = %s,
-                    qtd_bye = %s,
-                    fases_config = %s::jsonb,
-                    tipo_confronto = %s,
-                    cruzamentos_grupos = %s,
-                    data_limite_inscricao = %s,
-                    hora_limite_inscricao = %s,
-                    bloquear_apos_inicio = %s
-                WHERE nome = %s
-            """, (
-                tipo_classificacao,
-                qtd_classificados,
-                formato_finais,
-                possui_bye,
-                qtd_bye,
-                fases_config,
-                tipo_confronto,
-                cruzamentos_grupos,
-                data_limite_inscricao,
-                hora_limite_inscricao,
-                bloquear_apos_inicio,
-                nome_competicao,
-            ))
-        conn.commit()
-
-    return True
 
 
 def inicializar_configuracao_avancada_competicao(nome_competicao):
-    config = buscar_configuracao_avancada_competicao(nome_competicao)
-    if not config:
-        return False
+    from services.competicoes.configuracao import inicializar_configuracao_avancada
+    return inicializar_configuracao_avancada(nome_competicao)
 
-    fases_config = config.get("fases_config") or {}
-    if fases_config:
-        return True
-
-    fases_padrao = {
-        "tipo_confronto": config.get("tipo_confronto") or "grupo_interno",
-        "tipo_classificacao": config.get("tipo_classificacao") or "grupo",
-        "cruzamentos_grupos": config.get("cruzamentos_grupos") or "",
-        "grupos": {
-            "tipo_jogo": "set_unico",
-            "pontos": 25,
-            "tem_tiebreak": False,
-            "pontos_tiebreak": 15
-        },
-        "grupos_especificos": {
-            "A": {"tipo_jogo": "", "pontos": ""},
-            "B": {"tipo_jogo": "", "pontos": ""},
-            "C": {"tipo_jogo": "", "pontos": ""},
-            "D": {"tipo_jogo": "", "pontos": ""},
-        },
-        "quartas": {
-            "tipo_jogo": "melhor_de_3",
-            "pontos": 21,
-            "tem_tiebreak": True,
-            "pontos_tiebreak": 15
-        },
-        "semifinal": {
-            "tipo_jogo": "melhor_de_3",
-            "pontos": 21,
-            "tem_tiebreak": True,
-            "pontos_tiebreak": 15
-        },
-        "final": {
-            "tipo_jogo": "melhor_de_3",
-            "pontos": 25,
-            "tem_tiebreak": True,
-            "pontos_tiebreak": 15
-        }
-    }
-
-    return atualizar_configuracao_avancada_competicao(
-        nome_competicao=nome_competicao,
-        tipo_classificacao=config.get("tipo_classificacao") or "grupo",
-        qtd_classificados=config.get("qtd_classificados") or 0,
-        formato_finais=config.get("formato_finais") or "mata_mata",
-        possui_bye=config.get("possui_bye") or False,
-        qtd_bye=config.get("qtd_bye") or 0,
-        fases_config=fases_padrao,
-        tipo_confronto=config.get("tipo_confronto") or "grupo_interno",
-        cruzamentos_grupos=config.get("cruzamentos_grupos") or "",
-        data_limite_inscricao=config.get("data_limite_inscricao"),
-        hora_limite_inscricao=config.get("hora_limite_inscricao"),
-        bloquear_apos_inicio=config.get("bloquear_apos_inicio") or False,
-    )
 
 
 
@@ -6947,11 +3070,8 @@ def criar_tabela_competicao_agenda_config(force=False):
     Mantida fora da tabela competicoes para não quebrar bancos antigos e para
     permitir evoluir a geração automática sem alterar a estrutura principal da competição.
     """
-    try:
-        if _schema_ja_pronto("tabela_competicao_agenda_config", force=force):
-            return
-    except Exception:
-        pass
+    if _schema_ja_pronto("tabela_competicao_agenda_config", force=force):
+        return
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -6994,82 +3114,21 @@ def criar_tabela_competicao_agenda_config(force=False):
 
 
 def _agenda_config_padrao():
-    return {
-        "modo_distribuicao": "automatico_inteligente",
-        "descanso_minimo_jogos": 1,
-        "rodizio_grupos": "por_rodada",
-        "permitir_relaxar_descanso": True,
-        "grupos_compartilhados": {},
-        "quadras_compartilhadas": [],
-        "usar_rodadas_programadas": False,
-        "uma_partida_por_equipe_rodada": True,
-    }
+    from rules.competicoes_config import configuracao_agenda_padrao
+    return configuracao_agenda_padrao()
+
 
 
 def _normalizar_json_config_agenda(valor, padrao):
-    if valor in (None, ""):
-        return padrao
-    if isinstance(valor, (dict, list)):
-        return valor
-    try:
-        return json.loads(valor)
-    except Exception:
-        return padrao
+    from rules.competicoes_config import normalizar_json_config
+    return normalizar_json_config(valor, padrao)
+
 
 
 def buscar_configuracao_agenda_competicao(nome_competicao):
-    criar_tabela_competicao_agenda_config()
-    nome_competicao = (nome_competicao or "").strip()
-    if not nome_competicao:
-        return _agenda_config_padrao()
+    from services.competicoes.configuracao import buscar_configuracao_agenda
+    return buscar_configuracao_agenda(nome_competicao)
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    modo_distribuicao,
-                    descanso_minimo_jogos,
-                    rodizio_grupos,
-                    permitir_relaxar_descanso,
-                    grupos_compartilhados_json,
-                    quadras_compartilhadas_json,
-                    usar_rodadas_programadas,
-                    uma_partida_por_equipe_rodada
-                FROM competicao_agenda_config
-                WHERE competicao = %s
-                LIMIT 1
-            """, (nome_competicao,))
-            row = cur.fetchone()
-
-    config = _agenda_config_padrao()
-    if not row:
-        return config
-
-    modo = str(row.get("modo_distribuicao") or config["modo_distribuicao"]).strip().lower()
-    if modo not in {"grupo_fixo", "quadras_compartilhadas", "automatico_inteligente"}:
-        modo = "automatico_inteligente"
-
-    rodizio = str(row.get("rodizio_grupos") or config["rodizio_grupos"]).strip().lower()
-    if rodizio not in {"por_rodada", "alternado_inteligente", "por_grupo_inteiro"}:
-        rodizio = "por_rodada"
-
-    try:
-        descanso = int(row.get("descanso_minimo_jogos") or 1)
-    except (TypeError, ValueError):
-        descanso = 1
-    descanso = max(0, min(descanso, 5))
-
-    config.update({
-        "modo_distribuicao": modo,
-        "descanso_minimo_jogos": descanso,
-        "rodizio_grupos": rodizio,
-        "permitir_relaxar_descanso": bool(row.get("permitir_relaxar_descanso")),
-        "grupos_compartilhados": _normalizar_json_config_agenda(row.get("grupos_compartilhados_json"), {}),
-        "quadras_compartilhadas": _normalizar_json_config_agenda(row.get("quadras_compartilhadas_json"), []),
-        "usar_rodadas_programadas": bool(row.get("usar_rodadas_programadas")),
-        "uma_partida_por_equipe_rodada": bool(row.get("uma_partida_por_equipe_rodada", True)),
-    })
-    return config
 
 
 def atualizar_configuracao_agenda_competicao(
@@ -7083,81 +3142,25 @@ def atualizar_configuracao_agenda_competicao(
     usar_rodadas_programadas=False,
     uma_partida_por_equipe_rodada=True,
 ):
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração da agenda automática")
-    if not ok_edicao:
-        return False
+    from services.competicoes.configuracao import atualizar_configuracao_agenda
+    return atualizar_configuracao_agenda(
+        nome_competicao,
+        modo_distribuicao=modo_distribuicao,
+        descanso_minimo_jogos=descanso_minimo_jogos,
+        rodizio_grupos=rodizio_grupos,
+        permitir_relaxar_descanso=permitir_relaxar_descanso,
+        grupos_compartilhados=grupos_compartilhados,
+        quadras_compartilhadas=quadras_compartilhadas,
+        usar_rodadas_programadas=usar_rodadas_programadas,
+        uma_partida_por_equipe_rodada=uma_partida_por_equipe_rodada,
+    )
 
-    criar_tabela_competicao_agenda_config()
-
-    modo = str(modo_distribuicao or "automatico_inteligente").strip().lower()
-    if modo not in {"grupo_fixo", "quadras_compartilhadas", "automatico_inteligente"}:
-        modo = "automatico_inteligente"
-
-    rodizio = str(rodizio_grupos or "por_rodada").strip().lower()
-    if rodizio not in {"por_rodada", "alternado_inteligente", "por_grupo_inteiro"}:
-        rodizio = "por_rodada"
-
-    try:
-        descanso = int(descanso_minimo_jogos or 1)
-    except (TypeError, ValueError):
-        descanso = 1
-    descanso = max(0, min(descanso, 5))
-
-    grupos_json = json.dumps(grupos_compartilhados or {}, ensure_ascii=False)
-    quadras_json = json.dumps(quadras_compartilhadas or [], ensure_ascii=False)
-    usar_rodadas_programadas = bool(usar_rodadas_programadas)
-    uma_partida_por_equipe_rodada = bool(uma_partida_por_equipe_rodada)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO competicao_agenda_config (
-                    competicao,
-                    modo_distribuicao,
-                    descanso_minimo_jogos,
-                    rodizio_grupos,
-                    permitir_relaxar_descanso,
-                    grupos_compartilhados_json,
-                    quadras_compartilhadas_json,
-                    usar_rodadas_programadas,
-                    uma_partida_por_equipe_rodada,
-                    atualizado_em
-                )
-                VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, NOW())
-                ON CONFLICT (competicao)
-                DO UPDATE SET
-                    modo_distribuicao = EXCLUDED.modo_distribuicao,
-                    descanso_minimo_jogos = EXCLUDED.descanso_minimo_jogos,
-                    rodizio_grupos = EXCLUDED.rodizio_grupos,
-                    permitir_relaxar_descanso = EXCLUDED.permitir_relaxar_descanso,
-                    grupos_compartilhados_json = EXCLUDED.grupos_compartilhados_json,
-                    quadras_compartilhadas_json = EXCLUDED.quadras_compartilhadas_json,
-                    usar_rodadas_programadas = EXCLUDED.usar_rodadas_programadas,
-                    uma_partida_por_equipe_rodada = EXCLUDED.uma_partida_por_equipe_rodada,
-                    atualizado_em = NOW()
-            """, (
-                nome_competicao,
-                modo,
-                descanso,
-                rodizio,
-                bool(permitir_relaxar_descanso),
-                grupos_json,
-                quadras_json,
-                usar_rodadas_programadas,
-                uma_partida_por_equipe_rodada,
-            ))
-        conn.commit()
-
-    return True
 
 
 def inicializar_configuracao_agenda_competicao(nome_competicao):
-    criar_tabela_competicao_agenda_config()
-    if buscar_configuracao_agenda_competicao(nome_competicao):
-        # buscar_configuracao já retorna padrão quando não existe; garante UPSERT real.
-        cfg = buscar_configuracao_agenda_competicao(nome_competicao)
-        return atualizar_configuracao_agenda_competicao(nome_competicao, **cfg)
-    return False
+    from services.competicoes.configuracao import inicializar_configuracao_agenda
+    return inicializar_configuracao_agenda(nome_competicao)
+
 
 
 
@@ -7165,164 +3168,9 @@ def inicializar_configuracao_agenda_competicao(nome_competicao):
 # =========================================================
 # RODADAS PROGRAMADAS DA COMPETIÇÃO
 # =========================================================
-def criar_tabela_competicao_rodadas(force=False):
-    try:
-        if _schema_ja_pronto("tabela_competicao_rodadas", force=force):
-            return
-    except Exception:
-        pass
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS competicao_rodadas (
-                    id SERIAL PRIMARY KEY,
-                    competicao TEXT NOT NULL,
-                    tipo_fase TEXT NOT NULL DEFAULT 'classificatoria',
-                    fase TEXT NOT NULL DEFAULT 'grupos',
-                    serie TEXT DEFAULT '',
-                    numero_rodada INTEGER NOT NULL DEFAULT 1,
-                    nome TEXT DEFAULT '',
-                    data TEXT DEFAULT '',
-                    hora TEXT DEFAULT '',
-                    data_hora TEXT DEFAULT '',
-                    ativo BOOLEAN DEFAULT TRUE,
-                    atualizado_em TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            cur.execute("""
-                ALTER TABLE competicao_rodadas
-                ADD COLUMN IF NOT EXISTS competicao TEXT,
-                ADD COLUMN IF NOT EXISTS tipo_fase TEXT DEFAULT 'classificatoria',
-                ADD COLUMN IF NOT EXISTS fase TEXT DEFAULT 'grupos',
-                ADD COLUMN IF NOT EXISTS serie TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS numero_rodada INTEGER DEFAULT 1,
-                ADD COLUMN IF NOT EXISTS nome TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS data TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS hora TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS data_hora TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE,
-                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW()
-            """)
-            cur.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_competicao_rodadas_chave
-                ON competicao_rodadas (competicao, tipo_fase, fase, COALESCE(serie, ''), numero_rodada)
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_competicao_rodadas_competicao
-                ON competicao_rodadas (competicao, tipo_fase, fase, serie, numero_rodada)
-            """)
-        conn.commit()
-
-    _CACHE_COLUNAS.pop("competicao_rodadas", None)
-    try:
-        _marcar_schema_pronto("tabela_competicao_rodadas")
-    except Exception:
-        pass
-
-
-def _combinar_data_hora_rodada(data, hora):
-    data = str(data or "").strip()
-    hora = str(hora or "").strip()
-    if not data:
-        return ""
-    if hora:
-        return f"{data}T{hora}"
-    return data
-
-
-def listar_rodadas_competicao(nome_competicao):
-    criar_tabela_competicao_rodadas()
-    nome_competicao = str(nome_competicao or "").strip()
-    if not nome_competicao:
-        return []
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT *
-                FROM competicao_rodadas
-                WHERE competicao = %s
-                ORDER BY
-                    CASE WHEN tipo_fase = 'classificatoria' THEN 0 ELSE 1 END,
-                    fase, serie, numero_rodada, id
-            """, (nome_competicao,))
-            return cur.fetchall() or []
-
-
-def salvar_rodadas_competicao(nome_competicao, rodadas):
-    ok_edicao, _ = validar_competicao_editavel(nome_competicao, "alteração das rodadas programadas")
-    if not ok_edicao:
-        return False
-    criar_tabela_competicao_rodadas()
-    nome_competicao = str(nome_competicao or "").strip()
-    if not nome_competicao:
-        return False
-
-    linhas = []
-    for r in rodadas or []:
-        if not isinstance(r, dict):
-            continue
-        try:
-            numero = int(r.get("numero_rodada") or r.get("numero") or 1)
-        except Exception:
-            numero = 1
-        numero = max(1, numero)
-        tipo_fase = str(r.get("tipo_fase") or "classificatoria").strip().lower()
-        if tipo_fase not in {"classificatoria", "avanco"}:
-            tipo_fase = "classificatoria"
-        fase = str(r.get("fase") or ("grupos" if tipo_fase == "classificatoria" else "avanco")).strip().lower()
-        serie = str(r.get("serie") or "").strip().lower()
-        nome = str(r.get("nome") or (f"Rodada {numero}" if tipo_fase == "classificatoria" else fase.title())).strip()
-        data = str(r.get("data") or "").strip()
-        hora = str(r.get("hora") or "").strip()
-        linhas.append((nome_competicao, tipo_fase, fase, serie, numero, nome, data, hora, _combinar_data_hora_rodada(data, hora), bool(r.get("ativo", True))))
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM competicao_rodadas WHERE competicao = %s", (nome_competicao,))
-            if linhas:
-                cur.executemany("""
-                    INSERT INTO competicao_rodadas
-                        (competicao, tipo_fase, fase, serie, numero_rodada, nome, data, hora, data_hora, ativo, atualizado_em)
-                    VALUES
-                        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                """, linhas)
-        conn.commit()
-    return True
-
-
-def mapa_rodadas_competicao(nome_competicao):
-    mapa = {}
-    for r in listar_rodadas_competicao(nome_competicao):
-        chave = (
-            str(r.get("tipo_fase") or "").strip().lower(),
-            str(r.get("fase") or "").strip().lower(),
-            str(r.get("serie") or "").strip().lower(),
-            int(r.get("numero_rodada") or 1),
-        )
-        mapa[chave] = r
-    return mapa
-
-
-def buscar_data_hora_rodada_programada(nome_competicao, tipo_fase="classificatoria", fase="grupos", serie="", numero_rodada=1):
-    try:
-        numero = int(numero_rodada or 1)
-    except Exception:
-        numero = 1
-    tipo_fase = str(tipo_fase or "classificatoria").strip().lower()
-    fase = str(fase or "grupos").strip().lower()
-    serie = str(serie or "").strip().lower()
-    for r in listar_rodadas_competicao(nome_competicao):
-        if str(r.get("tipo_fase") or "").strip().lower() != tipo_fase:
-            continue
-        if str(r.get("fase") or "").strip().lower() != fase:
-            continue
-        if str(r.get("serie") or "").strip().lower() != serie:
-            continue
-        if int(r.get("numero_rodada") or 1) != numero:
-            continue
-        return str(r.get("data_hora") or "").strip() or None
-    return None
+# Implementação removida deste ponto: as fachadas oficiais ficam no bloco
+# "FASE 2 / SPRINT 14" ao final do arquivo e delegam para
+# services.competicoes.rodadas. Isso evita DDL e consultas duplicadas.
 
 # =========================================================
 # ATLETAS - NUMERAÇÃO E PRAZO
@@ -7461,43 +3309,6 @@ def aplicar_capitaes_padrao_partida(partida_id, competicao):
     return buscar_partida_operacional(partida_id, competicao)
 
 
-def atualizar_numero_atleta(id_atleta, numero):
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, equipe, competicao, status
-                FROM atletas
-                WHERE id = %s
-                LIMIT 1
-            """, (id_atleta,))
-            atleta = cur.fetchone()
-
-            if not atleta or atleta.get("status") != "aprovado":
-                return False, "Somente atletas aprovados podem receber numeração."
-
-            # A numeração da equipe NÃO pode ser bloqueada pelo prazo de inscrição.
-            # O prazo continua bloqueando cadastro/edição/exclusão de atletas,
-            # mas a camisa/número precisa poder ser ajustada a qualquer momento do torneio.
-            if numero not in (None, ""):
-                try:
-                    numero = int(numero)
-                except ValueError:
-                    return False, "Número inválido."
-
-                if not numero_atleta_disponivel(numero, atleta["equipe"], atleta["competicao"], id_atleta=id_atleta):
-                    return False, "Já existe outro atleta com essa numeração nesta equipe."
-            else:
-                numero = None
-
-            cur.execute("""
-                UPDATE atletas
-                SET numero = %s
-                WHERE id = %s
-            """, (numero, id_atleta))
-
-        conn.commit()
-
-    return True, "Numeração atualizada com sucesso."
 
 
 def competicao_tem_partida_iniciada(nome_competicao):
@@ -9143,40 +4954,53 @@ def _placar_operacional_para_cadastro_partida(partida, pontos_a_operacional, pon
 
 
 def registrar_resultado_set(partida_id, competicao, vencedor):
-    criar_campos_sets_partida()
-    criar_campos_jogo_partida()
+    """Consolida o fim do set em uma única transação curta.
 
+    O schema deve estar pronto antes do Gunicorn iniciar. Esta rotina não
+    executa DDL, não recalcula o fluxo em outra conexão e não dispara avanço
+    de chaveamento de forma síncrona.
+    """
+    campos_partida = """
+        id, competicao, equipe_a, equipe_b,
+        equipe_a_operacional, equipe_b_operacional,
+        lado_esquerdo, saque_inicial, saque_atual,
+        sets_tipo, sets_max, sets_para_vencer,
+        sets_a, sets_b, set_atual, origem,
+        tiebreak_definido, saque_tiebreak, lado_esquerdo_tiebreak
+    """
+
+    acabou = False
     with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT *
-                FROM partidas
-                WHERE id = %s
-                  AND competicao = %s
-                LIMIT 1
-            """, (partida_id, competicao))
-            partida = cur.fetchone()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT {campos_partida}
+                    FROM partidas
+                    WHERE id = %s
+                      AND competicao = %s
+                    FOR UPDATE
+                """, (partida_id, competicao))
+                partida = cur.fetchone()
 
-            if not partida:
-                return False, "Partida não encontrada."
+                if not partida:
+                    conn.rollback()
+                    return False, "Partida não encontrada."
 
-            formato, sets_max, sets_para_vencer = _sets_config_partida_seguro(partida, competicao)
+                formato, sets_max, sets_para_vencer = _sets_config_partida_seguro(partida, competicao)
+                sets_a = int(partida.get("sets_a") or 0)
+                sets_b = int(partida.get("sets_b") or 0)
+                set_atual = int(partida.get("set_atual") or 1)
 
-            sets_a = int(partida.get("sets_a") or 0)
-            sets_b = int(partida.get("sets_b") or 0)
-            set_atual = int(partida.get("set_atual") or 1)
+                vencedor_operacional = str(vencedor or "").strip().upper()
+                vencedor_cadastro = _lado_cadastro_por_lado_operacional_partida(partida, vencedor_operacional)
+                if vencedor_cadastro == "A":
+                    sets_a += 1
+                elif vencedor_cadastro == "B":
+                    sets_b += 1
+                else:
+                    conn.rollback()
+                    return False, "Vencedor inválido."
 
-            vencedor_operacional = str(vencedor or "").strip().upper()
-            vencedor_cadastro = _lado_cadastro_por_lado_operacional_partida(partida, vencedor_operacional)
-
-            if vencedor_cadastro == "A":
-                sets_a += 1
-            elif vencedor_cadastro == "B":
-                sets_b += 1
-            else:
-                return False, "Vencedor inválido."
-
-            try:
                 vencedor_nome = (partida.get("equipe_a") if vencedor_cadastro == "A" else partida.get("equipe_b")) or ""
                 detalhes_fim_set = {
                     "tipo": "fim_set",
@@ -9184,8 +5008,8 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
                     "vencedor_operacional": vencedor_operacional,
                     "vencedor_cadastro": vencedor_cadastro,
                     "vencedor_nome": vencedor_nome,
-                    "sets_a": int(sets_a or 0),
-                    "sets_b": int(sets_b or 0),
+                    "sets_a": sets_a,
+                    "sets_b": sets_b,
                     "equipe_a_cadastro": partida.get("equipe_a") or "",
                     "equipe_b_cadastro": partida.get("equipe_b") or "",
                     "equipe_a_operacional": partida.get("equipe_a_operacional") or partida.get("equipe_a") or "",
@@ -9196,141 +5020,74 @@ def registrar_resultado_set(partida_id, competicao, vencedor):
                         partida_id, competicao, set_numero, equipe,
                         tipo, tipo_evento, fundamento, resultado, detalhe,
                         atleta_id, atleta_nome, numero, detalhes
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     partida_id, competicao, set_atual, vencedor_cadastro,
                     "fim_set", "fim_set", "fim_set", "fim_set",
                     f"Fim do set {set_atual}: {vencedor_nome}",
                     None, str(vencedor_nome or ""), None,
-                    json.dumps(detalhes_fim_set, ensure_ascii=False),
+                    json.dumps(enriquecer_detalhes_auditoria(detalhes_fim_set), ensure_ascii=False),
                 ))
-            except Exception as e:
-                print("AVISO nao gravou evento fim_set manual:", repr(e), flush=True)
 
-            # Partida só acaba quando alguém atinge a quantidade de sets necessária.
-            # Não finalize apenas porque terminou um set ou porque set_atual chegou ao limite.
-            acabou = max(sets_a, sets_b) >= sets_para_vencer
-
-            if acabou:
-                cur.execute("""
-                    UPDATE partidas
-                    SET sets_a = %s,
-                        sets_b = %s,
-                        sets_max = %s,
-                        sets_para_vencer = %s,
-                        fase_partida = 'encerrado',
-                        status = 'finalizada',
-                        status_jogo = 'finalizada',
-                        status_operacao = 'finalizada',
-                        tiebreak_pendente = FALSE
-                    WHERE id = %s
-                      AND competicao = %s
-                """, (sets_a, sets_b, sets_max, sets_para_vencer, partida_id, competicao))
-            else:
-                proximo_set = set_atual + 1
-                precisa_tiebreak = set_eh_tiebreak(formato, proximo_set)
-
-                config_proximo_set = _configuracao_operacional_set(partida, formato=formato, set_numero=proximo_set)
-
-                if precisa_tiebreak:
+                acabou = max(sets_a, sets_b) >= sets_para_vencer
+                if acabou:
                     cur.execute("""
                         UPDATE partidas
-                        SET sets_a = %s,
-                            sets_b = %s,
-                            set_atual = %s,
-                            pontos_a = 0,
-                            pontos_b = 0,
-                            saque_atual = NULL,
-                            rotacao_a = NULL,
-                            rotacao_b = NULL,
-                            rotacao_a_json = NULL,
-                            rotacao_b_json = NULL,
-                            sets_max = %s,
-                            sets_para_vencer = %s,
-                            fase_partida = 'tiebreak_sorteio',
-                            status_jogo = 'tiebreak_sorteio',
-                            status_operacao = 'tiebreak_sorteio',
-                            tiebreak_pendente = TRUE,
-                            tiebreak_definido = FALSE,
-                            sorteio_tiebreak_vencedor = NULL,
-                            sorteio_tiebreak_escolha = NULL,
-                            saque_tiebreak = NULL,
-                            lado_esquerdo_tiebreak = NULL
-                        WHERE id = %s
-                          AND competicao = %s
-                    """, (sets_a, sets_b, proximo_set, sets_max, sets_para_vencer, partida_id, competicao))
+                        SET sets_a=%s, sets_b=%s, sets_max=%s, sets_para_vencer=%s,
+                            fase_partida='encerrado', status='finalizada',
+                            status_jogo='finalizada', status_operacao='finalizada',
+                            tiebreak_pendente=FALSE
+                        WHERE id=%s AND competicao=%s
+                    """, (sets_a, sets_b, sets_max, sets_para_vencer, partida_id, competicao))
                 else:
-                    cur.execute("""
-                        UPDATE partidas
-                        SET sets_a = %s,
-                            sets_b = %s,
-                            set_atual = %s,
-                            pontos_a = 0,
-                            pontos_b = 0,
-                            saque_atual = %s,
-                            equipe_a_operacional = %s,
-                            equipe_b_operacional = %s,
-                            rotacao_a = NULL,
-                            rotacao_b = NULL,
-                            rotacao_a_json = NULL,
-                            rotacao_b_json = NULL,
-                            sets_max = %s,
-                            sets_para_vencer = %s,
-                            fase_partida = 'intervalo_set',
-                            status_jogo = 'entre_sets',
-                            status_operacao = 'papeleta',
-                            tiebreak_pendente = FALSE
-                        WHERE id = %s
-                          AND competicao = %s
-                    """, (
-                        sets_a,
-                        sets_b,
-                        proximo_set,
-                        config_proximo_set.get("saque_atual"),
-                        config_proximo_set.get("equipe_a_operacional"),
-                        config_proximo_set.get("equipe_b_operacional"),
-                        sets_max,
-                        sets_para_vencer,
-                        partida_id,
-                        competicao,
-                    ))
-
-        conn.commit()
-
-    sincronizar_status_competicao(competicao)
-    partida_atualizada = buscar_partida_operacional(partida_id, competicao)
-    fluxo = resumir_fluxo_oficial_partida(partida_id, competicao, partida=partida_atualizada)
-    if fluxo:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE partidas
-                    SET fase_partida = %s,
-                        sets_max = %s,
-                        sets_para_vencer = %s
-                    WHERE id = %s
-                      AND competicao = %s
-                """, (
-                    fluxo["fase_partida"],
-                    fluxo["sets_max"],
-                    fluxo["sets_para_vencer"],
-                    partida_id,
-                    competicao,
-                ))
+                    proximo_set = set_atual + 1
+                    proximo_eh_tiebreak = set_eh_tiebreak(formato, proximo_set)
+                    config = _configuracao_operacional_set(partida, formato=formato, set_numero=proximo_set)
+                    if proximo_eh_tiebreak:
+                        cur.execute("""
+                            UPDATE partidas
+                            SET sets_a=%s, sets_b=%s, set_atual=%s,
+                                pontos_a=0, pontos_b=0, saque_atual=NULL,
+                                rotacao_a=NULL, rotacao_b=NULL,
+                                rotacao_a_json=NULL, rotacao_b_json=NULL,
+                                sets_max=%s, sets_para_vencer=%s,
+                                fase_partida='tiebreak_sorteio', status_jogo='tiebreak_sorteio',
+                                status_operacao='tiebreak_sorteio', tiebreak_pendente=TRUE,
+                                tiebreak_definido=FALSE, sorteio_tiebreak_vencedor=NULL,
+                                sorteio_tiebreak_escolha=NULL, saque_tiebreak=NULL,
+                                lado_esquerdo_tiebreak=NULL
+                            WHERE id=%s AND competicao=%s
+                        """, (sets_a, sets_b, proximo_set, sets_max, sets_para_vencer, partida_id, competicao))
+                    else:
+                        cur.execute("""
+                            UPDATE partidas
+                            SET sets_a=%s, sets_b=%s, set_atual=%s,
+                                pontos_a=0, pontos_b=0, saque_atual=%s,
+                                equipe_a_operacional=%s, equipe_b_operacional=%s,
+                                rotacao_a=NULL, rotacao_b=NULL,
+                                rotacao_a_json=NULL, rotacao_b_json=NULL,
+                                sets_max=%s, sets_para_vencer=%s,
+                                fase_partida='intervalo_set', status_jogo='entre_sets',
+                                status_operacao='papeleta', tiebreak_pendente=FALSE
+                            WHERE id=%s AND competicao=%s
+                        """, (
+                            sets_a, sets_b, proximo_set,
+                            config.get("saque_atual"), config.get("equipe_a_operacional"),
+                            config.get("equipe_b_operacional"), sets_max, sets_para_vencer,
+                            partida_id, competicao,
+                        ))
             conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
-    sincronizar_status_competicao(competicao)
+    # Atualização agregada da competição acontece uma única vez e fora do lock.
+    try:
+        sincronizar_status_competicao(competicao)
+    except Exception as e:
+        print("AVISO registrar_resultado_set/sincronizar_status:", repr(e), flush=True)
 
-    if fluxo and fluxo["fase_partida"] == "encerrado":
-        try:
-            sincronizar_avanco_automatico_competicao(competicao)
-        except Exception as e:
-            print("AVISO registrar_resultado_set/sincronizar_avanco:", repr(e), flush=True)
-        return True, "Partida finalizada com sucesso."
-    return True, "Set atualizado com sucesso."
-
-
+    return (True, "Partida finalizada com sucesso.") if acabou else (True, "Set atualizado com sucesso.")
 
 def salvar_resultado_manual_partida(partida_id, competicao, sets, operador_login=None, origem="manual"):
     """Salva/edita o resultado de uma partida sem exigir scout.
@@ -10096,14 +5853,17 @@ def registrar_evento_partida(
         except (ValueError, TypeError):
             atleta_id_final = None
 
+    detalhes_base = dict(detalhes) if isinstance(detalhes, dict) else {}
+    if isinstance(detalhes, str) and detalhes.strip():
+        detalhes_base["detalhe_legado"] = detalhes.strip()
     detalhes_json = None
-    if isinstance(detalhes, dict):
-        try:
-            detalhes_json = json.dumps(detalhes, ensure_ascii=False)
-        except Exception:
-            detalhes_json = None
-    elif isinstance(detalhes, str) and detalhes.strip():
-        detalhes_json = detalhes.strip()
+    try:
+        detalhes_json = json.dumps(
+            enriquecer_detalhes_auditoria(detalhes_base),
+            ensure_ascii=False,
+        )
+    except Exception:
+        detalhes_json = None
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -10152,17 +5912,6 @@ def _json_load_text(valor, padrao):
         return padrao
 
 
-def _detalhes_evento_dict(detalhes):
-    if isinstance(detalhes, dict):
-        return dict(detalhes)
-    if isinstance(detalhes, str):
-        try:
-            valor = json.loads(detalhes)
-            if isinstance(valor, dict):
-                return valor
-        except Exception:
-            pass
-    return {}
 
 
 def _nome_equipe_por_lado(partida, lado):
@@ -10533,8 +6282,7 @@ def atleta_bloqueado(numero, estado, set_atual=None):
 
 
 def registrar_cartao_verde_partida(partida_id, competicao, equipe, tipo_pessoa='', numero='', nome='', observacao=''):
-    criar_tabela_eventos()
-    criar_campos_jogo_partida()
+    # O schema é garantido pelas migrações antes do worker iniciar.
 
     equipe = (equipe or '').strip().upper()
     tipo_pessoa = (tipo_pessoa or '').strip().lower()
@@ -10572,9 +6320,6 @@ def registrar_cartao_verde_partida(partida_id, competicao, equipe, tipo_pessoa='
     )
 
     estado = _reconstruir_e_salvar_snapshot(partida_id, competicao, partida)
-    tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-    estado['tempos_a'] = tempos.get('tempos_a')
-    estado['tempos_b'] = tempos.get('tempos_b')
     estado['mensagem'] = 'Cartão verde registrado.'
     estado['ultima_acao'] = _montar_ultima_acao_partida(
         partida,
@@ -10592,10 +6337,7 @@ def registrar_cartao_verde_partida(partida_id, competicao, equipe, tipo_pessoa='
 
 
 def registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa='', numero='', nome='', tipo_sancao='', observacao=''):
-    criar_tabela_eventos()
-    criar_tabela_sancoes_partida()
-    criar_campos_jogo_partida()
-    criar_campos_sets_partida()
+    # O schema é garantido pelas migrações antes do worker iniciar.
 
     equipe = (equipe or '').strip().upper()
     tipo_sancao = (tipo_sancao or '').strip().lower()
@@ -10738,9 +6480,6 @@ def registrar_sancao_partida(partida_id, competicao, equipe, tipo_pessoa='', num
             }
             _salvar_snapshot_estado_jogo(partida_id, competicao, estado_reconstruido)
 
-    tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-    estado_reconstruido['tempos_a'] = tempos.get('tempos_a')
-    estado_reconstruido['tempos_b'] = tempos.get('tempos_b')
     estado_reconstruido['mensagem'] = mensagem_progressao or 'Sanção registrada.'
     estado_reconstruido['partida_finalizada'] = (estado_reconstruido.get('status_jogo') or '').lower() == 'finalizada'
 
@@ -10953,28 +6692,6 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
 
         return ["", "", "", "", "", ""]
 
-    def _lado_saque(valor, partida):
-        valor = str(valor or "").strip()
-        if not valor:
-            return ""
-
-        valor_upper = valor.upper()
-        if valor_upper in {"A", "B"}:
-            return valor_upper
-
-        equipe_a_nome = str(partida.get("equipe_a_operacional") or partida.get("equipe_a") or "").strip().lower()
-        equipe_b_nome = str(partida.get("equipe_b_operacional") or partida.get("equipe_b") or "").strip().lower()
-
-        if valor.lower() == equipe_a_nome:
-            return "A"
-        if valor.lower() == equipe_b_nome:
-            return "B"
-
-        return ""
-
-    def _oposto(lado):
-        return "B" if lado == "A" else "A"
-
     equipe = (equipe or "").strip().upper()
     if equipe not in {"A", "B"}:
         return False, "Equipe inválida."
@@ -10993,7 +6710,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
     if equipe_scout_raw in {"A", "B"}:
         equipe_scout = equipe_scout_raw
     elif resultado_tmp in {"erro", "falta"}:
-        equipe_scout = _oposto(equipe_pontuadora)
+        equipe_scout = "B" if equipe_pontuadora == "A" else "A"
     else:
         equipe_scout = equipe_pontuadora
 
@@ -11047,27 +6764,20 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
             rotacao_a = _carregar_rotacao_real(partida, "a")
             rotacao_b = _carregar_rotacao_real(partida, "b")
 
-            saque_antes = _lado_saque(
-                partida.get("saque_atual") or partida.get("saque_inicial"),
-                partida
+            transicao_rotacao = _transicao_rotacao_por_ponto(
+                partida=partida,
+                rotacao_a=rotacao_a,
+                rotacao_b=rotacao_b,
+                equipe_pontuadora=equipe_pontuadora,
             )
-
-            if not saque_antes:
-                saque_antes = equipe_pontuadora
-
-            rotacao_a_antes = list(rotacao_a)
-            rotacao_b_antes = list(rotacao_b)
-
-            if saque_antes != equipe_pontuadora:
-                girou = True
-                equipe_girou = equipe_pontuadora
-
-                if equipe_pontuadora == "A":
-                    rotacao_a = girar_rotacao_oficial(rotacao_a)
-                else:
-                    rotacao_b = girar_rotacao_oficial(rotacao_b)
-
-            saque_depois = equipe_pontuadora
+            rotacao_a_antes = transicao_rotacao["rotacao_a_antes"]
+            rotacao_b_antes = transicao_rotacao["rotacao_b_antes"]
+            rotacao_a = transicao_rotacao["rotacao_a"]
+            rotacao_b = transicao_rotacao["rotacao_b"]
+            saque_antes = transicao_rotacao["saque_antes"]
+            saque_depois = transicao_rotacao["saque_depois"]
+            girou = transicao_rotacao["girou"]
+            equipe_girou = transicao_rotacao["equipe_girou"]
 
             if equipe_pontuadora == "A":
                 pontos_a += 1
@@ -11128,7 +6838,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                     atleta_id_final = None
 
             try:
-                detalhes_json = json.dumps(detalhes, ensure_ascii=False)
+                detalhes_json = json.dumps(enriquecer_detalhes_auditoria(detalhes), ensure_ascii=False)
             except Exception:
                 detalhes_json = "{}"
 
@@ -11225,7 +6935,7 @@ def registrar_ponto_partida(partida_id, competicao, equipe, tipo='ponto', detalh
                         None,
                         str(vencedor_nome or ""),
                         None,
-                        json.dumps(detalhes_fim_set, ensure_ascii=False),
+                        json.dumps(enriquecer_detalhes_auditoria(detalhes_fim_set), ensure_ascii=False),
                     ))
                 except Exception as e:
                     print("AVISO nao gravou evento fim_set:", repr(e), flush=True)
@@ -11697,456 +7407,208 @@ def registrar_wo_partida(partida_id, competicao, vencedor_lado=None, equipe_wo=N
     return True, payload
 
 def registrar_substituicao_partida(partida_id, competicao, equipe, numero_sai, numero_entra):
+    """Persiste uma substituição normal usando o motor puro centralizado."""
     criar_tabela_eventos()
     criar_campos_jogo_partida()
     criar_campos_sets_partida()
 
-    equipe = (equipe or '').strip().upper()
-    if equipe not in {'A', 'B'}:
-        return False, 'Equipe inválida.'
-
-    numero_sai = str(numero_sai or '').strip()
-    numero_entra = str(numero_entra or '').strip()
-
-    if not numero_sai or not numero_entra:
-        return False, 'Informe corretamente quem sai e quem entra.'
-
-    if numero_sai == numero_entra:
-        return False, 'O atleta que entra deve ser diferente do atleta que sai.'
-
     partida = buscar_partida_operacional(partida_id, competicao)
     if not partida:
         return False, 'Partida não encontrada.'
-
     estado = buscar_estado_jogo_partida(partida_id, competicao)
     if not estado:
         return False, 'Estado da partida não encontrado.'
 
-    limite = int(estado.get('limite_substituicoes') or 6)
-    subs_usadas = int(estado.get('subs_a') or 0) if equipe == 'A' else int(estado.get('subs_b') or 0)
-
-    if subs_usadas >= limite:
-        return False, 'Limite de substituições atingido neste set.'
-
-    equipe_nome = partida.get('equipe_a_operacional') if equipe == 'A' else partida.get('equipe_b_operacional')
-
+    equipe_norm = str(equipe or '').strip().upper()
+    equipe_nome = partida.get('equipe_a_operacional') if equipe_norm == 'A' else partida.get('equipe_b_operacional')
     elenco = listar_atletas_aprovados_da_equipe(equipe_nome, competicao) if equipe_nome else []
-    atletas_validos = {}
+    atletas_validos = {
+        str(atleta.get('numero')).strip(): atleta
+        for atleta in elenco
+        if atleta.get('numero') not in (None, '')
+    }
 
-    for atleta in elenco:
-        numero = atleta.get('numero')
-        if numero in (None, ''):
-            continue
-        atletas_validos[str(numero).strip()] = atleta
-
-    if numero_sai not in atletas_validos:
-        return False, 'O atleta que sai não pertence à equipe ou não possui número válido.'
-
-    if numero_entra not in atletas_validos:
-        return False, 'O atleta que entra não pertence à equipe ou não possui número válido.'
-
-    set_atual = int(partida.get('set_atual') or 1)
-
-    if atleta_bloqueado(numero_entra, estado, set_atual):
-        return False, 'Esse atleta está bloqueado por sanção e não pode entrar.'
-
-    rotacao_atual = list(estado.get('rotacao_a') or []) if equipe == 'A' else list(estado.get('rotacao_b') or [])
-    rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
-
-    if len(rotacao_str) < 6:
+    # Recupera a rotação apenas quando o estado legado veio incompleto.
+    chave_rotacao = 'rotacao_a' if equipe_norm == 'A' else 'rotacao_b'
+    rotacao = list(estado.get(chave_rotacao) or [])
+    if len([x for x in rotacao if str(x).strip()]) < 6:
         try:
             contexto = reconstruir_contexto_rotacao_set(partida_id, competicao) or {}
-            rotacao_atual = list(contexto.get('rotacao_a') or []) if equipe == 'A' else list(contexto.get('rotacao_b') or [])
-            rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
+            rotacao = list(contexto.get(chave_rotacao) or [])
         except Exception:
-            pass
-
-    if len(rotacao_str) < 6:
+            rotacao = rotacao
+    if len([x for x in rotacao if str(x).strip()]) < 6:
         try:
-            papeleta = listar_papeleta(partida_id, competicao, equipe_nome, set_atual) or []
-            mapa = {
-                int(row['posicao']): str(row['numero']).strip()
-                for row in papeleta
-                if row.get('numero') not in (None, '')
-            }
-
-            rotacao_atual = [
-                mapa.get(4, ''),
-                mapa.get(3, ''),
-                mapa.get(2, ''),
-                mapa.get(5, ''),
-                mapa.get(6, ''),
-                mapa.get(1, ''),
-            ]
-
-            rotacao_str = [str(x).strip() for x in rotacao_atual if str(x).strip()]
+            set_atual_tmp = int(partida.get('set_atual') or 1)
+            papeleta = listar_papeleta(partida_id, competicao, equipe_nome, set_atual_tmp) or []
+            mapa = {int(row['posicao']): str(row['numero']).strip() for row in papeleta if row.get('numero') not in (None, '')}
+            rotacao = [mapa.get(4, ''), mapa.get(3, ''), mapa.get(2, ''), mapa.get(5, ''), mapa.get(6, ''), mapa.get(1, '')]
         except Exception:
             pass
+    estado_motor = dict(estado)
+    estado_motor[chave_rotacao] = rotacao
 
-    if numero_sai not in rotacao_str:
-        return False, 'O atleta que sai não está em quadra.'
+    set_atual = int(partida.get('set_atual') or estado.get('set_atual') or 1)
+    if atleta_bloqueado(str(numero_entra or '').strip(), estado_motor, set_atual):
+        return False, 'Esse atleta está bloqueado por sanção e não pode entrar.'
 
-    if numero_entra in rotacao_str:
-        return False, 'O atleta que entra já está em quadra.'
-
-    while len(rotacao_atual) < 6:
-        rotacao_atual.append('')
-
-    pos_real = None
-    for i, valor in enumerate(rotacao_atual):
-        if str(valor).strip() == numero_sai:
-            pos_real = i
-            break
-
-    if pos_real is None:
-        return False, 'Não foi possível identificar a posição do atleta em quadra.'
-
-    rotacao_atual[pos_real] = numero_entra
-
-    status_jogadores_a = dict(estado.get('status_jogadores_a') or {})
-    status_jogadores_b = dict(estado.get('status_jogadores_b') or {})
-
-    status_alvo = status_jogadores_a if equipe == 'A' else status_jogadores_b
-
-    status_sai = dict(status_alvo.get(numero_sai) or {})
-    status_entra = dict(status_alvo.get(numero_entra) or {})
-
-    titulares_iniciais = set(
-        str(x).strip()
-        for x in (
-            estado.get('titulares_iniciais_a', []) if equipe == 'A'
-            else estado.get('titulares_iniciais_b', [])
+    try:
+        novo_estado = aplicar_substituicao_normal(
+            estado_motor, equipe_norm, numero_sai, numero_entra,
+            atletas_validos=atletas_validos,
+            limite=int(estado.get('limite_substituicoes') or 6),
         )
-        if str(x).strip()
-    )
+    except ErroSubstituicao as erro:
+        return False, str(erro)
 
-    if bool(atletas_validos.get(numero_entra, {}).get('libero')) or bool(atletas_validos.get(numero_sai, {}).get('libero')):
-        return False, 'Líbero não participa de substituição normal. Use a regra própria do líbero.'
-
-    vinc_tit_res = dict(estado.get('vinculos_titular_reserva_a') or {}) if equipe == 'A' else dict(estado.get('vinculos_titular_reserva_b') or {})
-    vinc_res_tit = dict(estado.get('vinculos_reserva_titular_a') or {}) if equipe == 'A' else dict(estado.get('vinculos_reserva_titular_b') or {})
-
-    sai_titular = numero_sai in titulares_iniciais
-    entra_titular = numero_entra in titulares_iniciais
-
-    # Substituição normal tem vínculo fechado: titular ↔ reserva.
-    # Reserva não pode entrar em outro titular e, quando o titular volta, esse vínculo encerra.
-    if sai_titular and not entra_titular:
-        # Depois que o titular retorna, o ciclo normal da dupla está encerrado
-        # para todo o set. Ele permanece em quadra, mas não pode sair novamente.
-        if status_sai.get('tipo') in {'titular_retorno', 'vinculo_encerrado', 'encerrado'} or status_sai.get('substituicao_encerrada'):
-            return False, f'O titular #{numero_sai} já retornou e não pode sair novamente neste set.'
-        if status_entra.get('tipo') in {'encerrado', 'vinculo_encerrado'} or status_entra.get('substituicao_encerrada'):
-            return False, f'O atleta #{numero_entra} já teve o vínculo de substituição encerrado neste set.'
-        reserva_vinculada = str(vinc_tit_res.get(numero_sai) or '').strip()
-        titular_do_reserva = str(vinc_res_tit.get(numero_entra) or '').strip()
-        if reserva_vinculada and reserva_vinculada != numero_entra:
-            return False, f'O titular #{numero_sai} só pode retornar/relacionar com o reserva #{reserva_vinculada}.'
-        if titular_do_reserva and titular_do_reserva != numero_sai:
-            return False, f'O reserva #{numero_entra} já está vinculado ao titular #{titular_do_reserva}.'
-        vinc_tit_res[numero_sai] = numero_entra
-        vinc_res_tit[numero_entra] = numero_sai
-
-        status_entra['em_quadra'] = True
-        status_entra['tipo'] = 'substituto'
-        status_entra['vinculo'] = numero_sai
-        status_entra['substituicao_encerrada'] = False
-
-        status_sai['em_quadra'] = False
-        status_sai['tipo'] = 'titular_substituido'
-        status_sai['vinculo'] = numero_entra
-
-    elif (not sai_titular) and entra_titular:
-        titular_esperado = str(vinc_res_tit.get(numero_sai) or status_sai.get('vinculo') or '').strip()
-        reserva_esperado = str(vinc_tit_res.get(numero_entra) or status_entra.get('vinculo') or '').strip()
-        if titular_esperado != numero_entra or (reserva_esperado and reserva_esperado != numero_sai):
-            return False, f'O atleta #{numero_sai} só pode sair para o retorno do titular ao qual está vinculado.'
-
-        vinc_res_tit.pop(numero_sai, None)
-        vinc_tit_res.pop(numero_entra, None)
-
-        status_sai['em_quadra'] = False
-        status_sai['tipo'] = 'vinculo_encerrado'
-        status_sai['vinculo'] = numero_entra
-        status_sai['substituicao_encerrada'] = True
-
-        status_entra['em_quadra'] = True
-        status_entra['tipo'] = 'titular_retorno'
-        status_entra['vinculo'] = numero_sai
-        status_entra['substituicao_encerrada'] = True
-    else:
-        return False, 'Substituição normal deve ser titular por reserva ou retorno do titular. Para exceções, use substituição excepcional.'
-
-    status_alvo[numero_sai] = status_sai
-    status_alvo[numero_entra] = status_entra
-
-    subs_a = int(estado.get('subs_a') or 0)
-    subs_b = int(estado.get('subs_b') or 0)
-
-    if equipe == 'A':
-        subs_a += 1
-        nova_rotacao_a = rotacao_atual
-        nova_rotacao_b = list(estado.get('rotacao_b') or [])
-    else:
-        subs_b += 1
-        nova_rotacao_a = list(estado.get('rotacao_a') or [])
-        nova_rotacao_b = rotacao_atual
-
+    numero_sai = str(numero_sai or '').strip()
+    numero_entra = str(numero_entra or '').strip()
     registrar_evento_partida(
-        partida_id,
-        competicao,
-        set_atual,
-        equipe,
-        'substituicao',
+        partida_id, competicao, set_atual, equipe_norm, 'substituicao',
         detalhe=f'{numero_sai}>{numero_entra}',
         numero=numero_entra,
         detalhes={
-            'numero_sai': numero_sai,
-            'numero_entra': numero_entra,
+            'numero_sai': numero_sai, 'numero_entra': numero_entra,
             'placar_a': int(estado.get('pontos_a') or 0),
             'placar_b': int(estado.get('pontos_b') or 0),
-            'set_atual': set_atual,
-            'origem': 'apontador',
-        }
+            'set_atual': set_atual, 'origem': 'apontador',
+        },
     )
 
-    snapshot = {
-        'saque_atual': estado.get('saque_atual'),
-        'status_jogo': estado.get('status_jogo'),
-        'fase_partida': estado.get('fase_partida') or 'jogo',
-        'rotacao_a': nova_rotacao_a,
-        'rotacao_b': nova_rotacao_b,
-        'status_jogadores_a': status_jogadores_a,
-        'status_jogadores_b': status_jogadores_b,
-        'subs_a': subs_a,
-        'subs_b': subs_b,
-        'titulares_iniciais_a': estado.get('titulares_iniciais_a', []),
-        'titulares_iniciais_b': estado.get('titulares_iniciais_b', []),
-        'vinculos_titular_reserva_a': vinc_tit_res if equipe == 'A' else estado.get('vinculos_titular_reserva_a', {}),
-        'vinculos_titular_reserva_b': vinc_tit_res if equipe == 'B' else estado.get('vinculos_titular_reserva_b', {}),
-        'vinculos_reserva_titular_a': vinc_res_tit if equipe == 'A' else estado.get('vinculos_reserva_titular_a', {}),
-        'vinculos_reserva_titular_b': vinc_res_tit if equipe == 'B' else estado.get('vinculos_reserva_titular_b', {}),
-        'substituicao_forcada': estado.get('substituicao_forcada', {}),
-        'bloqueios': estado.get('bloqueios', {}),
-        'retardamentos_a': estado.get('retardamentos_a', []),
-        'retardamentos_b': estado.get('retardamentos_b', []),
-        'subs_excepcionais': estado.get('subs_excepcionais', []),
-        'sancoes_a': estado.get('sancoes_a', []),
-        'sancoes_b': estado.get('sancoes_b', []),
-        'cartoes_verdes_a': estado.get('cartoes_verdes_a', []),
-        'cartoes_verdes_b': estado.get('cartoes_verdes_b', []),
-    }
-
+    campos_snapshot = [
+        'saque_atual', 'status_jogo', 'fase_partida', 'rotacao_a', 'rotacao_b',
+        'status_jogadores_a', 'status_jogadores_b', 'subs_a', 'subs_b',
+        'titulares_iniciais_a', 'titulares_iniciais_b',
+        'vinculos_titular_reserva_a', 'vinculos_titular_reserva_b',
+        'vinculos_reserva_titular_a', 'vinculos_reserva_titular_b',
+        'substituicao_forcada', 'bloqueios', 'retardamentos_a', 'retardamentos_b',
+        'subs_excepcionais', 'sancoes_a', 'sancoes_b', 'cartoes_verdes_a', 'cartoes_verdes_b',
+    ]
+    snapshot = {campo: novo_estado.get(campo) for campo in campos_snapshot}
+    snapshot['fase_partida'] = snapshot.get('fase_partida') or 'jogo'
     _salvar_snapshot_estado_jogo(partida_id, competicao, snapshot)
 
     tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-
-    historico = []
-    ultima_acao = f'Substituição {equipe}: #{numero_sai} → #{numero_entra}'
-
+    ultima_acao = f'Substituição {equipe_norm}: #{numero_sai} → #{numero_entra}'
+    historico = [{'descricao': ultima_acao}]
     try:
         eventos = listar_eventos_partida(partida_id, competicao, limite=5) or []
-
+        historico = []
         for ev in eventos:
-            descricao = (ev.get("descricao") or "").strip()
-
+            descricao = (ev.get('descricao') or '').strip()
             if not descricao:
-                tipo_evento = str(ev.get("tipo_evento") or ev.get("tipo") or "").strip()
-                equipe_ev = str(ev.get("equipe") or "").strip()
-                detalhe_ev = str(ev.get("detalhe") or ev.get("detalhes") or "").strip()
-                numero_ev = str(ev.get("numero") or "").strip()
-
-                partes = []
-                if tipo_evento:
-                    partes.append(tipo_evento.replace("_", " ").title())
-                if equipe_ev:
-                    partes.append(f"Equipe {equipe_ev}")
-                if detalhe_ev:
-                    partes.append(detalhe_ev.replace("_", " "))
-                if numero_ev:
-                    partes.append(f"#{numero_ev}")
-
-                descricao = " • ".join([p for p in partes if p]) or "Ação registrada"
-
-            historico.append({"descricao": descricao})
-
+                partes = [
+                    str(ev.get('tipo_evento') or ev.get('tipo') or '').replace('_', ' ').title(),
+                    f"Equipe {ev.get('equipe')}" if ev.get('equipe') else '',
+                    str(ev.get('detalhe') or ev.get('detalhes') or '').replace('_', ' '),
+                    f"#{ev.get('numero')}" if ev.get('numero') else '',
+                ]
+                descricao = ' • '.join(p for p in partes if p) or 'Ação registrada'
+            historico.append({'descricao': descricao})
         if historico:
-            ultima_acao = historico[0]["descricao"]
-
+            ultima_acao = historico[0]['descricao']
     except Exception:
-        historico = [{"descricao": ultima_acao}]
+        pass
 
     resposta = {
         'mensagem': 'Substituição registrada.',
-        'pontos_a': int(partida.get('pontos_a') or 0),
-        'pontos_b': int(partida.get('pontos_b') or 0),
-        'sets_a': int(partida.get('sets_a') or 0),
-        'sets_b': int(partida.get('sets_b') or 0),
-        'set_atual': set_atual,
-        'saque_atual': estado.get('saque_atual') or '',
-        'status_jogo': estado.get('status_jogo') or 'em_andamento',
-        'fase_partida': estado.get('fase_partida') or 'jogo',
-        'partida_finalizada': False,
-        'rotacao_a': nova_rotacao_a,
-        'rotacao_b': nova_rotacao_b,
-        'tempos_a': tempos.get('tempos_a'),
-        'tempos_b': tempos.get('tempos_b'),
-        'subs_a': subs_a,
-        'subs_b': subs_b,
-        'limite_substituicoes': limite,
-        'status_jogadores_a': status_jogadores_a,
-        'status_jogadores_b': status_jogadores_b,
-        'sancoes_a': estado.get('sancoes_a', []),
-        'sancoes_b': estado.get('sancoes_b', []),
-        'cartoes_verdes_a': estado.get('cartoes_verdes_a', []),
-        'cartoes_verdes_b': estado.get('cartoes_verdes_b', []),
-        'bloqueios': estado.get('bloqueios', {}),
-        'substituicao_forcada': estado.get('substituicao_forcada', {}),
-        'retardamentos_a': estado.get('retardamentos_a', []),
-        'retardamentos_b': estado.get('retardamentos_b', []),
-        'subs_excepcionais': estado.get('subs_excepcionais', []),
-        'historico': historico,
-        'ultima_acao': ultima_acao,
+        'pontos_a': int(partida.get('pontos_a') or 0), 'pontos_b': int(partida.get('pontos_b') or 0),
+        'sets_a': int(partida.get('sets_a') or 0), 'sets_b': int(partida.get('sets_b') or 0),
+        'set_atual': set_atual, 'saque_atual': novo_estado.get('saque_atual') or '',
+        'status_jogo': novo_estado.get('status_jogo') or 'em_andamento',
+        'fase_partida': novo_estado.get('fase_partida') or 'jogo', 'partida_finalizada': False,
+        'rotacao_a': novo_estado.get('rotacao_a') or [], 'rotacao_b': novo_estado.get('rotacao_b') or [],
+        'tempos_a': tempos.get('tempos_a'), 'tempos_b': tempos.get('tempos_b'),
+        'subs_a': int(novo_estado.get('subs_a') or 0), 'subs_b': int(novo_estado.get('subs_b') or 0),
+        'limite_substituicoes': int(novo_estado.get('limite_substituicoes') or 6),
+        'status_jogadores_a': novo_estado.get('status_jogadores_a') or {},
+        'status_jogadores_b': novo_estado.get('status_jogadores_b') or {},
+        'sancoes_a': novo_estado.get('sancoes_a') or [], 'sancoes_b': novo_estado.get('sancoes_b') or [],
+        'cartoes_verdes_a': novo_estado.get('cartoes_verdes_a') or [],
+        'cartoes_verdes_b': novo_estado.get('cartoes_verdes_b') or [],
+        'bloqueios': novo_estado.get('bloqueios') or {},
+        'substituicao_forcada': novo_estado.get('substituicao_forcada') or {},
+        'retardamentos_a': novo_estado.get('retardamentos_a') or [],
+        'retardamentos_b': novo_estado.get('retardamentos_b') or [],
+        'subs_excepcionais': novo_estado.get('subs_excepcionais') or [],
+        'historico': historico, 'ultima_acao': ultima_acao,
     }
-
     _emitir_estado_tempo_real(partida_id, competicao)
-
     return True, resposta
-    
-        
+
 def registrar_substituicao_excepcional_partida(partida_id, competicao, equipe, numero_sai, numero_entra, motivo='', observacao=''):
+    """Persiste substituição excepcional usando o mesmo estado oficial."""
     criar_tabela_eventos()
     criar_campos_jogo_partida()
     criar_campos_sets_partida()
-
-    equipe = (equipe or '').strip().upper()
-    numero_sai = str(numero_sai or '').strip()
-    numero_entra = str(numero_entra or '').strip()
-    motivo = (motivo or '').strip().lower()
-    observacao = (observacao or '').strip()
-
-    if equipe not in {'A', 'B'}:
-        return False, 'Equipe inválida.'
-    if not numero_sai or not numero_entra:
-        return False, 'Informe quem sai e quem entra.'
-    if numero_sai == numero_entra:
-        return False, 'A troca excepcional precisa envolver atletas diferentes.'
-
     partida = buscar_partida_operacional(partida_id, competicao)
     if not partida:
         return False, 'Partida não encontrada.'
-
     estado = buscar_estado_jogo_partida(partida_id, competicao)
     if not estado:
         return False, 'Estado da partida não encontrado.'
 
-    set_atual = int(partida.get('set_atual') or 1)
-    rotacao_atual = list(estado.get('rotacao_a') if equipe == 'A' else estado.get('rotacao_b') or ["", "", "", "", "", ""])
-    status_jogadores = dict(estado.get('status_jogadores_a') if equipe == 'A' else estado.get('status_jogadores_b') or {})
-
-    if numero_sai not in [str(x).strip() for x in rotacao_atual]:
-        return False, 'O atleta que sai precisa estar em quadra.'
-    if numero_entra in [str(x).strip() for x in rotacao_atual]:
-        return False, 'O atleta que entra precisa estar fora de quadra.'
-    if atleta_bloqueado(numero_entra, estado, set_atual):
-        return False, 'O atleta que entra está bloqueado para este jogo.'
-
-    equipe_nome = partida.get('equipe_a_operacional') if equipe == 'A' else partida.get('equipe_b_operacional')
+    equipe_norm = str(equipe or '').strip().upper()
+    equipe_nome = partida.get('equipe_a_operacional') if equipe_norm == 'A' else partida.get('equipe_b_operacional')
     atletas = listar_atletas_aprovados_da_equipe(equipe_nome, competicao) or []
-    numeros_elenco = {str(a.get('numero') or '').strip() for a in atletas}
-    if numero_entra not in numeros_elenco:
-        return False, 'O atleta que entra não pertence ao elenco aprovado da equipe.'
+    atletas_validos = {str(a.get('numero') or '').strip(): a for a in atletas if str(a.get('numero') or '').strip()}
+    set_atual = int(partida.get('set_atual') or estado.get('set_atual') or 1)
+    if atleta_bloqueado(str(numero_entra or '').strip(), estado, set_atual):
+        return False, 'O atleta que entra está bloqueado para este jogo.'
+    try:
+        novo_estado = aplicar_substituicao_excepcional(
+            estado, equipe_norm, numero_sai, numero_entra,
+            atletas_validos=atletas_validos, motivo=motivo, observacao=observacao,
+        )
+    except ErroSubstituicao as erro:
+        return False, str(erro)
 
-    rotacao_nova = [numero_entra if str(n).strip() == numero_sai else n for n in rotacao_atual]
-    status_jogadores[numero_entra] = {'tipo': 'substituto', 'vinculo': numero_sai, 'excepcional': True}
-    status_jogadores[numero_sai] = {'tipo': 'bloqueado_excepcional', 'motivo': motivo or 'excepcional'}
-
-    
-    detalhe = f"#{numero_sai} → #{numero_entra}"
-    if motivo:
-        detalhe += f" | motivo: {motivo}"
-    if observacao:
-        detalhe += f" | obs: {observacao}"
-
+    numero_sai = str(numero_sai or '').strip()
+    numero_entra = str(numero_entra or '').strip()
+    detalhe = f'#{numero_sai} → #{numero_entra}'
+    if str(motivo or '').strip(): detalhe += f' | motivo: {str(motivo).strip().lower()}'
+    if str(observacao or '').strip(): detalhe += f' | obs: {str(observacao).strip()}'
     registrar_evento_partida(
-        partida_id,
-        competicao,
-        set_atual,
-        equipe,
-        "substituicao_excepcional",
-        fundamento="excepcional",
-        detalhe=detalhe,
-        numero=numero_entra
+        partida_id, competicao, set_atual, equipe_norm, 'substituicao_excepcional',
+        fundamento='excepcional', detalhe=detalhe, numero=numero_entra,
     )
-
-    snapshot = {
-        'saque_atual': estado.get('saque_atual') or '',
-        'status_jogo': estado.get('status_jogo') or 'pre_jogo',
-        'rotacao_a': rotacao_nova if equipe == 'A' else list(estado.get('rotacao_a') or ["", "", "", "", "", ""]),
-        'rotacao_b': rotacao_nova if equipe == 'B' else list(estado.get('rotacao_b') or ["", "", "", "", "", ""]),
-        'status_jogadores_a': status_jogadores if equipe == 'A' else dict(estado.get('status_jogadores_a') or {}),
-        'status_jogadores_b': status_jogadores if equipe == 'B' else dict(estado.get('status_jogadores_b') or {}),
-        'subs_a': int(estado.get('subs_a') or 0),
-        'subs_b': int(estado.get('subs_b') or 0),
-        'titulares_iniciais_a': estado.get('titulares_iniciais_a', []),
-        'titulares_iniciais_b': estado.get('titulares_iniciais_b', []),
-        'vinculos_titular_reserva_a': dict(estado.get('vinculos_titular_reserva_a') or {}),
-        'vinculos_titular_reserva_b': dict(estado.get('vinculos_titular_reserva_b') or {}),
-        'vinculos_reserva_titular_a': dict(estado.get('vinculos_reserva_titular_a') or {}),
-        'vinculos_reserva_titular_b': dict(estado.get('vinculos_reserva_titular_b') or {}),
-        'sancoes_a': estado.get('sancoes_a', []),
-        'sancoes_b': estado.get('sancoes_b', []),
-        'cartoes_verdes_a': estado.get('cartoes_verdes_a', []),
-        'cartoes_verdes_b': estado.get('cartoes_verdes_b', []),
-        'bloqueios': dict(estado.get('bloqueios') or {}),
-        'substituicao_forcada': dict(estado.get('substituicao_forcada') or {}),
-        'retardamentos_a': list(estado.get('retardamentos_a') or []),
-        'retardamentos_b': list(estado.get('retardamentos_b') or []),
-        'subs_excepcionais': list(estado.get('subs_excepcionais') or []) + [{
-            'equipe': equipe, 'numero_sai': numero_sai, 'numero_entra': numero_entra, 'motivo': motivo, 'observacao': observacao, 'set_numero': set_atual
-        }],
-    }
-    snapshot['bloqueios'][numero_sai] = {'tipo': 'substituicao_excepcional', 'escopo': 'partida', 'set_numero': set_atual}
-    _salvar_snapshot_estado_jogo(partida_id, competicao, snapshot)
-
-    estado_atualizado = buscar_estado_jogo_partida(partida_id, competicao)
+    campos = [
+        'saque_atual', 'status_jogo', 'fase_partida', 'rotacao_a', 'rotacao_b',
+        'status_jogadores_a', 'status_jogadores_b', 'subs_a', 'subs_b',
+        'titulares_iniciais_a', 'titulares_iniciais_b',
+        'vinculos_titular_reserva_a', 'vinculos_titular_reserva_b',
+        'vinculos_reserva_titular_a', 'vinculos_reserva_titular_b',
+        'substituicao_forcada', 'bloqueios', 'retardamentos_a', 'retardamentos_b',
+        'subs_excepcionais', 'sancoes_a', 'sancoes_b', 'cartoes_verdes_a', 'cartoes_verdes_b',
+    ]
+    _salvar_snapshot_estado_jogo(partida_id, competicao, {campo: novo_estado.get(campo) for campo in campos})
     tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-
-    return True, {
+    ultima_acao = f'Substituição excepcional {equipe_norm}: #{numero_sai} → #{numero_entra}'
+    resposta = {
         'mensagem': 'Substituição excepcional registrada.',
-        'pontos_a': int(estado_atualizado.get('pontos_a') or 0),
-        'pontos_b': int(estado_atualizado.get('pontos_b') or 0),
-        'sets_a': int(estado_atualizado.get('sets_a') or 0),
-        'sets_b': int(estado_atualizado.get('sets_b') or 0),
-        'set_atual': int(estado_atualizado.get('set_atual') or 1),
-        'saque_atual': estado_atualizado.get('saque_atual') or '',
-        'status_jogo': estado_atualizado.get('status_jogo') or 'pre_jogo',
-        'partida_finalizada': (estado_atualizado.get('status_jogo') or '').lower() == 'finalizada',
-        'rotacao_a': estado_atualizado.get('rotacao_a', ['', '', '', '', '', '']),
-        'rotacao_b': estado_atualizado.get('rotacao_b', ['', '', '', '', '', '']),
-        'tempos_a': tempos.get('tempos_a'),
-        'tempos_b': tempos.get('tempos_b'),
-        'subs_a': int(estado_atualizado.get('subs_a') or 0),
-        'subs_b': int(estado_atualizado.get('subs_b') or 0),
-        'limite_substituicoes': int(estado_atualizado.get('limite_substituicoes') or 6),
-        'status_jogadores_a': estado_atualizado.get('status_jogadores_a', {}),
-        'status_jogadores_b': estado_atualizado.get('status_jogadores_b', {}),
-        'sancoes_a': estado_atualizado.get('sancoes_a', []),
-        'sancoes_b': estado_atualizado.get('sancoes_b', []),
-        'cartoes_verdes_a': estado_atualizado.get('cartoes_verdes_a', []),
-        'cartoes_verdes_b': estado_atualizado.get('cartoes_verdes_b', []),
-        'bloqueios': estado_atualizado.get('bloqueios', {}),
-        'substituicao_forcada': estado_atualizado.get('substituicao_forcada', {}),
-        'retardamentos_a': estado_atualizado.get('retardamentos_a', []),
-        'retardamentos_b': estado_atualizado.get('retardamentos_b', []),
-        'subs_excepcionais': estado_atualizado.get('subs_excepcionais', []),
+        'pontos_a': int(partida.get('pontos_a') or 0), 'pontos_b': int(partida.get('pontos_b') or 0),
+        'sets_a': int(partida.get('sets_a') or 0), 'sets_b': int(partida.get('sets_b') or 0),
+        'set_atual': set_atual, 'saque_atual': novo_estado.get('saque_atual') or '',
+        'status_jogo': novo_estado.get('status_jogo') or 'em_andamento',
+        'fase_partida': novo_estado.get('fase_partida') or 'jogo', 'partida_finalizada': False,
+        'rotacao_a': novo_estado.get('rotacao_a') or [], 'rotacao_b': novo_estado.get('rotacao_b') or [],
+        'tempos_a': tempos.get('tempos_a'), 'tempos_b': tempos.get('tempos_b'),
+        'subs_a': int(novo_estado.get('subs_a') or 0), 'subs_b': int(novo_estado.get('subs_b') or 0),
+        'limite_substituicoes': int(novo_estado.get('limite_substituicoes') or 6),
+        'status_jogadores_a': novo_estado.get('status_jogadores_a') or {},
+        'status_jogadores_b': novo_estado.get('status_jogadores_b') or {},
+        'sancoes_a': novo_estado.get('sancoes_a') or [], 'sancoes_b': novo_estado.get('sancoes_b') or [],
+        'cartoes_verdes_a': novo_estado.get('cartoes_verdes_a') or [], 'cartoes_verdes_b': novo_estado.get('cartoes_verdes_b') or [],
+        'bloqueios': novo_estado.get('bloqueios') or {}, 'substituicao_forcada': novo_estado.get('substituicao_forcada') or {},
+        'retardamentos_a': novo_estado.get('retardamentos_a') or [], 'retardamentos_b': novo_estado.get('retardamentos_b') or [],
+        'subs_excepcionais': novo_estado.get('subs_excepcionais') or [],
+        'historico': [{'descricao': ultima_acao}], 'ultima_acao': ultima_acao,
     }
-
+    _emitir_estado_tempo_real(partida_id, competicao)
+    return True, resposta
 
 def registrar_retardamento_partida(partida_id, competicao, equipe, observacao=''):
-    criar_tabela_eventos()
-    criar_campos_jogo_partida()
-    criar_campos_sets_partida()
+    # O schema é garantido pelas migrações antes do worker iniciar.
 
     equipe = (equipe or '').strip().upper()
     observacao = (observacao or '').strip()
@@ -12178,9 +7640,6 @@ def registrar_retardamento_partida(partida_id, competicao, equipe, observacao=''
     estado = _reconstruir_e_salvar_snapshot(partida_id, competicao, buscar_partida_operacional(partida_id, competicao))
 
     if tipo_retardamento == 'advertencia':
-        tempos = buscar_tempos_restantes_partida(partida_id, competicao)
-        estado['tempos_a'] = tempos.get('tempos_a')
-        estado['tempos_b'] = tempos.get('tempos_b')
         estado['mensagem'] = 'Retardamento (advertência) registrado.'
         estado['ultima_acao'] = _montar_ultima_acao_partida(partida, 'retardamento', equipe=equipe, detalhes=detalhes)
         estado['partida_finalizada'] = (estado.get('status_jogo') or '').lower() == 'finalizada'
@@ -12509,12 +7968,16 @@ def registrar_tempo_partida(partida_id, competicao, equipe):
             if usados >= limite:
                 return False, "Limite de tempos atingido."
 
+            detalhes_tempo = json.dumps(
+                enriquecer_detalhes_auditoria({"tipo": "pedido_tempo"}),
+                ensure_ascii=False,
+            )
             cur.execute("""
                 INSERT INTO eventos (
                     partida_id, competicao, set_numero, equipe, tipo, detalhes
                 )
-                VALUES (%s, %s, %s, %s, 'tempo', 'pedido_tempo')
-            """, (partida_id, competicao, set_atual, equipe))
+                VALUES (%s, %s, %s, %s, 'tempo', %s)
+            """, (partida_id, competicao, set_atual, equipe, detalhes_tempo))
 
         conn.commit()
 
@@ -12658,6 +8121,12 @@ def criar_tabela_eventos(force=False):
 
 
 def listar_eventos_partida(partida_id, competicao, limite=1000):
+    limite_normalizado = int(limite or 1000)
+    chave_cache = ("eventos_partida", str(partida_id), str(competicao or ""), limite_normalizado)
+    cache_hit = cache_requisicao_obter(chave_cache, None)
+    if cache_hit is not None:
+        return cache_hit
+
     criar_tabela_eventos()
 
     with conectar() as conn:
@@ -12696,7 +8165,8 @@ def listar_eventos_partida(partida_id, competicao, limite=1000):
                 LIMIT %s
             """, (partida_id, competicao, int(limite or 1000)))
 
-            return cur.fetchall()
+            resultado = cur.fetchall()
+            return cache_requisicao_armazenar(chave_cache, resultado)
 
 
 # ================= ETAPA 2 SET FLOW =================
@@ -12898,7 +8368,13 @@ def encerrar_partida(partida_id, competicao, observacoes):
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT *
+                SELECT
+                    id, competicao, equipe_a, equipe_b,
+                    equipe_a_operacional, equipe_b_operacional,
+                    status, status_jogo, status_operacao, fase_partida,
+                    tipo_encerramento, sets_tipo, sets_max, sets_para_vencer,
+                    sets_a, sets_b, set_atual, vencedor,
+                    observacoes, fim_partida_real, data_fim, origem
                 FROM partidas
                 WHERE id = %s AND competicao = %s
                 FOR UPDATE
@@ -13058,7 +8534,7 @@ def salvar_partida_completa_final(partida_id, competicao, pacote, operador=None)
                         ev.get("tipo_evento") or ev.get("tipo"), ev.get("fundamento"),
                         ev.get("resultado"), ev.get("detalhe") or ev.get("descricao"),
                         ev.get("atleta_id"), ev.get("atleta_nome"), ev.get("numero"),
-                        json.dumps(detalhes, ensure_ascii=False),
+                        json.dumps(enriquecer_detalhes_auditoria(detalhes), ensure_ascii=False),
                     ))
 
                 cur.execute("SELECT * FROM partidas WHERE id=%s AND competicao=%s", (partida_id, competicao))
@@ -13127,10 +8603,22 @@ def finalizar_partida_completa(
     if not competicao:
         return False, "Competição não informada.", {}
 
-    # Garante a estrutura antes de abrir a transação principal. Depois de
-    # criada, os comandos são IF NOT EXISTS e não alteram o resultado.
-    criar_tabela_destaques_partida()
-    garantir_campos_trava_operacional_partida()
+    # A estrutura é responsabilidade das migrações executadas antes do boot.
+    # Finalização nunca deve tentar ALTER/CREATE enquanto o apontador aguarda.
+    from core.schema_requirements import require_schema
+    require_schema(
+        tables=("partidas", "destaques_partida"),
+        columns={
+            "partidas": (
+                "status_jogo", "status_operacao", "fase_partida",
+                "sets_a", "sets_b", "sets_tipo", "tipo_encerramento",
+                "observacoes", "vencedor", "fim_partida_real", "data_fim",
+                "operador_login", "operador_heartbeat",
+            ),
+            "destaques_partida": ("competicao", "partida_id", "lado"),
+        },
+        context="finalização completa da partida",
+    )
 
     def _int_ou_none(valor):
         try:
@@ -13144,7 +8632,11 @@ def finalizar_partida_completa(
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT *
+                    SELECT
+                        id, competicao, equipe_a, equipe_b,
+                        status, status_jogo, status_operacao, fase_partida,
+                        tipo_encerramento, sets_tipo, sets_a, sets_b,
+                        vencedor, observacoes, fim_partida_real, data_fim
                     FROM partidas
                     WHERE id = %s
                       AND competicao = %s
@@ -13795,8 +9287,32 @@ def salvar_destaque_partida(partida_id, competicao, lado, atleta_id=None, numero
 # =========================================================
 # PREMIAÇÃO / DESTAQUES DA COMPETIÇÃO
 # =========================================================
-def criar_tabelas_premiacao_destaques_competicao():
-    """Configurações do organizador e respostas dos apontadores/árbitros."""
+def criar_tabelas_premiacao_destaques_competicao(force=False):
+    """Valida ou cria as estruturas de destaques da competição.
+
+    Em requisições normais apenas valida o schema já migrado. O DDL fica
+    restrito ao executor de migrações com ``force=True``.
+    """
+    if not force:
+        from core.schema_requirements import require_schema
+        require_schema(
+            tables=("destaques_config_competicao", "destaques_competicao"),
+            columns={
+                "destaques_config_competicao": (
+                    "competicao", "ativo_destaque_partida",
+                    "ativo_destaque_competicao", "preencher_por",
+                    "fases", "series", "campos",
+                ),
+                "destaques_competicao": (
+                    "competicao", "campo_id", "campo_titulo", "fase",
+                    "serie", "equipe", "atleta_id", "numero", "nome",
+                    "observacao", "preenchido_por", "partida_origem_id",
+                ),
+            },
+            context="premiação e destaques da competição",
+        )
+        return True
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -13976,7 +9492,19 @@ def buscar_config_destaques_competicao(competicao):
         return padrao
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM destaques_config_competicao WHERE competicao = %s LIMIT 1", (competicao,))
+            cur.execute("""
+                SELECT
+                    competicao,
+                    ativo_destaque_partida,
+                    ativo_destaque_competicao,
+                    preencher_por,
+                    fases,
+                    series,
+                    campos
+                FROM destaques_config_competicao
+                WHERE competicao = %s
+                LIMIT 1
+            """, (competicao,))
             row = cur.fetchone()
     if not row:
         return padrao
@@ -14568,7 +10096,7 @@ def registrar_solicitacao_treinador(partida_id, competicao, equipe, tipo, detalh
                 INSERT INTO solicitacoes_treinador (
                     partida_id, competicao, equipe, tipo, status, detalhes_json
                 ) VALUES (%s, %s, %s, %s, 'pendente', %s)
-            """, (partida_id, competicao, equipe, tipo, json.dumps(detalhes, ensure_ascii=False)))
+            """, (partida_id, competicao, equipe, tipo, json.dumps(enriquecer_detalhes_auditoria(detalhes), ensure_ascii=False)))
         conn.commit()
 
 
@@ -15166,42 +10694,16 @@ def montar_contexto_treinador(partida_id, competicao, equipe_nome=None, lado=Non
     }
 
 def buscar_config_conferencia_atletas(nome_competicao):
-    criar_campos_conferencia_atletas()
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    nome,
-                    conferencia_liberada,
-                    conferencia_encerrada,
-                    conferencia_prazo,
-                    conferencia_link,
-                    COALESCE(aprovacao_automatica_atletas, FALSE) AS aprovacao_automatica_atletas
-                FROM competicoes
-                WHERE nome = %s
-                LIMIT 1
-            """, (nome_competicao,))
-            return cur.fetchone()
+    """Fachada legada; consulta migrada para repositories.conferencia_atletas."""
+    from repositories.conferencia_atletas import buscar_configuracao
+    return buscar_configuracao(nome_competicao)
 
 
 def listar_atletas_para_conferencia(nome_competicao):
-    criar_campos_conferencia_atletas()
-    
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    equipe,
-                    nome,
-                    cpf,
-                    data_nascimento
-                FROM atletas
-                WHERE competicao = %s
-                ORDER BY equipe, nome
-            """, (nome_competicao,))
-            return cur.fetchall()
-        
+    """Fachada legada; consulta migrada para repositories.conferencia_atletas."""
+    from repositories.conferencia_atletas import listar_atletas
+    return listar_atletas(nome_competicao)
+
 
 def redefinir_senha_organizador(login_organizador):
     nova_senha = _gerar_senha_aleatoria(8)
@@ -15403,655 +10905,113 @@ def definir_permissao_jogo_avulso_apontador(cpf, liberado):
 # =========================================================
 # QUADRAS DA COMPETIÇÃO
 # =========================================================
-def _tabela_existe_cur(cur, nome_tabela):
-    cur.execute("""
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name = %s
-        LIMIT 1
-    """, (nome_tabela,))
-    return cur.fetchone() is not None
 
 
 def criar_tabela_competicao_quadras(force=False):
-    """
-    Cria a estrutura real de quadras da competição.
+    """Fachada legada; estrutura migrada para repositories.quadras."""
+    from services.competicoes.quadras import criar_tabela_competicao_quadras as _impl
+    return _impl(cache_colunas=_CACHE_COLUNAS, marcar_schema=_marcar_schema_pronto, schema_pronto=lambda chave: _schema_ja_pronto(chave, force=force), force=force)
 
-    Essa tabela substitui a lógica antiga de usar apenas qtd_quadras como número solto.
-    A competição continua mantendo qtd_quadras para compatibilidade, mas cada quadra
-    passa a ter nome, local, ordem e status ativo/inativo.
-    """
-    try:
-        if _schema_ja_pronto("tabela_competicao_quadras", force=force):
-            return
-    except Exception:
-        pass
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS competicao_quadras (
-                    id SERIAL PRIMARY KEY,
-                    competicao TEXT NOT NULL,
-                    nome TEXT NOT NULL,
-                    local TEXT DEFAULT '',
-                    ordem INTEGER DEFAULT 1,
-                    ativa BOOLEAN DEFAULT TRUE,
-                    criado_em TIMESTAMP DEFAULT NOW(),
-                    atualizado_em TIMESTAMP DEFAULT NOW(),
-                    pin_arbitragem VARCHAR(4),
-                    pin_arbitragem_criado_em TIMESTAMP
-                )
-            """)
-
-            cur.execute("""
-                ALTER TABLE competicao_quadras
-                ADD COLUMN IF NOT EXISTS competicao TEXT NOT NULL,
-                ADD COLUMN IF NOT EXISTS nome TEXT NOT NULL DEFAULT 'Quadra',
-                ADD COLUMN IF NOT EXISTS local TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS ordem INTEGER DEFAULT 1,
-                ADD COLUMN IF NOT EXISTS ativa BOOLEAN DEFAULT TRUE,
-                ADD COLUMN IF NOT EXISTS criado_em TIMESTAMP DEFAULT NOW(),
-                ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMP DEFAULT NOW(),
-                ADD COLUMN IF NOT EXISTS pin_arbitragem VARCHAR(4),
-                ADD COLUMN IF NOT EXISTS pin_arbitragem_criado_em TIMESTAMP
-            """)
-
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_competicao_quadras_competicao
-                ON competicao_quadras (competicao)
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_competicao_quadras_ordem
-                ON competicao_quadras (competicao, ordem)
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_competicao_quadras_pin_arbitragem
-                ON competicao_quadras (pin_arbitragem)
-            """)
-
-            if _tabela_existe_cur(cur, "partidas"):
-                cur.execute("""
-                    ALTER TABLE partidas
-                    ADD COLUMN IF NOT EXISTS quadra_id INTEGER
-                """)
-                cur.execute("""
-                    ALTER TABLE partidas
-                    ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_partidas_competicao_quadra
-                    ON partidas (competicao, quadra_id)
-                """)
-
-            if _tabela_existe_cur(cur, "grupos"):
-                cur.execute("""
-                    ALTER TABLE grupos
-                    ADD COLUMN IF NOT EXISTS quadra_id INTEGER
-                """)
-                cur.execute("""
-                    ALTER TABLE grupos
-                    ADD COLUMN IF NOT EXISTS quadra_nome TEXT DEFAULT ''
-                """)
-
-        conn.commit()
-
-    _CACHE_COLUNAS.pop("competicao_quadras", None)
-    _CACHE_COLUNAS.pop("partidas", None)
-    _CACHE_COLUNAS.pop("grupos", None)
-
-    try:
-        _marcar_schema_pronto("tabela_competicao_quadras")
-    except Exception:
-        pass
 
 
 
 def _normalizar_pin_arbitragem(pin):
-    pin = re.sub(r"\D", "", str(pin or ""))
-    if len(pin) != 4:
-        return ""
-    return pin
+    from rules.quadras import normalizar_pin_arbitragem
+    return normalizar_pin_arbitragem(pin)
+
 
 
 def _gerar_pin_arbitragem_unico_cur(cur):
-    for _ in range(60):
-        pin = str(random.randint(1000, 9999))
-        cur.execute("""
-            SELECT id
-            FROM competicao_quadras
-            WHERE pin_arbitragem = %s
-            LIMIT 1
-        """, (pin,))
-        if not cur.fetchone():
-            return pin
-    return str(random.randint(1000, 9999))
+    from repositories.quadras import _gerar_pin_unico_cur
+    return _gerar_pin_unico_cur(cur)
+
 
 
 def garantir_pins_arbitragem_quadras(nome_competicao):
-    """
-    Gera PIN de 4 números para cada quadra ativa da competição.
-    O PIN fica salvo na quadra e vale enquanto a quadra/competição existir.
-    Se a competição ainda não tiver quadras cadastradas, cria a lista a partir das partidas.
-    """
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import garantir_pins_arbitragem_quadras as _impl
+    return _impl(nome_competicao)
 
-    nome_competicao = (nome_competicao or "").strip()
-    if not nome_competicao:
-        return []
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id
-                FROM competicao_quadras
-                WHERE competicao = %s
-                  AND COALESCE(ativa, TRUE) = TRUE
-                LIMIT 1
-            """, (nome_competicao,))
-            tem_quadras = cur.fetchone() is not None
-
-            if not tem_quadras and _tabela_existe_cur(cur, "partidas"):
-                cur.execute("""
-                    SELECT
-                        COALESCE(NULLIF(TRIM(quadra), ''), '1') AS quadra,
-                        COALESCE(NULLIF(TRIM(quadra_nome), ''), NULLIF(TRIM(quadra), ''), 'Quadra 1') AS quadra_nome
-                    FROM partidas
-                    WHERE competicao = %s
-                    GROUP BY COALESCE(NULLIF(TRIM(quadra), ''), '1'), COALESCE(NULLIF(TRIM(quadra_nome), ''), NULLIF(TRIM(quadra), ''), 'Quadra 1')
-                    ORDER BY COALESCE(NULLIF(TRIM(quadra), ''), '1')
-                """, (nome_competicao,))
-                linhas = cur.fetchall() or []
-                if not linhas:
-                    linhas = [{"quadra": "1", "quadra_nome": "Quadra 1"}]
-
-                for idx, linha in enumerate(linhas, start=1):
-                    numero = (linha.get("quadra") or str(idx)).strip()
-                    nome = (linha.get("quadra_nome") or f"Quadra {numero}").strip()
-                    cur.execute("""
-                        INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
-                        VALUES (%s, %s, %s, %s, TRUE)
-                    """, (nome_competicao, nome, "", idx))
-
-            cur.execute("""
-                SELECT id, pin_arbitragem
-                FROM competicao_quadras
-                WHERE competicao = %s
-                  AND COALESCE(ativa, TRUE) = TRUE
-                ORDER BY COALESCE(ordem, 9999), id
-            """, (nome_competicao,))
-            quadras = cur.fetchall() or []
-
-            for quadra in quadras:
-                pin_atual = _normalizar_pin_arbitragem(quadra.get("pin_arbitragem"))
-                if pin_atual:
-                    continue
-                novo_pin = _gerar_pin_arbitragem_unico_cur(cur)
-                cur.execute("""
-                    UPDATE competicao_quadras
-                    SET pin_arbitragem = %s,
-                        pin_arbitragem_criado_em = COALESCE(pin_arbitragem_criado_em, NOW()),
-                        atualizado_em = NOW()
-                    WHERE id = %s
-                """, (novo_pin, quadra["id"]))
-
-        conn.commit()
-
-    _CACHE_COLUNAS.pop("competicao_quadras", None)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, competicao, nome, local, ordem, ativa, pin_arbitragem
-                FROM competicao_quadras
-                WHERE competicao = %s
-                  AND COALESCE(ativa, TRUE) = TRUE
-                ORDER BY COALESCE(ordem, 9999), id
-            """, (nome_competicao,))
-            return cur.fetchall()
 
 
 def buscar_vinculo_arbitragem_por_pin(pin):
-    """Retorna a competição/quadra vinculada ao PIN informado pelo árbitro."""
     criar_tabela_competicao_quadras()
-    pin = _normalizar_pin_arbitragem(pin)
-    if not pin:
-        return None
+    from services.competicoes.quadras import buscar_vinculo_arbitragem_por_pin as _impl
+    return _impl(pin)
 
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, competicao, nome, local, ordem, ativa, pin_arbitragem
-                FROM competicao_quadras
-                WHERE pin_arbitragem = %s
-                  AND COALESCE(ativa, TRUE) = TRUE
-                LIMIT 1
-            """, (pin,))
-            return cur.fetchone()
 
 
 def formatar_quadra_exibicao(quadra):
-    """Retorna o texto visual padronizado da quadra.
+    from rules.quadras import formatar_quadra_exibicao as _impl
+    return _impl(quadra)
 
-    Regra do sistema:
-    - o banco e as relações usam sempre quadra_id;
-    - este texto é apenas para tela/relatório/socket.
-    """
-    if not quadra:
-        return ""
-
-    nome = str((quadra or {}).get("nome") or "").strip()
-    local = str((quadra or {}).get("local") or "").strip()
-
-    if not nome:
-        ordem = (quadra or {}).get("ordem") or ""
-        nome = f"Quadra {ordem}".strip()
-
-    if local and local.lower() not in nome.lower():
-        return f"{nome} — {local}"
-
-    return nome
 
 
 def _normalizar_texto_quadra(valor):
-    texto = str(valor or "").strip().lower()
-    texto = texto.replace("—", "-").replace("–", "-")
-    texto = re.sub(r"\s+", " ", texto)
-    texto = re.sub(r"[^a-z0-9áàâãéèêíïóôõöúçñ _.-]", "", texto)
-    return texto.strip()
+    from rules.quadras import normalizar_texto_quadra
+    return normalizar_texto_quadra(valor)
+
 
 
 def _quadra_matches_texto(quadra, texto):
-    texto = _normalizar_texto_quadra(texto)
-    if not texto:
-        return False
+    from rules.quadras import quadra_matches_texto
+    return quadra_matches_texto(quadra, texto)
 
-    nome = _normalizar_texto_quadra(quadra.get("nome"))
-    local = _normalizar_texto_quadra(quadra.get("local"))
-    exibicao = _normalizar_texto_quadra(formatar_quadra_exibicao(quadra))
-    ordem = str(quadra.get("ordem") or "").strip()
-    qid = str(quadra.get("id") or "").strip()
-
-    candidatos = {nome, local, exibicao, qid}
-    if ordem:
-        candidatos.update({ordem, f"quadra {ordem}", f"q{ordem}"})
-
-    # Também aceita o começo antes/depois do travessão: "Quadra 1 — Apollo".
-    if "-" in texto:
-        partes = [p.strip() for p in texto.split("-") if p.strip()]
-        candidatos.update(partes)
-
-    return texto in {c for c in candidatos if c}
 
 
 def buscar_quadra_competicao_por_texto(nome_competicao, texto):
-    """Compatibilidade para registros antigos que guardavam quadra como texto."""
-    texto = str(texto or "").strip()
-    if not nome_competicao or not texto:
-        return None
+    criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import buscar_quadra_competicao_por_texto as _impl
+    return _impl(nome_competicao, texto)
 
-    quadras = listar_quadras_competicao(nome_competicao)
-    for quadra in quadras:
-        if _quadra_matches_texto(quadra, texto):
-            return quadra
-    return None
 
 
 def normalizar_vinculos_quadras_competicao(nome_competicao):
-    """Preenche quadra_id/quadra_nome de grupos e partidas antigas.
-
-    Não força vínculo quando o texto antigo é apenas o nome do grupo (A, B, C),
-    evitando que Grupo A vire Quadra A por acidente. Apenas normaliza quando
-    houver quadra_id existente ou quando o texto bate com uma quadra real.
-    """
     criar_tabela_competicao_quadras()
-    nome_competicao = str(nome_competicao or "").strip()
-    if not nome_competicao:
-        return False
+    from services.competicoes.quadras import normalizar_vinculos_quadras_competicao as _impl
+    return _impl(nome_competicao)
 
-    quadras = listar_quadras_competicao(nome_competicao)
-    if not quadras:
-        return False
-
-    mapa_id = {}
-    for q in quadras:
-        try:
-            mapa_id[int(q["id"])] = q
-        except Exception:
-            pass
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            if _tabela_existe_cur(cur, "grupos"):
-                cur.execute("""
-                    SELECT id, nome, quadra_id, quadra_nome
-                    FROM grupos
-                    WHERE competicao = %s
-                """, (nome_competicao,))
-                for g in cur.fetchall() or []:
-                    quadra = None
-                    try:
-                        qid = int(g.get("quadra_id") or 0)
-                        quadra = mapa_id.get(qid)
-                    except Exception:
-                        quadra = None
-                    if not quadra:
-                        quadra = buscar_quadra_competicao_por_texto(nome_competicao, g.get("quadra_nome"))
-                    if quadra:
-                        cur.execute("""
-                            UPDATE grupos
-                            SET quadra_id = %s,
-                                quadra_nome = %s
-                            WHERE id = %s
-                        """, (quadra["id"], formatar_quadra_exibicao(quadra), g["id"]))
-
-            if _tabela_existe_cur(cur, "partidas"):
-                cur.execute("""
-                    SELECT id, quadra, quadra_id, quadra_nome
-                    FROM partidas
-                    WHERE competicao = %s
-                """, (nome_competicao,))
-                for p in cur.fetchall() or []:
-                    quadra = None
-                    try:
-                        qid = int(p.get("quadra_id") or 0)
-                        quadra = mapa_id.get(qid)
-                    except Exception:
-                        quadra = None
-                    if not quadra:
-                        quadra = buscar_quadra_competicao_por_texto(nome_competicao, p.get("quadra_nome") or p.get("quadra"))
-                    if quadra:
-                        cur.execute("""
-                            UPDATE partidas
-                            SET quadra_id = %s,
-                                quadra_nome = %s,
-                                quadra = %s
-                            WHERE id = %s
-                        """, (quadra["id"], formatar_quadra_exibicao(quadra), str(quadra["id"]), p["id"]))
-        conn.commit()
-    return True
 
 def listar_quadras_competicao(nome_competicao, somente_ativas=False):
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import listar_quadras_competicao as _impl
+    return _impl(nome_competicao, somente_ativas)
 
-    sql = """
-        SELECT id, competicao, nome, local, ordem, ativa
-        FROM competicao_quadras
-        WHERE competicao = %s
-    """
-    params = [nome_competicao]
-
-    if somente_ativas:
-        sql += " AND COALESCE(ativa, TRUE) = TRUE"
-
-    sql += " ORDER BY COALESCE(ordem, 9999), id"
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, tuple(params))
-            linhas = cur.fetchall() or []
-            for linha in linhas:
-                try:
-                    linha["nome_exibicao"] = formatar_quadra_exibicao(linha)
-                    linha["quadra_label"] = linha["nome_exibicao"]
-                except Exception:
-                    pass
-            return linhas
 
 
 def garantir_quadras_competicao(nome_competicao, qtd_quadras=1):
-    """
-    Garante que a competição tenha pelo menos qtd_quadras ATIVAS cadastradas.
-    Quadras desativadas/removidas pelo organizador não voltam a aparecer na tela
-    só porque ainda existem no histórico do banco.
-    """
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import garantir_quadras_competicao as _impl
+    return _impl(nome_competicao, qtd_quadras)
 
-    nome_competicao = (nome_competicao or "").strip()
-    if not nome_competicao:
-        return []
-
-    try:
-        qtd_quadras = int(qtd_quadras or 1)
-    except (TypeError, ValueError):
-        qtd_quadras = 1
-    qtd_quadras = max(1, qtd_quadras)
-
-    existentes_ativas = listar_quadras_competicao(nome_competicao, somente_ativas=True)
-    if len(existentes_ativas) >= qtd_quadras:
-        return existentes_ativas
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            for ordem in range(len(existentes_ativas) + 1, qtd_quadras + 1):
-                cur.execute("""
-                    INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
-                    VALUES (%s, %s, %s, %s, TRUE)
-                """, (nome_competicao, f"Quadra {ordem}", "", ordem))
-        conn.commit()
-
-    return listar_quadras_competicao(nome_competicao, somente_ativas=True)
 
 
 def salvar_quadras_competicao(nome_competicao, quadras):
-    """
-    Salva quadras mantendo IDs existentes e criando novas quando id vier vazio.
-    Não exclui fisicamente para não quebrar partidas antigas; quadras removidas do formulário ficam inativas.
-    """
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import salvar_quadras_competicao as _impl
+    return _impl(nome_competicao, quadras)
 
-    nome_competicao = (nome_competicao or "").strip()
-    if not nome_competicao:
-        return []
-
-    quadras_normalizadas = []
-    for idx, q in enumerate(quadras or [], start=1):
-        q = q or {}
-        nome = (q.get("nome") or f"Quadra {idx}").strip()
-        local = (q.get("local") or "").strip()
-
-        try:
-            ordem = int(q.get("ordem") or idx)
-        except (TypeError, ValueError):
-            ordem = idx
-
-        quadras_normalizadas.append({
-            "id": q.get("id") or None,
-            "nome": nome,
-            "local": local,
-            "ordem": max(1, ordem),
-            "ativa": bool(q.get("ativa", True)),
-        })
-
-    if not quadras_normalizadas:
-        quadras_normalizadas = [{"id": None, "nome": "Quadra 1", "local": "", "ordem": 1, "ativa": True}]
-
-    # Segurança: a competição precisa manter pelo menos uma quadra ativa.
-    # Mesmo se o organizador desmarcar todas sem querer, a primeira fica ativa.
-    if not any(bool(q.get("ativa", True)) for q in quadras_normalizadas):
-        quadras_normalizadas[0]["ativa"] = True
-
-    ids_recebidos = []
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            for idx, q in enumerate(quadras_normalizadas, start=1):
-                quadra_id = q.get("id")
-                nome = q.get("nome") or f"Quadra {idx}"
-                local = q.get("local") or ""
-                ordem = q.get("ordem") or idx
-                ativa = bool(q.get("ativa", True))
-
-                if quadra_id:
-                    cur.execute("""
-                        UPDATE competicao_quadras
-                        SET nome = %s,
-                            local = %s,
-                            ordem = %s,
-                            ativa = %s,
-                            atualizado_em = NOW()
-                        WHERE id = %s
-                          AND competicao = %s
-                        RETURNING id
-                    """, (nome, local, ordem, ativa, int(quadra_id), nome_competicao))
-                    atualizada = cur.fetchone()
-                    if atualizada:
-                        ids_recebidos.append(int(atualizada["id"]))
-                    else:
-                        cur.execute("""
-                            INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
-                            VALUES (%s, %s, %s, %s, %s)
-                            RETURNING id
-                        """, (nome_competicao, nome, local, ordem, ativa))
-                        nova = cur.fetchone()
-                        if nova:
-                            ids_recebidos.append(int(nova["id"]))
-                else:
-                    cur.execute("""
-                        INSERT INTO competicao_quadras (competicao, nome, local, ordem, ativa)
-                        VALUES (%s, %s, %s, %s, %s)
-                        RETURNING id
-                    """, (nome_competicao, nome, local, ordem, ativa))
-                    nova = cur.fetchone()
-                    if nova:
-                        ids_recebidos.append(int(nova["id"]))
-
-            if ids_recebidos:
-                cur.execute("""
-                    UPDATE competicao_quadras
-                    SET ativa = FALSE,
-                        atualizado_em = NOW()
-                    WHERE competicao = %s
-                      AND NOT (id = ANY(%s))
-                """, (nome_competicao, ids_recebidos))
-
-            colunas_comp = _buscar_colunas_tabela("competicoes")
-            if "qtd_quadras" in colunas_comp:
-                qtd_ativas = len([q for q in quadras_normalizadas if bool(q.get("ativa", True))])
-                cur.execute("""
-                    UPDATE competicoes
-                    SET qtd_quadras = %s
-                    WHERE nome = %s
-                """, (max(1, qtd_ativas), nome_competicao))
-
-        conn.commit()
-
-    try:
-        normalizar_vinculos_quadras_competicao(nome_competicao)
-    except Exception as e:
-        print("AVISO normalizar_vinculos_quadras_competicao:", repr(e))
-
-    return listar_quadras_competicao(nome_competicao, somente_ativas=True)
 
 
 def buscar_quadra_competicao_por_id(nome_competicao, quadra_id):
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import buscar_quadra_competicao_por_id as _impl
+    return _impl(nome_competicao, quadra_id)
 
-    if not quadra_id:
-        return None
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, competicao, nome, local, ordem, ativa
-                FROM competicao_quadras
-                WHERE competicao = %s
-                  AND id = %s
-                LIMIT 1
-            """, (nome_competicao, int(quadra_id)))
-            quadra = cur.fetchone()
-            if quadra:
-                quadra["nome_exibicao"] = formatar_quadra_exibicao(quadra)
-                quadra["quadra_label"] = quadra["nome_exibicao"]
-            return quadra
 
 
 def vincular_grupo_a_quadra(nome_competicao, grupo_nome, quadra_id):
-    """
-    Preparação para a próxima etapa: permite gravar a quadra padrão do grupo/chave
-    quando existir tabela grupos com coluna quadra_id.
-    """
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import vincular_grupo_a_quadra as _impl
+    return _impl(nome_competicao, grupo_nome, quadra_id)
 
-    quadra = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
-    if not quadra:
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            if not _tabela_existe_cur(cur, "grupos"):
-                return False
-
-            colunas = _buscar_colunas_cur(cur, "grupos")
-            if "quadra_id" not in colunas:
-                return False
-
-            campo_nome = "nome" if "nome" in colunas else ("grupo" if "grupo" in colunas else None)
-            if not campo_nome:
-                return False
-
-            sets = ["quadra_id = %s"]
-            valores = [quadra["id"]]
-
-            if "quadra_nome" in colunas:
-                sets.append("quadra_nome = %s")
-                valores.append(formatar_quadra_exibicao(quadra))
-
-            valores.extend([nome_competicao, grupo_nome])
-            cur.execute(f"""
-                UPDATE grupos
-                SET {', '.join(sets)}
-                WHERE competicao = %s
-                  AND {campo_nome} = %s
-            """, tuple(valores))
-
-        conn.commit()
-
-    return True
 
 
 def aplicar_quadra_em_partida(nome_competicao, partida_id, quadra_id):
-    """
-    Permite sobrescrever a quadra de uma partida específica sem mudar a quadra padrão do grupo.
-    """
     criar_tabela_competicao_quadras()
+    from services.competicoes.quadras import aplicar_quadra_em_partida as _impl
+    return _impl(nome_competicao, partida_id, quadra_id)
 
-    quadra = buscar_quadra_competicao_por_id(nome_competicao, quadra_id)
-    if not quadra:
-        return False
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            if not _tabela_existe_cur(cur, "partidas"):
-                return False
-
-            colunas = _buscar_colunas_cur(cur, "partidas")
-            if "quadra_id" not in colunas:
-                return False
-
-            sets = ["quadra_id = %s"]
-            valores = [quadra["id"]]
-
-            if "quadra_nome" in colunas:
-                sets.append("quadra_nome = %s")
-                valores.append(formatar_quadra_exibicao(quadra))
-
-            if "quadra" in colunas:
-                sets.append("quadra = %s")
-                valores.append(str(quadra["id"]))
-
-            valores.extend([nome_competicao, int(partida_id)])
-            cur.execute(f"""
-                UPDATE partidas
-                SET {', '.join(sets)}
-                WHERE competicao = %s
-                  AND id = %s
-            """, tuple(valores))
-
-        conn.commit()
-
-    return True
 
 # =========================================================
 # PERFIL GLOBAL DA EQUIPE
@@ -16162,115 +11122,9 @@ def aplicar_escudo_exibicao_lista(equipes):
 
 
 def atualizar_escudo_equipe_por_login(login, escudo, escudo_blob=None):
-    """Atualiza o escudo global da equipe de forma robusta.
-
-    Em alguns bancos antigos, o usuário da equipe pode ter o login atualizado em
-    `usuarios`, mas a linha global de `equipes` ainda permanecer com outro login
-    ou apenas com o mesmo nome da equipe. Antes essa situação fazia o upload
-    processar a imagem corretamente, mas o UPDATE não alterava nenhuma linha e a
-    tela mostrava "Não foi possível salvar o escudo".
-
-    Agora tenta, nesta ordem:
-    1) atualizar pela coluna equipes.login;
-    2) localizar o nome da equipe em usuarios.equipe e atualizar por esse nome;
-    3) se existir vínculo em equipes_competicoes, atualizar pelo vínculo.
-    """
-    login = (login or "").strip()
-    escudo = (escudo or "").strip()
-    if escudo_blob is None:
-        escudo_blob = escudo
-    escudo_blob = (escudo_blob or "").strip()
-
-    if not login:
-        return False
-
-    try:
-        criar_campo_escudo_equipes()
-    except Exception as e:
-        print("ERRO GARANTIR CAMPO ESCUDO:", repr(e))
-        return False
-
-    colunas = _buscar_colunas_tabela("equipes")
-
-    sets = []
-    valores_base = []
-
-    if "escudo" in colunas:
-        sets.append("escudo = %s")
-        valores_base.append(escudo)
-    if "escudo_blob" in colunas:
-        sets.append("escudo_blob = %s")
-        valores_base.append(escudo_blob)
-
-    if not sets:
-        return False
-
-    set_sql = ", ".join(sets)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            # 1) Caminho normal: login da equipe igual ao login da sessão.
-            cur.execute(
-                f"UPDATE equipes SET {set_sql} WHERE login = %s",
-                tuple(valores_base + [login])
-            )
-            alteradas = cur.rowcount or 0
-
-            # 2) Fallback: login da sessão está em usuarios, mas equipes.login ficou antigo.
-            if alteradas <= 0:
-                cur.execute("""
-                    SELECT equipe
-                    FROM usuarios
-                    WHERE login = %s
-                    LIMIT 1
-                """, (login,))
-                row_usuario = cur.fetchone()
-                nome_equipe = ""
-                try:
-                    nome_equipe = (row_usuario.get("equipe") if hasattr(row_usuario, "get") else row_usuario[0]) or ""
-                except Exception:
-                    nome_equipe = ""
-                nome_equipe = str(nome_equipe).strip()
-
-                if nome_equipe:
-                    cur.execute(
-                        f"""
-                        UPDATE equipes
-                        SET {set_sql}
-                        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
-                        """,
-                        tuple(valores_base + [nome_equipe])
-                    )
-                    alteradas = cur.rowcount or 0
-
-            # 3) Fallback extra: vínculo de competição guarda o login/nome antigo.
-            if alteradas <= 0:
-                try:
-                    criar_tabela_equipes_competicoes()
-                    cur.execute(
-                        f"""
-                        UPDATE equipes e
-                        SET {set_sql}
-                        FROM equipes_competicoes ec
-                        WHERE (
-                            ec.equipe_login = %s
-                            OR LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(e.nome))
-                        )
-                        AND (
-                            e.login = ec.equipe_login
-                            OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
-                        )
-                        """,
-                        tuple(valores_base + [login])
-                    )
-                    alteradas = cur.rowcount or 0
-                except Exception as e:
-                    print("ERRO FALLBACK ESCUDO VINCULO:", repr(e))
-
-        conn.commit()
-
-    return alteradas > 0
-
+    """Fachada legada; persistência migrada para repositories.equipes_perfil."""
+    from services.equipes.perfil import atualizar_escudo
+    return atualizar_escudo(login, escudo, escudo_blob)
 
 def escudo_padrao_equipe():
     return "/static/img/escudo_padrao.svg"
@@ -16294,53 +11148,9 @@ def escudo_equipe_url(equipe):
 
 
 def perfil_equipe_incompleto_por_login(login, conn=None):
-    """
-    Retorna True quando a equipe ainda não completou os dados mínimos do perfil.
-
-    Campos mínimos:
-    - cidade
-    - responsavel
-    - telefone
-
-    Mantém compatibilidade: se a equipe não existir, não bloqueia o login.
-    """
-    login = (login or "").strip()
-    if not login:
-        return False
-
-    criar_campos_perfil_equipe()
-
-    sql = """
-        SELECT
-            nome,
-            cidade,
-            responsavel,
-            telefone,
-            email,
-            instagram,
-            COALESCE(perfil_completo, FALSE) AS perfil_completo
-        FROM equipes
-        WHERE login = %s
-        LIMIT 1
-    """
-
-    if conn is not None:
-        with conn.cursor() as cur:
-            cur.execute(sql, (login,))
-            equipe = cur.fetchone()
-    else:
-        with conectar() as conn2:
-            return perfil_equipe_incompleto_por_login(login, conn2)
-
-    if not equipe:
-        return False
-
-    cidade = str(equipe.get("cidade") or "").strip()
-    responsavel = str(equipe.get("responsavel") or "").strip()
-    telefone = str(equipe.get("telefone") or "").strip()
-
-    return not cidade or not responsavel or not telefone
-
+    """Fachada legada; consulta migrada para repositories.equipes_perfil."""
+    from repositories.equipes_perfil import perfil_equipe_incompleto_por_login_consulta
+    return perfil_equipe_incompleto_por_login_consulta(login, conn=conn)
 
 def buscar_perfil_equipe_por_login(login, conn=None):
     """
@@ -16390,139 +11200,14 @@ def buscar_perfil_equipe_por_login(login, conn=None):
         return buscar_perfil_equipe_por_login(login, conn)
 
 
-def salvar_perfil_equipe_por_login(
-    login,
-    cidade="",
-    responsavel="",
-    telefone="",
-    email="",
-    instagram="",
-    escudo=None,
-):
-    """
-    Atualiza o perfil global da equipe sem mexer no vínculo com competições.
+def salvar_perfil_equipe_por_login(login, cidade="", responsavel="", telefone="", email="", instagram="", escudo=None):
+    """Fachada legada; persistência migrada para repositories.equipes_perfil."""
+    from services.equipes.perfil import salvar_perfil
+    return salvar_perfil(
+        login, cidade=cidade, responsavel=responsavel, telefone=telefone,
+        email=email, instagram=instagram, escudo=escudo,
+    )
 
-    Versão robusta:
-    - tenta atualizar por equipes.login;
-    - se o login da sessão mudou e a linha de equipes ficou antiga, tenta
-      localizar a equipe pelo nome salvo em usuarios.equipe;
-    - como último fallback, usa o vínculo em equipes_competicoes.
-    """
-    login = (login or "").strip()
-    if not login:
-        return False
-
-    criar_campos_perfil_equipe()
-
-    cidade = (cidade or "").strip()
-    responsavel = (responsavel or "").strip()
-    telefone = (telefone or "").strip()
-    email = (email or "").strip()
-    instagram = (instagram or "").strip()
-
-    perfil_completo = bool(cidade and responsavel and telefone)
-
-    sets = [
-        "cidade = %s",
-        "responsavel = %s",
-        "telefone = %s",
-        "email = %s",
-        "instagram = %s",
-        "perfil_completo = %s",
-    ]
-    valores_base = [
-        cidade,
-        responsavel,
-        telefone,
-        email,
-        instagram,
-        perfil_completo,
-    ]
-
-    if escudo is not None:
-        escudo_valor = (escudo or "").strip()
-        sets.append("escudo = %s")
-        valores_base.append(escudo_valor)
-        try:
-            colunas_equipes = _buscar_colunas_tabela("equipes")
-            if "escudo_blob" in colunas_equipes:
-                sets.append("escudo_blob = %s")
-                valores_base.append(escudo_valor)
-        except Exception:
-            pass
-
-    set_sql = ", ".join(sets)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE equipes
-                SET {set_sql}
-                WHERE login = %s
-                """,
-                tuple(valores_base + [login])
-            )
-            alteradas = cur.rowcount or 0
-
-            if alteradas <= 0:
-                cur.execute("""
-                    SELECT equipe
-                    FROM usuarios
-                    WHERE login = %s
-                    LIMIT 1
-                """, (login,))
-                row_usuario = cur.fetchone()
-                nome_equipe = ""
-                try:
-                    nome_equipe = (row_usuario.get("equipe") if hasattr(row_usuario, "get") else row_usuario[0]) or ""
-                except Exception:
-                    nome_equipe = ""
-                nome_equipe = str(nome_equipe).strip()
-
-                if nome_equipe:
-                    cur.execute(
-                        f"""
-                        UPDATE equipes
-                        SET {set_sql}
-                        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
-                        """,
-                        tuple(valores_base + [nome_equipe])
-                    )
-                    alteradas = cur.rowcount or 0
-
-            if alteradas <= 0:
-                try:
-                    criar_tabela_equipes_competicoes()
-                    cur.execute(
-                        f"""
-                        UPDATE equipes e
-                        SET {set_sql}
-                        FROM equipes_competicoes ec
-                        WHERE (
-                            ec.equipe_login = %s
-                            OR LOWER(TRIM(ec.equipe_nome)) = LOWER(TRIM(e.nome))
-                        )
-                        AND (
-                            e.login = ec.equipe_login
-                            OR LOWER(TRIM(e.nome)) = LOWER(TRIM(ec.equipe_nome))
-                        )
-                        """,
-                        tuple(valores_base + [login])
-                    )
-                    alteradas = cur.rowcount or 0
-                except Exception as e:
-                    print("AVISO salvar_perfil_equipe_por_login/fallback_vinculo:", repr(e))
-
-        conn.commit()
-
-    return alteradas > 0
-
-
-
-# =========================================================
-# PIN OPERACIONAL POR APONTADOR (ÁRBITROS E TELÃO)
-# =========================================================
 def criar_tabela_pins_operacionais():
     """
     PIN operacional por competição + apontador.
@@ -18710,437 +13395,31 @@ def criar_indices_performance():
 MASTER_SUPERADMIN_LOGIN = "ThalisADM"
 
 
-def garantir_schema_multiempresa_superadmin():
-    """Cria a base para separar SuperADM master e SuperADMs de clientes.
-
-    Mantém compatibilidade: o perfil continua sendo 'superadmin'.
-    A hierarquia fica nas colunas superadmin_nivel/cliente_id.
-    """
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS clientes_sistema (
-                        id SERIAL PRIMARY KEY,
-                        nome TEXT NOT NULL,
-                        slug TEXT UNIQUE NOT NULL,
-                        ativo BOOLEAN DEFAULT TRUE,
-                        criado_por TEXT,
-                        criado_em TIMESTAMP DEFAULT NOW()
-                    )
-                """)
-
-                cur.execute("""
-                    ALTER TABLE usuarios
-                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
-                    ADD COLUMN IF NOT EXISTS superadmin_nivel TEXT DEFAULT 'cliente',
-                    ADD COLUMN IF NOT EXISTS criado_por TEXT
-                """)
-
-                cur.execute("""
-                    ALTER TABLE competicoes
-                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER
-                """)
-
-                # Tabelas de cadastro global podem não existir em bancos antigos.
-                for tabela in ["equipes", "atletas", "apontadores_acesso", "oficiais"]:
-                    try:
-                        cur.execute(f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS cliente_id INTEGER")
-                    except Exception as e:
-                        print(f"AVISO multiempresa/{tabela}:", repr(e), flush=True)
-
-                # O ThalisADM vira o master absoluto. Mantém perfil superadmin.
-                cur.execute("""
-                    UPDATE usuarios
-                    SET perfil = 'superadmin',
-                        superadmin_nivel = 'master',
-                        cliente_id = NULL,
-                        ativo = TRUE
-                    WHERE LOWER(login) = LOWER(%s)
-                """, (MASTER_SUPERADMIN_LOGIN,))
-
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_usuarios_cliente_id ON usuarios (cliente_id)
-                """)
-                cur.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_competicoes_cliente_id ON competicoes (cliente_id)
-                """)
-
-            conn.commit()
-        try:
-            _CACHE_COLUNAS.pop("usuarios", None)
-            _CACHE_COLUNAS.pop("competicoes", None)
-            _CACHE_COLUNAS.pop("equipes", None)
-            _CACHE_COLUNAS.pop("atletas", None)
-        except Exception:
-            pass
-        return True
-    except Exception as e:
-        print("ERRO garantir_schema_multiempresa_superadmin:", repr(e), flush=True)
-        return False
 
 
-def _slug_cliente(nome):
-    base = _normalizar_texto_base(nome or "cliente")
-    return base or "cliente"
 
 
-def _gerar_slug_cliente_unico(cur, nome):
-    base = _slug_cliente(nome)
-    slug = base
-    contador = 1
-    while True:
-        cur.execute("SELECT id FROM clientes_sistema WHERE slug = %s LIMIT 1", (slug,))
-        if not cur.fetchone():
-            return slug
-        contador += 1
-        slug = f"{base}_{contador}"
 
 
-def obter_contexto_superadmin(login):
-    garantir_schema_multiempresa_superadmin()
-    login = (login or "").strip()
-    if not login:
-        return {"eh_master": False, "cliente_id": None, "nivel": "cliente"}
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT login, perfil, ativo, cliente_id,
-                       COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel
-                FROM usuarios
-                WHERE LOWER(login) = LOWER(%s)
-                LIMIT 1
-            """, (login,))
-            usuario = cur.fetchone() or {}
-
-    nivel = (usuario.get("superadmin_nivel") or "cliente").strip().lower()
-    eh_master = (login.lower() == MASTER_SUPERADMIN_LOGIN.lower()) or nivel == "master"
-    return {
-        "login": usuario.get("login") or login,
-        "perfil": usuario.get("perfil"),
-        "ativo": usuario.get("ativo"),
-        "cliente_id": usuario.get("cliente_id"),
-        "nivel": "master" if eh_master else "cliente",
-        "eh_master": eh_master,
-    }
 
 
-def superadmin_eh_master(login):
-    return bool(obter_contexto_superadmin(login).get("eh_master"))
 
 
-def listar_superadmins_clientes(login_master=None):
-    garantir_schema_multiempresa_superadmin()
-    if login_master and not superadmin_eh_master(login_master):
-        return []
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    u.login,
-                    u.nome,
-                    u.senha,
-                    u.ativo,
-                    u.cliente_id,
-                    COALESCE(u.superadmin_nivel, 'cliente') AS superadmin_nivel,
-                    COALESCE(c.nome, '') AS cliente_nome,
-                    COALESCE(c.ativo, TRUE) AS cliente_ativo,
-                    c.criado_em
-                FROM usuarios u
-                LEFT JOIN clientes_sistema c ON c.id = u.cliente_id
-                WHERE u.perfil = 'superadmin'
-                  AND COALESCE(u.superadmin_nivel, 'cliente') <> 'master'
-                ORDER BY COALESCE(c.nome, u.nome), u.nome
-            """)
-            return cur.fetchall()
 
 
-def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admin=None):
-    garantir_schema_multiempresa_superadmin()
-    if not superadmin_eh_master(criador_login):
-        return {"ok": False, "erro": "Apenas o ThalisADM master pode criar SuperADMs de clientes."}
-
-    nome_cliente = (nome_cliente or "").strip()
-    nome_admin = (nome_admin or "").strip()
-    login_admin = (login_admin or "").strip()
-
-    if not nome_cliente or not nome_admin:
-        return {"ok": False, "erro": "Informe o nome do cliente e o nome do SuperADM."}
-
-    if not login_admin:
-        login_admin = f"adm_{_normalizar_texto_base(nome_cliente)}"
-    login_admin = re.sub(r"\s+", "_", login_admin)
-    login_admin = re.sub(r"[^A-Za-z0-9_.@-]", "", login_admin)[:80]
-    if not login_admin:
-        login_admin = f"adm_{_normalizar_texto_base(nome_admin)}"
-
-    senha = _gerar_senha_aleatoria(8)
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT login FROM usuarios WHERE LOWER(login) = LOWER(%s) LIMIT 1", (login_admin,))
-            if cur.fetchone():
-                return {"ok": False, "erro": "Este login já está em uso."}
-
-            slug = _gerar_slug_cliente_unico(cur, nome_cliente)
-            cur.execute("""
-                INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
-                VALUES (%s, %s, TRUE, %s)
-                RETURNING id
-            """, (nome_cliente, slug, criador_login))
-            cliente_id = (cur.fetchone() or {}).get("id")
-
-            cur.execute("""
-                INSERT INTO usuarios (
-                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
-                    cliente_id, superadmin_nivel, criado_por
-                )
-                VALUES (%s, %s, %s, 'superadmin', TRUE, NULL, NULL, %s, 'cliente', %s)
-            """, (login_admin, nome_admin, senha, cliente_id, criador_login))
-        conn.commit()
-
-    return {
-        "ok": True,
-        "cliente_id": cliente_id,
-        "cliente_nome": nome_cliente,
-        "login": login_admin,
-        "senha": senha,
-        "nome": nome_admin,
-    }
 
 
-def excluir_superadmin_cliente(criador_login, login_alvo):
-    garantir_schema_multiempresa_superadmin()
-    if not superadmin_eh_master(criador_login):
-        return {"ok": False, "erro": "Apenas o ThalisADM master pode excluir SuperADMs de clientes."}
-
-    login_alvo = (login_alvo or "").strip()
-    if not login_alvo or login_alvo.lower() == MASTER_SUPERADMIN_LOGIN.lower():
-        return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT login, cliente_id, COALESCE(superadmin_nivel, 'cliente') AS nivel
-                FROM usuarios
-                WHERE LOWER(login) = LOWER(%s)
-                  AND perfil = 'superadmin'
-                LIMIT 1
-            """, (login_alvo,))
-            alvo = cur.fetchone()
-            if not alvo:
-                return {"ok": False, "erro": "SuperADM não encontrado."}
-            if (alvo.get("nivel") or "").lower() == "master":
-                return {"ok": False, "erro": "Não é permitido excluir um SuperADM master."}
-
-            cliente_id = alvo.get("cliente_id")
-            cur.execute("DELETE FROM usuarios WHERE login = %s AND perfil = 'superadmin'", (alvo.get("login"),))
-            if cliente_id:
-                cur.execute("UPDATE clientes_sistema SET ativo = FALSE WHERE id = %s", (cliente_id,))
-        conn.commit()
-
-    return {"ok": True}
 
 
-def listar_competicoes(login_superadmin=None):
-    sincronizar_status_competicoes()
-    garantir_schema_multiempresa_superadmin()
-
-    campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
-    where = ""
-    params = []
-
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        if not contexto.get("eh_master"):
-            where = "WHERE c.cliente_id = %s"
-            params.append(contexto.get("cliente_id"))
-
-    sql = f"""
-        SELECT {", ".join(campos)}
-        FROM competicoes c
-        LEFT JOIN usuarios u
-            ON u.login = c.organizador_login
-        {where}
-        ORDER BY
-            CASE
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
-                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
-                ELSE 4
-            END,
-            c.nome
-    """
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, tuple(params))
-            return cur.fetchall()
 
 
-def contar_competicoes(login_superadmin=None):
-    garantir_schema_multiempresa_superadmin()
-    where = ""
-    params = []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        if not contexto.get("eh_master"):
-            where = "WHERE cliente_id = %s"
-            params.append(contexto.get("cliente_id"))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) AS total FROM competicoes {where}", tuple(params))
-            row = cur.fetchone()
-            return row["total"] if row else 0
 
 
-def contar_equipes(login_superadmin=None):
-    garantir_schema_multiempresa_superadmin()
-    where = ""
-    params = []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        if not contexto.get("eh_master"):
-            where = "WHERE cliente_id = %s"
-            params.append(contexto.get("cliente_id"))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) AS total FROM equipes {where}", tuple(params))
-            row = cur.fetchone()
-            return row["total"] if row else 0
 
 
-def contar_partidas(login_superadmin=None):
-    try:
-        garantir_schema_multiempresa_superadmin()
-        join = ""
-        where = ""
-        params = []
-        if login_superadmin:
-            contexto = obter_contexto_superadmin(login_superadmin)
-            if not contexto.get("eh_master"):
-                join = "LEFT JOIN competicoes c ON c.nome = p.competicao"
-                where = "WHERE c.cliente_id = %s"
-                params.append(contexto.get("cliente_id"))
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"SELECT COUNT(*) AS total FROM partidas p {join} {where}", tuple(params))
-                row = cur.fetchone()
-                return row["total"] if row else 0
-    except Exception:
-        return 0
 
 
 # Substitui a versão antiga para vincular a competição ao cliente do SuperADM criador.
-def criar_competicao_com_organizador(nome, data, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None):
-    garantir_schema_multiempresa_superadmin()
-    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
-    senha_organizador = _gerar_senha_aleatoria(8)
-
-    contexto = obter_contexto_superadmin(criador_login) if criador_login else {"cliente_id": None, "eh_master": True}
-    cliente_id = contexto.get("cliente_id")
-
-    # Se o master criar uma competição diretamente, ela fica sem cliente_id e só o master enxerga.
-    colunas = _buscar_colunas_tabela("competicoes")
-    colunas_usuarios = _buscar_colunas_tabela("usuarios")
-
-    data_base = data or data_inicio or datetime.now().strftime("%Y-%m-%d")
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            campos_usuario = ["login", "nome", "senha", "perfil", "ativo", "equipe", "competicao_vinculada"]
-            valores_usuario = [login_organizador, f"Organizador - {nome}", senha_organizador, "organizador", True, None, nome]
-            if "cliente_id" in colunas_usuarios:
-                campos_usuario.append("cliente_id")
-                valores_usuario.append(cliente_id)
-            if "criado_por" in colunas_usuarios:
-                campos_usuario.append("criado_por")
-                valores_usuario.append(criador_login)
-
-            cur.execute(
-                f"INSERT INTO usuarios ({', '.join(campos_usuario)}) VALUES ({', '.join(['%s'] * len(valores_usuario))})",
-                tuple(valores_usuario),
-            )
-
-            campos = ["nome", "data", "status", "organizador_login"]
-            valores = [nome, data_base, status or "Em preparação", login_organizador]
-
-            mapa_defaults = {
-                "cliente_id": cliente_id,
-                "data_inicio": data_inicio or data_base,
-                "data_fim": data_fim or data_inicio or data_base,
-                "cidade": "",
-                "ginasio": "",
-                "categoria": "",
-                "sexo": "",
-                "divisao": "",
-                "qtd_equipes": 0,
-                "formato": "grupos",
-                "tem_grupos": False,
-                "qtd_grupos": 0,
-                "qtd_quadras": 1,
-                "modo_operacao": modo_operacao or "simples",
-                "tempos_por_set": tempos_por_set,
-                "substituicoes_por_set": substituicoes_por_set,
-                "sets_tipo": "melhor_de_3",
-                "pontos_set": 25,
-                "tem_tiebreak": True,
-                "pontos_tiebreak": 15,
-                "diferenca_minima": 2,
-                "vitoria_set_unico": 2,
-                "derrota_set_unico": 0,
-                "vitoria_2x0": 3,
-                "vitoria_2x1": 2,
-                "derrota_1x2": 1,
-                "derrota_0x2": 0,
-                "vitoria_3x0": 3,
-                "vitoria_3x1": 3,
-                "vitoria_3x2": 2,
-                "derrota_2x3": 1,
-                "derrota_1x3": 0,
-                "derrota_0x3": 0,
-                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
-                "tipo_classificacao": "grupo",
-                "qtd_classificados": 0,
-                "formato_finais": "mata_mata",
-                "possui_bye": False,
-                "qtd_bye": 0,
-                "fases_config": json.dumps({}, ensure_ascii=False),
-                "tipo_confronto": "grupo_interno",
-                "cruzamentos_grupos": "",
-                "data_limite_inscricao": None,
-                "hora_limite_inscricao": None,
-                "bloquear_apos_inicio": False,
-                "limite_atletas": 0,
-                "permitir_edicao_pos_prazo": False,
-                "exigir_foto_atleta": False,
-                "exigir_instagram_atleta": False,
-                "aprovacao_automatica_atletas": False,
-                "travada": False,
-                "motivo_travamento": "",
-                "travada_em": None,
-            }
-
-            for campo, default in mapa_defaults.items():
-                if campo in colunas:
-                    campos.append(campo)
-                    valores.append(default)
-
-            cur.execute(
-                f"INSERT INTO competicoes ({', '.join(campos)}) VALUES ({', '.join(['%s'] * len(valores))})",
-                tuple(valores),
-            )
-
-        conn.commit()
-
-    try:
-        garantir_quadras_competicao(nome, 1)
-    except Exception as e:
-        print("AVISO: não foi possível criar quadra padrão da competição:", e)
-
-    return {"login": login_organizador, "senha": senha_organizador}
 
 
 # =========================================================
@@ -19215,131 +13494,6 @@ def _obter_ou_criar_cliente_thalis_cur(cur):
     return (cur.fetchone() or {}).get("id")
 
 
-def garantir_schema_multiempresa_superadmin():
-    """Cria e migra a base multiempresa.
-
-    Regras:
-    - ThalisADM é master, mas possui cliente_id próprio para o ambiente dele.
-    - SuperADMs criados abaixo possuem outro cliente_id.
-    - Registros antigos sem cliente_id viram dados do ambiente ThalisADM.
-    - Tabelas operacionais recebem cliente_id para impedir vazamento entre clientes.
-    """
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cliente_thalis = _obter_ou_criar_cliente_thalis_cur(cur)
-
-                cur.execute("""
-                    ALTER TABLE usuarios
-                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
-                    ADD COLUMN IF NOT EXISTS superadmin_nivel TEXT DEFAULT 'cliente',
-                    ADD COLUMN IF NOT EXISTS criado_por TEXT
-                """)
-                cur.execute("""
-                    ALTER TABLE competicoes
-                    ADD COLUMN IF NOT EXISTS cliente_id INTEGER,
-                    ADD COLUMN IF NOT EXISTS data_inicio TEXT,
-                    ADD COLUMN IF NOT EXISTS data_fim TEXT
-                """)
-
-                tabelas_cliente = [
-                    "equipes", "atletas", "atletas_globais", "apontadores_acesso", "oficiais",
-                    "competicao_oficiais", "equipes_competicoes", "partidas", "grupos",
-                    "grupos_equipes", "competicao_quadras", "classificacao_cache",
-                    "competicao_agenda_config", "competicao_avanco_config", "eventos_partida",
-                    "pins_operacionais", "jogos_avulsos"
-                ]
-                for tabela in tabelas_cliente:
-                    _garantir_coluna_cliente_cur(cur, tabela)
-
-                # ThalisADM: master e dono do próprio ambiente.
-                cur.execute("""
-                    UPDATE usuarios
-                    SET perfil = 'superadmin',
-                        superadmin_nivel = 'master',
-                        cliente_id = %s,
-                        ativo = TRUE
-                    WHERE LOWER(login) = LOWER(%s)
-                """, (cliente_thalis, MASTER_SUPERADMIN_LOGIN))
-
-                # Migração segura: tudo antigo sem cliente_id fica no ambiente ThalisADM.
-                cur.execute("UPDATE usuarios SET cliente_id = %s WHERE cliente_id IS NULL", (cliente_thalis,))
-                cur.execute("UPDATE competicoes SET cliente_id = %s WHERE cliente_id IS NULL", (cliente_thalis,))
-
-                # Propaga cliente_id por competição quando possível.
-                for tabela, campo_comp in [
-                    ("equipes", "competicao"),
-                    ("atletas", "competicao"),
-                    ("competicao_oficiais", "competicao"),
-                    ("equipes_competicoes", "competicao"),
-                    ("partidas", "competicao"),
-                    ("grupos", "competicao"),
-                    ("grupos_equipes", "competicao"),
-                    ("competicao_quadras", "competicao"),
-                    ("classificacao_cache", "competicao"),
-                    ("competicao_agenda_config", "competicao"),
-                    ("competicao_avanco_config", "competicao"),
-                    ("eventos_partida", "competicao"),
-                ]:
-                    try:
-                        if _tabela_existe_cur(cur, tabela):
-                            cols = _colunas_cur(cur, tabela)
-                            if "cliente_id" in cols and campo_comp in cols:
-                                cur.execute(f"""
-                                    UPDATE {tabela} t
-                                    SET cliente_id = c.cliente_id
-                                    FROM competicoes c
-                                    WHERE t.cliente_id IS NULL
-                                      AND TRIM(LOWER(t.{campo_comp})) = TRIM(LOWER(c.nome))
-                                """)
-                    except Exception as e:
-                        print(f"AVISO multiempresa backfill {tabela}:", repr(e), flush=True)
-
-                # Equipe/usuário por login.
-                try:
-                    if _tabela_existe_cur(cur, "equipes"):
-                        cur.execute("""
-                            UPDATE equipes e
-                            SET cliente_id = u.cliente_id
-                            FROM usuarios u
-                            WHERE e.cliente_id IS NULL
-                              AND e.login = u.login
-                        """)
-                except Exception as e:
-                    print("AVISO multiempresa equipes/usuarios:", repr(e), flush=True)
-
-                # Oficiais e apontadores antigos ficam no ambiente ThalisADM se não houver vínculo por competição.
-                for tabela in ["equipes", "atletas", "atletas_globais", "apontadores_acesso", "oficiais", "competicao_oficiais", "equipes_competicoes", "partidas", "grupos", "grupos_equipes", "competicao_quadras"]:
-                    try:
-                        if _tabela_existe_cur(cur, tabela) and "cliente_id" in _colunas_cur(cur, tabela):
-                            cur.execute(f"UPDATE {tabela} SET cliente_id = %s WHERE cliente_id IS NULL", (cliente_thalis,))
-                    except Exception as e:
-                        print(f"AVISO multiempresa default {tabela}:", repr(e), flush=True)
-
-                # Índices.
-                for tabela in ["usuarios", "competicoes", "equipes", "atletas", "apontadores_acesso", "oficiais", "competicao_oficiais", "equipes_competicoes", "partidas"]:
-                    try:
-                        if _tabela_existe_cur(cur, tabela) and "cliente_id" in _colunas_cur(cur, tabela):
-                            cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabela}_cliente_id ON {tabela} (cliente_id)")
-                    except Exception:
-                        pass
-
-                # Permite mesmo CPF em clientes diferentes quando o banco antigo permitir remover UNIQUE global.
-                # Se algum ambiente Neon não permitir DROP por nome, apenas ignora e o restante do isolamento continua.
-                for tabela, constraint in [("oficiais", "oficiais_cpf_key"), ("apontadores_acesso", "apontadores_acesso_cpf_key")]:
-                    try:
-                        if _tabela_existe_cur(cur, tabela):
-                            cur.execute(f"ALTER TABLE {tabela} DROP CONSTRAINT IF EXISTS {constraint}")
-                            cur.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{tabela}_cpf_cliente ON {tabela} (cpf, cliente_id)")
-                    except Exception as e:
-                        print(f"AVISO multiempresa unique {tabela}:", repr(e), flush=True)
-
-            conn.commit()
-        _limpar_cache_colunas_multiempresa()
-        return True
-    except Exception as e:
-        print("ERRO garantir_schema_multiempresa_superadmin:", repr(e), flush=True)
-        return False
 
 
 def _slug_cliente(nome):
@@ -19359,66 +13513,14 @@ def _gerar_slug_cliente_unico(cur, nome):
         slug = f"{base}_{contador}"
 
 
-def cliente_id_thalisadm():
-    garantir_schema_multiempresa_superadmin()
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            return _obter_ou_criar_cliente_thalis_cur(cur)
 
 
-def obter_contexto_superadmin(login):
-    garantir_schema_multiempresa_superadmin()
-    login = (login or "").strip()
-    if not login:
-        return {"eh_master": False, "cliente_id": None, "nivel": "cliente"}
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT login, perfil, ativo, cliente_id,
-                       COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel
-                FROM usuarios
-                WHERE LOWER(login) = LOWER(%s)
-                LIMIT 1
-            """, (login,))
-            usuario = cur.fetchone() or {}
-    nivel = (usuario.get("superadmin_nivel") or "cliente").strip().lower()
-    eh_master = (login.lower() == MASTER_SUPERADMIN_LOGIN.lower()) or nivel == "master"
-    return {
-        "login": usuario.get("login") or login,
-        "perfil": usuario.get("perfil"),
-        "ativo": usuario.get("ativo"),
-        "cliente_id": usuario.get("cliente_id"),
-        "nivel": "master" if eh_master else "cliente",
-        "eh_master": eh_master,
-    }
 
 
-def superadmin_eh_master(login):
-    return bool(obter_contexto_superadmin(login).get("eh_master"))
 
 
-def cliente_id_por_login(login):
-    garantir_schema_multiempresa_superadmin()
-    login = (login or "").strip()
-    if not login:
-        return None
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT cliente_id FROM usuarios WHERE LOWER(login)=LOWER(%s) LIMIT 1", (login,))
-            row = cur.fetchone() or {}
-            return row.get("cliente_id")
 
 
-def cliente_id_por_competicao(competicao):
-    garantir_schema_multiempresa_superadmin()
-    competicao = (competicao or "").strip()
-    if not competicao:
-        return None
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT cliente_id FROM competicoes WHERE TRIM(LOWER(nome))=TRIM(LOWER(%s)) LIMIT 1", (competicao,))
-            row = cur.fetchone() or {}
-            return row.get("cliente_id")
 
 
 def _resolver_cliente_id_contexto(valor=None):
@@ -19437,388 +13539,44 @@ def _resolver_cliente_id_contexto(valor=None):
     return cliente_id_por_login(texto)
 
 
-def buscar_usuario_por_login(login, conn=None):
-    garantir_schema_multiempresa_superadmin()
-    sql = """
-        SELECT login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
-               cliente_id, COALESCE(superadmin_nivel, 'cliente') AS superadmin_nivel, criado_por
-        FROM usuarios
-        WHERE LOWER(login) = LOWER(%s)
-        LIMIT 1
-    """
-    if conn is not None:
-        with conn.cursor() as cur:
-            cur.execute(sql, (login,))
-            return cur.fetchone()
-    with conectar() as conn:
-        return buscar_usuario_por_login(login, conn)
 
 
-def listar_superadmins_clientes(login_master=None):
-    garantir_schema_multiempresa_superadmin()
-    if login_master and not superadmin_eh_master(login_master):
-        return []
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT
-                    u.login, u.nome, u.senha, u.ativo, u.cliente_id,
-                    COALESCE(u.superadmin_nivel, 'cliente') AS superadmin_nivel,
-                    COALESCE(c.nome, '') AS cliente_nome,
-                    COALESCE(c.ativo, TRUE) AS cliente_ativo,
-                    c.criado_em
-                FROM usuarios u
-                LEFT JOIN clientes_sistema c ON c.id = u.cliente_id
-                WHERE u.perfil = 'superadmin'
-                  AND COALESCE(u.superadmin_nivel, 'cliente') <> 'master'
-                ORDER BY COALESCE(c.nome, u.nome), u.nome
-            """)
-            return cur.fetchall()
 
 
-def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admin=None):
-    garantir_schema_multiempresa_superadmin()
-    if not superadmin_eh_master(criador_login):
-        return {"ok": False, "erro": "Apenas o ThalisADM master pode criar SuperADMs de clientes."}
-    nome_cliente = (nome_cliente or "").strip()
-    nome_admin = (nome_admin or "").strip()
-    login_admin = (login_admin or "").strip()
-    if not nome_cliente or not nome_admin:
-        return {"ok": False, "erro": "Informe o nome do cliente e o nome do SuperADM."}
-    if not login_admin:
-        login_admin = f"adm_{_normalizar_texto_base(nome_cliente)}"
-    login_admin = re.sub(r"\s+", "_", login_admin)
-    login_admin = re.sub(r"[^A-Za-z0-9_.@-]", "", login_admin)[:80]
-    if not login_admin:
-        login_admin = f"adm_{_normalizar_texto_base(nome_admin)}"
-    senha = _gerar_senha_aleatoria(8)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT login FROM usuarios WHERE LOWER(login) = LOWER(%s) LIMIT 1", (login_admin,))
-            if cur.fetchone():
-                return {"ok": False, "erro": "Este login já está em uso."}
-            slug = _gerar_slug_cliente_unico(cur, nome_cliente)
-            cur.execute("""
-                INSERT INTO clientes_sistema (nome, slug, ativo, criado_por)
-                VALUES (%s, %s, TRUE, %s)
-                RETURNING id
-            """, (nome_cliente, slug, criador_login))
-            cliente_id = (cur.fetchone() or {}).get("id")
-            cur.execute("""
-                INSERT INTO usuarios (
-                    login, nome, senha, perfil, ativo, equipe, competicao_vinculada,
-                    cliente_id, superadmin_nivel, criado_por
-                )
-                VALUES (%s, %s, %s, 'superadmin', TRUE, NULL, NULL, %s, 'cliente', %s)
-            """, (login_admin, nome_admin, senha, cliente_id, criador_login))
-        conn.commit()
-    return {"ok": True, "cliente_id": cliente_id, "cliente_nome": nome_cliente, "login": login_admin, "senha": senha, "nome": nome_admin}
 
 
-def excluir_superadmin_cliente(criador_login, login_alvo):
-    garantir_schema_multiempresa_superadmin()
-    if not superadmin_eh_master(criador_login):
-        return {"ok": False, "erro": "Apenas o ThalisADM master pode excluir SuperADMs de clientes."}
-    login_alvo = (login_alvo or "").strip()
-    if not login_alvo or login_alvo.lower() == MASTER_SUPERADMIN_LOGIN.lower():
-        return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT login, cliente_id, COALESCE(superadmin_nivel, 'cliente') AS nivel
-                FROM usuarios
-                WHERE LOWER(login) = LOWER(%s)
-                  AND perfil = 'superadmin'
-                LIMIT 1
-            """, (login_alvo,))
-            alvo = cur.fetchone()
-            if not alvo:
-                return {"ok": False, "erro": "SuperADM não encontrado."}
-            if (alvo.get("nivel") or "").lower() == "master":
-                return {"ok": False, "erro": "Não é permitido excluir o SuperADM master."}
-            cliente_id = alvo.get("cliente_id")
-            # Suspende o cliente inteiro em vez de apagar dados operacionais.
-            cur.execute("UPDATE usuarios SET ativo = FALSE WHERE cliente_id = %s", (cliente_id,))
-            if cliente_id:
-                cur.execute("UPDATE clientes_sistema SET ativo = FALSE WHERE id = %s", (cliente_id,))
-        conn.commit()
-    return {"ok": True}
 
 
-def listar_competicoes(login_superadmin=None, incluir_todos=False):
-    sincronizar_status_competicoes()
-    garantir_schema_multiempresa_superadmin()
-    campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
-    where = ""
-    params = []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        if not incluir_todos:
-            where = "WHERE c.cliente_id = %s"
-            params.append(contexto.get("cliente_id"))
-    sql = f"""
-        SELECT {", ".join(campos)}
-        FROM competicoes c
-        LEFT JOIN usuarios u ON u.login = c.organizador_login
-        {where}
-        ORDER BY
-            CASE
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
-                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
-                ELSE 4
-            END,
-            c.nome
-    """
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, tuple(params))
-            return cur.fetchall()
 
 
-def contar_competicoes(login_superadmin=None):
-    garantir_schema_multiempresa_superadmin()
-    where, params = "", []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        where = "WHERE cliente_id = %s"
-        params.append(contexto.get("cliente_id"))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) AS total FROM competicoes {where}", tuple(params))
-            return (cur.fetchone() or {}).get("total", 0)
 
 
-def contar_equipes(login_superadmin=None):
-    garantir_schema_multiempresa_superadmin()
-    where, params = "", []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        where = "WHERE cliente_id = %s"
-        params.append(contexto.get("cliente_id"))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) AS total FROM equipes {where}", tuple(params))
-            return (cur.fetchone() or {}).get("total", 0)
 
 
-def contar_partidas(login_superadmin=None):
-    garantir_schema_multiempresa_superadmin()
-    join, where, params = "", "", []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        join = "LEFT JOIN competicoes c ON c.nome = p.competicao"
-        where = "WHERE c.cliente_id = %s"
-        params.append(contexto.get("cliente_id"))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) AS total FROM partidas p {join} {where}", tuple(params))
-            return (cur.fetchone() or {}).get("total", 0)
 
 
-def criar_competicao_com_organizador(nome, data=None, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None):
-    garantir_schema_multiempresa_superadmin()
-    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
-    senha_organizador = _gerar_senha_aleatoria(8)
-    contexto = obter_contexto_superadmin(criador_login) if criador_login else {"cliente_id": cliente_id_thalisadm()}
-    cliente_id = contexto.get("cliente_id")
-    colunas = _buscar_colunas_tabela("competicoes")
-    colunas_usuarios = _buscar_colunas_tabela("usuarios")
-    data_base = data or data_inicio or datetime.now().strftime("%Y-%m-%d")
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            campos_usuario = ["login", "nome", "senha", "perfil", "ativo", "equipe", "competicao_vinculada"]
-            valores_usuario = [login_organizador, f"Organizador - {nome}", senha_organizador, "organizador", True, None, nome]
-            if "cliente_id" in colunas_usuarios:
-                campos_usuario.append("cliente_id"); valores_usuario.append(cliente_id)
-            if "criado_por" in colunas_usuarios:
-                campos_usuario.append("criado_por"); valores_usuario.append(criador_login)
-            cur.execute(f"INSERT INTO usuarios ({', '.join(campos_usuario)}) VALUES ({', '.join(['%s'] * len(valores_usuario))})", tuple(valores_usuario))
-            campos = ["nome", "data", "status", "organizador_login"]
-            valores = [nome, data_base, status or "Em preparação", login_organizador]
-            mapa_defaults = {
-                "cliente_id": cliente_id, "data_inicio": data_inicio or data_base, "data_fim": data_fim or data_inicio or data_base,
-                "cidade": "", "ginasio": "", "categoria": "", "sexo": "", "divisao": "", "qtd_equipes": 0,
-                "formato": "grupos", "tem_grupos": False, "qtd_grupos": 0, "qtd_quadras": 1,
-                "modo_operacao": modo_operacao or "simples", "tempos_por_set": tempos_por_set, "substituicoes_por_set": substituicoes_por_set,
-                "sets_tipo": "melhor_de_3", "pontos_set": 25, "tem_tiebreak": True, "pontos_tiebreak": 15, "diferenca_minima": 2,
-                "vitoria_set_unico": 2, "derrota_set_unico": 0, "vitoria_2x0": 3, "vitoria_2x1": 2, "derrota_1x2": 1, "derrota_0x2": 0,
-                "vitoria_3x0": 3, "vitoria_3x1": 3, "vitoria_3x2": 2, "derrota_2x3": 1, "derrota_1x3": 0, "derrota_0x3": 0,
-                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
-                "tipo_classificacao": "grupo", "qtd_classificados": 0, "formato_finais": "mata_mata", "possui_bye": False, "qtd_bye": 0,
-                "fases_config": json.dumps({}, ensure_ascii=False), "tipo_confronto": "grupo_interno", "cruzamentos_grupos": "",
-                "data_limite_inscricao": None, "hora_limite_inscricao": None, "bloquear_apos_inicio": False, "limite_atletas": 0,
-                "permitir_edicao_pos_prazo": False, "exigir_foto_atleta": False, "exigir_instagram_atleta": False,
-                "aprovacao_automatica_atletas": False, "travada": False, "motivo_travamento": "", "travada_em": None,
-            }
-            for campo, default in mapa_defaults.items():
-                if campo in colunas:
-                    campos.append(campo); valores.append(default)
-            cur.execute(f"INSERT INTO competicoes ({', '.join(campos)}) VALUES ({', '.join(['%s'] * len(valores))})", tuple(valores))
-        conn.commit()
-    try:
-        garantir_quadras_competicao(nome, 1)
-        # garante cliente_id na quadra padrão criada por função antiga
-        cid = cliente_id
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                if _tabela_existe_cur(cur, "competicao_quadras") and "cliente_id" in _colunas_cur(cur, "competicao_quadras"):
-                    cur.execute("UPDATE competicao_quadras SET cliente_id = %s WHERE competicao = %s AND cliente_id IS NULL", (cid, nome))
-            conn.commit()
-    except Exception as e:
-        print("AVISO: não foi possível criar quadra padrão da competição:", e)
-    return {"login": login_organizador, "senha": senha_organizador}
 
 
-def buscar_equipe_global_por_nome(nome_equipe, conn=None, cliente_id=None, competicao=None):
-    garantir_schema_multiempresa_superadmin()
-    nome_equipe = (nome_equipe or "").strip()
-    if not nome_equipe:
-        return None
-    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
-    sql = """
-        SELECT *
-        FROM equipes
-        WHERE LOWER(TRIM(nome)) = LOWER(TRIM(%s))
-          AND (%s::INTEGER IS NULL OR cliente_id = %s)
-        ORDER BY id DESC
-        LIMIT 1
-    """
-    params = (nome_equipe, cid, cid)
-    if conn is not None:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            return cur.fetchone()
-    with conectar() as conn:
-        return buscar_equipe_global_por_nome(nome_equipe, conn, cliente_id=cid)
 
 
-def buscar_equipes_globais_por_nome(termo, limite=20, cliente_id=None, competicao=None):
-    garantir_schema_multiempresa_superadmin()
-    termo = (termo or "").strip()
-    if not termo:
-        return []
-    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
-    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_campo_escudo_equipes()
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
-                       liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel,
-                       telefone, email, instagram,
-                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
-                       escudo_blob,
-                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
-                       COALESCE(perfil_completo, FALSE) AS perfil_completo,
-                       cliente_id
-                FROM equipes
-                WHERE LOWER(TRIM(nome)) LIKE LOWER(TRIM(%s))
-                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
-                ORDER BY CASE WHEN LOWER(TRIM(nome)) = LOWER(TRIM(%s)) THEN 0 ELSE 1 END, nome ASC, login ASC
-                LIMIT %s
-            """, (f"%{termo}%", cid, cid, termo, limite))
-            return cur.fetchall()
 
 
-def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
-    garantir_schema_multiempresa_superadmin(); criar_tabela_equipes_competicoes()
-    cid = cliente_id_por_competicao(nome_competicao)
-    def _executar(cnx):
-        equipe = buscar_equipe_global_por_nome(nome_equipe, cnx, cliente_id=cid)
-        if not equipe:
-            return None
-        with cnx.cursor() as cur:
-            cur.execute("""
-                SELECT id FROM equipes_competicoes
-                WHERE equipe_login = %s AND competicao = %s AND cliente_id = %s
-                LIMIT 1
-            """, (equipe["login"], nome_competicao, cid))
-            existente = cur.fetchone()
-            if not existente:
-                cur.execute("""
-                    INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
-                    VALUES (%s, %s, %s, 'ativa', %s)
-                    ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                    SET equipe_login = EXCLUDED.equipe_login, status = 'ativa', cliente_id = EXCLUDED.cliente_id
-                """, (equipe["login"], equipe["nome"], nome_competicao, cid))
-            try:
-                cur.execute("UPDATE equipes SET cliente_id = %s WHERE login = %s", (cid, equipe["login"]))
-                cur.execute("UPDATE usuarios SET cliente_id = %s WHERE login = %s", (cid, equipe["login"]))
-            except Exception:
-                pass
-        equipe = dict(equipe)
-        equipe["ja_vinculada"] = bool(existente)
-        return equipe
-    if conn is not None:
-        return _executar(conn)
-    with conectar() as conn:
-        res = _executar(conn); conn.commit(); return res
 
 
-def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
-    garantir_schema_multiempresa_superadmin()
-    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_tabela_equipes_competicoes()
-    nome_equipe = (nome_equipe or "").strip(); nome_competicao = (nome_competicao or "").strip()
-    if not nome_equipe or not nome_competicao:
-        return None
-    cid = cliente_id_por_competicao(nome_competicao)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe)); senha_equipe = _gerar_senha_aleatoria(8)
-            cur.execute("""
-                INSERT INTO equipes (nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
-                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel, telefone, email, instagram, escudo, perfil_completo, cliente_id)
-                VALUES (%s, %s, %s, %s, '', '', '', '', FALSE, NULL, NULL, '', '', '', '', '', '', FALSE, %s)
-            """, (nome_equipe, login_equipe, senha_equipe, nome_competicao, cid))
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
-                VALUES (%s, %s, %s, 'ativa', %s)
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login, status = 'ativa', cliente_id = EXCLUDED.cliente_id
-            """, (login_equipe, nome_equipe, nome_competicao, cid))
-            cur.execute("""
-                INSERT INTO usuarios (login, nome, senha, perfil, ativo, equipe, competicao_vinculada, cliente_id)
-                VALUES (%s, %s, %s, 'equipe', TRUE, %s, %s, %s)
-            """, (login_equipe, nome_equipe, senha_equipe, nome_equipe, nome_competicao, cid))
-        conn.commit()
-    return {"login": login_equipe, "senha": senha_equipe, "nome": nome_equipe, "vinculada": True, "ja_existia": False, "ja_vinculada": False}
 
 
-def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
-    garantir_schema_multiempresa_superadmin()
-    cid = cliente_id_por_competicao(nome_competicao)
-    with conectar() as conn:
-        existente = buscar_equipe_global_por_nome(nome_equipe, conn, cliente_id=cid)
-        if existente:
-            resultado = vincular_equipe_a_competicao(existente["nome"], nome_competicao, conn)
-            conn.commit()
-            return {"login": resultado["login"], "senha": resultado["senha"], "nome": resultado["nome"], "vinculada": True, "ja_existia": True, "ja_vinculada": resultado.get("ja_vinculada", False)}
-    return criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao)
 
 
-def buscar_atleta_global_por_cpf(cpf, cliente_id=None, competicao=None):
-    """Busca atleta por CPF somente dentro do cliente/competição informados."""
-    garantir_schema_multiempresa_superadmin(); criar_tabela_atletas()
-    cpf_limpo = somente_digitos(cpf)
-    if not cpf_limpo:
-        return None
-    cid = cliente_id if cliente_id is not None else cliente_id_por_competicao(competicao)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"""
-                SELECT nome, cpf, data_nascimento, foto_atleta, instagram
-                FROM atletas
-                WHERE {_cpf_sql_limpo('cpf')} = %s
-                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
-                ORDER BY CASE WHEN COALESCE(foto_atleta, '') <> '' THEN 0 ELSE 1 END,
-                         CASE WHEN COALESCE(instagram, '') <> '' THEN 0 ELSE 1 END,
-                         id DESC
-                LIMIT 1
-            """, (cpf_limpo, cid, cid))
-            return cur.fetchone()
 
 
-def criar_tabelas_oficiais():
+def criar_tabelas_oficiais(force=False):
+    if not force:
+        from core.schema_requirements import require_schema
+        require_schema(
+            tables=("oficiais", "apontadores_acesso", "competicao_oficiais"),
+            context="cadastro de oficiais",
+        )
+        return
     garantir_schema_multiempresa_superadmin()
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -19931,20 +13689,6 @@ def buscar_apontador(cpf, contexto=None, cliente_id=None):
             return cur.fetchone()
 
 
-def definir_senha_apontador(cpf, senha, contexto=None, cliente_id=None):
-    garantir_schema_multiempresa_superadmin()
-    cpf_limpo = somente_digitos(cpf)
-    cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE apontadores_acesso
-                SET senha = %s, primeiro_acesso = FALSE
-                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
-                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
-            """, (senha, cpf_limpo, cid, cid))
-        conn.commit()
-    return True
 
 
 def autenticar_apontador(cpf, senha):
@@ -19952,7 +13696,6 @@ def autenticar_apontador(cpf, senha):
     cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
         with conn.cursor() as cur:
-            # Primeiro tenta CPF + senha. Isso permite o mesmo CPF em clientes diferentes.
             cur.execute("""
                 SELECT a.*, o.nome
                 FROM apontadores_acesso a
@@ -19961,33 +13704,33 @@ def autenticar_apontador(cpf, senha):
                  AND o.cliente_id = a.cliente_id
                 WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
                   AND COALESCE(a.ativo, TRUE) = TRUE
-                  AND a.senha = %s
                 ORDER BY a.id DESC
-                LIMIT 1
-            """, (cpf_limpo, senha))
-            row = cur.fetchone()
-            if row:
-                return row
-            # Primeiro acesso: só aceita se houver um único cadastro ativo sem senha para este CPF.
-            cur.execute("""
-                SELECT a.*, o.nome
-                FROM apontadores_acesso a
-                LEFT JOIN oficiais o
-                  ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
-                 AND o.cliente_id = a.cliente_id
-                WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
-                  AND COALESCE(a.ativo, TRUE) = TRUE
-                  AND (a.senha IS NULL OR a.senha = '')
-                ORDER BY a.id DESC
-                LIMIT 2
             """, (cpf_limpo,))
             rows = cur.fetchall() or []
-            if len(rows) == 1:
-                return rows[0]
-            if len(rows) > 1:
+
+            cadastros_sem_senha = []
+            for row in rows:
+                senha_armazenada = row.get("senha")
+                if not senha_armazenada:
+                    cadastros_sem_senha.append(row)
+                    continue
+                valida, precisa_migrar = verificar_senha(senha, senha_armazenada)
+                if valida:
+                    if precisa_migrar:
+                        cur.execute(
+                            "UPDATE apontadores_acesso SET senha = %s WHERE id = %s",
+                            (gerar_hash_senha(senha), row.get("id")),
+                        )
+                        conn.commit()
+                        row = dict(row)
+                        row["senha"] = "[hash]"
+                    return row
+
+            if len(cadastros_sem_senha) == 1:
+                return cadastros_sem_senha[0]
+            if rows:
                 return False
     return None
-
 
 def vincular_oficial_competicao(competicao, cpf, funcao):
     garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
@@ -20111,70 +13854,6 @@ def criar_tabela_equipes_competicoes(force=False):
         pass
 
 
-def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=None):
-    garantir_schema_multiempresa_superadmin()
-    criar_tabela_equipes_competicoes()
-    login_equipe = (login_equipe or "").strip()
-    nome_competicao = (nome_competicao or "").strip()
-    if not login_equipe or not nome_competicao:
-        return None
-
-    cid = cliente_id_por_competicao(nome_competicao)
-
-    def _executar(cnx):
-        with cnx.cursor() as cur:
-            cur.execute("""
-                SELECT nome, login, senha, competicao, cidade, responsavel, telefone, email, instagram,
-                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo,
-                       escudo_blob,
-                       COALESCE(NULLIF(escudo_blob, ''), NULLIF(escudo, ''), '/static/img/escudo_padrao.svg') AS escudo_exibicao,
-                       COALESCE(perfil_completo, FALSE) AS perfil_completo,
-                       cliente_id
-                FROM equipes
-                WHERE login = %s
-                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
-                LIMIT 1
-            """, (login_equipe, cid, cid))
-            equipe = cur.fetchone()
-            if not equipe:
-                return None
-
-            cur.execute("""
-                SELECT id
-                FROM equipes_competicoes
-                WHERE equipe_login = %s
-                  AND competicao = %s
-                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
-                LIMIT 1
-            """, (equipe["login"], nome_competicao, cid, cid))
-            ja_vinculada = cur.fetchone() is not None
-
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
-                VALUES (%s, %s, %s, 'ativa', %s)
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login,
-                    equipe_nome = EXCLUDED.equipe_nome,
-                    status = 'ativa',
-                    cliente_id = EXCLUDED.cliente_id
-            """, (equipe["login"], equipe["nome"], nome_competicao, cid))
-
-            try:
-                cur.execute("UPDATE equipes SET cliente_id = %s WHERE login = %s AND cliente_id IS NULL", (cid, equipe["login"]))
-                cur.execute("UPDATE usuarios SET cliente_id = %s WHERE login = %s AND cliente_id IS NULL", (cid, equipe["login"]))
-            except Exception:
-                pass
-
-            equipe = dict(equipe)
-            equipe["ja_vinculada"] = ja_vinculada
-            return equipe
-
-    if conn is not None:
-        return _executar(conn)
-    with conectar() as conn:
-        resultado = _executar(conn)
-        conn.commit()
-        return resultado
 
 
 def buscar_equipe_global_por_nome(nome_equipe, conn=None, cliente_id=None, competicao=None):
@@ -20227,50 +13906,8 @@ def buscar_equipes_globais_por_nome(termo, limite=20, cliente_id=None, competica
             return cur.fetchall() or []
 
 
-def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
-    garantir_schema_multiempresa_superadmin()
-    criar_campos_quadro_tecnico_equipes(); criar_campos_liberacao_extra_equipes(); criar_campos_perfil_equipe(); criar_tabela_equipes_competicoes()
-    nome_equipe = (nome_equipe or "").strip(); nome_competicao = (nome_competicao or "").strip()
-    if not nome_equipe or not nome_competicao:
-        return None
-    cid = cliente_id_por_competicao(nome_competicao)
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            login_equipe = _gerar_login_unico(_normalizar_login_equipe(nome_equipe))
-            senha_equipe = _gerar_senha_aleatoria(8)
-            cur.execute("""
-                INSERT INTO equipes (nome, login, senha, competicao, treinador, auxiliar_tecnico, preparador_fisico, medico,
-                    liberacao_extra_inscricao, liberacao_extra_data, liberacao_extra_hora, cidade, responsavel, telefone, email, instagram, escudo, perfil_completo, cliente_id)
-                VALUES (%s, %s, %s, %s, '', '', '', '', FALSE, NULL, NULL, '', '', '', '', '', '', FALSE, %s)
-            """, (nome_equipe, login_equipe, senha_equipe, nome_competicao, cid))
-            cur.execute("""
-                INSERT INTO equipes_competicoes (equipe_login, equipe_nome, competicao, status, cliente_id)
-                VALUES (%s, %s, %s, 'ativa', %s)
-                ON CONFLICT (equipe_nome, competicao) DO UPDATE
-                SET equipe_login = EXCLUDED.equipe_login,
-                    status = 'ativa',
-                    cliente_id = EXCLUDED.cliente_id
-            """, (login_equipe, nome_equipe, nome_competicao, cid))
-            cur.execute("""
-                INSERT INTO usuarios (login, nome, senha, perfil, ativo, equipe, competicao_vinculada, cliente_id)
-                VALUES (%s, %s, %s, 'equipe', TRUE, %s, %s, %s)
-            """, (login_equipe, nome_equipe, senha_equipe, nome_equipe, nome_competicao, cid))
-        conn.commit()
-    return {"login": login_equipe, "senha": senha_equipe, "nome": nome_equipe, "vinculada": True, "ja_existia": False, "ja_vinculada": False}
 
 
-def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
-    garantir_schema_multiempresa_superadmin()
-    cid = cliente_id_por_competicao(nome_competicao)
-    with conectar() as conn:
-        existente = buscar_equipe_global_por_nome(nome_equipe, conn=conn, cliente_id=cid)
-        if existente:
-            resultado = vincular_equipe_existente_competicao(existente["login"], nome_competicao, conn=conn)
-            conn.commit()
-            if not resultado:
-                return None
-            return {"login": resultado["login"], "senha": resultado["senha"], "nome": resultado["nome"], "vinculada": True, "ja_existia": True, "ja_vinculada": resultado.get("ja_vinculada", False)}
-    return criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao)
 
 
 def buscar_atleta_global_por_cpf(cpf, cliente_id=None, competicao=None):
@@ -20318,6 +13955,7 @@ def definir_senha_apontador(cpf, senha, contexto=None, cliente_id=None):
     garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
+    senha_hash = gerar_hash_senha(senha)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -20325,7 +13963,7 @@ def definir_senha_apontador(cpf, senha, contexto=None, cliente_id=None):
                 SET senha = %s, primeiro_acesso = FALSE
                 WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                   AND (%s::INTEGER IS NULL OR cliente_id = %s)
-            """, (senha, cpf_limpo, cid, cid))
+            """, (senha_hash, cpf_limpo, cid, cid))
         conn.commit()
     return True
 
@@ -20614,124 +14252,112 @@ def _where_cliente_sql(alias, cliente_id, incluir_sem_cliente=False):
     return f"WHERE {prefixo}cliente_id = %s", [cliente_id]
 
 
-def listar_competicoes(login_superadmin=None, incluir_todos=False):
-    """Lista competições sem rodar migração pesada nem sincronização global no login."""
-    try:
-        campos = _campos_competicao(prefixo="c", incluir_senha_organizador=True)
-    except Exception:
-        campos = ["c.nome", "c.data", "c.status", "c.organizador_login", "u.senha AS organizador_senha"]
 
-    where = ""
-    params = []
+
+def _resumo_contagens_superadmin(login_superadmin=None):
+    """Consolida os cards do SuperAdmin em uma única ida ao PostgreSQL.
+
+    As rotas antigas continuam podendo chamar ``contar_competicoes``,
+    ``contar_equipes`` e ``contar_partidas`` separadamente. O cache da
+    requisição garante que, no mesmo carregamento da página, somente a primeira
+    chamada consulte o banco.
+    """
+    login = str(login_superadmin or "").strip()
+    chave_cache = ("resumo_contagens_superadmin", login.lower())
+    cache_hit = cache_requisicao_obter(chave_cache, None)
+    if cache_hit is not None:
+        return cache_hit
+
+    cliente_id = None
     incluir_sem_cliente = False
-
-    if login_superadmin and not incluir_todos:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        cid = contexto.get("cliente_id")
+    if login:
+        contexto = obter_contexto_superadmin(login)
+        cliente_id = contexto.get("cliente_id")
         incluir_sem_cliente = bool(contexto.get("eh_master"))
-        where, params = _where_cliente_sql("c", cid, incluir_sem_cliente=incluir_sem_cliente)
+
+    if cliente_id is None:
+        filtro_competicoes = "TRUE"
+        filtro_equipes = "TRUE"
+        filtro_partidas = "TRUE"
+        params = []
+    elif incluir_sem_cliente:
+        filtro_competicoes = "(cliente_id = %s OR cliente_id IS NULL)"
+        filtro_equipes = "(cliente_id = %s OR cliente_id IS NULL)"
+        filtro_partidas = "(cliente_id = %s OR cliente_id IS NULL)"
+        params = [cliente_id, cliente_id, cliente_id]
+    else:
+        filtro_competicoes = "cliente_id = %s"
+        filtro_equipes = "cliente_id = %s"
+        filtro_partidas = "cliente_id = %s"
+        params = [cliente_id, cliente_id, cliente_id]
 
     sql = f"""
-        SELECT {", ".join(campos)}
-        FROM competicoes c
-        LEFT JOIN usuarios u ON u.login = c.organizador_login
-        {where}
-        ORDER BY
-            CASE
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em andamento', 'em_andamento', 'andamento') THEN 1
-                WHEN LOWER(COALESCE(c.status, '')) IN ('em preparação', 'em preparacao', 'preparação', 'preparacao') THEN 2
-                WHEN LOWER(COALESCE(c.status, '')) IN ('finalizada', 'finalizado', 'encerrada', 'encerrado') THEN 3
-                ELSE 4
-            END,
-            c.nome
+        SELECT
+            (SELECT COUNT(*) FROM competicoes WHERE {filtro_competicoes}) AS competicoes,
+            (SELECT COUNT(*) FROM equipes WHERE {filtro_equipes}) AS equipes,
+            (SELECT COUNT(*) FROM partidas WHERE {filtro_partidas}) AS partidas
     """
 
     with conectar() as conn:
         with conn.cursor() as cur:
             try:
                 cur.execute(sql, tuple(params))
-                return cur.fetchall()
+                row = cur.fetchone() or {}
             except Exception as e:
-                print("AVISO listar_competicoes fallback:", repr(e), flush=True)
+                print("AVISO resumo contagens SuperAdmin fallback:", repr(e), flush=True)
                 try:
                     conn.rollback()
                 except Exception:
                     pass
                 cur.execute("""
-                    SELECT c.nome, c.data, c.status, c.organizador_login, u.senha AS organizador_senha
-                    FROM competicoes c
-                    LEFT JOIN usuarios u ON u.login = c.organizador_login
-                    ORDER BY c.nome
+                    SELECT
+                        (SELECT COUNT(*) FROM competicoes) AS competicoes,
+                        (SELECT COUNT(*) FROM equipes) AS equipes,
+                        (SELECT COUNT(*) FROM partidas) AS partidas
                 """)
-                return cur.fetchall()
+                row = cur.fetchone() or {}
+
+    resultado = {
+        "competicoes": int(row.get("competicoes") or 0),
+        "equipes": int(row.get("equipes") or 0),
+        "partidas": int(row.get("partidas") or 0),
+    }
+    return cache_requisicao_armazenar(chave_cache, resultado)
 
 
 def contar_competicoes(login_superadmin=None):
-    where = ""
-    params = []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        where, params = _where_cliente_sql("", contexto.get("cliente_id"), incluir_sem_cliente=bool(contexto.get("eh_master")))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(f"SELECT COUNT(*) AS total FROM competicoes {where}", tuple(params))
-            except Exception:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                cur.execute("SELECT COUNT(*) AS total FROM competicoes")
-            return (cur.fetchone() or {}).get("total", 0)
+    return _resumo_contagens_superadmin(login_superadmin).get("competicoes", 0)
 
 
 def contar_equipes(login_superadmin=None):
-    where = ""
-    params = []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        where, params = _where_cliente_sql("", contexto.get("cliente_id"), incluir_sem_cliente=bool(contexto.get("eh_master")))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(f"SELECT COUNT(*) AS total FROM equipes {where}", tuple(params))
-            except Exception:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                cur.execute("SELECT COUNT(*) AS total FROM equipes")
-            return (cur.fetchone() or {}).get("total", 0)
+    return _resumo_contagens_superadmin(login_superadmin).get("equipes", 0)
 
 
 def contar_partidas(login_superadmin=None):
-    where = ""
-    params = []
-    if login_superadmin:
-        contexto = obter_contexto_superadmin(login_superadmin)
-        where, params = _where_cliente_sql("", contexto.get("cliente_id"), incluir_sem_cliente=bool(contexto.get("eh_master")))
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(f"SELECT COUNT(*) AS total FROM partidas {where}", tuple(params))
-            except Exception:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                cur.execute("SELECT COUNT(*) AS total FROM partidas")
-            return (cur.fetchone() or {}).get("total", 0)
+    return _resumo_contagens_superadmin(login_superadmin).get("partidas", 0)
 
 
 def listar_superadmins_clientes(login_master=None):
     if login_master and not superadmin_eh_master(login_master):
         return []
-    garantir_schema_multiempresa_superadmin()
+
+    # Navegação administrativa não pode executar ALTER TABLE/CREATE INDEX.
+    # O schema multiempresa deve ser preparado pelas migrações antes do boot.
+    from core.schema_requirements import require_schema
+    require_schema(
+        tables=("usuarios", "clientes_sistema"),
+        columns={
+            "usuarios": ("login", "nome", "ativo", "cliente_id", "superadmin_nivel", "perfil"),
+            "clientes_sistema": ("id", "nome", "ativo", "criado_em"),
+        },
+        context="listagem de SuperADMs e clientes",
+    )
+
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT
-                    u.login, u.nome, u.senha, u.ativo, u.cliente_id,
+                    u.login, u.nome, u.ativo, u.cliente_id,
                     COALESCE(u.superadmin_nivel, 'cliente') AS superadmin_nivel,
                     COALESCE(c.nome, '') AS cliente_nome,
                     COALESCE(c.ativo, TRUE) AS cliente_ativo,
@@ -20765,6 +14391,7 @@ def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admi
         login_admin = f"adm_{_normalizar_texto_base(nome_admin)}"
 
     senha = _gerar_senha_aleatoria(8)
+    senha_hash = gerar_hash_senha(senha)
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -20786,7 +14413,7 @@ def criar_superadmin_cliente(criador_login, nome_cliente, nome_admin, login_admi
                     cliente_id, superadmin_nivel, criado_por
                 )
                 VALUES (%s, %s, %s, 'superadmin', TRUE, NULL, NULL, %s, 'cliente', %s)
-            """, (login_admin, nome_admin, senha, cliente_id, criador_login))
+            """, (login_admin, nome_admin, senha_hash, cliente_id, criador_login))
         conn.commit()
 
     return {"ok": True, "cliente_id": cliente_id, "cliente_nome": nome_cliente, "login": login_admin, "senha": senha, "nome": nome_admin}
@@ -20821,115 +14448,6 @@ def excluir_superadmin_cliente(criador_login, login_alvo):
     return {"ok": True}
 
 
-def criar_competicao_com_organizador(nome, data=None, status="Em preparação", modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6, criador_login=None, data_inicio=None, data_fim=None, tipo_competicao="normal"):
-    """Cria competição no cliente do SuperADM logado.
-
-    Mantém compatibilidade com chamadas antigas e com a nova tela simplificada.
-    """
-    garantir_schema_multiempresa_superadmin()
-    garantir_schema_competicao_rapida()
-
-    nome = (nome or "").strip()
-    data = (data or data_inicio or "").strip()
-    data_inicio = (data_inicio or data or "").strip()
-    data_fim = (data_fim or data_inicio or data or "").strip()
-    status = (status or "Em preparação").strip()
-
-    contexto = obter_contexto_superadmin(criador_login) if criador_login else {"cliente_id": cliente_id_thalisadm()}
-    cid = contexto.get("cliente_id")
-    if cid is None:
-        cid = cliente_id_thalisadm()
-
-    login_organizador = _gerar_login_unico(_normalizar_login_organizador(nome))
-    senha_organizador = _gerar_senha_aleatoria(8)
-
-    colunas_comp = _buscar_colunas_tabela("competicoes")
-    colunas_usuarios = _buscar_colunas_tabela("usuarios")
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            campos_user = ["login", "nome", "senha", "perfil", "ativo", "equipe", "competicao_vinculada"]
-            vals_user = [login_organizador, f"Organizador - {nome}", senha_organizador, "organizador", True, None, nome]
-            if "cliente_id" in colunas_usuarios:
-                campos_user.append("cliente_id"); vals_user.append(cid)
-            if "criado_por" in colunas_usuarios:
-                campos_user.append("criado_por"); vals_user.append(criador_login)
-            ph_user = ", ".join(["%s"] * len(vals_user))
-            cur.execute(f"INSERT INTO usuarios ({', '.join(campos_user)}) VALUES ({ph_user})", tuple(vals_user))
-
-            campos = ["nome", "data", "status", "organizador_login"]
-            valores = [nome, data, status, login_organizador]
-
-            mapa_defaults = {
-                "cliente_id": cid,
-                "data_inicio": data_inicio,
-                "data_fim": data_fim,
-                "cidade": "",
-                "ginasio": "",
-                "categoria": "",
-                "sexo": "",
-                "divisao": "",
-                "qtd_equipes": 0,
-                "formato": "grupos",
-                "tem_grupos": False,
-                "qtd_grupos": 0,
-                "qtd_quadras": 1,
-                "modo_operacao": modo_operacao or "simples",
-                "tempos_por_set": tempos_por_set,
-                "substituicoes_por_set": substituicoes_por_set,
-                "sets_tipo": "melhor_de_3",
-                "pontos_set": 25,
-                "tem_tiebreak": True,
-                "pontos_tiebreak": 15,
-                "diferenca_minima": 2,
-                "vitoria_set_unico": 2,
-                "derrota_set_unico": 0,
-                "vitoria_2x0": 3,
-                "vitoria_2x1": 2,
-                "derrota_1x2": 1,
-                "derrota_0x2": 0,
-                "vitoria_3x0": 3,
-                "vitoria_3x1": 3,
-                "vitoria_3x2": 2,
-                "derrota_2x3": 1,
-                "derrota_1x3": 0,
-                "derrota_0x3": 0,
-                "criterios_desempate": "vitorias,pontos,saldo_sets,sets_pro,sets_contra,saldo_pontos,pontos_pro,pontos_contra,confronto_direto,coef_sets,coef_pontos,fair_play,sorteio",
-                "tipo_classificacao": "grupo",
-                "qtd_classificados": 0,
-                "formato_finais": "mata_mata",
-                "possui_bye": False,
-                "qtd_bye": 0,
-                "fases_config": json.dumps({}, ensure_ascii=False),
-                "tipo_confronto": "grupo_interno",
-                "cruzamentos_grupos": "",
-                "data_limite_inscricao": None,
-                "hora_limite_inscricao": None,
-                "bloquear_apos_inicio": False,
-                "limite_atletas": 0,
-                "permitir_edicao_pos_prazo": False,
-                "aprovacao_automatica_atletas": False,
-                "travada": False,
-                "motivo_travamento": "",
-                "travada_em": None,
-                "tipo_competicao": "rapida" if str(tipo_competicao).lower() == "rapida" else "normal",
-            }
-
-            for campo, default in mapa_defaults.items():
-                if campo in colunas_comp and campo not in campos:
-                    campos.append(campo)
-                    valores.append(default)
-
-            placeholders = ", ".join(["%s"] * len(valores))
-            cur.execute(f"INSERT INTO competicoes ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
-        conn.commit()
-
-    try:
-        garantir_quadras_competicao(nome, 1)
-    except Exception as e:
-        print("AVISO: não foi possível criar quadra padrão da competição:", e, flush=True)
-
-    return {"login": login_organizador, "senha": senha_organizador, "cliente_id": cid}
 
 
 # =========================================================
@@ -21278,13 +14796,29 @@ def excluir_equipe_temporaria_competicao(nome_equipe, competicao):
 # =========================================================
 # FLUXO DE CONFIGURAÇÃO INICIAL DA COMPETIÇÃO
 # =========================================================
-def garantir_schema_fluxo_configuracao_competicoes():
-    """Cria flags de etapas da configuração inicial.
+def garantir_schema_fluxo_configuracao_competicoes(force=False):
+    """Valida ou cria as flags da configuração inicial da competição.
 
-    Observação importante: avanço/chaveamento NÃO é obrigatório para liberar
-    a operação inicial. O organizador pode configurar o avanço depois, antes de
-    gerar o mata-mata.
+    A navegação normal nunca executa ``ALTER TABLE`` nem atualiza todas as
+    competições. O DDL e a normalização histórica ficam exclusivamente no
+    executor de migrações com ``force=True``.
     """
+    if not force:
+        from core.schema_requirements import require_schema
+        require_schema(
+            tables=("competicoes",),
+            columns={
+                "competicoes": (
+                    "config_dados_salva", "config_quadras_salva",
+                    "config_estrutura_salva", "config_regras_salva",
+                    "config_classificacao_salva", "config_avanco_salva",
+                    "configuracao_inicial_concluida",
+                )
+            },
+            context="fluxo de configuração inicial das competições",
+        )
+        return True
+
     try:
         with conectar() as conn:
             with conn.cursor() as cur:
@@ -21298,7 +14832,6 @@ def garantir_schema_fluxo_configuracao_competicoes():
                     ADD COLUMN IF NOT EXISTS config_avanco_salva BOOLEAN DEFAULT FALSE,
                     ADD COLUMN IF NOT EXISTS configuracao_inicial_concluida BOOLEAN DEFAULT FALSE
                 """)
-
                 cur.execute("""
                     UPDATE competicoes
                     SET configuracao_inicial_concluida = COALESCE(config_dados_salva, FALSE)
@@ -21315,15 +14848,11 @@ def garantir_schema_fluxo_configuracao_competicoes():
                     )
                 """)
             conn.commit()
-        try:
-            _CACHE_COLUNAS.pop("competicoes", None)
-        except Exception:
-            pass
+        _CACHE_COLUNAS.pop("competicoes", None)
         return True
     except Exception as e:
         print("AVISO garantir_schema_fluxo_configuracao_competicoes:", repr(e), flush=True)
         return False
-
 
 def _config_inicial_bool(valor):
     return bool(valor) if valor is not None else False
@@ -21374,17 +14903,6 @@ def status_configuracao_inicial_competicao(nome_competicao):
         classificacao = _config_inicial_bool(row.get("classificacao"))
         avanco = _config_inicial_bool(row.get("avanco"))
         concluida = dados and quadras and estrutura and regras and classificacao
-
-        # Corrige banco antigo automaticamente.
-        if concluida != _config_inicial_bool(row.get("concluida")):
-            with conectar() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE competicoes
-                        SET configuracao_inicial_concluida = %s
-                        WHERE nome = %s
-                    """, (concluida, nome_competicao))
-                conn.commit()
 
         return {
             "dados": dados,
@@ -21965,3 +15483,153 @@ def encerrar_sessao_jogo_avulso(cpf_apontador):
     except Exception as e:
         print("AVISO encerrar_sessao_jogo_avulso:", repr(e), flush=True)
         return False
+
+# =========================================================
+# FASE 2 / SPRINT 2 — COMPATIBILIDADE DOS DOMÍNIOS MIGRADOS
+# =========================================================
+# As rotas novas importam as consultas pelos services. Estes aliases mantêm
+# integrações antigas que ainda usam ``from banco import ...`` sem duplicar a
+# implementação nem executar DDL dentro das leituras quentes.
+from repositories.equipes import (
+    listar_equipes_da_competicao as listar_equipes_da_competicao,
+    buscar_equipe_por_nome_e_competicao as buscar_equipe_por_nome_e_competicao,
+    buscar_equipe_por_login as buscar_equipe_por_login,
+)
+from repositories.atletas import (
+    listar_atletas_da_equipe as listar_atletas_da_equipe,
+    listar_atletas_aprovados_da_equipe as listar_atletas_aprovados_da_equipe,
+    contar_atletas_da_equipe as contar_atletas_da_equipe,
+    numero_atleta_disponivel as numero_atleta_disponivel,
+)
+
+# =========================================================
+# FASE 2 / SPRINT 6 — CADASTRO E VÍNCULO DE EQUIPES
+# =========================================================
+# Estas definições finais sobrescrevem as versões legadas acima e preservam os
+# contratos usados pelas rotas enquanto a persistência passa ao repositório.
+def vincular_equipe_a_competicao(nome_equipe, nome_competicao, conn=None):
+    from repositories.equipes_cadastro import vincular_equipe_a_competicao_persistencia
+    return vincular_equipe_a_competicao_persistencia(
+        nome_equipe, nome_competicao, conn=conn
+    )
+
+
+def vincular_equipe_existente_competicao(login_equipe, nome_competicao, conn=None):
+    from repositories.equipes_cadastro import vincular_equipe_existente_competicao_persistencia
+    return vincular_equipe_existente_competicao_persistencia(
+        login_equipe, nome_competicao, conn=conn
+    )
+
+
+def criar_nova_equipe_com_credenciais(nome_equipe, nome_competicao):
+    from repositories.equipes_cadastro import criar_nova_equipe_com_credenciais_persistencia
+    return criar_nova_equipe_com_credenciais_persistencia(
+        nome_equipe, nome_competicao
+    )
+
+
+def criar_equipe_com_credenciais(nome_equipe, nome_competicao):
+    from repositories.equipes_cadastro import criar_equipe_com_credenciais_persistencia
+    return criar_equipe_com_credenciais_persistencia(
+        nome_equipe, nome_competicao
+    )
+
+# =========================================================
+# FASE 2 / SPRINT 9 — CONFIGURAÇÕES BÁSICAS DE COMPETIÇÕES
+# =========================================================
+# Fachadas finais preservam contratos legados enquanto regras, normalização e
+# SQL passam para módulos próprios.
+def atualizar_dados_competicao(nome_original, dados):
+    from repositories.competicoes_basico import atualizar_dados_competicao_persistencia
+    return atualizar_dados_competicao_persistencia(nome_original, dados)
+
+
+def atualizar_estrutura_competicao(nome_competicao, dados):
+    from repositories.competicoes_basico import atualizar_estrutura_competicao_persistencia
+    return atualizar_estrutura_competicao_persistencia(nome_competicao, dados)
+
+
+def atualizar_regras_jogo(nome_competicao, dados):
+    from repositories.competicoes_basico import atualizar_regras_jogo_persistencia
+    return atualizar_regras_jogo_persistencia(nome_competicao, dados)
+
+
+def atualizar_pontuacao_desempate(nome_competicao, dados):
+    from repositories.competicoes_basico import atualizar_pontuacao_desempate_persistencia
+    return atualizar_pontuacao_desempate_persistencia(nome_competicao, dados)
+
+# === FASE 2 / SPRINT 10: fachadas de compatibilidade do ciclo de competições ===
+def sincronizar_status_competicoes(nome_competicao=None):
+    from services.competicoes.ciclo import sincronizar_status_competicoes as _fn
+    return _fn(nome_competicao)
+
+
+def sincronizar_status_competicao(nome_competicao):
+    return sincronizar_status_competicoes(nome_competicao)
+
+
+def listar_competicoes():
+    from services.competicoes.ciclo import listar_competicoes as _fn
+    return _fn()
+
+
+def listar_competicoes_do_organizador(login_organizador):
+    from services.competicoes.ciclo import listar_competicoes_do_organizador as _fn
+    return _fn(login_organizador)
+
+
+def buscar_competicao_por_organizador(login_organizador):
+    from services.competicoes.ciclo import buscar_competicao_por_organizador as _fn
+    return _fn(login_organizador)
+
+
+def competicao_existe(nome):
+    from services.competicoes.ciclo import competicao_existe as _fn
+    return _fn(nome)
+
+
+def criar_competicao_com_organizador(nome, data, status, modo_operacao="simples", tempos_por_set=2, substituicoes_por_set=6):
+    from services.competicoes.ciclo import criar_competicao_com_organizador as _fn
+    return _fn(nome, data, status, modo_operacao, tempos_por_set, substituicoes_por_set)
+
+
+def competicao_esta_travada(nome_competicao):
+    from services.competicoes.ciclo import competicao_esta_travada as _fn
+    return _fn(nome_competicao)
+
+
+def travar_competicao(nome_competicao, motivo="primeiro_ponto"):
+    from services.competicoes.ciclo import travar_competicao as _fn
+    return _fn(nome_competicao, motivo)
+
+
+def destravar_competicao(nome_competicao):
+    from services.competicoes.ciclo import destravar_competicao as _fn
+    return _fn(nome_competicao)
+
+# =========================================================
+# FASE 2 / SPRINT 14 — RODADAS E AGENDA PROGRAMADA
+# =========================================================
+def criar_tabela_competicao_rodadas(force=False):
+    from services.competicoes.rodadas import criar_tabela_competicao_rodadas as _fn
+    return _fn(force=force, schema_pronto=_schema_ja_pronto, marcar_schema=_marcar_schema_pronto, cache_colunas=_CACHE_COLUNAS)
+
+
+def listar_rodadas_competicao(nome_competicao):
+    from services.competicoes.rodadas import listar_rodadas_competicao as _fn
+    return _fn(nome_competicao)
+
+
+def salvar_rodadas_competicao(nome_competicao, rodadas):
+    from services.competicoes.rodadas import salvar_rodadas_competicao as _fn
+    return _fn(nome_competicao, rodadas, validar_edicao=validar_competicao_editavel)
+
+
+def mapa_rodadas_competicao(nome_competicao):
+    from services.competicoes.rodadas import mapa_rodadas_competicao as _fn
+    return _fn(nome_competicao)
+
+
+def buscar_data_hora_rodada_programada(nome_competicao, tipo_fase="classificatoria", fase="grupos", serie="", numero_rodada=1):
+    from services.competicoes.rodadas import buscar_data_hora_rodada_programada as _fn
+    return _fn(nome_competicao, tipo_fase, fase, serie, numero_rodada)

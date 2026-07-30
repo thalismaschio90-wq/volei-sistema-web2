@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linha do tempo da partida</title>
+  <style>
+    :root{font-family:Inter,system-ui,sans-serif;color:#172033;background:#f4f6fb}body{margin:0;padding:24px}main{max-width:1180px;margin:auto}h1{margin:0 0 8px}.muted{color:#657085}.card{background:#fff;border:1px solid #dfe4ef;border-radius:14px;padding:18px;margin-top:16px;box-shadow:0 8px 24px rgba(25,41,74,.05)}form{display:grid;grid-template-columns:120px minmax(220px,1fr) 100px 150px 120px 1fr auto;gap:10px;align-items:end}label{display:grid;gap:6px;font-size:13px;font-weight:600}input,select,button,a.button{border:1px solid #cfd6e4;border-radius:9px;padding:10px 12px;font:inherit}button,a.button{background:#172033;color:#fff;cursor:pointer;text-decoration:none;text-align:center}.stats{display:flex;gap:10px;flex-wrap:wrap}.pill{background:#eef2f8;border-radius:999px;padding:7px 11px;font-size:13px}.timeline{display:grid;gap:10px}.event{display:grid;grid-template-columns:82px 78px 1fr 210px;gap:12px;border-left:4px solid #8b95a8;padding:12px 12px 12px 14px;background:#fafbfe;border-radius:8px}.event[data-category=ponto]{border-left-color:#287d47}.event[data-category=substituicao]{border-left-color:#2d61b3}.event[data-category=disciplina]{border-left-color:#b13d3d}.event[data-category=fim_set],.event[data-category=fim_partida]{border-left-color:#6f3dad}.event strong{display:block}.empty,.error{padding:16px;border-radius:10px}.empty{background:#f7f8fb}.error{background:#fff0f0;color:#8c2424}.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.summary-box{background:#f7f9fc;border-radius:10px;padding:12px}.summary-box h3{font-size:14px;margin:0 0 8px}.summary-box ul{margin:0;padding-left:18px}
+    @media(max-width:900px){form{grid-template-columns:1fr 1fr}.event{grid-template-columns:60px 1fr}.event .meta{grid-column:2}}@media(max-width:560px){body{padding:12px}form{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><main>
+  <h1>Linha do tempo e auditoria da partida</h1>
+  <div class="muted">Consulta cronológica dos eventos persistidos. Esta tela não altera a partida.</div>
+  <section class="card"><form method="get">
+    <label>Partida ID<input name="partida_id" type="number" min="1" value="{{ filtros.partida_id or '' }}" required></label>
+    <label>Competição<input name="competicao" value="{{ filtros.competicao }}" required></label>
+    <label>Set<input name="set_numero" type="number" min="1" value="{{ filtros.set_numero or '' }}" placeholder="Todos"></label>
+    <label>Categoria<select name="categoria"><option value="">Todas</option>{% for c in ['ponto','substituicao','tempo','disciplina','fim_set','fim_partida','outro'] %}<option value="{{ c }}" {% if filtros.categoria==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+    <label>Equipe<input name="equipe" value="{{ filtros.equipe }}" placeholder="A/B ou nome"></label>
+    <label>Busca<input name="busca" value="{{ filtros.busca }}" placeholder="Descrição, atleta ou autor"></label>
+    <button type="submit">Filtrar</button>
+    <input type="hidden" name="limite" value="{{ filtros.limite }}">
+  </form></section>
+  {% if erro %}<div class="card error">{{ erro }}</div>{% endif %}
+  {% if partida %}
+  <section class="card">
+    <div class="toolbar"><div><strong>{{ partida.equipe_a }} × {{ partida.equipe_b }}</strong><div class="muted">{{ partida.competicao }} · partida {{ partida.id }} · {{ partida.status_jogo or partida.status or '-' }}</div></div>
+    <a class="button" href="{{ url_for('replay.replay_partida_exportar_csv', partida_id=filtros.partida_id, competicao=filtros.competicao, set_numero=filtros.set_numero or '', categoria=filtros.categoria, equipe=filtros.equipe, autor=filtros.autor, busca=filtros.busca, limite=filtros.limite) }}">Exportar CSV</a></div>
+    <div class="stats" style="margin-top:12px"><span class="pill">Eventos: {{ resumo.total }}</span><span class="pill">Autoria: {{ resumo.percentual_com_autor }}%</span><span class="pill">IDs: {{ resumo.primeiro_evento_id }}–{{ resumo.ultimo_evento_id }}</span></div>
+  </section>
+  <section class="card summary-grid">
+    <div class="summary-box"><h3>Por categoria</h3><ul>{% for k,v in resumo.por_categoria.items() %}<li>{{ k }}: {{ v }}</li>{% else %}<li>Sem eventos</li>{% endfor %}</ul></div>
+    <div class="summary-box"><h3>Por set</h3><ul>{% for k,v in resumo.por_set.items() %}<li>Set {{ k }}: {{ v }}</li>{% else %}<li>Sem eventos</li>{% endfor %}</ul></div>
+    <div class="summary-box"><h3>Por equipe</h3><ul>{% for k,v in resumo.por_equipe.items() %}<li>{{ k }}: {{ v }}</li>{% else %}<li>Sem equipe</li>{% endfor %}</ul></div>
+    <div class="summary-box"><h3>Autores</h3><ul>{% for k,v in resumo.por_autor.items() %}<li>{{ k }}: {{ v }}</li>{% else %}<li>Não identificados</li>{% endfor %}</ul></div>
+  </section>
+  <section class="card"><div class="timeline">{% for evento in eventos %}
+    <article class="event" data-category="{{ evento.categoria }}"><div><strong>#{{ evento.id }}</strong><span class="muted">Set {{ evento.set_numero or '-' }}</span></div><div><strong>{{ evento.equipe or '-' }}</strong><span class="muted">{{ evento.categoria }}</span></div><div><strong>{{ evento.descricao }}</strong><span class="muted">{{ evento.tipo or '' }}{% if evento.resultado %} · {{ evento.resultado }}{% endif %}</span>{% if evento.atleta_nome or evento.numero %}<span class="muted">Atleta: {% if evento.numero %}#{{ evento.numero }} {% endif %}{{ evento.atleta_nome or '' }}</span>{% endif %}</div><div class="meta"><strong>{{ evento.criado_em or '-' }}</strong><span class="muted">Autor: {{ evento.autor or 'não registrado' }}</span>{% if evento.auditoria.perfil %}<span class="muted">Perfil: {{ evento.auditoria.perfil }}</span>{% endif %}{% if evento.auditoria.origem %}<span class="muted">Origem: {{ evento.auditoria.origem }}</span>{% endif %}{% if evento.auditoria.request_id %}<span class="muted">Req.: {{ evento.auditoria.request_id[:12] }}</span>{% endif %}</div></article>
+    {% else %}<div class="empty">Nenhum evento encontrado com os filtros informados.</div>{% endfor %}</div></section>
+  {% endif %}
+</main></body></html>

@@ -3,10 +3,61 @@ services:
     name: volei-sistema-web
     env: python
     plan: starter
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app -c gunicorn.conf.py
+    buildCommand: pip install -r requirements.txt && python scripts/verificar_configuracao_runtime.py
+    startCommand: python scripts/iniciar_servidor.py
+    healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
       - key: SOCKETIO_ASYNC_MODE
         value: threading
+      - key: GUNICORN_WORKERS
+        value: "1"
+      - key: GUNICORN_THREADS
+        value: "4"
+      - key: GUNICORN_TIMEOUT
+        value: "120"
+      - key: GUNICORN_GRACEFUL_TIMEOUT
+        value: "30"
+      - key: GUNICORN_KEEPALIVE
+        value: "5"
+      - key: GUNICORN_MAX_REQUESTS
+        value: "2000"
+      - key: GUNICORN_MAX_REQUESTS_JITTER
+        value: "200"
+      - key: REALTIME_STATE_BACKEND
+        value: auto
+      - key: REALTIME_REDIS_REQUIRED
+        value: "0"
+      - key: SOCKETIO_USE_REDIS
+        value: "1"
+      - key: REALTIME_STATE_TTL_SECONDS
+        value: "86400"
+      - key: READINESS_CACHE_SECONDS
+        value: "5"
+      - key: DB_MIGRATIONS_ON_START
+        value: "1"
+      - key: DB_POOL_ENABLED
+        value: "1"
+      - key: DB_POOL_MIN_SIZE
+        value: "1"
+      - key: DB_POOL_MAX_SIZE
+        value: "8"
+      - key: DB_POOL_TIMEOUT
+        value: "10"
+      - key: DB_DIRECT_FALLBACK_ENABLED
+        value: "1"
+      - key: DB_DIRECT_FALLBACK_MAX
+        value: "2"
+      - key: DB_DIRECT_FALLBACK_TIMEOUT
+        value: "3"
+      - key: PERFORMANCE_LOG_ENABLED
+        value: "1"
+      - key: PERFORMANCE_LOG_THRESHOLD_MS
+        value: "500"
+      - key: SQL_PERFORMANCE_LOG_ENABLED
+        value: "1"
+      - key: SQL_SLOW_QUERY_THRESHOLD_MS
+        value: "250"
+      - key: SQL_EXPLAIN_ENABLED
+        value: "0"

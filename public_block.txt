@@ -1,0 +1,781 @@
+def _filtrar_partidas_por_fase(partidas, fase_subaba):
+    fase_subaba = (fase_subaba or "classificatorias").strip().lower()
+
+    def mesma_fase(partida):
+        fase = _fase_partida_normalizada(partida)
+
+        if fase_subaba == "classificatorias":
+            return fase == "grupos"
+        if fase_subaba == "quartas":
+            return fase == "quartas"
+        if fase_subaba in {"oitavas"}:
+            return fase == "oitavas"
+        if fase_subaba in {"semifinais", "semifinal"}:
+            return fase in {"semifinal", "semifinais"}
+        if fase_subaba in {"finais", "final"}:
+            return fase == "final"
+        if fase_subaba == "terceiro_lugar":
+            return fase == "terceiro_lugar"
+
+        return False
+
+    return [p for p in partidas if mesma_fase(p)]
+
+
+def _status_normalizado(partida):
+    return _status_tabela_para_trava(partida)
+
+
+def _status_exibicao(partida):
+    status = _status_normalizado(partida)
+
+    mapa = {
+        "pre_jogo": "PRÉ-JOGO",
+        "aguardando": "AGUARDANDO",
+        "agendada": "AGUARDANDO",
+        "em andamento": "AO VIVO",
+        "ao vivo": "AO VIVO",
+        "ao_vivo": "AO VIVO",
+        "andamento": "AO VIVO",
+        "em_andamento": "AO VIVO",
+        "finalizada": "FINALIZADO",
+        "finalizado": "FINALIZADO",
+        "encerrado": "FINALIZADO",
+        "encerrada": "FINALIZADO",
+    }
+
+    return mapa.get(status, (status or "AGUARDANDO").replace("_", " ").upper())
+
+
+def _partida_esta_finalizada(partida):
+    return _partida_tem_flag_finalizada(partida) or _status_normalizado(partida) in STATUS_FINALIZADO
+
+
+def _partida_esta_ao_vivo(partida):
+    """Reconhece jogo ao vivo mesmo quando algum status legado não foi atualizado.
+
+    O apontador salva os pontos continuamente, mas em alguns fluxos o campo
+    status/status_jogo pode continuar como pre_jogo. Para o visualizador público,
+    uma partida não finalizada com placar, sets ou marca real de início deve ser
+    tratada como AO VIVO.
+    """
+    if _partida_esta_finalizada(partida):
+        return False
+
+    if _status_normalizado(partida) in STATUS_AO_VIVO:
+        return True
+
+    if partida.get("jogo_iniciado_em") or partida.get("pre_jogo_iniciado_em"):
+        return True
+
+    for campo in ("pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b"):
+        try:
+            if int((partida or {}).get(campo) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    return False
+
+
+def _montar_parciais(partida):
+    parciais = []
+
+    for i in range(1, 6):
+        a = partida.get(f"set{i}_a")
+        b = partida.get(f"set{i}_b")
+
+        if a is not None and b is not None:
+            try:
+                parciais.append(f"{int(a)}x{int(b)}")
+            except (TypeError, ValueError):
+                parciais.append(f"{a}x{b}")
+
+    return " / ".join(parciais) if parciais else "-"
+
+
+def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
+    partidas_preparadas = []
+
+    for p in partidas:
+        partida = dict(p)
+
+        partida["fase_normalizada"] = _fase_partida_normalizada(partida)
+        partida["status_normalizado"] = _status_normalizado(partida)
+        partida["status_exibicao"] = _status_exibicao(partida)
+        partida["ao_vivo"] = _partida_esta_ao_vivo(partida)
+        partida["finalizada"] = _partida_esta_finalizada(partida)
+        partida["parciais_formatadas"] = _montar_parciais(partida)
+        partida["pode_excluir"] = not _partida_conta_como_iniciada_para_trava(partida)
+
+        partida["placar_ao_vivo_a"] = int(
+            partida.get("pontos_a")
+            or partida.get("placar_a")
+            or 0
+        )
+
+        partida["placar_ao_vivo_b"] = int(
+            partida.get("pontos_b")
+            or partida.get("placar_b")
+            or 0
+        )
+
+        aplicar_placar_exibicao_partida(partida, competicao or {})
+
+        # Para jogo ao vivo, o campo de consulta/visualização deve mostrar
+        # os pontos do set atual. O placar_exibicao em M3/M5 representa sets
+        # e por isso fica 0x0 no início da partida.
+        if partida.get("ao_vivo") and not partida.get("finalizada"):
+            partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
+            partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
+            partida["placar_ao_vivo"] = f'{partida["placar_ao_vivo_a"]} x {partida["placar_ao_vivo_b"]}'
+
+        partida["quadra_label"] = _quadra_label(partida)
+        partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
+        partida["data_hora_valor"] = str(partida.get("data_hora") or "").strip()
+        _dh = partida["data_hora_valor"].replace(" ", "T")
+        if len(_dh) >= 16:
+            partida["data_hora_input"] = _dh[:16]
+            data_p, hora_p = _dh[:10], _dh[11:16]
+            partida["data_hora_label"] = f"{data_p[8:10]}/{data_p[5:7]}/{data_p[0:4]} {hora_p}"
+        else:
+            partida["data_hora_input"] = _dh
+            partida["data_hora_label"] = _dh
+
+        partida["escudo_a"] = _normalizar_url_escudo_tabela(partida.get("escudo_a")) if partida.get("escudo_a") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_a"))
+        partida["escudo_b"] = _normalizar_url_escudo_tabela(partida.get("escudo_b")) if partida.get("escudo_b") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_b"))
+        partida["equipe_a_escudo"] = partida["escudo_a"]
+        partida["equipe_b_escudo"] = partida["escudo_b"]
+
+        partidas_preparadas.append(partida)
+
+    return sorted(
+        partidas_preparadas,
+        key=lambda p: (
+            p.get("data_hora_valor") or "9999-12-31 23:59",
+            p.get("quadra_label") or "",
+            p.get("ordem") or 0,
+        )
+    )
+    
+
+def _bool_publico(valor):
+    if valor is True or valor == 1:
+        return True
+    if valor is False or valor is None:
+        return False
+    return str(valor).strip().lower() in {"1", "true", "sim", "yes", "on", "avancado", "avançado"}
+
+
+def _modo_scout_ativo_publico(partida, competicao):
+    modo = str((partida or {}).get("modo_operacao") or (competicao or {}).get("modo_operacao") or "simples").strip().lower()
+    return modo in {"avancado", "avançado", "scout", "com_scout"} or _bool_publico((partida or {}).get("scout_ativo"))
+
+
+def _evento_detalhes_publico(ev):
+    raw = ev.get("detalhes") if isinstance(ev, dict) else None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            dado = json.loads(raw)
+            return dado if isinstance(dado, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _lado_para_nome_publico(partida, lado):
+    lado = str(lado or "").strip().upper()
+    if lado == "A":
+        return partida.get("equipe_a_operacional") or partida.get("equipe_a") or "Equipe A"
+    if lado == "B":
+        return partida.get("equipe_b_operacional") or partida.get("equipe_b") or "Equipe B"
+    return "Equipe"
+
+
+def _lado_pontuador_evento_publico(ev):
+    detalhes = _evento_detalhes_publico(ev)
+    lado = str(
+        detalhes.get("equipe_pontuadora")
+        or detalhes.get("equipe_ponto")
+        or detalhes.get("lado_ponto")
+        or ""
+    ).strip().upper()
+    if lado in {"A", "B"}:
+        return lado
+    tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+    resultado = str(ev.get("resultado") or detalhes.get("resultado") or detalhes.get("tipo_lance") or "").strip().lower()
+    equipe = str(ev.get("equipe") or "").strip().upper()
+    if equipe in {"A", "B"}:
+        if resultado in {"erro", "falta"}:
+            return "B" if equipe == "A" else "A"
+        if tipo in {"ponto", "retardamento_penalidade"}:
+            return equipe
+    return ""
+
+
+def _normalizar_acao_publica(valor):
+    texto = str(valor or "").strip().lower().replace("_", " ").replace("-", " ")
+    trocas = {
+        "á": "a", "à": "a", "ã": "a", "â": "a",
+        "é": "e", "ê": "e", "í": "i",
+        "ó": "o", "ô": "o", "õ": "o",
+        "ú": "u", "ç": "c",
+    }
+    for origem, destino in trocas.items():
+        texto = texto.replace(origem, destino)
+    return " ".join(texto.split())
+
+
+def _evento_eh_acao_negativa_adversario_publico(ev):
+    """Identifica lances em que o ponto nasceu de erro/falta do adversário.
+
+    Nesses eventos a equipe pontuadora recebe o ponto, mas não é quem executou
+    a ação exibida. A autoria pertence ao lado oposto.
+    """
+    detalhes = _evento_detalhes_publico(ev)
+    valores = [
+        ev.get("fundamento"),
+        ev.get("resultado"),
+        ev.get("detalhe"),
+        ev.get("tipo"),
+        detalhes.get("fundamento"),
+        detalhes.get("resultado"),
+        detalhes.get("tipo_lance"),
+        detalhes.get("tipo_erro"),
+        detalhes.get("detalhe_lance"),
+        detalhes.get("detalhe"),
+    ]
+    texto = " | ".join(_normalizar_acao_publica(v) for v in valores if v not in (None, ""))
+    marcadores = (
+        "erro de saque", "erro saque", "saque errado",
+        "erro geral", "erro", "falta",
+        "erro de rotacao", "erro rotacao", "rotacao",
+        "invasao", "conducao", "dois toques",
+    )
+    return any(marcador in texto for marcador in marcadores)
+
+
+def _lado_responsavel_evento_publico(ev, lado_ponto):
+    """Retorna quem executou a ação, e não apenas quem recebeu o ponto.
+
+    Para ataque, ace e bloqueio, o responsável normalmente é o pontuador.
+    Para erro de saque, erro geral, falta, rotação, invasão, condução e dois
+    toques, o responsável é obrigatoriamente o adversário do pontuador.
+
+    Alguns eventos antigos gravaram equipe_responsavel com o mesmo lado que
+    recebeu o ponto. Por isso a regra negativa tem prioridade sobre esse campo.
+    """
+    if _evento_eh_acao_negativa_adversario_publico(ev) and lado_ponto in {"A", "B"}:
+        return "B" if lado_ponto == "A" else "A"
+
+    detalhes = _evento_detalhes_publico(ev)
+    lado_explicito = str(
+        detalhes.get("equipe_responsavel")
+        or detalhes.get("lado_responsavel")
+        or detalhes.get("equipe_autora")
+        or detalhes.get("lado_acao")
+        or ""
+    ).strip().upper()
+    if lado_explicito in {"A", "B"}:
+        return lado_explicito
+
+    return lado_ponto
+
+
+def _rotulo_fundamento_publico(valor):
+    txt_normalizado = _normalizar_acao_publica(valor)
+    mapa = {
+        "ataque": "Ataque",
+        "bloqueio": "Bloqueio",
+        "saque": "Saque",
+        "ace": "Ace",
+        "erro": "Erro geral",
+        "erro geral": "Erro geral",
+        "erro saque": "Erro de saque",
+        "erro de saque": "Erro de saque",
+        "erro rotacao": "Erro de rotação",
+        "erro de rotacao": "Erro de rotação",
+        "rotacao": "Erro de rotação",
+        "falta": "Falta",
+        "invasao": "Invasão",
+        "conducao": "Condução",
+        "dois toques": "Dois toques",
+        "levantamento": "Levantamento",
+        "defesa": "Defesa",
+        "recepcao": "Recepção",
+    }
+    if txt_normalizado in mapa:
+        return mapa[txt_normalizado]
+    return str(valor or "Ponto").strip().replace("_", " ").title() or "Ponto"
+
+
+def _descricao_evento_publico(ev, partida, scout_ativo):
+    detalhes = _evento_detalhes_publico(ev)
+    tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+    fundamento = ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro")
+    resultado = ev.get("resultado") or detalhes.get("resultado") or detalhes.get("tipo_lance")
+    detalhe = ev.get("detalhe") or detalhes.get("detalhe") or detalhes.get("detalhe_lance")
+    numero = ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero")
+    atleta = ev.get("atleta_nome") or detalhes.get("atleta_nome") or ""
+    lado_ponto = _lado_pontuador_evento_publico(ev)
+    equipe_ponto = _lado_para_nome_publico(partida, lado_ponto)
+    lado_responsavel = _lado_responsavel_evento_publico(ev, lado_ponto)
+    equipe_responsavel = _lado_para_nome_publico(partida, lado_responsavel)
+    acao_negativa = _evento_eh_acao_negativa_adversario_publico(ev)
+
+    if tipo not in {"ponto", "retardamento_penalidade"}:
+        base = tipo.replace("_", " ").title() if tipo else "Evento"
+        if detalhe:
+            base += f" • {detalhe}"
+        return base
+
+    if not scout_ativo:
+        return f"Ponto para {equipe_ponto}"
+
+    acao = _rotulo_fundamento_publico(fundamento or resultado or tipo)
+    pessoa = ""
+    if numero and atleta:
+        pessoa = f"#{numero} {atleta}"
+    elif numero:
+        pessoa = f"#{numero}"
+    elif atleta:
+        pessoa = atleta
+
+    if acao_negativa:
+        if pessoa:
+            return f"{acao} de {pessoa} ({equipe_responsavel}) — ponto para {equipe_ponto}"
+        if detalhe and _normalizar_acao_publica(detalhe) not in {_normalizar_acao_publica(acao)}:
+            return f"{acao} • {detalhe} ({equipe_responsavel}) — ponto para {equipe_ponto}"
+        return f"{acao} da {equipe_responsavel} — ponto para {equipe_ponto}"
+
+    if pessoa:
+        return f"{acao} de {pessoa} ({equipe_responsavel})"
+    if detalhe and str(detalhe).strip().lower() not in {str(acao).lower()}:
+        return f"{acao} • {detalhe} ({equipe_responsavel})"
+    return f"{acao} ({equipe_responsavel})"
+
+
+def _montar_linha_ponto_publico(partida, eventos, scout_ativo):
+    eventos_ordenados = list(reversed(eventos or []))
+    placares_por_set = {}
+    linhas = []
+    stats = {}
+
+    for ev in eventos_ordenados:
+        tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
+        if tipo not in {"ponto", "retardamento_penalidade"}:
+            continue
+        set_num = int(ev.get("set_numero") or 1)
+        atual = placares_por_set.setdefault(set_num, {"a": 0, "b": 0})
+        lado = _lado_pontuador_evento_publico(ev)
+        if lado == "A":
+            atual["a"] += 1
+        elif lado == "B":
+            atual["b"] += 1
+        else:
+            continue
+
+        detalhes = _evento_detalhes_publico(ev)
+        fundamento = _rotulo_fundamento_publico(ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro") or ev.get("resultado"))
+        lado_responsavel = _lado_responsavel_evento_publico(ev, lado)
+        equipe_nome = _lado_para_nome_publico(partida, lado_responsavel)
+        stats.setdefault(equipe_nome, {})
+        stats[equipe_nome][fundamento] = stats[equipe_nome].get(fundamento, 0) + 1
+
+        linhas.append({
+            "id": ev.get("id"),
+            "set": set_num,
+            "placar_a": atual["a"],
+            "placar_b": atual["b"],
+            "placar": f'{atual["a"]} x {atual["b"]}',
+            "lado_ponto": lado,
+            "equipe_ponto": _lado_para_nome_publico(partida, lado),
+            "equipe_responsavel": equipe_nome,
+            "descricao": _descricao_evento_publico(ev, partida, scout_ativo),
+            "fundamento": fundamento,
+            "numero": ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero") or "",
+            "atleta_nome": ev.get("atleta_nome") or detalhes.get("atleta_nome") or "",
+        })
+
+    linhas.sort(key=lambda x: (x["set"], x["id"] or 0), reverse=True)
+    evolucao_sets = []
+    for set_num in sorted(placares_por_set.keys()):
+        pontos = [{"placar": "0 x 0", "a": 0, "b": 0}]
+        a = b = 0
+        for linha in reversed([l for l in linhas if l["set"] == set_num]):
+            a = linha["placar_a"]
+            b = linha["placar_b"]
+            pontos.append({"placar": f"{a} x {b}", "a": a, "b": b})
+        evolucao_sets.append({"set": set_num, "pontos": pontos})
+
+    return linhas, evolucao_sets, stats
+
+
+def _buscar_destaque_partida_publico(partida_id, competicao):
+    try:
+        criar_tabela_destaques_partida()
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                        d.lado,
+                        d.atleta_id,
+                        d.numero,
+                        d.nome,
+                        d.observacao,
+                        d.equipe,
+                        d.criado_em,
+                        COALESCE(
+                            NULLIF(a.foto_atleta, ''),
+                            (
+                                SELECT NULLIF(a2.foto_atleta, '')
+                                FROM atletas a2
+                                WHERE a2.competicao = d.competicao
+                                  AND LOWER(TRIM(COALESCE(a2.equipe, ''))) = LOWER(TRIM(COALESCE(d.equipe, '')))
+                                  AND (
+                                      (d.numero IS NOT NULL AND a2.numero = d.numero)
+                                      OR LOWER(TRIM(COALESCE(a2.nome, ''))) = LOWER(TRIM(COALESCE(d.nome, '')))
+                                  )
+                                  AND COALESCE(a2.foto_atleta, '') <> ''
+                                ORDER BY CASE WHEN d.numero IS NOT NULL AND a2.numero = d.numero THEN 0 ELSE 1 END, a2.id DESC
+                                LIMIT 1
+                            )
+                        ) AS foto_atleta
+                    FROM destaques_partida d
+                    LEFT JOIN atletas a ON a.id = d.atleta_id
+                    WHERE d.partida_id = %s AND d.competicao = %s
+                    ORDER BY d.id DESC
+                    LIMIT 1
+                """, (partida_id, competicao))
+                return cur.fetchone()
+    except Exception as e:
+        print("AVISO visualizador/destaque_partida:", repr(e), flush=True)
+        return None
+
+
+def _contexto_partida_publica(competicao_nome, partida_id):
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partida = buscar_partida_por_id(partida_id, competicao_nome)
+    if not partida:
+        return None
+    mapa_escudos = {
+        partida.get("equipe_a"): partida.get("escudo_a"),
+        partida.get("equipe_b"): partida.get("escudo_b"),
+    }
+    preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
+    estado = None
+    # O apontador mantém o estado corrente em memória para responder sem
+    # bloquear no Neon. O visualizador público deve ler esse mesmo estado vivo;
+    # consultar apenas o banco faz o placar ficar atrasado até o próximo
+    # checkpoint (fim de set/sincronização periódica).
+    estado_vivo = {}
+    try:
+        candidato = obter_estado_cache(partida_id) or {}
+        competicao_cache = str(candidato.get("competicao") or "").strip()
+        if not competicao_cache or competicao_cache == str(competicao_nome or "").strip():
+            estado_vivo = candidato
+    except Exception as e:
+        print("AVISO visualizador/estado_vivo:", repr(e), flush=True)
+
+    # O banco permanece como fallback para recarga/reinício do processo. Quando
+    # existe estado vivo, ele sempre prevalece sobre a fotografia persistida.
+    estado_banco = {}
+    if not estado_vivo:
+        try:
+            estado_banco = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+        except Exception:
+            estado_banco = {}
+
+    estado = dict(estado_banco)
+    estado.update(estado_vivo)
+    eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
+    scout_ativo = _modo_scout_ativo_publico(partida, competicao)
+    timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
+    destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
+    return {
+        "competicao": competicao,
+        "partida": preparada,
+        "estado": estado,
+        "scout_ativo": scout_ativo,
+        "timeline": timeline,
+        "evolucao_sets": evolucao_sets,
+        "stats": stats,
+        "destaque": destaque,
+    }
+
+
+# =========================================================
+# VISUALIZADOR PÚBLICO
+# =========================================================
+@tabela_bp.route("/visualizador/<competicao_nome>")
+def visualizador_publico(competicao_nome):
+    try:
+        normalizar_vinculos_quadras_competicao(competicao_nome)
+    except Exception as e:
+        print("AVISO visualizador/normalizar_quadras:", repr(e))
+
+    grupos_raw = _listar_grupos_cache(competicao_nome)
+    # Visualizador público também precisa de partidas frescas para abrir já com o placar atual.
+    partidas = listar_partidas(competicao_nome) or []
+    equipes_competicao = _listar_equipes_competicao_cache(competicao_nome)
+    mapa_escudos = _mapa_escudos_equipes(equipes_competicao)
+
+    grupos = _grupos_com_equipes_cacheados(competicao_nome, grupos_raw)
+
+    competicao = buscar_competicao_por_nome(competicao_nome) or {
+        "nome": competicao_nome
+    }
+
+    partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
+    classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparadas, grupos, competicao, mapa_escudos)
+    regras_classificacao = _obter_regras_classificacao(competicao)
+    criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
+    colunas_classificacao = _colunas_classificacao_publica(competicao)
+    set_unico = _competicao_eh_set_unico_tabela(competicao)
+    avanco = _avanco_cache(competicao_nome)
+    status_avanco = _status_avanco_cache(competicao_nome)
+    avanco_gerado = _avanco_gerado_cache(competicao_nome)
+    status_avanco["gerado"] = avanco_gerado
+    if not avanco_gerado:
+        partidas_preparadas = [p for p in partidas_preparadas if not _partida_eh_avanco(p)]
+    # No visualizador público, o chaveamento só deve existir depois do
+    # encerramento completo das classificatórias e da geração oficial dos jogos.
+    # Antes disso, não mostramos placeholders nem antecipamos cruzamentos.
+    exibir_avanco_publico = bool(status_avanco.get("fechada")) and bool(avanco_gerado)
+    avanco_espelho = (
+        _montar_espelho_avanco(avanco, partidas_preparadas, True)
+        if exibir_avanco_publico
+        else []
+    )
+
+    # Organização exclusiva do visualizador público: rodada -> data/hora ->
+    # ordem definida pelo organizador. Não altera a ordem usada nas telas
+    # administrativas nem na geração das partidas.
+    partidas_preparadas = sorted(
+        partidas_preparadas,
+        key=lambda p: (
+            int(p.get("rodada") or 999999),
+            p.get("data_hora_valor") or "9999-12-31 23:59",
+            int(p.get("ordem") or 0),
+            p.get("quadra_label") or "",
+            int(p.get("id") or 0),
+        ),
+    )
+
+    codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
+    partidas_ao_vivo = [
+        p for p in partidas_preparadas
+        if bool(p.get("ao_vivo")) and not bool(p.get("finalizada"))
+    ]
+
+    return render_template(
+        "visualizador_publico.html",
+        competicao_nome=competicao_nome,
+        codigo_publico=codigo_publico,
+        grupos=grupos,
+        classificacao=classificacao,
+        partidas=partidas_preparadas,
+        partidas_ao_vivo=partidas_ao_vivo,
+        criterios_classificacao=criterios_classificacao,
+        colunas_classificacao=colunas_classificacao,
+        set_unico=set_unico,
+        avanco=avanco,
+        avanco_status=status_avanco,
+        avanco_espelho=avanco_espelho,
+        fase_labels=FASES_AVANCO_LABELS,
+    )
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/ao-vivo/dados")
+def visualizador_publico_ao_vivo_dados(competicao_nome):
+    """Lista leve dos jogos ao vivo para fazer o destaque aparecer sozinho."""
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partidas = listar_partidas(competicao_nome) or []
+    preparadas = _preparar_partidas(partidas, {}, competicao)
+    ids = sorted(
+        int(p.get("id")) for p in preparadas
+        if p.get("id") and p.get("ao_vivo") and not p.get("finalizada")
+    )
+    resposta = jsonify({"ok": True, "partidas_ao_vivo": ids})
+    resposta.headers["Cache-Control"] = "no-store, max-age=0"
+    return resposta
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>")
+def visualizador_publico_partida(competicao_nome, partida_id):
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    if not contexto:
+        return "Partida não encontrada.", 404
+    codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
+    return render_template("visualizador_partida_publica.html", competicao_nome=competicao_nome, codigo_publico=codigo_publico, **contexto)
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados")
+def visualizador_publico_partida_dados(competicao_nome, partida_id):
+    """Estado leve para atualização frequente do placar público.
+
+    Não carrega eventos, evolução, scout, fotos nem escudos em base64. Isso
+    mantém cada polling pequeno e evita saturar o Render/Neon quando várias
+    pessoas acompanham a mesma partida.
+    """
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partida = buscar_partida_por_id(partida_id, competicao_nome)
+    if not partida:
+        return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
+
+    # Prioriza o mesmo estado vivo usado pelo apontador. Isso evita consultar
+    # o Neon a cada atualização pública e mantém o placar correto mesmo durante
+    # uma breve instabilidade do banco.
+    try:
+        estado = obter_estado_cache(partida_id) or {}
+    except Exception:
+        estado = {}
+    if not estado:
+        try:
+            estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+        except Exception:
+            estado = {}
+
+    mapa_escudos = {
+        partida.get("equipe_a"): partida.get("escudo_a"),
+        partida.get("equipe_b"): partida.get("escudo_b"),
+    }
+    p = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
+
+    eventos_versao = 0
+    try:
+        estado_versao = obter_estado_versao(partida_id)
+    except Exception:
+        estado_versao = 0
+    destaque_versao = 0
+    try:
+        with conectar() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COALESCE(MAX(id), 0) AS versao
+                    FROM eventos
+                    WHERE partida_id = %s AND competicao = %s
+                """, (partida_id, competicao_nome))
+                row = cur.fetchone() or {}
+                eventos_versao = int(row.get("versao") or 0)
+                try:
+                    cur.execute("""
+                        SELECT COALESCE(MAX(id), 0) AS versao
+                        FROM destaques_partida
+                        WHERE partida_id = %s AND competicao = %s
+                    """, (partida_id, competicao_nome))
+                    row = cur.fetchone() or {}
+                    destaque_versao = int(row.get("versao") or 0)
+                except Exception:
+                    destaque_versao = 0
+    except Exception as e:
+        print("AVISO visualizador/dados_leves_versao:", repr(e), flush=True)
+
+    resposta = jsonify({
+        "ok": True,
+        "partida": {
+            "id": p.get("id"),
+            "equipe_a": p.get("equipe_a"),
+            "equipe_b": p.get("equipe_b"),
+            "status_exibicao": p.get("status_exibicao"),
+            "ao_vivo": bool(p.get("ao_vivo")),
+            "finalizada": bool(p.get("finalizada")),
+            "set_unico": bool(p.get("set_unico")),
+            "sets_a": int(estado.get("sets_a") or p.get("sets_a") or 0),
+            "sets_b": int(estado.get("sets_b") or p.get("sets_b") or 0),
+            "set_atual": int(estado.get("set_atual") or p.get("set_atual") or 1),
+            "pontos_a": int(estado.get("pontos_a") or estado.get("placar_a") or p.get("placar_exibicao_a") or 0),
+            "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or p.get("placar_exibicao_b") or 0),
+            "parciais_formatadas": p.get("parciais_formatadas") or "",
+        },
+        # O banco informa a versão persistida; estado_versao muda em cada ação
+        # local e faz o cliente buscar detalhes logo após o ponto.
+        "eventos_versao": eventos_versao,
+        "estado_versao": estado_versao,
+        "ultima_acao": estado.get("ultima_acao") or "",
+        "destaque_versao": destaque_versao,
+    })
+    resposta.headers["Cache-Control"] = "no-store, max-age=0"
+    return resposta
+
+
+@tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados/detalhes")
+def visualizador_publico_partida_detalhes(competicao_nome, partida_id):
+    """Dados completos, consultados apenas quando eventos/destaque mudam."""
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    if not contexto:
+        return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
+    resposta = jsonify({
+        "ok": True,
+        "scout_ativo": bool(contexto.get("scout_ativo")),
+        "timeline": contexto.get("timeline") or [],
+        "evolucao_sets": contexto.get("evolucao_sets") or [],
+        "stats": contexto.get("stats") or {},
+        "destaque": contexto.get("destaque") or None,
+    })
+    resposta.headers["Cache-Control"] = "no-store, max-age=0"
+    return resposta
+
+
+# =========================================================
+# ROTAS PÚBLICAS CURTAS
+# =========================================================
+@tabela_bp.route("/v/<codigo_publico>")
+def visualizador_publico_curto(codigo_publico):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    # Renderiza a mesma tela sem redirecionar; a URL curta permanece no navegador.
+    return visualizador_publico(competicao.get("nome"))
+
+
+@tabela_bp.route("/v/<codigo_publico>/ao-vivo/dados")
+def visualizador_publico_ao_vivo_dados_curta(codigo_publico):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return jsonify({"ok": False, "erro": "Competição não encontrada."}), 404
+    return visualizador_publico_ao_vivo_dados(competicao.get("nome"))
+
+
+@tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>")
+def visualizador_publico_partida_curta(codigo_publico, partida_id):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return "Competição não encontrada.", 404
+    competicao_nome = competicao.get("nome")
+    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    if not contexto:
+        return "Partida não encontrada.", 404
+    return render_template(
+        "visualizador_partida_publica.html",
+        competicao_nome=competicao_nome,
+        codigo_publico=str(codigo_publico or "").upper(),
+        **contexto,
+    )
+
+
+@tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>/dados")
+def visualizador_publico_partida_dados_curta(codigo_publico, partida_id):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return jsonify({"ok": False, "erro": "Competição não encontrada."}), 404
+    return visualizador_publico_partida_dados(competicao.get("nome"), partida_id)
+
+
+@tabela_bp.route("/v/<codigo_publico>/partida/<int:partida_id>/dados/detalhes")
+def visualizador_publico_partida_detalhes_curta(codigo_publico, partida_id):
+    competicao = buscar_competicao_por_codigo_publico(codigo_publico)
+    if not competicao:
+        return jsonify({"ok": False, "erro": "Competição não encontrada."}), 404
+    return visualizador_publico_partida_detalhes(competicao.get("nome"), partida_id)
+
+
+def _estrutura_grupo_unico(competicao):
+    """Retorna True quando a competição deve operar como grupo único.
+
+    Considera qtd_grupos = 1 ou tem_grupos desligado como grupo único para a tela
+    não pedir a mesma configuração novamente na Tabela.
+    """
+    try:

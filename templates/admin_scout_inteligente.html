@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scout Inteligente</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f4f6f8;margin:0;color:#17212b}.wrap{max-width:1180px;margin:30px auto;padding:0 18px}
+    .card{background:#fff;border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:0 4px 18px rgba(0,0,0,.07)}
+    form{display:grid;grid-template-columns:1fr 160px auto;gap:10px}input,button{padding:11px;border-radius:8px;border:1px solid #ccd4dc}button{cursor:pointer;font-weight:700}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.metric{background:#f7f9fb;border-radius:10px;padding:14px}.metric strong{font-size:26px;display:block}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px;border-bottom:1px solid #e6ebef}.tag{display:inline-block;background:#e9f2ff;padding:4px 8px;border-radius:12px;margin:2px}
+    .erro{background:#ffe9e9;color:#8a1515;padding:12px;border-radius:8px}.insight{border-left:4px solid #2d6cdf;padding:10px 12px;margin:8px 0;background:#f3f7ff}
+    @media(max-width:700px){form{grid-template-columns:1fr}.wrap{margin-top:15px}}
+  </style>
+</head>
+<body><div class="wrap">
+  <div class="card"><h1>Scout Inteligente</h1><p>Análise determinística feita após a partida, usando os eventos já persistidos.</p>
+    <form method="get"><input name="competicao" placeholder="Competição" value="{{ filtros.competicao }}" required><input name="partida_id" type="number" min="1" placeholder="ID da partida" value="{{ filtros.partida_id or '' }}" required><button>Gerar análise</button></form>
+  </div>
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+  {% if partida %}
+  <div class="card"><h2>{{ partida.equipe_a }} × {{ partida.equipe_b }}</h2><div class="grid">
+    <div class="metric"><span>Placar reconstruído</span><strong>{{ scout.placar_reconstruido.A }} × {{ scout.placar_reconstruido.B }}</strong></div>
+    <div class="metric"><span>Trocas de liderança</span><strong>{{ scout.trocas_lideranca }}</strong></div>
+    <div class="metric"><span>Empates durante rallies</span><strong>{{ scout.empates }}</strong></div>
+    <div class="metric"><span>Atletas identificados</span><strong>{{ scout.cobertura.atletas_identificados }}</strong></div>
+  </div></div>
+  <div class="card"><h2>Leitura automática</h2>{% for item in scout.insights %}<div class="insight">{{ item.texto }}</div>{% else %}<p>Os eventos disponíveis ainda não têm detalhes suficientes para gerar conclusões.</p>{% endfor %}</div>
+  <div class="card"><h2>Resumo por equipe</h2><table><thead><tr><th>Equipe</th><th>Pontos</th><th>Ataques</th><th>Aces</th><th>Bloqueios</th><th>Erros adversários</th><th>Maior sequência</th><th>Tempos</th><th>Substituições</th></tr></thead><tbody>
+  {% for lado,nome in [('A',partida.equipe_a),('B',partida.equipe_b)] %}{% set d=scout.por_equipe[lado] %}<tr><td>{{ nome }}</td><td>{{ d.get('pontos',0) }}</td><td>{{ d.get('ataque',0) }}</td><td>{{ d.get('ace',0) }}</td><td>{{ d.get('bloqueio',0) }}</td><td>{{ d.get('pontos_por_erro_adversario',0) }}</td><td>{{ d.get('maior_sequencia',0) }}</td><td>{{ d.get('tempos',0) }}</td><td>{{ d.get('substituicoes',0) }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <div class="card"><h2>Ranking de atletas</h2><table><thead><tr><th>#</th><th>Equipe</th><th>Atleta</th><th>Pontos</th><th>Ataques</th><th>Aces</th><th>Bloqueios</th></tr></thead><tbody>{% for a in scout.ranking_atletas[:20] %}<tr><td>{{ loop.index }}</td><td>{{ a.equipe }}</td><td>{{ a.atleta }}</td><td>{{ a.get('pontos',0) }}</td><td>{{ a.get('ataque',0) }}</td><td>{{ a.get('ace',0) }}</td><td>{{ a.get('bloqueio',0) }}</td></tr>{% else %}<tr><td colspan="7">Nenhum atleta identificado nos eventos.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="card"><h2>Momentos decisivos</h2>{% for e in scout.momentos_decisivos %}<p><span class="tag">Set {{ e.set }}</span><span class="tag">{{ e.placar }}</span> {{ e.descricao or e.fundamento }}</p>{% else %}<p>Nenhum momento decisivo identificado com os dados disponíveis.</p>{% endfor %}</div>
+  {% endif %}
+</div></body></html>

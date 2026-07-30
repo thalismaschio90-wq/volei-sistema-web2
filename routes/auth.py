@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash
 import os
+from core.security import gerar_hash_senha, verificar_senha
 from banco import (
     conectar,
     buscar_usuario_por_login,
@@ -154,9 +155,17 @@ def login():
                 flash("Usuário inativo.", "erro")
                 return render_template(_template_login())
 
-            if usuario["senha"] != senha_digitada:
+            senha_ok, precisa_migrar = verificar_senha(senha_digitada, usuario.get("senha"))
+            if not senha_ok:
                 flash("Senha incorreta.", "erro")
                 return render_template(_template_login())
+
+            if precisa_migrar:
+                try:
+                    from banco import atualizar_senha_usuario
+                    atualizar_senha_usuario(usuario["login"], senha_digitada)
+                except Exception as exc:
+                    print("AVISO MIGRAÇÃO HASH SENHA:", repr(exc), flush=True)
 
             session["usuario"] = usuario["login"]
             session["nome"] = usuario.get("nome") or usuario["login"]

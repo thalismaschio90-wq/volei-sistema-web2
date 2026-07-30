@@ -1,0 +1,161 @@
+/* =========================================================
+   VISUAL HÍBRIDO MOBILE/TABLET - JOGO AO VIVO
+   Desktop permanece igual.
+   Fundo mais claro + cards brancos + quadra laranja preservada.
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    html,
+    body {
+        background: #e7edf4 !important;
+    }
+
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        background:
+            radial-gradient(circle at 12% 0%, rgba(15, 47, 74, .14), transparent 34%),
+            radial-gradient(circle at 88% 0%, rgba(245, 158, 11, .18), transparent 34%),
+            linear-gradient(180deg, #eef3f8 0%, #e7edf4 100%) !important;
+        color: #183247 !important;
+    }
+
+    .mobile-equipe-head,
+    .mobile-centro-head,
+    .mobile-quadra-card {
+        background: #ffffff !important;
+        border: 1px solid #d6e2f0 !important;
+        color: #183247 !important;
+        box-shadow: 0 10px 26px rgba(15, 47, 74, .12) !important;
+    }
+
+    .mobile-equipe-head {
+        grid-template-columns: auto minmax(0, 1fr) auto !important;
+        gap: clamp(6px, .8vw, 10px) !important;
+    }
+
+    #mobile-head-dir.mobile-equipe-head {
+        grid-template-columns: auto minmax(0, 1fr) auto !important;
+    }
+
+    .mobile-equipe-escudo {
+        width: clamp(38px, 6vh, 56px) !important;
+        height: clamp(38px, 6vh, 56px) !important;
+        object-fit: contain !important;
+        border-radius: 14px !important;
+        background: #f8fbff !important;
+        border: 1px solid #d6e2f0 !important;
+        padding: 5px !important;
+        flex: 0 0 auto !important;
+        box-shadow: 0 5px 14px rgba(15, 47, 74, .10) !important;
+    }
+
+    .mobile-equipe-textos {
+        min-width: 0 !important;
+    }
+
+    .mobile-equipe-textos-dir {
+        text-align: right !important;
+    }
+
+    .mobile-equipe-nome,
+    .mobile-placar-numero,
+    .mobile-sets {
+        color: #0f2f4a !important;
+    }
+
+    .mobile-equipe-sub {
+        color: #64748b !important;
+    }
+
+    .mobile-centro-head {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+    }
+
+    .mobile-set-atual {
+        color: #d97706 !important;
+    }
+
+    .mobile-saque {
+        color: #475569 !important;
+    }
+
+    .mobile-quadra-titulo {
+        color: #183247 !important;
+    }
+
+    .mobile-badge {
+        background: #eef6ff !important;
+        color: #183247 !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .mobile-quadra-grid {
+        background: #ffffff !important;
+        border-color: #0f2f4a !important;
+        box-shadow:
+            inset 0 0 0 2px rgba(255,255,255,.75),
+            0 10px 22px rgba(15, 47, 74, .16) !important;
+    }
+
+    .mobile-pos {
+        background: linear-gradient(180deg, #f59e0b 0%, #ea8a04 100%) !important;
+        color: #0f2f4a !important;
+        border-color: rgba(255,255,255,.92) !important;
+        box-shadow: inset 0 0 0 1px rgba(15,47,74,.08) !important;
+    }
+
+    .mobile-pos-nome {
+        color: #334155 !important;
+    }
+
+    .mobile-aba-gatilho,
+    .mobile-footer,
+    .mobile-menu-lateral {
+        background: #183247 !important;
+        color: #ffffff !important;
+        border-color: rgba(255,255,255,.14) !important;
+    }
+
+    .mobile-footer {
+        box-shadow: 0 -10px 26px rgba(15, 47, 74, .20) !important;
+    }
+
+    .mobile-ultima-acao {
+        background: rgba(255,255,255,.10) !important;
+        color: #fef3c7 !important;
+        border-color: rgba(255,255,255,.14) !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button,
+    .mobile-menu-fechar,
+    .mobile-btn {
+        background: rgba(255,255,255,.12) !important;
+        color: #ffffff !important;
+    }
+
+    .mobile-btn.principal {
+        background: #f97316 !important;
+    }
+
+    .mobile-btn.perigo,
+    .mobile-footer-acoes .sair {
+        background: #991b1b !important;
+    }
+
+    .mobile-footer-acoes .salvar {
+        background: #0f766e !important;
+    }
+}
+
+@media (max-width: 900px) and (min-aspect-ratio: 1/1) {
+    .mobile-equipe-escudo {
+        width: clamp(30px, 6.2vh, 44px) !important;
+        height: clamp(30px, 6.2vh, 44px) !important;
+        border-radius: 11px !important;
+        padding: 4px !important;
+    }
+
+    .mobile-equipe-head {
+        gap: 5px !important;
+    }
+}

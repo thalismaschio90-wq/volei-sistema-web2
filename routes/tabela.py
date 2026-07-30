@@ -1,64 +1,145 @@
 from flask import Blueprint, render_template, request, redirect, session, url_for, flash, jsonify
 from functools import wraps
-import random
 import json
 import os
 import time
 import hashlib
 
-from banco import (
+from services.competicoes.tabela_gateway import (
     buscar_competicao_por_organizador,
     buscar_competicao_por_nome,
-    listar_equipes_da_competicao,
     criar_grupo,
     listar_grupos,
-    adicionar_equipe_no_grupo,
     listar_equipes_por_grupo,
     listar_equipes_por_grupos_competicao,
     criar_partida,
     listar_partidas,
+    listar_partidas_leve,
+    proxima_ordem_partida,
     buscar_partida_por_id,
-    buscar_estado_jogo_partida,
-    listar_eventos_partida,
-    criar_tabela_destaques_partida,
-    limpar_partidas,
     limpar_partidas_por_fase,
-    remover_equipe_do_grupo,
-    excluir_grupo as excluir_grupo_banco,
-    excluir_partida as excluir_partida_banco,
     atualizar_partida,
     competicao_esta_travada,
     fase_grupos_esta_travada_por_jogo,
-    fase_partidas_pode_ser_alterada,
-    fase_tem_partida_iniciada,
     listar_quadras_competicao,
     garantir_quadras_competicao,
     buscar_quadra_competicao_por_id,
-    buscar_quadra_competicao_por_texto,
     formatar_quadra_exibicao,
     normalizar_vinculos_quadras_competicao,
-    vincular_grupo_a_quadra,
-    aplicar_quadra_em_partida,
     conectar,
     buscar_configuracao_agenda_competicao,
     atualizar_configuracao_agenda_competicao,
-    inicializar_configuracao_agenda_competicao,
     _buscar_colunas_tabela,
     buscar_avanco_config_competicao,
     gerar_partidas_avanco_competicao,
     status_avanco_classificatorias_competicao,
     avanco_ja_gerado_competicao,
-    limpar_partidas_avanco_nao_iniciadas_competicao,
-    assinatura_classificacao_competicao,
-    obter_cache_classificacao,
-    salvar_cache_classificacao,
     buscar_data_hora_rodada_programada,
     garantir_codigo_publico_competicao,
     buscar_competicao_por_codigo_publico,
 )
+from services.equipes.consultas import listar_equipes_da_competicao
+from services.competicoes.mata_mata import gerar_e_persistir_mata_mata
+from services.competicoes.geracao_partidas import (
+    gerar_agenda_classificatoria as _gerar_agenda_classificatoria_inteligente,
+    inserir_partidas_em_lote as _inserir_partidas_em_lote_service,
+)
+from rules.agenda_partidas import (
+    gerar_rodadas_round_robin as _gerar_rodadas_round_robin,
+    numero_rodada_info as _numero_rodada_info,
+    jogos_rodada_info as _jogos_rodada_info,
+    ids_quadras_ativas as _ids_quadras_ativas,
+    normalizar_lista_ids as _normalizar_lista_ids,
+    montar_fila_jogos_classificatorios as _montar_fila_jogos_classificatorios,
+    jogo_respeita_descanso as _jogo_respeita_descanso,
+    proximo_jogo_sem_conflito as _proximo_jogo_sem_conflito,
+    grupo_com_mais_rodadas_restantes as _grupo_com_mais_rodadas_restantes,
+    gerar_slots_pool_multiquadra as _gerar_slots_pool_multiquadra,
+    gerar_slots_pool_quadra_unica as _gerar_slots_pool_quadra_unica,
+)
 
+
+from services.competicoes.classificacao import (
+    calcular_classificacao as _calcular_classificacao,
+    calcular_ou_obter_classificacao_cacheada as _calcular_ou_obter_classificacao_cacheada,
+    colunas_classificacao_publica as _colunas_classificacao_publica,
+    colunas_classificacao_por_criterios as _colunas_classificacao_por_criterios,
+    criterios_efetivos_ate_sorteio as _criterios_efetivos_ate_sorteio,
+    competicao_eh_set_unico_tabela as _competicao_eh_set_unico_tabela,
+    obter_regras_classificacao as _obter_regras_classificacao,
+    to_bool as _to_bool,
+)
+
+from rules.visualizador_publico import (
+    bool_publico as _bool_publico,
+    modo_scout_ativo_publico as _modo_scout_ativo_publico,
+    evento_detalhes_publico as _evento_detalhes_publico,
+    lado_para_nome_publico as _lado_para_nome_publico,
+    lado_pontuador_evento_publico as _lado_pontuador_evento_publico,
+    normalizar_acao_publica as _normalizar_acao_publica,
+    evento_eh_acao_negativa_adversario_publico as _evento_eh_acao_negativa_adversario_publico,
+    lado_responsavel_evento_publico as _lado_responsavel_evento_publico,
+    rotulo_fundamento_publico as _rotulo_fundamento_publico,
+    descricao_evento_publico as _descricao_evento_publico,
+    montar_linha_ponto_publico as _montar_linha_ponto_publico,
+)
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_partida
-from socket_events import obter_estado_cache, obter_estado_versao
+
+from rules.partidas_exibicao import (
+    STATUS_FINALIZADO,
+    STATUS_AO_VIVO,
+    STATUS_PRE_JOGO,
+    STATUS_AGUARDANDO,
+    to_int_or_none as _to_int_or_none,
+    normalizar_url_escudo as _normalizar_url_escudo_tabela,
+    mapa_escudos_equipes as _mapa_escudos_equipes,
+    buscar_escudo_mapa as _buscar_escudo_mapa,
+    quadra_label as _quadra_label,
+    status_texto as _status_texto,
+    partida_tem_flag_finalizada as _partida_tem_flag_finalizada,
+    status_normalizado as _status_normalizado,
+    status_exibicao as _status_exibicao,
+    partida_esta_finalizada as _partida_esta_finalizada,
+    partida_esta_ao_vivo as _partida_esta_ao_vivo,
+    partida_conta_como_iniciada as _partida_conta_como_iniciada_para_trava,
+    fase_partida_normalizada as _fase_partida_normalizada,
+    filtrar_partidas_por_fase as _filtrar_partidas_por_fase,
+    montar_parciais as _montar_parciais,
+)
+from services.competicoes.partidas_exibicao import (
+    preparar_partidas as _preparar_partidas_service,
+)
+from services.competicoes.visualizador_publico import (
+    montar_contexto_partida_publica as _montar_contexto_partida_publica_service,
+    montar_estado_leve_partida_publica as _montar_estado_leve_partida_publica_service,
+)
+from services.competicoes.tabela_acoes import (
+    adicionar_equipe_grupo as _acao_adicionar_equipe_grupo,
+    atualizar_partida_manual as _acao_atualizar_partida_manual,
+    criar_partida_manual as _acao_criar_partida_manual,
+    excluir_grupo as _acao_excluir_grupo,
+    excluir_partida as _acao_excluir_partida,
+    limpar_fase as _acao_limpar_fase,
+    limpar_tabela as _acao_limpar_tabela,
+    remover_equipe_grupo as _acao_remover_equipe_grupo,
+    vincular_grupo_quadra as _acao_vincular_grupo_quadra,
+)
+from rules.grupos_estrutura import (
+    estrutura_grupo_unico as _estrutura_grupo_unico,
+    nomes_grupos_automaticos as _nomes_grupos_automaticos,
+    qtd_grupos_configurada as _qtd_grupos_configurada,
+)
+from services.competicoes.grupos_estrutura import (
+    garantir_grupos_estrutura as _garantir_grupos_estrutura_service,
+    sincronizar_grupo_unico as _sincronizar_grupo_unico_service,
+    sortear_equipes as _sortear_equipes_grupos_service,
+)
+from services.competicoes.tabela_contexto import (
+    contexto_base as _contexto_base_tabela,
+    montar_pacote_aba as _montar_pacote_aba_tabela,
+    normalizar_aba as _normalizar_aba_tabela,
+    normalizar_fase as _normalizar_fase_tabela,
+)
 
 tabela_bp = Blueprint("tabela", __name__)
 
@@ -328,15 +409,13 @@ def _quadras_cache(competicao_nome, qtd_quadras=1):
 
 
 def _config_agenda_cache(competicao_nome):
+    """Lê a configuração sem criar ou regravar dados ao abrir a tabela."""
     chave = _cache_key("config_agenda", competicao_nome)
     cached = _cache_get_tabela(chave)
     if cached is not None:
         return cached
-    try:
-        inicializar_configuracao_agenda_competicao(competicao_nome)
-    except Exception as e:
-        print("AVISO tabela/inicializar_config_agenda:", repr(e))
-    return _cache_set_tabela(chave, buscar_configuracao_agenda_competicao(competicao_nome))
+    configuracao = buscar_configuracao_agenda_competicao(competicao_nome)
+    return _cache_set_tabela(chave, configuracao)
 
 
 def _avanco_cache(competicao_nome):
@@ -755,111 +834,28 @@ def _montar_espelho_avanco(avanco, partidas, classificatorias_fechadas=False):
 
     return saida
 
-def _to_int_or_none(valor):
-    try:
-        if valor in (None, ""):
-            return None
-        return int(valor)
-    except (TypeError, ValueError):
-        return None
 
 
-def _normalizar_url_escudo_tabela(valor):
-    valor = str(valor or "").strip()
-
-    if not valor:
-        return "/static/img/escudo_padrao.svg"
-
-    if valor.startswith(("http://", "https://", "/static/", "data:")):
-        return valor
-
-    valor = valor.replace("\\", "/")
-
-    if valor.startswith("static/"):
-        return "/" + valor
-
-    if valor.startswith("uploads/"):
-        return "/static/" + valor
-
-    if "/uploads/" in valor:
-        return "/static/uploads/" + valor.split("/uploads/", 1)[1]
-
-    return "/static/uploads/escudos/" + valor.lstrip("/")
 
 
-def _mapa_escudos_equipes(equipes):
-    """Monta mapa de escudos usando nome atual e login da equipe.
-
-    O nome da equipe pode mudar pelo organizador. Por isso, sempre que o dado
-    estiver disponível, o login também entra como chave estável. Mantemos as
-    chaves por nome para compatibilidade com partidas/grupos antigos que ainda
-    guardam texto no lugar de login.
-    """
-    mapa = {}
-
-    for equipe in equipes or []:
-        nome = str(
-            equipe.get("nome")
-            or equipe.get("equipe")
-            or equipe.get("nome_equipe")
-            or ""
-        ).strip()
-        login = str(equipe.get("login") or equipe.get("equipe_login") or "").strip()
-
-        escudo = (
-            equipe.get("escudo")
-            or equipe.get("escudo_url")
-            or equipe.get("logo")
-            or equipe.get("imagem")
-            or ""
-        )
-        escudo_url = _normalizar_url_escudo_tabela(escudo)
-
-        for chave in (nome, login):
-            chave = str(chave or "").strip()
-            if not chave:
-                continue
-            mapa[chave] = escudo_url
-            mapa[chave.lower()] = escudo_url
-            mapa[chave.upper()] = escudo_url
-
-    return mapa
 
 
-def _buscar_escudo_mapa(mapa_escudos, nome_equipe):
-    nome = str(nome_equipe or "").strip()
-    if not nome:
-        return _normalizar_url_escudo_tabela("")
-    return (
-        (mapa_escudos or {}).get(nome)
-        or (mapa_escudos or {}).get(nome.lower())
-        or (mapa_escudos or {}).get(nome.upper())
-        or _normalizar_url_escudo_tabela("")
+
+
+
+
+
+# Fachadas internas preservam os nomes históricos da rota enquanto a lógica
+# de apresentação vive nos módulos rules/services.
+_status_tabela_para_trava = _status_normalizado
+
+def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
+    return _preparar_partidas_service(
+        partidas,
+        mapa_escudos=mapa_escudos,
+        competicao=competicao,
+        aplicar_placar_exibicao=aplicar_placar_exibicao_partida,
     )
-
-
-def _quadra_label(item):
-    """Texto visual de quadra, sem usar nome de grupo como fallback.
-
-    Antes o fallback em `nome` fazia Grupo A aparecer como Quadra padrão A.
-    Agora grupo sem quadra_id/quadra_nome aparece corretamente como Sem quadra.
-    """
-    if not item:
-        return "Sem quadra"
-
-    for campo in ("quadra_label", "quadra_exibicao", "quadra_nome"):
-        valor = str((item or {}).get(campo) or "").strip()
-        if valor:
-            return valor
-
-    # Para partidas antigas, o campo legacy `quadra` pode conter texto. Se for só número/id,
-    # deixamos sem exibir até ser normalizado pelo banco.
-    valor_legacy = str((item or {}).get("quadra") or "").strip()
-    if valor_legacy and not valor_legacy.isdigit():
-        return valor_legacy
-
-    return "Sem quadra"
-
 
 def _quadra_id_do_grupo(grupo):
     return _to_int_or_none((grupo or {}).get("quadra_id"))
@@ -888,8 +884,6 @@ def _quadra_label_por_id(nome_competicao, quadra_id):
     return quadra_label or "Sem quadra"
 
 
-def _status_texto(valor):
-    return str(valor or "").strip().lower().replace("-", "_")
 
 
 STATUS_FINALIZADO = {
@@ -925,103 +919,10 @@ STATUS_AGUARDANDO = {
 }
 
 
-def _partida_tem_flag_finalizada(partida):
-    """Finalizado sempre tem prioridade máxima sobre qualquer status ao vivo.
-
-    Em algumas telas o jogo pode continuar com status/status_jogo antigo como
-    em_andamento, mesmo depois de ter sido encerrado pelo apontador. Por isso
-    verificamos todos os campos possíveis antes de classificar como AO VIVO.
-    """
-    if not partida:
-        return False
-
-    for campo in (
-        "status",
-        "status_jogo",
-        "fase_partida",
-        "situacao",
-        "estado",
-        "estado_jogo",
-    ):
-        if _status_texto(partida.get(campo)) in STATUS_FINALIZADO:
-            return True
-
-    for campo in ("finalizada", "partida_encerrada", "encerrada"):
-        valor = partida.get(campo)
-        if isinstance(valor, bool) and valor:
-            return True
-        if isinstance(valor, (int, float)) and int(valor) == 1:
-            return True
-        if isinstance(valor, str) and valor.strip().lower() in {"1", "true", "sim", "yes", "on"}:
-            return True
-
-    return bool(partida.get("finalizado_em") or partida.get("encerrado_em"))
 
 
-def _status_tabela_para_trava(partida):
-    """Status consolidado da tabela.
-
-    A prioridade correta é:
-    1. finalizada/encerrado;
-    2. ao vivo/em andamento;
-    3. pré-jogo/agendada.
-
-    Isso evita o erro em que uma partida encerrada pelo apontador continuava
-    aparecendo como AO VIVO na tabela ou no visualizador público porque algum
-    campo antigo ainda estava salvo como em_andamento.
-    """
-    if _partida_tem_flag_finalizada(partida):
-        return "finalizada"
-
-    status = _status_texto(partida.get("status"))
-    fase_partida = _status_texto(partida.get("fase_partida"))
-    status_jogo = _status_texto(partida.get("status_jogo"))
-
-    for valor in (status, fase_partida, status_jogo):
-        if valor in STATUS_AO_VIVO:
-            return valor
-
-    for valor in (status, fase_partida, status_jogo):
-        if valor in STATUS_PRE_JOGO:
-            return "pre_jogo"
-
-    for valor in (status, fase_partida, status_jogo):
-        if valor in STATUS_AGUARDANDO:
-            return "aguardando"
-
-    for valor in (status, fase_partida, status_jogo):
-        if valor:
-            return valor
-
-    return "aguardando"
 
 
-def _partida_conta_como_iniciada_para_trava(partida):
-    """
-    Só trava edição/exclusão quando o jogo realmente saiu do estado inicial.
-
-    IMPORTANTE:
-    No banco antigo, algumas partidas novas aparecem com status/status_jogo = pre_jogo
-    mesmo sem ninguém ter aberto o pré-jogo. Por isso pre_jogo sozinho NÃO bloqueia.
-    A partida só conta como iniciada quando houver sinal real de jogo: placar, sets,
-    status ao vivo/finalizado, fase ao vivo/finalizada ou campo de início preenchido.
-    """
-    status = _status_tabela_para_trava(partida)
-
-    if status in STATUS_FINALIZADO or status in STATUS_AO_VIVO:
-        return True
-
-    if partida.get("pre_jogo_iniciado_em") or partida.get("jogo_iniciado_em") or partida.get("finalizado_em") or partida.get("encerrado_em"):
-        return True
-
-    for campo in ("pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b"):
-        try:
-            if int(partida.get(campo) or 0) > 0:
-                return True
-        except (TypeError, ValueError):
-            pass
-
-    return False
 
 
 def _fase_tem_jogo_realmente_iniciado(competicao_nome, fase_banco):
@@ -1121,1423 +1022,36 @@ def _quadra_nome_cache(mapa_quadras, quadra_id):
 
 
 def _inserir_partidas_em_lote(partidas):
-    """Insere partidas em lote com um único roundtrip/commit.
-
-    Substitui o fluxo antigo que chamava criar_partida() para cada jogo.
-    Esse fluxo antigo abria validações/consultas/commits repetidos e era o
-    principal motivo da geração automática demorar minutos.
-
-    Status inicial correto: AGUARDANDO. A partida só vira PRE_JOGO quando o
-    apontador realmente assumir/abrir a conferência.
-    """
-    partidas = [p for p in (partidas or []) if p]
-    if not partidas:
-        return 0
-
-    colunas_partidas = _buscar_colunas_tabela("partidas") or set()
-
-    campos_base = [
-        "competicao", "grupo", "equipe_a", "equipe_b", "fase", "ordem",
-        "quadra", "quadra_id", "quadra_nome", "origem", "rodada", "data_hora", "status",
-    ]
-    extras_possiveis = [
-        "status_jogo", "fase_partida", "status_operacao",
-        "sets_a", "sets_b", "pontos_a", "pontos_b",
-    ]
-
-    # Compatibilidade com bancos antigos: só insere colunas que realmente existem.
-    campos = [c for c in campos_base if c in colunas_partidas]
-    campos.extend([c for c in extras_possiveis if c in colunas_partidas and c not in campos])
-
-    valores = []
-    for p in partidas:
-        quadra_id = _to_int_or_none(p.get("quadra_id"))
-        mapa_valores = {
-            "competicao": p.get("competicao"),
-            "grupo": p.get("grupo"),
-            "equipe_a": p.get("equipe_a"),
-            "equipe_b": p.get("equipe_b"),
-            "fase": p.get("fase") or "grupos",
-            "ordem": int(p.get("ordem") or 0),
-            "quadra": str(quadra_id) if quadra_id else None,
-            "quadra_id": quadra_id,
-            "quadra_nome": p.get("quadra_nome") or "",
-            "origem": p.get("origem") or "automatica",
-            "rodada": p.get("rodada"),
-            "data_hora": p.get("data_hora"),
-            "status": "aguardando",
-            "status_jogo": "aguardando",
-            "fase_partida": "aguardando",
-            "status_operacao": "livre",
-            "sets_a": 0,
-            "sets_b": 0,
-            "pontos_a": 0,
-            "pontos_b": 0,
-        }
-        valores.append(tuple(mapa_valores.get(c) for c in campos))
-
-    placeholders = ", ".join(["%s"] * len(campos))
-
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.executemany(
-                f"""
-                INSERT INTO partidas ({", ".join(campos)})
-                VALUES ({placeholders})
-                """,
-                valores,
-            )
-        conn.commit()
-
-    return len(valores)
-
-def _fase_partida_normalizada(partida):
-    fase = (
-        partida.get("fase")
-        or partida.get("fase_partida")
-        or "grupos"
+    """Fachada temporária para o serviço de persistência em lote."""
+    return _inserir_partidas_em_lote_service(
+        partidas, buscar_colunas_tabela=_buscar_colunas_tabela
     )
-    fase = str(fase).strip().lower()
-
-    if fase in {"classificatoria", "classificatorias", "grupo", "grupos"}:
-        return "grupos"
-    if "quarta" in fase:
-        return "quartas"
-    if "semi" in fase:
-        return "semifinal"
-    if "terceiro" in fase or "3" in fase and "lugar" in fase:
-        return "terceiro_lugar"
-    if "final" in fase:
-        return "final"
-
-    return fase or "grupos"
-
-def _filtrar_partidas_por_fase(partidas, fase_subaba):
-    fase_subaba = (fase_subaba or "classificatorias").strip().lower()
-
-    def mesma_fase(partida):
-        fase = _fase_partida_normalizada(partida)
-
-        if fase_subaba == "classificatorias":
-            return fase == "grupos"
-        if fase_subaba == "quartas":
-            return fase == "quartas"
-        if fase_subaba in {"oitavas"}:
-            return fase == "oitavas"
-        if fase_subaba in {"semifinais", "semifinal"}:
-            return fase in {"semifinal", "semifinais"}
-        if fase_subaba in {"finais", "final"}:
-            return fase == "final"
-        if fase_subaba == "terceiro_lugar":
-            return fase == "terceiro_lugar"
-
-        return False
-
-    return [p for p in partidas if mesma_fase(p)]
 
 
-def _status_normalizado(partida):
-    return _status_tabela_para_trava(partida)
 
 
-def _status_exibicao(partida):
-    status = _status_normalizado(partida)
-
-    mapa = {
-        "pre_jogo": "PRÉ-JOGO",
-        "aguardando": "AGUARDANDO",
-        "agendada": "AGUARDANDO",
-        "em andamento": "AO VIVO",
-        "ao vivo": "AO VIVO",
-        "ao_vivo": "AO VIVO",
-        "andamento": "AO VIVO",
-        "em_andamento": "AO VIVO",
-        "finalizada": "FINALIZADO",
-        "finalizado": "FINALIZADO",
-        "encerrado": "FINALIZADO",
-        "encerrada": "FINALIZADO",
-    }
-
-    return mapa.get(status, (status or "AGUARDANDO").replace("_", " ").upper())
 
 
-def _partida_esta_finalizada(partida):
-    return _partida_tem_flag_finalizada(partida) or _status_normalizado(partida) in STATUS_FINALIZADO
 
 
-def _partida_esta_ao_vivo(partida):
-    """Reconhece jogo ao vivo mesmo quando algum status legado não foi atualizado.
-
-    O apontador salva os pontos continuamente, mas em alguns fluxos o campo
-    status/status_jogo pode continuar como pre_jogo. Para o visualizador público,
-    uma partida não finalizada com placar, sets ou marca real de início deve ser
-    tratada como AO VIVO.
-    """
-    if _partida_esta_finalizada(partida):
-        return False
-
-    if _status_normalizado(partida) in STATUS_AO_VIVO:
-        return True
-
-    if partida.get("jogo_iniciado_em") or partida.get("pre_jogo_iniciado_em"):
-        return True
-
-    for campo in ("pontos_a", "pontos_b", "placar_a", "placar_b", "sets_a", "sets_b"):
-        try:
-            if int((partida or {}).get(campo) or 0) > 0:
-                return True
-        except (TypeError, ValueError):
-            pass
-
-    return False
 
 
-def _montar_parciais(partida):
-    parciais = []
-
-    for i in range(1, 6):
-        a = partida.get(f"set{i}_a")
-        b = partida.get(f"set{i}_b")
-
-        if a is not None and b is not None:
-            try:
-                parciais.append(f"{int(a)}x{int(b)}")
-            except (TypeError, ValueError):
-                parciais.append(f"{a}x{b}")
-
-    return " / ".join(parciais) if parciais else "-"
 
 
-def _preparar_partidas(partidas, mapa_escudos=None, competicao=None):
-    partidas_preparadas = []
 
-    for p in partidas:
-        partida = dict(p)
 
-        partida["fase_normalizada"] = _fase_partida_normalizada(partida)
-        partida["status_normalizado"] = _status_normalizado(partida)
-        partida["status_exibicao"] = _status_exibicao(partida)
-        partida["ao_vivo"] = _partida_esta_ao_vivo(partida)
-        partida["finalizada"] = _partida_esta_finalizada(partida)
-        partida["parciais_formatadas"] = _montar_parciais(partida)
-        partida["pode_excluir"] = not _partida_conta_como_iniciada_para_trava(partida)
-
-        partida["placar_ao_vivo_a"] = int(
-            partida.get("pontos_a")
-            or partida.get("placar_a")
-            or 0
-        )
-
-        partida["placar_ao_vivo_b"] = int(
-            partida.get("pontos_b")
-            or partida.get("placar_b")
-            or 0
-        )
-
-        aplicar_placar_exibicao_partida(partida, competicao or {})
-
-        # Para jogo ao vivo, o campo de consulta/visualização deve mostrar
-        # os pontos do set atual. O placar_exibicao em M3/M5 representa sets
-        # e por isso fica 0x0 no início da partida.
-        if partida.get("ao_vivo") and not partida.get("finalizada"):
-            partida["placar_ao_vivo_a"] = int(partida.get("pontos_a") or partida.get("placar_a") or 0)
-            partida["placar_ao_vivo_b"] = int(partida.get("pontos_b") or partida.get("placar_b") or 0)
-            partida["placar_ao_vivo"] = f'{partida["placar_ao_vivo_a"]} x {partida["placar_ao_vivo_b"]}'
-
-        partida["quadra_label"] = _quadra_label(partida)
-        partida["quadra_id_normalizado"] = _to_int_or_none(partida.get("quadra_id"))
-        partida["data_hora_valor"] = str(partida.get("data_hora") or "").strip()
-        _dh = partida["data_hora_valor"].replace(" ", "T")
-        if len(_dh) >= 16:
-            partida["data_hora_input"] = _dh[:16]
-            data_p, hora_p = _dh[:10], _dh[11:16]
-            partida["data_hora_label"] = f"{data_p[8:10]}/{data_p[5:7]}/{data_p[0:4]} {hora_p}"
-        else:
-            partida["data_hora_input"] = _dh
-            partida["data_hora_label"] = _dh
-
-        partida["escudo_a"] = _normalizar_url_escudo_tabela(partida.get("escudo_a")) if partida.get("escudo_a") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_a"))
-        partida["escudo_b"] = _normalizar_url_escudo_tabela(partida.get("escudo_b")) if partida.get("escudo_b") else _buscar_escudo_mapa(mapa_escudos, partida.get("equipe_b"))
-        partida["equipe_a_escudo"] = partida["escudo_a"]
-        partida["equipe_b_escudo"] = partida["escudo_b"]
-
-        partidas_preparadas.append(partida)
-
-    return sorted(
-        partidas_preparadas,
-        key=lambda p: (
-            p.get("data_hora_valor") or "9999-12-31 23:59",
-            p.get("quadra_label") or "",
-            p.get("ordem") or 0,
-        )
-    )
     
 
-def _to_bool(valor):
-    if isinstance(valor, bool):
-        return valor
-    if valor is None:
-        return False
-    return str(valor).strip().lower() in {"1", "true", "sim", "yes", "on"}
-
-
-def _valor_inteiro_regra(competicao, chaves, padrao):
-    for chave in chaves:
-        valor = competicao.get(chave)
-        if valor not in (None, ""):
-            try:
-                return int(valor)
-            except (TypeError, ValueError):
-                pass
-    return padrao
-
-
-def _bool_por_chaves(competicao, chaves):
-    for chave in chaves:
-        if chave in competicao:
-            return _to_bool(competicao.get(chave))
-    return False
-
-
-CRITERIOS_CLASSIFICACAO_PADRAO = [
-    "pontos",
-    "vitorias",
-    "saldo_sets",
-    "sets_average",
-    "saldo_pontos",
-    "pontos_average",
-    "confronto_direto",
-    "sorteio",
-]
-
-CRITERIOS_CLASSIFICACAO_SUPORTADOS = {
-    "pontos",
-    "vitorias",
-    "sets_average",
-    "pontos_average",
-    "saldo_sets",
-    "saldo_pontos",
-    "sets_pro",
-    "sets_contra",
-    "pontos_pro",
-    "pontos_contra",
-    "confronto_direto",
-    "coef_sets",
-    "coef_pontos",
-    "fair_play",
-    "menor_wo",
-    "sorteio",
-}
-
-CRITERIOS_MENOR_MELHOR = {"sets_contra", "pontos_contra", "fair_play", "menor_wo"}
-
-
-CRITERIOS_CLASSIFICACAO_COLUNAS = {
-    "pontos": {"campo": "pontos", "titulo": "P"},
-    "vitorias": {"campo": "vitorias", "titulo": "V"},
-    "derrotas": {"campo": "derrotas", "titulo": "D"},
-    "jogos": {"campo": "jogos", "titulo": "J"},
-    "saldo_sets": {"campo": "saldo_sets", "titulo": "DS"},
-    "sets_average": {"campo": "sets_average_exibicao", "titulo": "SA"},
-    "coef_sets": {"campo": "sets_average_exibicao", "titulo": "SA"},
-    "saldo_pontos": {"campo": "saldo_pontos", "titulo": "DP"},
-    "pontos_average": {"campo": "pontos_average_exibicao", "titulo": "PA"},
-    "coef_pontos": {"campo": "pontos_average_exibicao", "titulo": "PA"},
-    "sets_pro": {"campo": "sets_pro", "titulo": "SP"},
-    "sets_contra": {"campo": "sets_contra", "titulo": "SC"},
-    "pontos_pro": {"campo": "pontos_pro", "titulo": "PF"},
-    "pontos_contra": {"campo": "pontos_contra", "titulo": "PC"},
-    "fair_play": {"campo": "fair_play", "titulo": "FP"},
-    "menor_wo": {"campo": "wo", "titulo": "WO"},
-}
-
-COLUNAS_PUBLICAS_SET_UNICO = [
-    {"campo": "pontos", "titulo": "P", "descricao": "Pontos na classificação"},
-    {"campo": "jogos", "titulo": "J", "descricao": "Jogos disputados"},
-    {"campo": "vitorias", "titulo": "V", "descricao": "Vitórias"},
-    {"campo": "derrotas", "titulo": "D", "descricao": "Derrotas"},
-    {"campo": "pontos_average_exibicao", "titulo": "PA", "descricao": "Pontos average: PF dividido por PC"},
-    {"campo": "saldo_pontos", "titulo": "DP", "descricao": "Diferença de pontos: PF menos PC"},
-    {"campo": "pontos_pro", "titulo": "PF", "descricao": "Pontos feitos"},
-    {"campo": "pontos_contra", "titulo": "PC", "descricao": "Pontos cedidos"},
-]
-
-COLUNAS_PUBLICAS_SETS = [
-    {"campo": "pontos", "titulo": "P", "descricao": "Pontos na classificação"},
-    {"campo": "jogos", "titulo": "J", "descricao": "Jogos disputados"},
-    {"campo": "vitorias", "titulo": "V", "descricao": "Vitórias"},
-    {"campo": "derrotas", "titulo": "D", "descricao": "Derrotas"},
-    {"campo": "sets_pro", "titulo": "SP", "descricao": "Sets pró"},
-    {"campo": "sets_contra", "titulo": "SC", "descricao": "Sets contra"},
-    {"campo": "saldo_sets", "titulo": "DS", "descricao": "Diferença de sets: SP menos SC"},
-    {"campo": "sets_average_exibicao", "titulo": "SA", "descricao": "Sets average: SP dividido por SC"},
-    {"campo": "pontos_average_exibicao", "titulo": "PA", "descricao": "Pontos average: PF dividido por PC"},
-    {"campo": "saldo_pontos", "titulo": "DP", "descricao": "Diferença de pontos: PF menos PC"},
-    {"campo": "pontos_pro", "titulo": "PF", "descricao": "Pontos feitos"},
-    {"campo": "pontos_contra", "titulo": "PC", "descricao": "Pontos cedidos"},
-]
-
-
-def _formatar_numero_decimal(valor):
-    try:
-        valor = float(valor or 0)
-    except (TypeError, ValueError):
-        valor = 0.0
-
-    if valor == float("inf"):
-        return "∞"
-
-    texto = f"{valor:.3f}".rstrip("0").rstrip(".")
-    return texto or "0"
-
-
-def _calcular_sets_average_valor(sets_pro, sets_contra):
-    """Calcula sets average pelo acumulado da equipe.
-
-    Regra técnica adotada no sistema:
-    - enquanto a equipe não sofreu sets, usa divisor 0.5;
-    - depois que sofreu pelo menos 1 set, usa o valor real acumulado.
-    """
-    try:
-        sets_pro = int(sets_pro or 0)
-    except (TypeError, ValueError):
-        sets_pro = 0
-
-    try:
-        sets_contra = int(sets_contra or 0)
-    except (TypeError, ValueError):
-        sets_contra = 0
-
-    if sets_pro <= 0:
-        return 0.0
-
-    if sets_contra <= 0:
-        return float("inf")
-
-    return sets_pro / sets_contra
-
-
-def _calcular_pontos_average_valor(pontos_pro, pontos_contra):
-    """Calcula pontos average pelo acumulado da equipe.
-
-    Regra técnica adotada no sistema:
-    - enquanto a equipe não sofreu pontos, usa divisor 1;
-    - depois que sofreu pelo menos 1 ponto, usa o valor real acumulado.
-    """
-    try:
-        pontos_pro = int(pontos_pro or 0)
-    except (TypeError, ValueError):
-        pontos_pro = 0
-
-    try:
-        pontos_contra = int(pontos_contra or 0)
-    except (TypeError, ValueError):
-        pontos_contra = 0
-
-    if pontos_pro <= 0:
-        return 0.0
-
-    if pontos_contra <= 0:
-        return float("inf")
-
-    return pontos_pro / pontos_contra
-
-
-def _formatar_sets_average_exibicao(sets_pro, sets_contra):
-    return _formatar_numero_decimal(_calcular_sets_average_valor(sets_pro, sets_contra))
-
-
-def _formatar_pontos_average_exibicao(pontos_pro, pontos_contra):
-    return _formatar_numero_decimal(_calcular_pontos_average_valor(pontos_pro, pontos_contra))
-
-
-def _criterios_efetivos_ate_sorteio(criterios):
-    criterios = list(criterios or [])
-    if "sorteio" in criterios:
-        return criterios[:criterios.index("sorteio") + 1]
-    return criterios
-
-
-def _competicao_eh_set_unico_tabela(competicao):
-    competicao = competicao or {}
-    texto = " ".join(
-        str(competicao.get(chave) or "")
-        for chave in ("sets_tipo", "tipo_sets", "formato_sets", "melhor_de")
-    ).strip().lower().replace("-", "_").replace(" ", "_")
-
-    return texto in {"set_unico", "único", "unico", "1_set", "melhor_de_1", "md1", "1"} or "set_unico" in texto
-
-
-def _colunas_classificacao_publica(competicao):
-    """Colunas exibidas no link público.
-
-    A exibição é independente da ordem de desempate. A classificação continua
-    sendo ordenada por _aplicar_criterios_classificacao usando os critérios
-    configurados pelo organizador.
-    """
-    colunas = COLUNAS_PUBLICAS_SET_UNICO if _competicao_eh_set_unico_tabela(competicao) else COLUNAS_PUBLICAS_SETS
-    return [dict(c) for c in colunas]
-
-
-def _colunas_classificacao_por_criterios(criterios):
-    """Compatibilidade com telas antigas que exibem apenas critérios ativos."""
-    colunas = []
-    vistos = set()
-
-    for criterio in _criterios_efetivos_ate_sorteio(criterios):
-        cfg = CRITERIOS_CLASSIFICACAO_COLUNAS.get(criterio)
-        if not cfg:
-            continue
-
-        campo = cfg["campo"]
-        if campo in vistos:
-            continue
-
-        colunas.append({
-            "criterio": criterio,
-            "campo": campo,
-            "titulo": cfg["titulo"],
-            "descricao": cfg.get("descricao", cfg["titulo"]),
-        })
-        vistos.add(campo)
-
-    if not colunas:
-        colunas.append({"criterio": "pontos", "campo": "pontos", "titulo": "P", "descricao": "Pontos"})
-
-    return colunas
-
-
-def _normalizar_criterios_classificacao(valor):
-    """
-    Lê a ordem salva em competicoes.criterios_desempate.
-
-    A coluna antiga foi mantida por compatibilidade, mas agora ela representa
-    a ORDEM DOS CRITÉRIOS DE CLASSIFICAÇÃO. Ex.:
-    pontos,vitorias,saldo_sets,confronto_direto,saldo_pontos,sorteio
-    """
-    if isinstance(valor, (list, tuple)):
-        brutos = valor
-    else:
-        texto = str(valor or "").strip()
-        if texto.startswith("["):
-            try:
-                import json
-                carregado = json.loads(texto)
-                brutos = carregado if isinstance(carregado, list) else []
-            except Exception:
-                brutos = []
-        else:
-            brutos = texto.split(",")
-
-    criterios = []
-    vistos = set()
-
-    aliases = {
-        "vitórias": "vitorias",
-        "vitorias": "vitorias",
-        "pontos average": "pontos_average",
-        "sets average": "sets_average",
-        "saldo de sets": "saldo_sets",
-        "saldo de pontos": "saldo_pontos",
-        "confronto": "confronto_direto",
-        "confronto direto": "confronto_direto",
-        "wo": "menor_wo",
-        "menor numero de wo": "menor_wo",
-        "menor número de w.o.": "menor_wo",
-    }
-
-    for item in brutos:
-        criterio = str(item or "").strip().lower()
-        criterio = criterio.replace("-", "_").replace(" ", "_")
-        criterio = aliases.get(criterio, criterio)
-
-        if criterio in CRITERIOS_CLASSIFICACAO_SUPORTADOS and criterio not in vistos:
-            criterios.append(criterio)
-            vistos.add(criterio)
-
-    if not criterios:
-        criterios = list(CRITERIOS_CLASSIFICACAO_PADRAO)
-
-    # Não corta os critérios abaixo do sorteio.
-    # O sorteio encerra o desempate apenas no momento do cálculo, dentro de
-    # _aplicar_criterios_classificacao. Assim a tela continua podendo salvar
-    # e reordenar todos os critérios escolhidos pelo organizador.
-    return criterios
-
-
-def _sets_para_vitoria_classificacao(competicao):
-    """Define quantos sets o vencedor precisa fazer conforme a regra da competição."""
-    texto = " ".join(
-        str(competicao.get(chave) or "")
-        for chave in ("sets_tipo", "tipo_sets", "formato_sets", "melhor_de")
-    ).strip().lower()
-
-    if "5" in texto or "cinco" in texto:
-        return 3
-
-    if "unico" in texto or "único" in texto or "1" in texto:
-        return 1
-
-    return 2
-
-
-def _resultado_foi_tiebreak(sets_vencedor, sets_perdedor, competicao):
-    sets_para_vitoria = _sets_para_vitoria_classificacao(competicao)
-
-    if sets_para_vitoria <= 1:
-        return False
-
-    return int(sets_vencedor or 0) == sets_para_vitoria and int(sets_perdedor or 0) == (sets_para_vitoria - 1)
-
-
-def _obter_regras_classificacao(competicao):
-    criterios = _normalizar_criterios_classificacao(
-        competicao.get("criterios_desempate")
-        or competicao.get("criterios_classificacao")
-        or ""
-    )
-
-    return {
-        "pontos_vitoria": _valor_inteiro_regra(
-            competicao,
-            ["pontos_vitoria", "vitoria_set_unico", "vitoria_2x0", "vitoria_3x0"],
-            2
-        ),
-        "pontos_derrota": _valor_inteiro_regra(
-            competicao,
-            ["pontos_derrota", "derrota_set_unico", "derrota_0x2", "derrota_0x3"],
-            0
-        ),
-        "pontos_tiebreak_vitoria": _valor_inteiro_regra(
-            competicao,
-            ["pontos_tiebreak_vitoria", "vitoria_tiebreak", "vitoria_2x1", "vitoria_3x2"],
-            2
-        ),
-        "pontos_tiebreak_derrota": _valor_inteiro_regra(
-            competicao,
-            ["pontos_tiebreak_derrota", "derrota_tiebreak", "derrota_1x2", "derrota_2x3"],
-            1
-        ),
-        "criterios": criterios,
-    }
-
-
-def _valor_criterio(linha, nome):
-    if nome == "pontos":
-        return linha.get("pontos", 0)
-
-    if nome == "vitorias":
-        return linha.get("vitorias", 0)
-
-    if nome in {"sets_average", "coef_sets"}:
-        return linha.get(
-            "sets_average_valor",
-            _calcular_sets_average_valor(linha.get("sets_pro", 0), linha.get("sets_contra", 0))
-        )
-
-    if nome in {"pontos_average", "coef_pontos"}:
-        return linha.get(
-            "pontos_average_valor",
-            _calcular_pontos_average_valor(linha.get("pontos_pro", 0), linha.get("pontos_contra", 0))
-        )
-
-    if nome == "saldo_sets":
-        return linha.get("saldo_sets", 0)
-
-    if nome == "saldo_pontos":
-        return linha.get("saldo_pontos", 0)
-
-    if nome == "sets_pro":
-        return linha.get("sets_pro", 0)
-
-    if nome == "sets_contra":
-        return linha.get("sets_contra", 0)
-
-    if nome == "pontos_pro":
-        return linha.get("pontos_pro", 0)
-
-    if nome == "pontos_contra":
-        return linha.get("pontos_contra", 0)
-
-    if nome == "fair_play":
-        return linha.get("fair_play", 0)
-
-    if nome == "menor_wo":
-        return linha.get("wo", linha.get("wos", 0))
-
-    return 0
-
-
-def _valor_ordenacao_criterio(linha, criterio):
-    valor = _valor_criterio(linha, criterio)
-    if criterio in CRITERIOS_MENOR_MELHOR:
-        try:
-            return -float(valor)
-        except (TypeError, ValueError):
-            return 0
-    return valor
-
-
-def _resolver_confronto_direto(bloco, partidas, grupo):
-    if len(bloco) <= 1:
-        return bloco
-
-    nomes = [l["equipe"] for l in bloco]
-    mini = {
-        nome: {
-            "pontos": 0,
-            "saldo_sets": 0,
-            "pontos_pro": 0,
-            "pontos_contra": 0,
-            "saldo_pontos": 0,
-            "vitorias": 0,
-        }
-        for nome in nomes
-    }
-
-    # Otimização: quando receber dict, já vem indexado por grupo e só varre
-    # partidas daquele grupo. Antes varria TODAS as partidas dentro de cada
-    # bloco de empate, o que fazia a classificação ficar muito lenta.
-    if isinstance(partidas, dict):
-        partidas_iter = partidas.get(grupo) or []
-    else:
-        partidas_iter = [p for p in (partidas or []) if p.get("grupo") == grupo and _partida_esta_finalizada(p)]
-
-    for p in partidas_iter:
-        a = p.get("equipe_a")
-        b = p.get("equipe_b")
-
-        if a not in mini or b not in mini:
-            continue
-
-        try:
-            sets_a = int(p.get("sets_a") or 0)
-        except (TypeError, ValueError):
-            sets_a = 0
-
-        try:
-            sets_b = int(p.get("sets_b") or 0)
-        except (TypeError, ValueError):
-            sets_b = 0
-
-        if sets_a == sets_b:
-            continue
-
-        mini[a]["saldo_sets"] += sets_a - sets_b
-        mini[b]["saldo_sets"] += sets_b - sets_a
-
-        pontos_a = 0
-        pontos_b = 0
-        for i in range(1, 6):
-            sa = p.get(f"set{i}_a")
-            sb = p.get(f"set{i}_b")
-            if sa is not None and sb is not None:
-                try:
-                    pontos_a += int(sa)
-                    pontos_b += int(sb)
-                except (TypeError, ValueError):
-                    pass
-
-        mini[a]["pontos_pro"] += pontos_a
-        mini[a]["pontos_contra"] += pontos_b
-        mini[b]["pontos_pro"] += pontos_b
-        mini[b]["pontos_contra"] += pontos_a
-        mini[a]["saldo_pontos"] = mini[a]["pontos_pro"] - mini[a]["pontos_contra"]
-        mini[b]["saldo_pontos"] = mini[b]["pontos_pro"] - mini[b]["pontos_contra"]
-
-        if sets_a > sets_b:
-            mini[a]["pontos"] += 1
-            mini[a]["vitorias"] += 1
-        else:
-            mini[b]["pontos"] += 1
-            mini[b]["vitorias"] += 1
-
-    return sorted(
-        bloco,
-        key=lambda linha: (
-            mini[linha["equipe"]]["pontos"],
-            mini[linha["equipe"]]["vitorias"],
-            mini[linha["equipe"]]["saldo_sets"],
-            mini[linha["equipe"]]["saldo_pontos"],
-            mini[linha["equipe"]]["pontos_pro"],
-        ),
-        reverse=True
-    )
-
-
-def _aplicar_criterios_classificacao(linhas, partidas, grupo, criterios):
-    """
-    Aplica a classificação exatamente na ordem cadastrada pelo organizador.
-    Cada critério só mexe dentro de blocos que ainda estão empatados no critério anterior.
-    """
-    if not linhas:
-        return linhas
-
-    def aplicar_bloco(bloco, indice_criterio):
-        if len(bloco) <= 1 or indice_criterio >= len(criterios):
-            return bloco
-
-        criterio = criterios[indice_criterio]
-
-        if criterio == "sorteio":
-            bloco = list(bloco)
-            random.shuffle(bloco)
-            return bloco
-
-        if criterio == "confronto_direto":
-            ordenado = _resolver_confronto_direto(bloco, partidas, grupo)
-            # Depois do confronto direto, segue para os próximos critérios apenas nos empates técnicos restantes.
-            return aplicar_bloco(ordenado, indice_criterio + 1)
-
-        ordenado = sorted(
-            bloco,
-            key=lambda linha: _valor_ordenacao_criterio(linha, criterio),
-            reverse=True,
-        )
-
-        resultado = []
-        pos = 0
-        while pos < len(ordenado):
-            atual = ordenado[pos]
-            valor_atual = _valor_ordenacao_criterio(atual, criterio)
-            sub_bloco = [atual]
-            prox = pos + 1
-
-            while prox < len(ordenado) and _valor_ordenacao_criterio(ordenado[prox], criterio) == valor_atual:
-                sub_bloco.append(ordenado[prox])
-                prox += 1
-
-            resultado.extend(aplicar_bloco(sub_bloco, indice_criterio + 1))
-            pos = prox
-
-        return resultado
-
-    return aplicar_bloco(list(linhas), 0)
-
-
-# Compatibilidade com chamadas antigas.
-def _aplicar_desempates_profissional(linhas, partidas, grupo, criterios):
-    return _aplicar_criterios_classificacao(linhas, partidas, grupo, criterios)
-
-
-def _calcular_classificacao(partidas, grupos, competicao, mapa_escudos=None):
-    regras = _obter_regras_classificacao(competicao)
-    classificacao = {}
-
-    for g in grupos:
-        nome_grupo = g["grupo"]["nome"]
-        classificacao[nome_grupo] = []
-
-        equipes_ordenadas = sorted(
-            g["equipes"],
-            key=lambda e: (e.get("equipe") or "").lower()
-        )
-
-        for e in equipes_ordenadas:
-            classificacao[nome_grupo].append({
-                "equipe": e["equipe"],
-                "escudo": _buscar_escudo_mapa(mapa_escudos, e.get("equipe")),
-                "jogos": 0,
-                "vitorias": 0,
-                "derrotas": 0,
-                "sets_pro": 0,
-                "sets_contra": 0,
-                "saldo_sets": 0,
-                "pontos_pro": 0,
-                "pontos_contra": 0,
-                "saldo_pontos": 0,
-                "pontos": 0,
-                "wo": 0,
-            })
-
-    mapa = {
-        grupo: {linha["equipe"]: linha for linha in linhas}
-        for grupo, linhas in classificacao.items()
-    }
-
-    for p in partidas:
-        if not _partida_esta_finalizada(p):
-            continue
-
-        grupo = p.get("grupo")
-        equipe_a = p.get("equipe_a")
-        equipe_b = p.get("equipe_b")
-
-        if not grupo or grupo not in mapa:
-            continue
-        if equipe_a not in mapa[grupo] or equipe_b not in mapa[grupo]:
-            continue
-
-        try:
-            sets_a = int(p.get("sets_a") or 0)
-        except (TypeError, ValueError):
-            sets_a = 0
-
-        try:
-            sets_b = int(p.get("sets_b") or 0)
-        except (TypeError, ValueError):
-            sets_b = 0
-
-        if sets_a == sets_b:
-            continue
-
-        linha_a = mapa[grupo][equipe_a]
-        linha_b = mapa[grupo][equipe_b]
-
-        linha_a["jogos"] += 1
-        linha_b["jogos"] += 1
-
-        linha_a["sets_pro"] += sets_a
-        linha_a["sets_contra"] += sets_b
-        linha_b["sets_pro"] += sets_b
-        linha_b["sets_contra"] += sets_a
-
-        pontos_a = 0
-        pontos_b = 0
-
-        for i in range(1, 6):
-            sa = p.get(f"set{i}_a")
-            sb = p.get(f"set{i}_b")
-            if sa is not None and sb is not None:
-                try:
-                    pontos_a += int(sa)
-                    pontos_b += int(sb)
-                except (TypeError, ValueError):
-                    pass
-
-        linha_a["pontos_pro"] += pontos_a
-        linha_a["pontos_contra"] += pontos_b
-        linha_b["pontos_pro"] += pontos_b
-        linha_b["pontos_contra"] += pontos_a
-
-        tipo_encerramento = str(p.get("tipo_encerramento") or "").strip().lower()
-        origem_resultado = str(p.get("origem_resultado") or "").strip().lower()
-        if tipo_encerramento in {"wo", "w.o.", "w.o"} or origem_resultado == "wo":
-            if sets_a > sets_b:
-                linha_b["wo"] = int(linha_b.get("wo") or 0) + 1
-            elif sets_b > sets_a:
-                linha_a["wo"] = int(linha_a.get("wo") or 0) + 1
-
-        if sets_a > sets_b:
-            linha_a["vitorias"] += 1
-            linha_b["derrotas"] += 1
-
-            if _resultado_foi_tiebreak(sets_a, sets_b, competicao):
-                linha_a["pontos"] += regras["pontos_tiebreak_vitoria"]
-                linha_b["pontos"] += regras["pontos_tiebreak_derrota"]
-            else:
-                linha_a["pontos"] += regras["pontos_vitoria"]
-                linha_b["pontos"] += regras["pontos_derrota"]
-        else:
-            linha_b["vitorias"] += 1
-            linha_a["derrotas"] += 1
-
-            if _resultado_foi_tiebreak(sets_b, sets_a, competicao):
-                linha_b["pontos"] += regras["pontos_tiebreak_vitoria"]
-                linha_a["pontos"] += regras["pontos_tiebreak_derrota"]
-            else:
-                linha_b["pontos"] += regras["pontos_vitoria"]
-                linha_a["pontos"] += regras["pontos_derrota"]
-
-    for grupo, linhas in classificacao.items():
-        for linha in linhas:
-            linha["saldo_sets"] = linha["sets_pro"] - linha["sets_contra"]
-            linha["saldo_pontos"] = linha["pontos_pro"] - linha["pontos_contra"]
-            linha["sets_average_valor"] = _calcular_sets_average_valor(linha["sets_pro"], linha["sets_contra"])
-            linha["pontos_average_valor"] = _calcular_pontos_average_valor(linha["pontos_pro"], linha["pontos_contra"])
-            linha["sets_average_exibicao"] = _formatar_numero_decimal(linha["sets_average_valor"])
-            linha["pontos_average_exibicao"] = _formatar_numero_decimal(linha["pontos_average_valor"])
-            linha.setdefault("fair_play", 0)
-            linha.setdefault("wo", 0)
-
-    criterios_ativos = regras.get("criterios") or list(CRITERIOS_CLASSIFICACAO_PADRAO)
-    partidas_por_grupo = _partidas_finalizadas_por_grupo(partidas)
-
-    for grupo, linhas in classificacao.items():
-        classificacao[grupo] = _aplicar_criterios_classificacao(
-            linhas,
-            partidas_por_grupo,
-            grupo,
-            criterios_ativos,
-        )
-
-    return classificacao
-
-
-
-def _normalizar_cache_classificacao(valor_cache, assinatura_atual=None):
-    """Extrai a classificação salva no cache sem depender de um formato único.
-
-    O banco já teve mais de uma versão dessa função de cache. Por isso este
-    helper aceita dict, JSON em texto ou tupla/lista e só usa o cache quando
-    ele realmente contém uma classificação válida.
-    """
-    if not valor_cache:
-        return None
-
-    if isinstance(valor_cache, str):
-        try:
-            valor_cache = json.loads(valor_cache)
-        except Exception:
-            return None
-
-    if isinstance(valor_cache, (list, tuple)):
-        # Compatibilidade com retornos antigos: (classificacao, assinatura) ou
-        # (assinatura, classificacao). Preferimos o item que parece dict/list.
-        candidatos = list(valor_cache)
-        for item in candidatos:
-            normalizado = _normalizar_cache_classificacao(item, assinatura_atual)
-            if normalizado:
-                return normalizado
-        return None
-
-    if not isinstance(valor_cache, dict):
-        return None
-
-    assinatura_cache = valor_cache.get("assinatura") or valor_cache.get("hash") or valor_cache.get("checksum")
-    if assinatura_atual and assinatura_cache and str(assinatura_cache) != str(assinatura_atual):
-        return None
-
-    classificacao = (
-        valor_cache.get("classificacao")
-        or valor_cache.get("dados")
-        or valor_cache.get("valor")
-        or valor_cache.get("cache")
-    )
-
-    if isinstance(classificacao, str):
-        try:
-            classificacao = json.loads(classificacao)
-        except Exception:
-            return None
-
-    return classificacao if isinstance(classificacao, dict) else None
-
-
-def _assinatura_classificacao_segura(competicao_nome, partidas_preparadas, grupos, competicao):
-    """Gera assinatura sem bater no banco.
-
-    Isso remove uma consulta pesada que antes rodava na abertura da tabela e na
-    geração de mata-mata. Se algo der errado, retorna None e a classificação é
-    calculada normalmente, sem cache.
-    """
-    try:
-        return _assinatura_classificacao_local(competicao_nome, partidas_preparadas, grupos, competicao)
-    except Exception as e:
-        print("AVISO classificacao/assinatura_local:", repr(e))
-        return None
-
-
-def _obter_cache_classificacao_seguro(competicao_nome, assinatura):
-    try:
-        return obter_cache_classificacao(competicao_nome, assinatura)
-    except TypeError:
-        try:
-            return obter_cache_classificacao(competicao_nome)
-        except Exception as e:
-            print("AVISO classificacao/obter_cache:", repr(e))
-    except Exception as e:
-        print("AVISO classificacao/obter_cache:", repr(e))
-    return None
-
-
-def _salvar_cache_classificacao_seguro(competicao_nome, assinatura, classificacao):
-    try:
-        salvar_cache_classificacao(competicao_nome, assinatura, classificacao)
-        return
-    except TypeError:
-        pass
-    except Exception as e:
-        print("AVISO classificacao/salvar_cache:", repr(e))
-        return
-
-    tentativas = [
-        (competicao_nome, classificacao, assinatura),
-        (competicao_nome, {"assinatura": assinatura, "classificacao": classificacao}),
-        (competicao_nome, classificacao),
-    ]
-    for args in tentativas:
-        try:
-            salvar_cache_classificacao(*args)
-            return
-        except TypeError:
-            continue
-        except Exception as e:
-            print("AVISO classificacao/salvar_cache:", repr(e))
-            return
-
-
-def _calcular_ou_obter_classificacao_cacheada(competicao_nome, partidas_preparadas, grupos, competicao, mapa_escudos=None):
-    """Usa cache de classificação quando possível e calcula como fallback.
-
-    Esta função estava sendo chamada pelo visualizador público e pela aba de
-    classificação, mas não existia no arquivo. Sem ela, a rota pública quebrava
-    com NameError e retornava 500. A implementação abaixo é defensiva: qualquer
-    problema no cache apenas recalcula a classificação, sem derrubar a tela.
-    """
-    assinatura = _assinatura_classificacao_segura(competicao_nome, partidas_preparadas, grupos, competicao)
-
-    if assinatura:
-        cache_bruto = _obter_cache_classificacao_seguro(competicao_nome, assinatura)
-        classificacao_cache = _normalizar_cache_classificacao(cache_bruto, assinatura)
-        if classificacao_cache:
-            return classificacao_cache, True
-
-    classificacao = _calcular_classificacao(partidas_preparadas, grupos, competicao, mapa_escudos)
-
-    if assinatura:
-        _salvar_cache_classificacao_seguro(competicao_nome, assinatura, classificacao)
-
-    return classificacao, False
-
-
-
-
-def _bool_publico(valor):
-    if valor is True or valor == 1:
-        return True
-    if valor is False or valor is None:
-        return False
-    return str(valor).strip().lower() in {"1", "true", "sim", "yes", "on", "avancado", "avançado"}
-
-
-def _modo_scout_ativo_publico(partida, competicao):
-    modo = str((partida or {}).get("modo_operacao") or (competicao or {}).get("modo_operacao") or "simples").strip().lower()
-    return modo in {"avancado", "avançado", "scout", "com_scout"} or _bool_publico((partida or {}).get("scout_ativo"))
-
-
-def _evento_detalhes_publico(ev):
-    raw = ev.get("detalhes") if isinstance(ev, dict) else None
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str) and raw.strip():
-        try:
-            dado = json.loads(raw)
-            return dado if isinstance(dado, dict) else {}
-        except Exception:
-            return {}
-    return {}
-
-
-def _lado_para_nome_publico(partida, lado):
-    lado = str(lado or "").strip().upper()
-    if lado == "A":
-        return partida.get("equipe_a_operacional") or partida.get("equipe_a") or "Equipe A"
-    if lado == "B":
-        return partida.get("equipe_b_operacional") or partida.get("equipe_b") or "Equipe B"
-    return "Equipe"
-
-
-def _lado_pontuador_evento_publico(ev):
-    detalhes = _evento_detalhes_publico(ev)
-    lado = str(
-        detalhes.get("equipe_pontuadora")
-        or detalhes.get("equipe_ponto")
-        or detalhes.get("lado_ponto")
-        or ""
-    ).strip().upper()
-    if lado in {"A", "B"}:
-        return lado
-    tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
-    resultado = str(ev.get("resultado") or detalhes.get("resultado") or detalhes.get("tipo_lance") or "").strip().lower()
-    equipe = str(ev.get("equipe") or "").strip().upper()
-    if equipe in {"A", "B"}:
-        if resultado in {"erro", "falta"}:
-            return "B" if equipe == "A" else "A"
-        if tipo in {"ponto", "retardamento_penalidade"}:
-            return equipe
-    return ""
-
-
-def _normalizar_acao_publica(valor):
-    texto = str(valor or "").strip().lower().replace("_", " ").replace("-", " ")
-    trocas = {
-        "á": "a", "à": "a", "ã": "a", "â": "a",
-        "é": "e", "ê": "e", "í": "i",
-        "ó": "o", "ô": "o", "õ": "o",
-        "ú": "u", "ç": "c",
-    }
-    for origem, destino in trocas.items():
-        texto = texto.replace(origem, destino)
-    return " ".join(texto.split())
-
-
-def _evento_eh_acao_negativa_adversario_publico(ev):
-    """Identifica lances em que o ponto nasceu de erro/falta do adversário.
-
-    Nesses eventos a equipe pontuadora recebe o ponto, mas não é quem executou
-    a ação exibida. A autoria pertence ao lado oposto.
-    """
-    detalhes = _evento_detalhes_publico(ev)
-    valores = [
-        ev.get("fundamento"),
-        ev.get("resultado"),
-        ev.get("detalhe"),
-        ev.get("tipo"),
-        detalhes.get("fundamento"),
-        detalhes.get("resultado"),
-        detalhes.get("tipo_lance"),
-        detalhes.get("tipo_erro"),
-        detalhes.get("detalhe_lance"),
-        detalhes.get("detalhe"),
-    ]
-    texto = " | ".join(_normalizar_acao_publica(v) for v in valores if v not in (None, ""))
-    marcadores = (
-        "erro de saque", "erro saque", "saque errado",
-        "erro geral", "erro", "falta",
-        "erro de rotacao", "erro rotacao", "rotacao",
-        "invasao", "conducao", "dois toques",
-    )
-    return any(marcador in texto for marcador in marcadores)
-
-
-def _lado_responsavel_evento_publico(ev, lado_ponto):
-    """Retorna quem executou a ação, e não apenas quem recebeu o ponto.
-
-    Para ataque, ace e bloqueio, o responsável normalmente é o pontuador.
-    Para erro de saque, erro geral, falta, rotação, invasão, condução e dois
-    toques, o responsável é obrigatoriamente o adversário do pontuador.
-
-    Alguns eventos antigos gravaram equipe_responsavel com o mesmo lado que
-    recebeu o ponto. Por isso a regra negativa tem prioridade sobre esse campo.
-    """
-    if _evento_eh_acao_negativa_adversario_publico(ev) and lado_ponto in {"A", "B"}:
-        return "B" if lado_ponto == "A" else "A"
-
-    detalhes = _evento_detalhes_publico(ev)
-    lado_explicito = str(
-        detalhes.get("equipe_responsavel")
-        or detalhes.get("lado_responsavel")
-        or detalhes.get("equipe_autora")
-        or detalhes.get("lado_acao")
-        or ""
-    ).strip().upper()
-    if lado_explicito in {"A", "B"}:
-        return lado_explicito
-
-    return lado_ponto
-
-
-def _rotulo_fundamento_publico(valor):
-    txt_normalizado = _normalizar_acao_publica(valor)
-    mapa = {
-        "ataque": "Ataque",
-        "bloqueio": "Bloqueio",
-        "saque": "Saque",
-        "ace": "Ace",
-        "erro": "Erro geral",
-        "erro geral": "Erro geral",
-        "erro saque": "Erro de saque",
-        "erro de saque": "Erro de saque",
-        "erro rotacao": "Erro de rotação",
-        "erro de rotacao": "Erro de rotação",
-        "rotacao": "Erro de rotação",
-        "falta": "Falta",
-        "invasao": "Invasão",
-        "conducao": "Condução",
-        "dois toques": "Dois toques",
-        "levantamento": "Levantamento",
-        "defesa": "Defesa",
-        "recepcao": "Recepção",
-    }
-    if txt_normalizado in mapa:
-        return mapa[txt_normalizado]
-    return str(valor or "Ponto").strip().replace("_", " ").title() or "Ponto"
-
-
-def _descricao_evento_publico(ev, partida, scout_ativo):
-    detalhes = _evento_detalhes_publico(ev)
-    tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
-    fundamento = ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro")
-    resultado = ev.get("resultado") or detalhes.get("resultado") or detalhes.get("tipo_lance")
-    detalhe = ev.get("detalhe") or detalhes.get("detalhe") or detalhes.get("detalhe_lance")
-    numero = ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero")
-    atleta = ev.get("atleta_nome") or detalhes.get("atleta_nome") or ""
-    lado_ponto = _lado_pontuador_evento_publico(ev)
-    equipe_ponto = _lado_para_nome_publico(partida, lado_ponto)
-    lado_responsavel = _lado_responsavel_evento_publico(ev, lado_ponto)
-    equipe_responsavel = _lado_para_nome_publico(partida, lado_responsavel)
-    acao_negativa = _evento_eh_acao_negativa_adversario_publico(ev)
-
-    if tipo not in {"ponto", "retardamento_penalidade"}:
-        base = tipo.replace("_", " ").title() if tipo else "Evento"
-        if detalhe:
-            base += f" • {detalhe}"
-        return base
-
-    if not scout_ativo:
-        return f"Ponto para {equipe_ponto}"
-
-    acao = _rotulo_fundamento_publico(fundamento or resultado or tipo)
-    pessoa = ""
-    if numero and atleta:
-        pessoa = f"#{numero} {atleta}"
-    elif numero:
-        pessoa = f"#{numero}"
-    elif atleta:
-        pessoa = atleta
-
-    if acao_negativa:
-        if pessoa:
-            return f"{acao} de {pessoa} ({equipe_responsavel}) — ponto para {equipe_ponto}"
-        if detalhe and _normalizar_acao_publica(detalhe) not in {_normalizar_acao_publica(acao)}:
-            return f"{acao} • {detalhe} ({equipe_responsavel}) — ponto para {equipe_ponto}"
-        return f"{acao} da {equipe_responsavel} — ponto para {equipe_ponto}"
-
-    if pessoa:
-        return f"{acao} de {pessoa} ({equipe_responsavel})"
-    if detalhe and str(detalhe).strip().lower() not in {str(acao).lower()}:
-        return f"{acao} • {detalhe} ({equipe_responsavel})"
-    return f"{acao} ({equipe_responsavel})"
-
-
-def _montar_linha_ponto_publico(partida, eventos, scout_ativo):
-    eventos_ordenados = list(reversed(eventos or []))
-    placares_por_set = {}
-    linhas = []
-    stats = {}
-
-    for ev in eventos_ordenados:
-        tipo = str(ev.get("tipo") or ev.get("tipo_evento") or "").strip().lower()
-        if tipo not in {"ponto", "retardamento_penalidade"}:
-            continue
-        set_num = int(ev.get("set_numero") or 1)
-        atual = placares_por_set.setdefault(set_num, {"a": 0, "b": 0})
-        lado = _lado_pontuador_evento_publico(ev)
-        if lado == "A":
-            atual["a"] += 1
-        elif lado == "B":
-            atual["b"] += 1
-        else:
-            continue
-
-        detalhes = _evento_detalhes_publico(ev)
-        fundamento = _rotulo_fundamento_publico(ev.get("fundamento") or detalhes.get("fundamento") or detalhes.get("detalhe_lance") or detalhes.get("tipo_erro") or ev.get("resultado"))
-        lado_responsavel = _lado_responsavel_evento_publico(ev, lado)
-        equipe_nome = _lado_para_nome_publico(partida, lado_responsavel)
-        stats.setdefault(equipe_nome, {})
-        stats[equipe_nome][fundamento] = stats[equipe_nome].get(fundamento, 0) + 1
-
-        linhas.append({
-            "id": ev.get("id"),
-            "set": set_num,
-            "placar_a": atual["a"],
-            "placar_b": atual["b"],
-            "placar": f'{atual["a"]} x {atual["b"]}',
-            "lado_ponto": lado,
-            "equipe_ponto": _lado_para_nome_publico(partida, lado),
-            "equipe_responsavel": equipe_nome,
-            "descricao": _descricao_evento_publico(ev, partida, scout_ativo),
-            "fundamento": fundamento,
-            "numero": ev.get("numero") or detalhes.get("atleta_numero") or detalhes.get("numero") or "",
-            "atleta_nome": ev.get("atleta_nome") or detalhes.get("atleta_nome") or "",
-        })
-
-    linhas.sort(key=lambda x: (x["set"], x["id"] or 0), reverse=True)
-    evolucao_sets = []
-    for set_num in sorted(placares_por_set.keys()):
-        pontos = [{"placar": "0 x 0", "a": 0, "b": 0}]
-        a = b = 0
-        for linha in reversed([l for l in linhas if l["set"] == set_num]):
-            a = linha["placar_a"]
-            b = linha["placar_b"]
-            pontos.append({"placar": f"{a} x {b}", "a": a, "b": b})
-        evolucao_sets.append({"set": set_num, "pontos": pontos})
-
-    return linhas, evolucao_sets, stats
-
-
-def _buscar_destaque_partida_publico(partida_id, competicao):
-    try:
-        criar_tabela_destaques_partida()
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT
-                        d.lado,
-                        d.atleta_id,
-                        d.numero,
-                        d.nome,
-                        d.observacao,
-                        d.equipe,
-                        d.criado_em,
-                        COALESCE(
-                            NULLIF(a.foto_atleta, ''),
-                            (
-                                SELECT NULLIF(a2.foto_atleta, '')
-                                FROM atletas a2
-                                WHERE a2.competicao = d.competicao
-                                  AND LOWER(TRIM(COALESCE(a2.equipe, ''))) = LOWER(TRIM(COALESCE(d.equipe, '')))
-                                  AND (
-                                      (d.numero IS NOT NULL AND a2.numero = d.numero)
-                                      OR LOWER(TRIM(COALESCE(a2.nome, ''))) = LOWER(TRIM(COALESCE(d.nome, '')))
-                                  )
-                                  AND COALESCE(a2.foto_atleta, '') <> ''
-                                ORDER BY CASE WHEN d.numero IS NOT NULL AND a2.numero = d.numero THEN 0 ELSE 1 END, a2.id DESC
-                                LIMIT 1
-                            )
-                        ) AS foto_atleta
-                    FROM destaques_partida d
-                    LEFT JOIN atletas a ON a.id = d.atleta_id
-                    WHERE d.partida_id = %s AND d.competicao = %s
-                    ORDER BY d.id DESC
-                    LIMIT 1
-                """, (partida_id, competicao))
-                return cur.fetchone()
-    except Exception as e:
-        print("AVISO visualizador/destaque_partida:", repr(e), flush=True)
-        return None
-
+# Regras de apresentação do visualizador público foram extraídas para um
+# módulo puro e testável. Os aliases preservam os nomes internos existentes.
 
 def _contexto_partida_publica(competicao_nome, partida_id):
-    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
-    partida = buscar_partida_por_id(partida_id, competicao_nome)
-    if not partida:
-        return None
-    mapa_escudos = {
-        partida.get("equipe_a"): partida.get("escudo_a"),
-        partida.get("equipe_b"): partida.get("escudo_b"),
-    }
-    preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
-    estado = None
-    # O apontador mantém o estado corrente em memória para responder sem
-    # bloquear no Neon. O visualizador público deve ler esse mesmo estado vivo;
-    # consultar apenas o banco faz o placar ficar atrasado até o próximo
-    # checkpoint (fim de set/sincronização periódica).
-    estado_vivo = {}
-    try:
-        candidato = obter_estado_cache(partida_id) or {}
-        competicao_cache = str(candidato.get("competicao") or "").strip()
-        if not competicao_cache or competicao_cache == str(competicao_nome or "").strip():
-            estado_vivo = candidato
-    except Exception as e:
-        print("AVISO visualizador/estado_vivo:", repr(e), flush=True)
-
-    # O banco permanece como fallback para recarga/reinício do processo. Quando
-    # existe estado vivo, ele sempre prevalece sobre a fotografia persistida.
-    estado_banco = {}
-    if not estado_vivo:
-        try:
-            estado_banco = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
-        except Exception:
-            estado_banco = {}
-
-    estado = dict(estado_banco)
-    estado.update(estado_vivo)
-    eventos = listar_eventos_partida(partida_id, competicao_nome, limite=600) or []
-    scout_ativo = _modo_scout_ativo_publico(partida, competicao)
-    timeline, evolucao_sets, stats = _montar_linha_ponto_publico(partida, eventos, scout_ativo)
-    destaque = _buscar_destaque_partida_publico(partida_id, competicao_nome)
-    return {
-        "competicao": competicao,
-        "partida": preparada,
-        "estado": estado,
-        "scout_ativo": scout_ativo,
-        "timeline": timeline,
-        "evolucao_sets": evolucao_sets,
-        "stats": stats,
-        "destaque": destaque,
-    }
+    """Fachada temporária para o serviço do visualizador público."""
+    return _montar_contexto_partida_publica_service(
+        competicao_nome,
+        partida_id,
+        _preparar_partidas,
+    )
 
 
 # =========================================================
@@ -2626,7 +1140,7 @@ def visualizador_publico(competicao_nome):
 def visualizador_publico_ao_vivo_dados(competicao_nome):
     """Lista leve dos jogos ao vivo para fazer o destaque aparecer sozinho."""
     competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
-    partidas = listar_partidas(competicao_nome) or []
+    partidas = listar_partidas_leve(competicao_nome, limite=500, incluir_escudos=False) or []
     preparadas = _preparar_partidas(partidas, {}, competicao)
     ids = sorted(
         int(p.get("id")) for p in preparadas
@@ -2648,89 +1162,16 @@ def visualizador_publico_partida(competicao_nome, partida_id):
 
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados")
 def visualizador_publico_partida_dados(competicao_nome, partida_id):
-    """Estado leve para atualização frequente do placar público.
-
-    Não carrega eventos, evolução, scout, fotos nem escudos em base64. Isso
-    mantém cada polling pequeno e evita saturar o Render/Neon quando várias
-    pessoas acompanham a mesma partida.
-    """
-    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
-    partida = buscar_partida_por_id(partida_id, competicao_nome)
-    if not partida:
+    """Estado leve para atualização frequente do placar público."""
+    payload = _montar_estado_leve_partida_publica_service(
+        competicao_nome,
+        partida_id,
+        _preparar_partidas,
+    )
+    if not payload:
         return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
 
-    # Prioriza o mesmo estado vivo usado pelo apontador. Isso evita consultar
-    # o Neon a cada atualização pública e mantém o placar correto mesmo durante
-    # uma breve instabilidade do banco.
-    try:
-        estado = obter_estado_cache(partida_id) or {}
-    except Exception:
-        estado = {}
-    if not estado:
-        try:
-            estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
-        except Exception:
-            estado = {}
-
-    mapa_escudos = {
-        partida.get("equipe_a"): partida.get("escudo_a"),
-        partida.get("equipe_b"): partida.get("escudo_b"),
-    }
-    p = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
-
-    eventos_versao = 0
-    try:
-        estado_versao = obter_estado_versao(partida_id)
-    except Exception:
-        estado_versao = 0
-    destaque_versao = 0
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT COALESCE(MAX(id), 0) AS versao
-                    FROM eventos
-                    WHERE partida_id = %s AND competicao = %s
-                """, (partida_id, competicao_nome))
-                row = cur.fetchone() or {}
-                eventos_versao = int(row.get("versao") or 0)
-                try:
-                    cur.execute("""
-                        SELECT COALESCE(MAX(id), 0) AS versao
-                        FROM destaques_partida
-                        WHERE partida_id = %s AND competicao = %s
-                    """, (partida_id, competicao_nome))
-                    row = cur.fetchone() or {}
-                    destaque_versao = int(row.get("versao") or 0)
-                except Exception:
-                    destaque_versao = 0
-    except Exception as e:
-        print("AVISO visualizador/dados_leves_versao:", repr(e), flush=True)
-
-    resposta = jsonify({
-        "ok": True,
-        "partida": {
-            "id": p.get("id"),
-            "equipe_a": p.get("equipe_a"),
-            "equipe_b": p.get("equipe_b"),
-            "status_exibicao": p.get("status_exibicao"),
-            "ao_vivo": bool(p.get("ao_vivo")),
-            "finalizada": bool(p.get("finalizada")),
-            "set_unico": bool(p.get("set_unico")),
-            "sets_a": int(estado.get("sets_a") or p.get("sets_a") or 0),
-            "sets_b": int(estado.get("sets_b") or p.get("sets_b") or 0),
-            "set_atual": int(estado.get("set_atual") or p.get("set_atual") or 1),
-            "pontos_a": int(estado.get("pontos_a") or estado.get("placar_a") or p.get("placar_exibicao_a") or 0),
-            "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or p.get("placar_exibicao_b") or 0),
-            "parciais_formatadas": p.get("parciais_formatadas") or "",
-        },
-        # O banco informa a versão persistida; estado_versao muda em cada ação
-        # local e faz o cliente buscar detalhes logo após o ponto.
-        "eventos_versao": eventos_versao,
-        "estado_versao": estado_versao,
-        "ultima_acao": estado.get("ultima_acao") or "",
-        "destaque_versao": destaque_versao,
-    })
+    resposta = jsonify(payload)
     resposta.headers["Cache-Control"] = "no-store, max-age=0"
     return resposta
 
@@ -2806,199 +1247,31 @@ def visualizador_publico_partida_detalhes_curta(codigo_publico, partida_id):
     return visualizador_publico_partida_detalhes(competicao.get("nome"), partida_id)
 
 
-def _estrutura_grupo_unico(competicao):
-    """Retorna True quando a competição deve operar como grupo único.
-
-    Considera qtd_grupos = 1 ou tem_grupos desligado como grupo único para a tela
-    não pedir a mesma configuração novamente na Tabela.
-    """
-    try:
-        qtd = int((competicao or {}).get("qtd_grupos") or 0)
-    except Exception:
-        qtd = 0
-    tem_grupos = _to_bool((competicao or {}).get("tem_grupos"))
-    return qtd <= 1 or not tem_grupos
-
-
-def _nomes_grupos_automaticos(qtd):
-    try:
-        qtd = int(qtd or 1)
-    except Exception:
-        qtd = 1
-    qtd = max(1, min(qtd, 26))
-    return [chr(ord("A") + i) for i in range(qtd)]
-
-
-def _qtd_grupos_configurada(competicao):
-    try:
-        qtd = int((competicao or {}).get("qtd_grupos") or 0)
-    except Exception:
-        qtd = 0
-    if _estrutura_grupo_unico(competicao):
-        return 1
-    return max(2, min(qtd or 2, 26))
-
-
-
-def _existe_distribuicao_salva_fora_do_grupo_a(nome_competicao):
-    """Protege sorteios/manuais já salvos.
-
-    A tela da Tabela pode ser aberta várias vezes e não pode redistribuir times
-    automaticamente. Se já existir equipe em grupo B/C/D..., não sincronizamos
-    tudo para o Grupo A só porque algum salvamento parcial deixou qtd_grupos=1.
-    """
-    try:
-        grupos = listar_grupos(nome_competicao) or []
-        for g in grupos:
-            nome_g = str(g.get("nome") or "").strip().upper()
-            if nome_g in {"", "A"}:
-                continue
-            equipes = listar_equipes_por_grupo(g.get("id")) or []
-            if any(str(e.get("equipe") or "").strip() for e in equipes):
-                return True
-    except Exception as e:
-        print("AVISO existe_distribuicao_salva_fora_do_grupo_a:", repr(e), flush=True)
-    return False
+def _sincronizar_grupo_unico_automatico(competicao):
+    return _sincronizar_grupo_unico_service(
+        competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo,
+        limpar_cache=_limpar_cache_tabela,
+    )
 
 
 def _garantir_grupos_da_estrutura(competicao):
-    """Garante que a aba Tabela obedeça a estrutura salva na competição.
-
-    - Grupo único: cria/usa apenas o grupo A e coloca todas as equipes nele.
-    - 2+ grupos: cria automaticamente A, B, C, D... conforme qtd_grupos,
-      mas NÃO distribui equipes sozinho. O organizador pode preencher manualmente
-      ou usar o sorteio.
-    """
-    if not competicao:
-        return False
-    nome_competicao = competicao.get("nome")
-    if not nome_competicao or fase_grupos_esta_travada_por_jogo(nome_competicao):
-        return False
-
-    if _estrutura_grupo_unico(competicao):
-        # Não sobrescreve sorteio/distribuição manual já salva.
-        # Só sincroniza Grupo A quando realmente não há equipes salvas em outros grupos.
-        if _existe_distribuicao_salva_fora_do_grupo_a(nome_competicao):
-            return False
-        return _sincronizar_grupo_unico_automatico(competicao)
-
-    qtd = _qtd_grupos_configurada(competicao)
-    nomes_estrutura = _nomes_grupos_automaticos(qtd)
-    existentes = listar_grupos(nome_competicao) or []
-    existentes_nomes = {str(g.get("nome") or "").strip().upper() for g in existentes}
-    mudou = False
-
-    # Cria automaticamente somente os grupos definidos na Estrutura da competição.
-    # Ex.: qtd_grupos=4 => A, B, C e D. A tela não deve depender de criação manual.
-    for nome_grupo in nomes_estrutura:
-        if nome_grupo not in existentes_nomes:
-            if criar_grupo(nome_grupo, nome_competicao) is not False:
-                mudou = True
-
-    # Grupos extras antigos ficam preservados se tiverem vínculo/partida, mas a tela
-    # passa a trabalhar prioritariamente com os grupos da estrutura. Não apagamos aqui
-    # para não destruir histórico por acidente.
-    if mudou:
-        _limpar_cache_tabela(nome_competicao)
-    return mudou
-
-
-def _limpar_vinculos_equipes_grupos_competicao(nome_competicao):
-    if not nome_competicao:
-        return 0
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM grupos_equipes WHERE competicao = %s", (nome_competicao,))
-            total = cur.rowcount or 0
-        conn.commit()
-    return total
+    return _garantir_grupos_estrutura_service(
+        competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo,
+        limpar_cache=_limpar_cache_tabela,
+    )
 
 
 def _sortear_equipes_nos_grupos(competicao):
-    """Distribui equipes aleatoriamente e balanceado nos grupos configurados."""
-    if not competicao:
-        return {"ok": False, "mensagem": "Competição não encontrada."}
-    nome_competicao = competicao.get("nome")
-    if not nome_competicao:
-        return {"ok": False, "mensagem": "Competição sem nome."}
-    if fase_grupos_esta_travada_por_jogo(nome_competicao):
-        return {"ok": False, "mensagem": "A fase classificatória já iniciou. Não é possível sortear grupos."}
-    if _estrutura_grupo_unico(competicao):
-        _sincronizar_grupo_unico_automatico(competicao)
-        return {"ok": True, "mensagem": "Competição em grupo único: todas as equipes ficam no Grupo A."}
-
-    _garantir_grupos_da_estrutura(competicao)
-    qtd = _qtd_grupos_configurada(competicao)
-    grupos = listar_grupos(nome_competicao) or []
-    grupos_alvo = []
-    nomes_alvo = set(_nomes_grupos_automaticos(qtd))
-    for g in grupos:
-        nome_g = str(g.get("nome") or "").strip().upper()
-        if nome_g in nomes_alvo:
-            grupos_alvo.append(g)
-    grupos_alvo = sorted(grupos_alvo, key=lambda g: str(g.get("nome") or ""))
-
-    equipes = listar_equipes_da_competicao(nome_competicao) or []
-    nomes_equipes = []
-    vistos = set()
-    for eq in equipes:
-        nome = str(eq.get("nome") or eq.get("equipe") or "").strip()
-        chave = nome.lower()
-        if nome and chave not in vistos:
-            nomes_equipes.append(nome)
-            vistos.add(chave)
-
-    if len(grupos_alvo) < qtd:
-        return {"ok": False, "mensagem": "Não foi possível criar todos os grupos configurados."}
-    if not nomes_equipes:
-        return {"ok": False, "mensagem": "Cadastre as equipes antes de sortear os grupos."}
-
-    random.shuffle(nomes_equipes)
-    _limpar_vinculos_equipes_grupos_competicao(nome_competicao)
-    for idx, equipe in enumerate(nomes_equipes):
-        grupo = grupos_alvo[idx % len(grupos_alvo)]
-        adicionar_equipe_no_grupo(grupo.get("id"), equipe, nome_competicao)
-
-    _limpar_cache_tabela_e_classificacao(nome_competicao)
-    tamanhos = {str(g.get("nome") or "").strip().upper(): 0 for g in grupos_alvo}
-    for idx, _equipe in enumerate(nomes_equipes):
-        nome_g = str(grupos_alvo[idx % len(grupos_alvo)].get("nome") or "").strip().upper()
-        tamanhos[nome_g] = tamanhos.get(nome_g, 0) + 1
-    resumo = ", ".join(f"{g}: {qtd_eq}" for g, qtd_eq in tamanhos.items())
-    return {"ok": True, "mensagem": f"Sorteio realizado: {len(nomes_equipes)} equipe(s) distribuída(s). {resumo}."}
+    resultado = _sortear_equipes_grupos_service(
+        competicao,
+        fase_travada=fase_grupos_esta_travada_por_jogo,
+        limpar_cache=_limpar_cache_tabela_e_classificacao,
+    )
+    return {"ok": resultado.ok, "mensagem": resultado.mensagem}
 
 
-def _sincronizar_grupo_unico_automatico(competicao):
-    if not competicao or not _estrutura_grupo_unico(competicao):
-        return False
-    nome_competicao = competicao.get("nome")
-    if not nome_competicao or fase_grupos_esta_travada_por_jogo(nome_competicao):
-        return False
-    grupos = listar_grupos(nome_competicao) or []
-    grupo_a = next((g for g in grupos if str(g.get("nome") or "").upper() == "A"), None)
-    if not grupo_a:
-        criar_grupo("A", nome_competicao)
-        grupos = listar_grupos(nome_competicao) or []
-        grupo_a = next((g for g in grupos if str(g.get("nome") or "").upper() == "A"), None)
-    if not grupo_a:
-        return False
-    try:
-        equipes = listar_equipes_da_competicao(nome_competicao) or []
-        ja = listar_equipes_por_grupo(grupo_a.get("id")) or []
-        nomes_ja = {str(e.get("equipe") or "").strip().lower() for e in ja}
-        for eq in equipes:
-            nome = (eq.get("nome") or "").strip()
-            if nome and nome.lower() not in nomes_ja:
-                adicionar_equipe_no_grupo(grupo_a.get("id"), nome, nome_competicao)
-        quadras = listar_quadras_competicao(nome_competicao) or []
-        ativas = [q for q in quadras if q.get("ativa") is not False]
-        if len(ativas) == 1:
-            vincular_grupo_a_quadra(nome_competicao, "A", ativas[0].get("id"))
-        _limpar_cache_tabela(nome_competicao)
-        return True
-    except Exception as e:
-        print("AVISO sincronizar grupo único:", repr(e), flush=True)
-        return False
 def _injetar_acoes_grupos_estrutura_html(html, competicao):
     """Adiciona botões de grupos quando o template antigo ainda não tem a opção."""
     if not isinstance(html, str) or not competicao:
@@ -3082,14 +1355,11 @@ def tabela_view():
 
     _remover_flash_permissao_falso()
 
-    aba = (request.args.get("aba") or "geracao").strip().lower()
-    if aba not in {"geracao", "partidas", "classificacao", "visualizador"}:
-        aba = "geracao"
-
-    fase_subaba = _fase_subaba_canonica(request.args.get("fase") or "classificatorias")
-    fases_validas = {"classificatorias", "quartas", "semifinal", "final", "oitavas", "terceiro_lugar"}
-    if fase_subaba not in fases_validas:
-        fase_subaba = "classificatorias"
+    aba = _normalizar_aba_tabela(request.args.get("aba"))
+    fase_subaba = _normalizar_fase_tabela(
+        request.args.get("fase"),
+        _fase_subaba_canonica,
+    )
 
     # Base leve: dados que a navegação superior e travas usam em qualquer aba.
     # O restante só é carregado conforme a aba ativa. Isso evita que abrir
@@ -3101,38 +1371,17 @@ def tabela_view():
     fase_banco_ativa = _fase_subaba_para_banco(fase_subaba)
     fase_atual_travada = _fase_atual_travada_cache(nome_competicao, fase_banco_ativa)
 
-    contexto = {
-        "competicao": competicao,
-        "aba_ativa": aba,
-        "fase_ativa": fase_subaba,
-        "fase_labels": FASES_AVANCO_LABELS,
-        "competicao_travada": _competicao_travada_cache(nome_competicao),
-        "grupos_travados": grupos_travados,
-        "fase_atual_travada": fase_atual_travada,
-        "fase_banco_ativa": fase_banco_ativa,
-        "grupos": [],
-        "equipes": [],
-        "quadras": [],
-        "partidas": [],
-        "partidas_fase": [],
-        "classificacao": {},
-        "criterios_classificacao": [],
-        "colunas_classificacao": [],
-        "avanco": {},
-        "avanco_status": {"gerado": False},
-        "avanco_fases_tabs": [],
-        "avanco_series_fase": [],
-        "avanco_serie_ativa": "",
-        "avanco_espelho": [],
-        "config_agenda": None,
-        "config_geracao": None,
-        "grupo_unico_auto": _estrutura_grupo_unico(competicao),
-        "quadra_unica_auto": False,
-        "codigo_publico": "",
-        "link_publico_path": "",
-        "link_publico": "",
-        **fases,
-    }
+    contexto = _contexto_base_tabela(
+        competicao=competicao,
+        aba=aba,
+        fase_subaba=fase_subaba,
+        fase_labels=FASES_AVANCO_LABELS,
+        fases_disponiveis=fases,
+        competicao_travada=_competicao_travada_cache(nome_competicao),
+        grupos_travados=grupos_travados,
+        fase_atual_travada=fase_atual_travada,
+        fase_banco_ativa=fase_banco_ativa,
+    )
 
     serie_param_cache = (request.args.get("serie") or "").strip().lower()
     # A aba de partidas precisa refletir placar ao vivo. Não usamos pacote cache
@@ -3146,118 +1395,49 @@ def tabela_view():
             html = _injetar_acoes_grupos_estrutura_html(html, competicao)
         return html
 
-    pacote_contexto = {}
-
-    # Aba Configurações: carrega apenas grupos, equipes, quadras e agenda.
-    if aba == "geracao":
-        quadras = _quadras_cache(nome_competicao, competicao.get("qtd_quadras") or 1)
-        grupos_raw = _listar_grupos_cache(nome_competicao)
-        equipes = _listar_equipes_competicao_cache(nome_competicao)
-        grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
-        config_agenda = _config_agenda_cache(nome_competicao)
-        pacote_contexto.update({
-            "grupo_unico_auto": _estrutura_grupo_unico(competicao),
-            "quadra_unica_auto": len([q for q in quadras if q.get("ativa") is not False]) == 1,
-            "grupos": grupos,
-            "equipes": equipes,
-            "quadras": quadras,
-            "config_agenda": config_agenda,
-            "config_geracao": config_agenda,
-        })
-
-    # Aba Partidas: carrega partidas, quadras e avanço; não calcula classificação.
-    elif aba == "partidas":
-        avanco = _avanco_cache(nome_competicao)
-        status_avanco = _status_avanco_cache(nome_competicao)
-        avanco_gerado = _avanco_gerado_cache(nome_competicao)
-        status_avanco["gerado"] = avanco_gerado
-        # GET da tabela nunca deve apagar partidas. Limpeza só em POST de geração.
-
-        avanco_fases_tabs = _fases_do_avanco_para_tabela(avanco)
-        series_fase = _series_do_avanco_por_fase(avanco, fase_subaba) if fase_subaba != "classificatorias" else []
-        serie_ativa = (request.args.get("serie") or "").strip().lower()
-        if series_fase and not any(s.get("id") == serie_ativa for s in series_fase):
-            serie_ativa = series_fase[0].get("id")
-
-        quadras = _quadras_cache(nome_competicao, competicao.get("qtd_quadras") or 1)
-        grupos_raw = _listar_grupos_cache(nome_competicao)
-        equipes = _listar_equipes_competicao_cache(nome_competicao)
-        mapa_escudos = _mapa_escudos_equipes(equipes)
-        # Partidas sempre frescas nesta aba para não travar placar ao vivo em cache.
-        partidas = listar_partidas(nome_competicao) or []
-        if not avanco_gerado:
-            partidas = [p for p in partidas if not _partida_eh_avanco(p)]
-
-        grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
-        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-        partidas_fase = _filtrar_partidas_por_fase(partidas_preparadas, fase_subaba)
-        if fase_subaba != "classificatorias":
-            partidas_fase = _filtrar_partidas_por_serie_avanco(partidas_fase, serie_ativa) if avanco_gerado else []
-        avanco_espelho = _montar_espelho_avanco(avanco, partidas_preparadas, avanco_gerado)
-        config_agenda = _config_agenda_cache(nome_competicao)
-        pacote_contexto.update({
-            "grupo_unico_auto": _estrutura_grupo_unico(competicao),
-            "quadra_unica_auto": len([q for q in quadras if q.get("ativa") is not False]) == 1,
-            "grupos": grupos,
-            "equipes": equipes,
-            "quadras": quadras,
-            "partidas": partidas_preparadas,
-            "partidas_fase": partidas_fase,
-            "avanco": avanco,
-            "avanco_status": status_avanco,
-            "avanco_fases_tabs": avanco_fases_tabs,
-            "avanco_series_fase": series_fase,
-            "avanco_serie_ativa": serie_ativa,
-            "avanco_espelho": avanco_espelho,
-            "config_agenda": config_agenda,
-            "config_geracao": config_agenda,
-        })
-
-    # Aba Classificação: carrega somente o necessário para calcular classificação.
-    elif aba == "classificacao":
-        grupos_raw = _listar_grupos_cache(nome_competicao)
-        equipes = _listar_equipes_competicao_cache(nome_competicao)
-        mapa_escudos = _mapa_escudos_equipes(equipes)
-        partidas = _listar_partidas_cache(nome_competicao)
-        partidas_preparadas = _preparar_partidas(partidas, mapa_escudos, competicao)
-        grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw)
-        classificacao, classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos)
-        regras_classificacao = _obter_regras_classificacao(competicao)
-        criterios_classificacao = _criterios_efetivos_ate_sorteio(regras_classificacao.get("criterios"))
-        colunas_classificacao = _colunas_classificacao_por_criterios(criterios_classificacao)
-        pacote_contexto.update({
-            "grupos": grupos,
-            "equipes": equipes,
-            "partidas": partidas_preparadas,
-            "classificacao": classificacao,
-            "criterios_classificacao": criterios_classificacao,
-            "colunas_classificacao": colunas_classificacao,
-        })
-
-    # Aba Visualizador: gera/carrega o código curto e entrega o caminho pronto
-    # ao template. Sem isso, o campo exibia somente o domínio porque
-    # link_publico_path chegava vazio.
-    elif aba == "visualizador":
-        codigo_publico = garantir_codigo_publico_competicao(nome_competicao)
-
-        if codigo_publico:
-            link_publico_path = url_for(
-                "tabela.visualizador_publico_curto",
-                codigo_publico=codigo_publico,
-            )
-        else:
-            # Fallback seguro: mantém o visualizador acessível mesmo se o banco
-            # não conseguir criar o código curto naquele momento.
-            link_publico_path = url_for(
-                "tabela.visualizador_publico",
-                competicao_nome=nome_competicao,
-            )
-
-        pacote_contexto.update({
-            "codigo_publico": codigo_publico or "",
-            "link_publico_path": link_publico_path,
-            "link_publico": request.host_url.rstrip("/") + link_publico_path,
-        })
+    provedores_contexto = {
+        "quadras": _quadras_cache,
+        "grupos": _listar_grupos_cache,
+        "equipes": _listar_equipes_competicao_cache,
+        "grupos_com_equipes": _grupos_com_equipes_cacheados,
+        "config_agenda": _config_agenda_cache,
+        "estrutura_grupo_unico": _estrutura_grupo_unico,
+        "avanco": _avanco_cache,
+        "status_avanco": _status_avanco_cache,
+        "avanco_gerado": _avanco_gerado_cache,
+        "fases_avanco": _fases_do_avanco_para_tabela,
+        "series_avanco": _series_do_avanco_por_fase,
+        "mapa_escudos": _mapa_escudos_equipes,
+        "listar_partidas_frescas": listar_partidas,
+        "partida_eh_avanco": _partida_eh_avanco,
+        "preparar_partidas": _preparar_partidas,
+        "filtrar_partidas_fase": _filtrar_partidas_por_fase,
+        "filtrar_partidas_serie": _filtrar_partidas_por_serie_avanco,
+        "montar_espelho_avanco": _montar_espelho_avanco,
+        "partidas_cache": _listar_partidas_cache,
+        "calcular_classificacao": _calcular_ou_obter_classificacao_cacheada,
+        "regras_classificacao": _obter_regras_classificacao,
+        "criterios_classificacao": _criterios_efetivos_ate_sorteio,
+        "colunas_classificacao": _colunas_classificacao_por_criterios,
+        "garantir_codigo_publico": garantir_codigo_publico_competicao,
+        "url_publico_curto": lambda codigo: url_for(
+            "tabela.visualizador_publico_curto",
+            codigo_publico=codigo,
+        ),
+        "url_publico_fallback": lambda nome: url_for(
+            "tabela.visualizador_publico",
+            competicao_nome=nome,
+        ),
+    }
+    pacote_contexto = _montar_pacote_aba_tabela(
+        aba=aba,
+        competicao=competicao,
+        nome_competicao=nome_competicao,
+        fase_subaba=fase_subaba,
+        serie_param=serie_param_cache,
+        host_url=request.host_url,
+        provedores=provedores_contexto,
+    )
 
     if pacote_contexto:
         if aba != "partidas":
@@ -3393,134 +1573,87 @@ def criar_grupo_view():
 @tabela_bp.route("/tabela/grupo-quadra", methods=["POST"])
 @exigir_organizador_da_competicao
 def vincular_grupo_quadra_view():
-    grupo_nome = (request.form.get("grupo_nome") or "").strip().upper()
-    quadra_id = _to_int_or_none(request.form.get("quadra_id"))
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if not grupo_nome:
-        flash("Grupo inválido.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
-        flash("A fase classificatória já iniciou. Não é possível trocar a quadra padrão do grupo.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    if not quadra_id:
-        flash("Selecione uma quadra válida.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    if vincular_grupo_a_quadra(competicao["nome"], grupo_nome, quadra_id):
-        flash(f"Grupo {grupo_nome} vinculado à quadra.", "sucesso")
-    else:
-        flash("Não foi possível vincular a quadra ao grupo.", "erro")
-
+    resultado = _acao_vincular_grupo_quadra(
+        competicao,
+        request.form.get("grupo_nome"),
+        request.form.get("quadra_id"),
+        fase_grupos_travada=fase_grupos_esta_travada_por_jogo,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
 
-# =========================================================
-# ADICIONAR EQUIPE AO GRUPO
-# =========================================================
 @tabela_bp.route("/tabela/adicionar-equipe", methods=["POST"])
 @exigir_organizador_da_competicao
 def adicionar_equipe_grupo():
-    grupo_id = request.form.get("grupo_id")
-    equipe = request.form.get("equipe")
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if not grupo_id or not equipe:
-        flash("Preencha todos os campos.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
-        flash("A fase classificatória já iniciou. Não é possível alterar grupos.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    adicionar_equipe_no_grupo(grupo_id, equipe, competicao["nome"])
-
-    flash("Equipe adicionada ao grupo.", "sucesso")
+    resultado = _acao_adicionar_equipe_grupo(
+        competicao,
+        request.form.get("grupo_id"),
+        request.form.get("equipe"),
+        fase_grupos_travada=fase_grupos_esta_travada_por_jogo,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
 
-# =========================================================
-# REMOVER EQUIPE DO GRUPO
-# =========================================================
 @tabela_bp.route("/tabela/remover-equipe-grupo", methods=["POST"])
 @exigir_organizador_da_competicao
 def remover_equipe_grupo_view():
-    grupo_id = request.form.get("grupo_id")
-    equipe = request.form.get("equipe")
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if not grupo_id or not equipe:
-        flash("Dados inválidos para remover equipe do grupo.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
-        flash("A fase classificatória já iniciou. Não é possível alterar grupos.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    remover_equipe_do_grupo(grupo_id, equipe, competicao["nome"])
-
-    flash("Equipe removida do grupo.", "sucesso")
+    resultado = _acao_remover_equipe_grupo(
+        competicao,
+        request.form.get("grupo_id"),
+        request.form.get("equipe"),
+        fase_grupos_travada=fase_grupos_esta_travada_por_jogo,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
 
-# =========================================================
-# EXCLUIR GRUPO
-# =========================================================
 @tabela_bp.route("/tabela/excluir-grupo/<int:grupo_id>", methods=["POST"])
 @exigir_organizador_da_competicao
 def excluir_grupo_view(grupo_id):
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
-        flash("A fase classificatória já iniciou. Não é possível excluir grupos.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    excluir_grupo_banco(grupo_id, competicao["nome"])
-
-    flash("Grupo excluído com sucesso.", "sucesso")
+    resultado = _acao_excluir_grupo(
+        competicao,
+        grupo_id,
+        fase_grupos_travada=fase_grupos_esta_travada_por_jogo,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
 
-# =========================================================
-# LIMPEZA DE PARTIDAS
-# =========================================================
 @tabela_bp.route("/tabela/limpar", methods=["POST"])
 @exigir_organizador_da_competicao
 def limpar_tabela():
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    if fase_grupos_esta_travada_por_jogo(competicao["nome"]):
-        flash("A fase classificatória já iniciou. Não é possível limpar toda a tabela.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="geracao"))
-
-    ok = limpar_partidas(competicao["nome"])
-
-    if ok is False:
-        flash("Não foi possível limpar a tabela porque já existe partida iniciada.", "erro")
-    else:
-        flash("Tabela limpa com sucesso.", "sucesso")
+    resultado = _acao_limpar_tabela(
+        competicao,
+        fase_grupos_travada=fase_grupos_esta_travada_por_jogo,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="geracao"))
 
 
@@ -3528,701 +1661,100 @@ def limpar_tabela():
 @exigir_organizador_da_competicao
 def limpar_fase_view():
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
-    fase_banco = _fase_subaba_para_banco(fase_subaba)
-
-    if not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao["nome"], fase_banco):
-        flash("Esta fase já iniciou. Não é possível limpar as partidas dela.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    ok = limpar_partidas_por_fase(competicao["nome"], fase_banco)
-
-    if ok is False:
-        flash("Não foi possível limpar esta fase porque já existe partida iniciada.", "erro")
-    else:
-        flash("Partidas da fase removidas com sucesso.", "sucesso")
+    resultado = _acao_limpar_fase(
+        competicao,
+        _fase_subaba_para_banco(fase_subaba),
+        fase_pode_ser_alterada=_fase_pode_ser_alterada_sem_travar_mata_mata,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
 
-# =========================================================
-# CRIAR PARTIDA MANUAL
-# =========================================================
 @tabela_bp.route("/tabela/nova-partida", methods=["POST"])
 @exigir_organizador_da_competicao
 def nova_partida():
-    grupo = request.form.get("grupo")
-    # Aceita os nomes principais e também alternativas, para não falhar se o template antigo ficar em cache.
-    equipe_a = (request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante") or "").strip()
-    equipe_b = (request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante") or "").strip()
-    fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
-    quadra_id = _to_int_or_none(request.form.get("quadra_id"))
-
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
-    fase_banco = _fase_subaba_para_banco(fase_subaba)
-
-    # O mata-mata NÃO usa grupo. Grupo só é obrigatório nas classificatórias.
-    if fase_banco == "grupos" and _estrutura_grupo_unico(competicao):
-        _sincronizar_grupo_unico_automatico(competicao)
-        grupo = "A"
-    else:
-        grupo = (grupo or "").strip().upper() if fase_banco == "grupos" else None
-    if fase_banco == "grupos" and not quadra_id:
-        quadra_id = _quadra_padrao_do_grupo(listar_grupos(competicao["nome"]), grupo)
-
-    if fase_banco == "grupos" and not grupo:
-        flash("Informe o grupo para jogo classificatório.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    # Regra principal:
-    # - grupos travam quando a classificatória inicia;
-    # - mata-mata só trava quando a própria fase iniciar.
-    if not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao["nome"], fase_banco):
-        flash("Esta fase já iniciou. Não é possível criar novas partidas nela.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    if fase_banco == "grupos":
-        if not equipe_a or not equipe_b:
-            flash("Selecione as duas equipes.", "erro")
-            return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-        if equipe_a == equipe_b:
-            flash("A partida precisa ter duas equipes diferentes.", "erro")
-            return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-    else:
-        # Mata-mata manual pode ser criado antes do fim da classificatória.
-        # Se o organizador ainda não quiser escolher as equipes, salva como A definir.
-        if equipe_a and equipe_b and equipe_a == equipe_b:
-            flash("A partida precisa ter duas equipes diferentes.", "erro")
-            return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-        equipe_a = equipe_a or "A definir"
-        equipe_b = equipe_b or "A definir"
-
-    partidas = listar_partidas(competicao["nome"])
-    ordens = []
-    for partida in partidas:
-        try:
-            ordens.append(int(partida.get("ordem") or 0))
-        except (TypeError, ValueError):
-            pass
-    ordem = (max(ordens) + 1) if ordens else 1
-
-    ok_criacao = _criar_partida_para_tabela(
-        competicao["nome"],
-        grupo,
-        equipe_a,
-        equipe_b,
-        ordem,
-        fase_banco,
-        origem="manual",
-        quadra_id=quadra_id,
+    fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
+    resultado = _acao_criar_partida_manual(
+        competicao,
+        {
+            "grupo": request.form.get("grupo"),
+            "equipe_a": request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante"),
+            "equipe_b": request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante"),
+            "fase": _fase_subaba_para_banco(fase_subaba),
+            "fase_subaba": fase_subaba,
+            "quadra_id": request.form.get("quadra_id"),
+        },
+        fase_pode_ser_alterada=_fase_pode_ser_alterada_sem_travar_mata_mata,
+        estrutura_grupo_unico=_estrutura_grupo_unico,
+        sincronizar_grupo_unico=_sincronizar_grupo_unico_automatico,
+        listar_grupos=listar_grupos,
+        quadra_padrao_grupo=_quadra_padrao_do_grupo,
+        listar_partidas=listar_partidas,
+        criar_partida=_criar_partida_para_tabela,
+        obter_proxima_ordem=proxima_ordem_partida,
     )
-
-    if not ok_criacao:
-        flash("Não foi possível criar a partida. Verifique se esta fase já iniciou.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    flash("Partida criada com sucesso.", "sucesso")
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
 
-
-# =========================================================
-# ATUALIZAR PARTIDA MANUAL DO MATA-MATA
-# =========================================================
 @tabela_bp.route("/tabela/atualizar-partida/<int:partida_id>", methods=["POST"])
 @exigir_organizador_da_competicao
 def atualizar_partida_view(partida_id):
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
-    fase_banco = _fase_subaba_para_banco(fase_subaba)
-    quadra_id = _to_int_or_none(request.form.get("quadra_id"))
-    data_hora = (request.form.get("data_hora") or "").strip() or None
-    rodada = _to_int_or_none(request.form.get("rodada"))
-
-    partida_atual = buscar_partida_por_id(partida_id, competicao["nome"]) or {}
-    equipe_a = (request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante") or partida_atual.get("equipe_a") or "").strip()
-    equipe_b = (request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante") or partida_atual.get("equipe_b") or "").strip()
-    if rodada is None:
-        rodada = _to_int_or_none(partida_atual.get("rodada"))
-
-    if equipe_a and equipe_b and equipe_a == equipe_b:
-        flash("A partida precisa ter duas equipes diferentes.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    equipe_a = equipe_a or "A definir"
-    equipe_b = equipe_b or "A definir"
-
-    if not _fase_pode_ser_alterada_sem_travar_mata_mata(competicao["nome"], fase_banco):
-        flash("Esta fase já iniciou. Não é possível alterar partidas dela.", "erro")
-        return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
-
-    quadra_id, quadra_nome = _dados_quadra(competicao["nome"], quadra_id)
-
-    ok = atualizar_partida(
+    resultado = _acao_atualizar_partida_manual(
+        competicao,
         partida_id,
-        competicao["nome"],
-        partida_atual.get("grupo"),
-        fase_banco,
-        equipe_a,
-        equipe_b,
-        quadra=str(quadra_id) if quadra_id else None,
-        quadra_id=quadra_id,
-        quadra_nome=quadra_nome,
-        data_hora=data_hora,
-        rodada=rodada,
-        status="aguardando",
+        {
+            "equipe_a": request.form.get("equipe_a") or request.form.get("time_a") or request.form.get("mandante"),
+            "equipe_b": request.form.get("equipe_b") or request.form.get("time_b") or request.form.get("visitante"),
+            "fase": _fase_subaba_para_banco(fase_subaba),
+            "fase_subaba": fase_subaba,
+            "quadra_id": request.form.get("quadra_id"),
+            "data_hora": request.form.get("data_hora"),
+            "rodada": request.form.get("rodada"),
+        },
+        buscar_partida=buscar_partida_por_id,
+        fase_pode_ser_alterada=_fase_pode_ser_alterada_sem_travar_mata_mata,
+        dados_quadra=_dados_quadra,
+        atualizar_partida=atualizar_partida,
     )
-
-    if ok is False:
-        flash("Não foi possível salvar. A partida já iniciou ou está bloqueada.", "erro")
-    else:
-        flash("Partida salva com sucesso.", "sucesso")
-
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
 
-# =========================================================
-# EXCLUIR PARTIDA
-# =========================================================
 @tabela_bp.route("/tabela/excluir-partida/<int:partida_id>", methods=["POST"])
 @exigir_organizador_da_competicao
 def excluir_partida_view(partida_id):
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
-
     if not competicao:
         flash("Nenhuma competição encontrada.", "erro")
         return redirect(url_for("painel.inicio"))
 
     fase_subaba = (request.form.get("fase_subaba") or "classificatorias").strip().lower()
-
-    ok, mensagem = excluir_partida_banco(partida_id, competicao["nome"])
-    flash(mensagem, "sucesso" if ok else "erro")
+    resultado = _acao_excluir_partida(
+        competicao,
+        partida_id,
+        excluir=excluir_partida_banco,
+    )
+    flash(resultado.mensagem, resultado.categoria)
     return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba))
 
 
-
-# =========================================================
-# MOTOR INTELIGENTE DE AGENDA DA FASE CLASSIFICATÓRIA
-# =========================================================
-def _gerar_rodadas_round_robin(equipes):
-    """Gera rodadas reais todos-contra-todos pelo método do círculo.
-
-    Rodada aqui NÃO é a ordem física da partida. Rodada é o bloco lógico em que
-    uma equipe joga no máximo uma vez. Exemplo com 6 equipes: 5 rodadas, cada
-    rodada com 3 jogos. Com número ímpar, uma equipe folga e a folga gira.
-    """
-    times = list(equipes or [])
-    if len(times) < 2:
-        return []
-
-    if len(times) % 2 == 1:
-        times.append(None)
-
-    n = len(times)
-    rodadas = []
-
-    for rodada_idx in range(n - 1):
-        jogos = []
-        folga = None
-        for i in range(n // 2):
-            t1 = times[i]
-            t2 = times[n - 1 - i]
-            if t1 is None or t2 is None:
-                folga = t1 or t2
-                continue
-
-            # Alterna mando/ordem visual para não deixar sempre o mesmo time primeiro.
-            if rodada_idx % 2 == 0:
-                jogos.append((t1, t2))
-            else:
-                jogos.append((t2, t1))
-
-        rodadas.append({
-            "numero": rodada_idx + 1,
-            "jogos": jogos,
-            "folga": folga,
-        })
-        times = [times[0]] + [times[-1]] + times[1:-1]
-
-    return rodadas
-
-
-def _numero_rodada_info(rodada_info, padrao=1):
-    if isinstance(rodada_info, dict):
-        try:
-            return int(rodada_info.get("numero") or padrao)
-        except (TypeError, ValueError):
-            return padrao
-    return padrao
-
-
-def _jogos_rodada_info(rodada_info):
-    """Retorna somente confrontos válidos (equipe_a, equipe_b).
-
-    Compatibilidade importante:
-    - _gerar_rodadas_round_robin() retorna dict com {"numero", "jogos", "folga"};
-    - versões antigas/rotas auxiliares podem mandar lista de tuplas;
-    - nunca devemos transformar dict em list(dict), porque isso vira
-      ["numero", "jogos", "folga"] e causa ValueError no unpack.
-    """
-    if isinstance(rodada_info, dict):
-        jogos_raw = rodada_info.get("jogos") or []
-    else:
-        jogos_raw = rodada_info or []
-
-    jogos = []
-    for jogo in jogos_raw:
-        if isinstance(jogo, dict):
-            equipe_a = jogo.get("equipe_a") or jogo.get("a") or jogo.get("time_a")
-            equipe_b = jogo.get("equipe_b") or jogo.get("b") or jogo.get("time_b")
-        elif isinstance(jogo, (list, tuple)) and len(jogo) >= 2:
-            equipe_a, equipe_b = jogo[0], jogo[1]
-        else:
-            continue
-
-        if equipe_a and equipe_b:
-            jogos.append((equipe_a, equipe_b))
-
-    return jogos
-
-
-def _ids_quadras_ativas(quadras):
-    ids = []
-    for q in quadras or []:
-        if q.get("ativa") is False:
-            continue
-        try:
-            ids.append(int(q.get("id")))
-        except (TypeError, ValueError):
-            pass
-    return ids
-
-
-def _normalizar_lista_ids(valores):
-    if valores in (None, ""):
-        return []
-    if isinstance(valores, str):
-        try:
-            valores = json.loads(valores)
-        except Exception:
-            valores = [v.strip() for v in valores.split(",")]
-    ids = []
-    for v in valores or []:
-        try:
-            n = int(v)
-            if n > 0 and n not in ids:
-                ids.append(n)
-        except (TypeError, ValueError):
-            pass
-    return ids
-
-
-def _parse_grupos_compartilhados_form():
-    """Lê configurações opcionais do formulário sem depender do HTML novo.
-
-    Aceita formatos simples:
-    - grupos_compartilhados_json = {"A":[1,2], "B":[1,2]}
-    - quadras_compartilhadas_json = [1,2]
-    - grupo_quadras_A = 1,2
-    """
-    bruto = request.form.get("grupos_compartilhados_json") or request.form.get("grupos_compartilhados")
-    if bruto:
-        try:
-            dados = json.loads(bruto)
-            if isinstance(dados, dict):
-                return {str(k).strip().upper(): _normalizar_lista_ids(v) for k, v in dados.items()}
-        except Exception:
-            pass
-
-    dados = {}
-    for chave, valor in request.form.items():
-        if not chave.startswith("grupo_quadras_"):
-            continue
-        grupo = chave.replace("grupo_quadras_", "", 1).strip().upper()
-        ids = _normalizar_lista_ids(valor)
-        if grupo and ids:
-            dados[grupo] = ids
-    return dados
-
-
-def _config_agenda_da_requisicao(nome_competicao):
-    inicializar_configuracao_agenda_competicao(nome_competicao)
-    config = buscar_configuracao_agenda_competicao(nome_competicao) or {}
-
-    if request.method == "POST":
-        modo = (request.form.get("modo_distribuicao") or request.form.get("modo_distribuicao_agenda") or config.get("modo_distribuicao") or "automatico_inteligente").strip().lower()
-        rodizio = (request.form.get("rodizio_grupos") or config.get("rodizio_grupos") or "por_rodada").strip().lower()
-        descanso = request.form.get("descanso_minimo_jogos", config.get("descanso_minimo_jogos", 1))
-        permitir_relaxar = request.form.get("permitir_relaxar_descanso")
-        if permitir_relaxar is None:
-            permitir_relaxar = config.get("permitir_relaxar_descanso", True)
-        else:
-            permitir_relaxar = str(permitir_relaxar).strip().lower() in {"1", "true", "on", "sim", "yes"}
-
-        grupos_comp = _parse_grupos_compartilhados_form() or config.get("grupos_compartilhados") or {}
-        quadras_comp = _normalizar_lista_ids(
-            request.form.get("quadras_compartilhadas_json")
-            or request.form.get("quadras_compartilhadas")
-            or config.get("quadras_compartilhadas")
-        )
-
-        atualizar_configuracao_agenda_competicao(
-            nome_competicao,
-            modo_distribuicao=modo,
-            descanso_minimo_jogos=descanso,
-            rodizio_grupos=rodizio,
-            permitir_relaxar_descanso=permitir_relaxar,
-            grupos_compartilhados=grupos_comp,
-            quadras_compartilhadas=quadras_comp,
-            usar_rodadas_programadas=config.get("usar_rodadas_programadas", False),
-            uma_partida_por_equipe_rodada=config.get("uma_partida_por_equipe_rodada", True),
-        )
-        config = buscar_configuracao_agenda_competicao(nome_competicao) or config
-
-    return config
-
-
-def _quadras_permitidas_para_grupo(nome_competicao, grupos_raw, grupo_nome, quadras_ativas, config):
-    """Define quais quadras o grupo pode usar.
-
-    REGRA IMPORTANTE:
-    - Se o grupo tem quadra padrão definida na aba Configurações, ele fica FIXO nessa quadra.
-    - Uma quadra fixa de um grupo fica reservada para esse grupo.
-    - Grupos sem quadra definida usam somente as quadras livres, ou seja, não invadem
-      quadras reservadas por grupos fixos.
-    - Só usamos uma configuração específica do modal quando ela existir para o grupo.
-    """
-    grupo_nome = str(grupo_nome or "").strip().upper()
-    quadras_ativas = [qid for qid in (quadras_ativas or []) if qid is not None]
-    if not quadras_ativas:
-        return []
-
-    # Mapa de quadras fixas cadastradas na aba Configurações.
-    fixas_por_grupo = {}
-    quadras_reservadas = set()
-    for g in grupos_raw or []:
-        nome_g = str(g.get("nome") or "").strip().upper()
-        qid = _quadra_id_do_grupo(g)
-        try:
-            qid = int(qid or 0)
-        except (TypeError, ValueError):
-            qid = None
-        if nome_g and qid and qid in quadras_ativas:
-            fixas_por_grupo[nome_g] = qid
-            quadras_reservadas.add(qid)
-
-    # 1) Grupo com quadra definida é sempre fixo.
-    if grupo_nome in fixas_por_grupo:
-        return [fixas_por_grupo[grupo_nome]]
-
-    # 2) Para grupos sem quadra definida, remove as quadras reservadas para grupos fixos.
-    quadras_livres = [qid for qid in quadras_ativas if qid not in quadras_reservadas]
-    if not quadras_livres:
-        # Se todas as quadras estão reservadas, libera fallback para não travar a geração.
-        quadras_livres = list(quadras_ativas)
-
-    compartilhados = (config or {}).get("grupos_compartilhados") or {}
-    quadras_compartilhadas = _normalizar_lista_ids((config or {}).get("quadras_compartilhadas"))
-
-    # 3) Configuração específica por grupo no modal, filtrada pelas quadras livres.
-    ids = _normalizar_lista_ids(compartilhados.get(grupo_nome) or compartilhados.get(grupo_nome.lower()))
-    ids = [qid for qid in ids if qid in quadras_livres]
-    if ids:
-        return ids
-
-    # 4) Pool geral compartilhado, também sem invadir quadras reservadas.
-    if quadras_compartilhadas:
-        ids = [qid for qid in quadras_compartilhadas if qid in quadras_livres]
-        if ids:
-            return ids
-
-    # 5) Fallback: qualquer quadra livre.
-    return list(quadras_livres)
-
-
-def _montar_fila_jogos_classificatorios(rodadas_por_grupo, rodizio):
-    """Monta uma fila respeitando rodadas reais entre grupos."""
-    fila = []
-    grupos = sorted(rodadas_por_grupo.keys())
-    max_rodadas = max((len(r) for r in rodadas_por_grupo.values()), default=0)
-
-    if rodizio == "por_grupo_inteiro":
-        for grupo in grupos:
-            for pos, rodada_info in enumerate(rodadas_por_grupo.get(grupo) or [], start=1):
-                rodada_num = _numero_rodada_info(rodada_info, pos)
-                for equipe_a, equipe_b in _jogos_rodada_info(rodada_info):
-                    fila.append({"grupo": grupo, "rodada_grupo": rodada_num, "equipe_a": equipe_a, "equipe_b": equipe_b})
-        return fila
-
-    # Padrão: primeiro todas as Rodadas 1 dos grupos, depois Rodadas 2, etc.
-    for rodada_idx in range(max_rodadas):
-        for grupo in grupos:
-            rodadas = rodadas_por_grupo.get(grupo) or []
-            if rodada_idx >= len(rodadas):
-                continue
-            rodada_info = rodadas[rodada_idx]
-            rodada_num = _numero_rodada_info(rodada_info, rodada_idx + 1)
-            for equipe_a, equipe_b in _jogos_rodada_info(rodada_info):
-                fila.append({"grupo": grupo, "rodada_grupo": rodada_num, "equipe_a": equipe_a, "equipe_b": equipe_b})
-    return fila
-
-
-def _jogo_respeita_descanso(jogo, historico_slots, descanso_minimo):
-    if descanso_minimo <= 0:
-        return True
-    equipes = {jogo["equipe_a"], jogo["equipe_b"]}
-    for slot in historico_slots[-descanso_minimo:]:
-        if equipes.intersection(slot):
-            return False
-    return True
-
-
-def _proximo_jogo_sem_conflito(lista_jogos, equipes_slot, equipes_slot_anterior=None):
-    """Remove e retorna o primeiro jogo possível sem conflito no slot.
-
-    Primeiro tenta evitar equipes que jogaram no slot anterior. Se não existir
-    opção, relaxa essa regra para não travar grupos com poucos times/quadra única
-    como o caso da Apolo.
-    """
-    equipes_slot = set(equipes_slot or set())
-    equipes_slot_anterior = set(equipes_slot_anterior or set())
-
-    for idx, jogo in enumerate(lista_jogos or []):
-        equipes = {jogo.get("equipe_a"), jogo.get("equipe_b")}
-        if equipes.intersection(equipes_slot):
-            continue
-        if equipes_slot_anterior and equipes.intersection(equipes_slot_anterior):
-            continue
-        return lista_jogos.pop(idx)
-
-    for idx, jogo in enumerate(lista_jogos or []):
-        equipes = {jogo.get("equipe_a"), jogo.get("equipe_b")}
-        if equipes.intersection(equipes_slot):
-            continue
-        return lista_jogos.pop(idx)
-
-    return None
-
-
-def _montar_blocos_por_pool_classificatoria(nome_competicao, grupos_raw, quadras_ativas, config):
-    """Agrupa os grupos pelo conjunto de quadras que eles podem usar.
-
-    Exemplo prático:
-    - Grupo C permite apenas Apolo => pool (Apolo)
-    - Grupos A/B/D permitem Floresta 1 e 2 => pool (Floresta 1, Floresta 2)
-
-    Isso é o que permite gerar rodadas simultâneas por local/quadras sem misturar
-    um grupo fixo com grupos rotativos.
-    """
-    pools = {}
-    for g in grupos_raw or []:
-        grupo = str(g.get("nome") or "").strip().upper()
-        if not grupo:
-            continue
-        permitidas = _quadras_permitidas_para_grupo(nome_competicao, grupos_raw, grupo, quadras_ativas, config)
-        permitidas = tuple(qid for qid in permitidas if qid in quadras_ativas)
-        if not permitidas:
-            continue
-        pools.setdefault(permitidas, []).append(grupo)
-
-    # Pools com mais quadras primeiro. Na prática, Floresta vem antes da Apolo,
-    # mas o slot final continua sincronizado por número de linha.
-    return dict(sorted(pools.items(), key=lambda item: (-len(item[0]), item[0])))
-
-
-def _grupo_com_mais_rodadas_restantes(rodadas_por_grupo, grupos_pool, ultimo_grupo=None):
-    candidatos = []
-    for grupo in grupos_pool or []:
-        restante = len(rodadas_por_grupo.get(grupo) or [])
-        if restante <= 0:
-            continue
-        if ultimo_grupo and grupo == ultimo_grupo and len(grupos_pool) > 1:
-            continue
-        candidatos.append((restante, grupo))
-
-    if not candidatos and ultimo_grupo:
-        for grupo in grupos_pool or []:
-            restante = len(rodadas_por_grupo.get(grupo) or [])
-            if restante > 0:
-                candidatos.append((restante, grupo))
-
-    if not candidatos:
-        return None
-
-    # Maior quantidade restante ganha. Em empate, ordem alfabética/visual.
-    candidatos.sort(key=lambda x: (-x[0], x[1]))
-    return candidatos[0][1]
-
-
-def _gerar_slots_pool_multiquadra(rodadas_por_grupo, grupos_pool, quadras_pool):
-    """Gera slots físicos mantendo a rodada lógica correta.
-
-    A quadra/slot serve só para ordenar e distribuir jogos. O campo `rodada_grupo`
-    continua sendo a rodada real do todos-contra-todos. Assim, se o Grupo A tem
-    6 equipes, a Rodada 1 fica com 3 jogos, mesmo que precise de mais de um slot
-    físico para executar todos eles.
-    """
-    capacidade = max(1, len(quadras_pool or []))
-    slots = []
-    max_rodadas = max((len(rodadas_por_grupo.get(g) or []) for g in grupos_pool or []), default=0)
-
-    for rodada_idx in range(max_rodadas):
-        for grupo in sorted(grupos_pool or []):
-            rodadas = rodadas_por_grupo.get(grupo) or []
-            if rodada_idx >= len(rodadas):
-                continue
-
-            rodada_info = rodadas[rodada_idx]
-            rodada_num = _numero_rodada_info(rodada_info, rodada_idx + 1)
-            jogos = _jogos_rodada_info(rodada_info)
-
-            while jogos:
-                jogos_slot = []
-                equipes_slot = set()
-                for qid in quadras_pool[:capacidade]:
-                    if not jogos:
-                        break
-                    equipe_a, equipe_b = jogos.pop(0)
-                    if equipe_a in equipes_slot or equipe_b in equipes_slot:
-                        jogos.insert(0, (equipe_a, equipe_b))
-                        break
-                    jogos_slot.append({
-                        "grupo": grupo,
-                        "equipe_a": equipe_a,
-                        "equipe_b": equipe_b,
-                        "quadra_id": qid,
-                        "rodada_grupo": rodada_num,
-                    })
-                    equipes_slot.update({equipe_a, equipe_b})
-                if jogos_slot:
-                    slots.append(jogos_slot)
-                else:
-                    break
-
-    return slots
-
-
-def _gerar_slots_pool_quadra_unica(rodadas_por_grupo, grupos_pool, quadra_id):
-    """Gera slots para uma quadra só sem transformar cada jogo em nova rodada.
-
-    Com uma quadra, os jogos são sequenciais, mas a rodada lógica permanece: a
-    Rodada 1 mostra todos os jogos da Rodada 1, depois a Rodada 2, e assim vai.
-    """
-    slots = []
-    max_rodadas = max((len(rodadas_por_grupo.get(g) or []) for g in grupos_pool or []), default=0)
-
-    for rodada_idx in range(max_rodadas):
-        for grupo in sorted(grupos_pool or []):
-            rodadas = rodadas_por_grupo.get(grupo) or []
-            if rodada_idx >= len(rodadas):
-                continue
-            rodada_info = rodadas[rodada_idx]
-            rodada_num = _numero_rodada_info(rodada_info, rodada_idx + 1)
-            for equipe_a, equipe_b in _jogos_rodada_info(rodada_info):
-                slots.append([{
-                    "grupo": grupo,
-                    "equipe_a": equipe_a,
-                    "equipe_b": equipe_b,
-                    "quadra_id": quadra_id,
-                    "rodada_grupo": rodada_num,
-                }])
-
-    return slots
-
-
-def _gerar_agenda_classificatoria_inteligente(nome_competicao, grupos_raw, config):
-    """Gera a classificatória por SLOTS simultâneos.
-
-    A lógica principal agora é:
-    1. gerar os confrontos de cada grupo em memória;
-    2. separar grupos por pool de quadras permitidas;
-    3. em pools com 2+ quadras, colocar um bloco/rodada do mesmo grupo por slot;
-    4. alternar grupos pelo maior número de rodadas restantes, evitando grupo repetido;
-    5. salvar o slot em `rodada`, para a tela entender que Floresta 1 e 2 acontecem juntas.
-    """
-    quadras = garantir_quadras_competicao(nome_competicao, 1)
-    quadras_ativas = _ids_quadras_ativas(quadras)
-    if not quadras_ativas:
-        quadras_ativas = [None]
-
-    rodadas_por_grupo = {}
-    for g in grupos_raw or []:
-        equipes = listar_equipes_por_grupo(g["id"])
-        nomes = [e.get("equipe") for e in equipes if e.get("equipe")]
-        if len(nomes) >= 2:
-            rodadas_por_grupo[str(g.get("nome") or "").strip().upper()] = _gerar_rodadas_round_robin(nomes)
-
-    if not rodadas_por_grupo:
-        return {"ok": False, "mensagem": "Não há grupos com equipes suficientes para gerar jogos."}
-
-    pools = _montar_blocos_por_pool_classificatoria(nome_competicao, grupos_raw, quadras_ativas, config)
-    if not pools:
-        return {"ok": False, "mensagem": "Não foi possível definir as quadras permitidas dos grupos."}
-
-    slots_por_pool = []
-    for quadras_pool, grupos_pool in pools.items():
-        # Copia só as rodadas dos grupos deste pool para não consumir o dict global.
-        rodadas_pool = {
-            # Mantém o dict da rodada intacto.
-            # Antes usava list(rodada), que em dict vira ["numero", "jogos", "folga"]
-            # e quebrava a geração automática em quadra única.
-            g: [
-                dict(rodada) if isinstance(rodada, dict) else list(rodada)
-                for rodada in (rodadas_por_grupo.get(g) or [])
-            ]
-            for g in grupos_pool
-        }
-
-        if len(quadras_pool) >= 2:
-            slots_pool = _gerar_slots_pool_multiquadra(rodadas_pool, grupos_pool, list(quadras_pool))
-        else:
-            slots_pool = _gerar_slots_pool_quadra_unica(rodadas_pool, grupos_pool, quadras_pool[0])
-
-        slots_por_pool.append(slots_pool)
-
-    total_slots = max((len(s) for s in slots_por_pool), default=0)
-    agenda = []
-
-    for slot_idx in range(total_slots):
-        slot_numero = slot_idx + 1
-        ordem_no_slot = 1
-        for slots_pool in slots_por_pool:
-            if slot_idx >= len(slots_pool):
-                continue
-            for jogo in slots_pool[slot_idx]:
-                item = dict(jogo)
-                item["slot"] = slot_numero
-                item["ordem_no_slot"] = ordem_no_slot
-                item["rodada_grupo"] = item.get("rodada_grupo") or slot_numero
-                agenda.append(item)
-                ordem_no_slot += 1
-
-    if not agenda:
-        return {"ok": False, "mensagem": "Não foi possível montar a agenda dos jogos."}
-
-    return {"ok": True, "agenda": agenda, "slots": total_slots, "quadras": len(quadras_ativas)}
-
-
-
-# =========================================================
-# SALVAR CONFIGURAÇÃO DA GERAÇÃO AUTOMÁTICA
-# =========================================================
 @tabela_bp.route("/tabela/salvar-config-geracao", methods=["POST"])
 @exigir_organizador_da_competicao
 def salvar_config_geracao_view():
@@ -4332,112 +1864,61 @@ def gerar_automatico():
         def _filtrar_serie_atual(lista):
             if not serie_ativa:
                 return list(lista or [])
-            filtradas = []
-            for p in lista or []:
-                serie_p, _jogo_id = _origem_partida_avanco(p)
-                # Partidas antigas sem origem de avanço continuam visíveis só
-                # quando não há série selecionada. Isso impede Prata de mexer na Ouro.
-                if serie_p == serie_ativa:
-                    filtradas.append(p)
-            return filtradas
-
-        def _vencedor_ou_placeholder(partida, prefixo, indice):
-            return _vencedor_partida_rapido(partida, f"Vencedor {prefixo} {indice}")
-
-        confrontos = []
-
-        # Só calcula classificação quando a fase realmente depende dela:
-        # quartas sempre; semifinal apenas se não existirem quartas suficientes.
-        classificacao = None
-        def _obter_classificacao_para_mata_mata():
-            nonlocal classificacao
-            if classificacao is not None:
-                return classificacao
-            grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw, incluir_quadra=False)
-            classificacao, _classificacao_do_cache = _calcular_ou_obter_classificacao_cacheada(
-                nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos
-            )
-            return classificacao
-
-        if fase_banco == "quartas":
-            classificados = _ordenar_classificados_intercalado(_obter_classificacao_para_mata_mata())
-            if len(classificados) < 8:
-                flash("Para gerar quartas automaticamente, precisa ter pelo menos 8 equipes classificadas.", "erro")
-                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
-
-            top8 = classificados[:8]
-            confrontos = [
-                (top8[0], top8[7]),
-                (top8[3], top8[4]),
-                (top8[1], top8[6]),
-                (top8[2], top8[5]),
+            return [
+                p for p in (lista or [])
+                if _origem_partida_avanco(p)[0] == serie_ativa
             ]
-        elif fase_banco == "semifinal":
-            quartas = _filtrar_partidas_por_fase(partidas_preparadas, "quartas")
-            quartas = _filtrar_serie_atual(quartas)
-            quartas = sorted(quartas, key=lambda p: (p.get("ordem") or 0, p.get("id") or 0))
-            if len(quartas) >= 4:
-                confrontos = [
-                    (_vencedor_ou_placeholder(quartas[0], "Quartas", 1), _vencedor_ou_placeholder(quartas[1], "Quartas", 2)),
-                    (_vencedor_ou_placeholder(quartas[2], "Quartas", 3), _vencedor_ou_placeholder(quartas[3], "Quartas", 4)),
-                ]
-            else:
-                classificados = _ordenar_classificados_intercalado(_obter_classificacao_para_mata_mata())
-                if len(classificados) < 4:
-                    flash("Para gerar semifinais automaticamente, precisa ter quartas criadas ou pelo menos 4 equipes classificadas.", "erro")
-                    return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
-                top4 = classificados[:4]
-                confrontos = [(top4[0], top4[3]), (top4[1], top4[2])]
-        elif fase_banco == "final":
-            semis = _filtrar_partidas_por_fase(partidas_preparadas, "semifinais")
-            semis = _filtrar_serie_atual(semis)
-            semis = sorted(semis, key=lambda p: (p.get("ordem") or 0, p.get("id") or 0))
-            if len(semis) < 2:
-                flash("Para gerar a final automaticamente, crie as duas semifinais primeiro.", "erro")
-                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
-            confrontos = [(_vencedor_ou_placeholder(semis[0], "Semifinal", 1), _vencedor_ou_placeholder(semis[1], "Semifinal", 2))]
-        elif fase_banco == "terceiro_lugar":
-            semis = _filtrar_partidas_por_fase(partidas_preparadas, "semifinais")
-            semis = _filtrar_serie_atual(semis)
-            semis = sorted(semis, key=lambda p: (p.get("ordem") or 0, p.get("id") or 0))
-            if len(semis) < 2:
-                flash("Para gerar 3º lugar automaticamente, crie as duas semifinais primeiro.", "erro")
-                return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
-            def _perdedor(partida, prefixo, indice):
-                vencedor = _vencedor_partida_rapido(partida, "")
-                if vencedor and vencedor == partida.get("equipe_a"):
-                    return partida.get("equipe_b") or f"Perdedor {prefixo} {indice}"
-                if vencedor and vencedor == partida.get("equipe_b"):
-                    return partida.get("equipe_a") or f"Perdedor {prefixo} {indice}"
-                return f"Perdedor {prefixo} {indice}"
-            confrontos = [(_perdedor(semis[0], "Semifinal", 1), _perdedor(semis[1], "Semifinal", 2))]
 
-        if not confrontos:
-            flash("Não foi possível montar confrontos automáticos para esta fase.", "erro")
+        classificacao = None
+        if fase_banco in {"quartas", "semifinal"}:
+            quartas_existentes = _filtrar_serie_atual(
+                _filtrar_partidas_por_fase(partidas_preparadas, "quartas")
+            )
+            if fase_banco == "quartas" or len(quartas_existentes) < 4:
+                grupos = _grupos_com_equipes_cacheados(nome_competicao, grupos_raw, incluir_quadra=False)
+                classificacao, _ = _calcular_ou_obter_classificacao_cacheada(
+                    nome_competicao, partidas_preparadas, grupos, competicao, mapa_escudos
+                )
+        else:
+            quartas_existentes = []
+
+        semifinais_existentes = _filtrar_serie_atual(
+            _filtrar_partidas_por_fase(partidas_preparadas, "semifinais")
+        ) if fase_banco in {"final", "terceiro_lugar"} else []
+
+        ordem_inicial = max(
+            [int(p.get("ordem") or 0) for p in partidas if p.get("ordem") is not None] or [0]
+        ) + 1
+        quadra_id, quadra_nome = _quadra_nome_cache(
+            mapa_quadras, _to_int_or_none(request.form.get("quadra_id"))
+        )
+
+        resultado_mata_mata = gerar_e_persistir_mata_mata(
+            fase=fase_banco,
+            nome_competicao=nome_competicao,
+            serie=serie_ativa,
+            classificacao=classificacao,
+            quartas=quartas_existentes,
+            semifinais=semifinais_existentes,
+            resolver_vencedor=lambda partida, placeholder: _vencedor_partida_rapido(partida, placeholder),
+            remover_pendentes=lambda: _limpar_partidas_fase_serie_nao_iniciadas(
+                nome_competicao, fase_banco, serie_ativa
+            ),
+            ordem_inicial=ordem_inicial,
+            quadra_id=quadra_id,
+            quadra_nome=quadra_nome,
+            buscar_data_hora=lambda indice: buscar_data_hora_rodada_programada(
+                nome_competicao, "avanco", fase_banco, serie_ativa, indice
+            ),
+            buscar_colunas_tabela=_buscar_colunas_tabela,
+        )
+
+        if not resultado_mata_mata.get("ok"):
+            flash(resultado_mata_mata.get("mensagem") or "Não foi possível montar confrontos automáticos para esta fase.", "erro")
             return redirect(url_for("tabela.tabela_view", aba="partidas", fase=fase_subaba, serie=serie_ativa))
 
-        removidas = _limpar_partidas_fase_serie_nao_iniciadas(nome_competicao, fase_banco, serie_ativa)
-        ordem_inicial = max([int(p.get("ordem") or 0) for p in partidas if p.get("ordem") is not None] or [0]) + 1
-        quadra_id, quadra_nome = _quadra_nome_cache(mapa_quadras, _to_int_or_none(request.form.get("quadra_id")))
-
-        partidas_para_salvar = []
-        for indice, (equipe_a, equipe_b) in enumerate(confrontos, start=1):
-            origem = f"avanco:{serie_ativa}:auto_{fase_banco}_{indice}" if serie_ativa else "automatica"
-            partidas_para_salvar.append({
-                "competicao": nome_competicao,
-                "grupo": None,
-                "equipe_a": equipe_a,
-                "equipe_b": equipe_b,
-                "fase": fase_banco,
-                "ordem": ordem_inicial + indice - 1,
-                "quadra_id": quadra_id,
-                "quadra_nome": quadra_nome,
-                "origem": origem,
-                "rodada": indice,
-                "data_hora": buscar_data_hora_rodada_programada(nome_competicao, "avanco", fase_banco, serie_ativa, indice),
-            })
-
-        total_inserido = _inserir_partidas_em_lote(partidas_para_salvar)
+        removidas = resultado_mata_mata.get("removidas", 0)
+        total_inserido = resultado_mata_mata.get("inseridas", 0)
         _limpar_cache_tabela_e_classificacao(nome_competicao)
 
         flash(f"Jogos do mata-mata gerados: {total_inserido} criado(s), {removidas} pendente(s) removido(s). Partidas com resultado não foram alteradas.", "sucesso")

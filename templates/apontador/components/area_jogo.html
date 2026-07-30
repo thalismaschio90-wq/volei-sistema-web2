@@ -1,0 +1,107 @@
+<div class="jogo-area-central">
+    <div class="jogo-coluna-principal">
+        <div class="card-painel">
+            <div class="quadras-wrap">
+                <div class="quadra-box quadra-box-a">
+                    <div class="pc-quadra-team-header"><div class="pc-team pc-team-left">
+        <div class="pc-shield-wrap">
+            <span id="saque-dot-a" class="pc-saque-dot" aria-label="Saque {{ nome_equipe_a_jogo }}"></span>
+            <img id="escudo-a-jogo" class="jogo-escudo-time pc-escudo" src="{{ escudo_equipe_a_jogo }}" alt="Escudo {{ nome_equipe_a_jogo }}">
+        </div>
+        <div class="pc-team-info">
+            <div id="nome-a" class="pc-team-name">{{ nome_equipe_a_jogo }}</div>
+            <div class="pc-team-icons">
+                <span title="Tempos restantes">🕒<strong id="tempo-restante-a">{{ estado.tempos_restantes_a if estado.tempos_restantes_a is defined else (estado.limite_tempos if estado.limite_tempos is defined else 2) }}</strong></span>
+                <span title="Substituições">🔁<strong id="subs-a">{{ estado.subs_a if estado.subs_a is defined else 0 }}</strong></span>
+                <span title="Cartões amarelos">🟨<strong id="sancoes-a">{{ estado.sancoes_a|length if estado.sancoes_a is defined else 0 }}</strong></span>
+                <span title="Cartões vermelhos">🟥<strong id="vermelhos-a">{{ estado.cartoes_vermelhos_a|length if estado.cartoes_vermelhos_a is defined else 0 }}</strong></span>
+                <span title="Cartões verdes / fair play">🟩<strong id="verdes-a">{{ estado.cartoes_verdes_a|length if estado.cartoes_verdes_a is defined else 0 }}</strong></span>
+            </div>
+        </div>
+    </div>
+                    </div>
+                    <div id="titulo-quadra-esquerda" class="quadra-titulo">{{ nome_equipe_a_jogo }}</div>
+                    <div id="quadra-a" class="quadra quadra-lado-esquerdo"></div>
+                </div>
+
+                <div class="quadra-box quadra-box-b">
+                    <div class="pc-quadra-team-header pc-quadra-team-header-right"><div class="pc-team pc-team-right">
+        <div class="pc-team-info pc-team-info-right">
+            <div id="nome-b" class="pc-team-name">{{ nome_equipe_b_jogo }}</div>
+            <div class="pc-team-icons">
+                <span title="Tempos restantes">🕒<strong id="tempo-restante-b">{{ estado.tempos_restantes_b if estado.tempos_restantes_b is defined else (estado.limite_tempos if estado.limite_tempos is defined else 2) }}</strong></span>
+                <span title="Substituições">🔁<strong id="subs-b">{{ estado.subs_b if estado.subs_b is defined else 0 }}</strong></span>
+                <span title="Cartões amarelos">🟨<strong id="sancoes-b">{{ estado.sancoes_b|length if estado.sancoes_b is defined else 0 }}</strong></span>
+                <span title="Cartões vermelhos">🟥<strong id="vermelhos-b">{{ estado.cartoes_vermelhos_b|length if estado.cartoes_vermelhos_b is defined else 0 }}</strong></span>
+                <span title="Cartões verdes / fair play">🟩<strong id="verdes-b">{{ estado.cartoes_verdes_b|length if estado.cartoes_verdes_b is defined else 0 }}</strong></span>
+            </div>
+        </div>
+        <div class="pc-shield-wrap">
+            <span id="saque-dot-b" class="pc-saque-dot" aria-label="Saque {{ nome_equipe_b_jogo }}"></span>
+            <img id="escudo-b-jogo" class="jogo-escudo-time pc-escudo" src="{{ escudo_equipe_b_jogo }}" alt="Escudo {{ nome_equipe_b_jogo }}">
+        </div>
+    </div>
+                    </div>
+                    <div id="titulo-quadra-direita" class="quadra-titulo">{{ nome_equipe_b_jogo }}</div>
+                    <div id="quadra-b" class="quadra quadra-lado-direito"></div>
+                </div>
+            </div>
+
+            <div class="acoes-quadra">
+                <div class="acoes-jogo">
+                    <button id="btn-ponto-a" class="btn-secundario" type="button">+ ponto {{ nome_equipe_a_jogo }}</button>
+                    <button id="btn-ponto-b" class="btn-secundario" type="button">+ ponto {{ nome_equipe_b_jogo }}</button>
+                    <button id="btn-desfazer" class="btn-secundario" type="button">⟲ Desfazer</button>
+                    <button id="btn-wo-a" class="btn-wo btn-secundario" type="button">WO {{ nome_equipe_a_jogo }}</button>
+                    <button id="btn-wo-b" class="btn-wo btn-secundario" type="button">WO {{ nome_equipe_b_jogo }}</button>
+                </div>
+
+                <div class="acoes-tempo">
+                    <button id="btn-tempo-a" class="btn-secundario" type="button">Tempo {{ nome_equipe_a_jogo }}</button>
+                    <button id="btn-tempo-b" class="btn-secundario" type="button">Tempo {{ nome_equipe_b_jogo }}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="jogo-coluna-lateral">
+        <div class="card-painel jogo-acoes-card pc-side-actions">
+    <div class="jogo-acoes-titulo" style="font-size:16px; font-weight:900; margin-bottom:14px;">Registrar ação</div>
+
+    <div class="acoes-tempo">
+        <button id="btn-sub-a" class="btn-secundario" type="button">Substituição {{ nome_equipe_a_jogo }}</button>
+        <button id="btn-sub-b" class="btn-secundario" type="button">Substituição {{ nome_equipe_b_jogo }}</button>
+    </div>
+
+    <div class="acoes-tempo">
+        <button id="btn-sancao" class="btn-secundario" type="button">Sanção</button>
+        <button id="btn-verde" class="btn-secundario" type="button">Cartão verde</button>
+    </div>
+
+    <div class="acoes-extra">
+        <button id="btn-retardamento" class="btn-secundario" type="button">Retardamento</button>
+        <button id="btn-sub-excepcional" class="btn-secundario" type="button">Subst. excepcional</button>
+        <button id="btn-fullscreen" class="btn-secundario" type="button">Tela cheia</button>
+        <button id="btn-abrir-placar" class="btn-secundario" type="button">Abrir placar ao vivo</button>
+        <button id="btn-inverter-lados" class="btn-secundario" type="button">Inverter lados</button>
+    </div>
+<div id="erro-jogo" style="display:none; margin-top:14px; color:#b91c1c; font-weight:700; text-align:center;"></div>
+</div>
+
+
+        <div class="historico-card">
+            <div class="historico-titulo">Últimas ações</div>
+            <div id="historico-acoes" class="historico-acoes">
+                {% if estado.historico %}
+                    {% for acao in estado.historico %}
+                        <div class="historico-item">
+                            {{ acao.descricao if acao.descricao is defined else acao }}
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="historico-item">Nenhuma ação registrada.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

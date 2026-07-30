@@ -1,0 +1,2251 @@
+    header, nav, .topbar, .navbar {
+        display: none !important;
+    }
+
+    .topo-jogo-mini {
+        padding: 14px 18px !important;
+        position: relative;
+        text-align: center;
+    }
+
+    .topo-jogo-mini .linha-secundaria {
+        margin-top: 4px;
+        font-size: 14px;
+        color: #6b7c8c;
+    }
+
+    .relogio-jogo-real {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: #eef6ff;
+        border: 1px solid #d6e2f0;
+        color: #183247;
+        font-size: 13px;
+        font-weight: 900;
+    }
+
+    .relogio-jogo-real span {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .topo-jogo-mini .linha-principal {
+        margin-top: 10px;
+        font-size: clamp(28px, 4vw, 48px);
+        font-weight: 1000;
+        color: #183247;
+        line-height: 1.05;
+        text-align: center;
+        letter-spacing: -0.5px;
+    }
+
+    .topo-acoes-direita {
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        z-index: 5;
+    }
+
+    @media (max-width: 760px) {
+        .topo-acoes-direita {
+            position: static;
+            margin-top: 10px;
+            justify-content: center;
+        }
+        .topo-jogo-mini .linha-principal {
+            font-size: 26px;
+        }
+    }
+
+    .quadras-wrap {
+        display: flex;
+        gap: 68px;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: flex-start;
+    }
+
+    .quadra-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 240px;
+    }
+
+    .quadra-titulo {
+        text-align: center;
+        font-weight: 900;
+        color: #183247;
+        margin-bottom: 10px;
+        font-size: 18px;
+    }
+
+    .quadra {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(2, 74px);
+        grid-template-rows: repeat(3, 66px);
+        gap: 4px;
+        margin-top: 4px;
+        padding: 12px;
+        background: #ffffff;
+        border: 5px solid #0f2f4a;
+        border-radius: 20px;
+        box-shadow: inset 0 0 0 3px rgba(255,255,255,.72), 0 12px 26px rgba(15, 47, 74, .16);
+        overflow: visible;
+    }
+
+    .quadra::after {
+        content: "REDE";
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%) rotate(-90deg);
+        transform-origin: center;
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: #0f2f4a;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 1000;
+        letter-spacing: .08em;
+        box-shadow: 0 6px 14px rgba(15, 47, 74, .22);
+        pointer-events: none;
+    }
+
+    .quadra .pos:nth-child(1),
+    .mobile-quadra-grid .mobile-pos:nth-child(1) { grid-area: p4; }
+    .quadra .pos:nth-child(2),
+    .mobile-quadra-grid .mobile-pos:nth-child(2) { grid-area: p3; }
+    .quadra .pos:nth-child(3),
+    .mobile-quadra-grid .mobile-pos:nth-child(3) { grid-area: p2; }
+    .quadra .pos:nth-child(4),
+    .mobile-quadra-grid .mobile-pos:nth-child(4) { grid-area: p5; }
+    .quadra .pos:nth-child(5),
+    .mobile-quadra-grid .mobile-pos:nth-child(5) { grid-area: p6; }
+    .quadra .pos:nth-child(6),
+    .mobile-quadra-grid .mobile-pos:nth-child(6) { grid-area: p1; }
+
+    .quadra-lado-esquerdo {
+        grid-template-areas:
+            "p5 p4"
+            "p6 p3"
+            "p1 p2";
+    }
+
+    .quadra-lado-direito {
+        grid-template-areas:
+            "p2 p1"
+            "p3 p6"
+            "p4 p5";
+    }
+
+    .quadra-lado-esquerdo::after {
+        right: -38px;
+        left: auto;
+    }
+
+    .quadra-lado-direito::after {
+        left: -38px;
+        right: auto;
+    }
+
+    .pos {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, #f59e0b 0%, #ea8a04 100%);
+        border-radius: 10px;
+        font-weight: 1000;
+        font-size: 24px;
+        color: #0f2f4a;
+        border: 2px solid rgba(255,255,255,.92);
+        box-shadow: inset 0 0 0 1px rgba(15,47,74,.08);
+        transition: background-color .12s ease, color .12s ease, border-color .12s ease, transform .12s ease;
+        will-change: transform, background-color, color;
+    }
+
+    .pos-atualizando {
+        transform: scale(1.03);
+    }
+
+    .pos-substituto {
+        background: #fecaca !important;
+        color: #991b1b !important;
+        border-color: #fca5a5 !important;
+    }
+
+    .pos-retorno {
+        background: #bbf7d0 !important;
+        color: #166534 !important;
+        border-color: #86efac !important;
+    }
+
+    .acoes-jogo {
+        display: flex;
+        gap: 14px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .acoes-tempo {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+
+    .substituicoes-info,
+    .sancoes-info {
+        margin-top: 10px;
+        font-size: 14px;
+        text-align: center;
+        color: #5c6b78;
+    }
+
+    .substituicao-modal-fundo,
+    .sancao-modal-fundo,
+    .verde-modal-fundo,
+    .ponto-modal-fundo {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 9999;
+    }
+
+    .substituicao-modal,
+    .sancao-modal,
+    .verde-modal,
+    .ponto-modal {
+        width: 100%;
+        max-width: 520px;
+        background: #fff;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 18px 40px rgba(0,0,0,.18);
+    }
+
+    .substituicao-bloco,
+    .sancao-bloco,
+    .verde-bloco,
+    .ponto-bloco {
+        margin-top: 14px;
+    }
+
+    .substituicao-label,
+    .sancao-label,
+    .verde-label,
+    .ponto-label {
+        font-size: 14px;
+        font-weight: 800;
+        color: #183247;
+        margin-bottom: 8px;
+    }
+
+    .substituicao-lista,
+    .sancao-lista,
+    .verde-lista,
+    .ponto-lista {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .substituicao-card,
+    .sancao-card,
+    .verde-card,
+    .ponto-card {
+        min-width: 82px;
+        padding: 10px 12px;
+        border: 1px solid #d6e2f0;
+        border-radius: 10px;
+        background: #f8fbff;
+        color: #183247;
+        font-size: 14px;
+        font-weight: 900;
+        text-align: center;
+        cursor: pointer;
+        transition: .15s ease;
+        user-select: none;
+    }
+
+    .ponto-card {
+        min-width: 126px;
+    }
+
+    .substituicao-card:hover,
+    .sancao-card:hover,
+    .verde-card:hover,
+    .ponto-card:hover {
+        transform: translateY(-1px);
+        background: #eef6ff;
+    }
+
+    .substituicao-card.ativo-sai {
+        background: #fee2e2;
+        border-color: #fca5a5;
+        color: #991b1b;
+    }
+
+    .substituicao-card.ativo-entra,
+    .sancao-card.ativo,
+    .verde-card.ativo,
+    .ponto-card.ativo {
+        background: #dcfce7;
+        border-color: #86efac;
+        color: #166534;
+    }
+
+    .substituicao-acoes,
+    .sancao-acoes,
+    .verde-acoes,
+    .ponto-acoes {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 16px;
+        flex-wrap: wrap;
+    }
+
+    .substituicao-resumo,
+    .sancao-resumo,
+    .verde-resumo,
+    .ponto-resumo {
+        margin-top: 12px;
+        font-size: 14px;
+        color: #5c6b78;
+        line-height: 1.4;
+    }
+
+    .ponto-atalhos {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #f8fbff;
+        border: 1px solid #d6e2f0;
+        font-size: 12px;
+        color: #5c6b78;
+        line-height: 1.5;
+    }
+
+.jogo-area-central {
+    display: flex;
+    gap: 18px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.jogo-coluna-principal {
+    flex: 1 1 700px;
+    min-width: 320px;
+}
+
+.jogo-coluna-lateral {
+    width: 280px;
+    max-width: 100%;
+}
+
+.ultima-acao-barra {
+    background: #f3e4ad;
+    border: 1px solid #d9c98f;
+    color: #183247;
+    font-weight: 900;
+    text-align: center;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+}
+
+
+.alerta-solicitacao {
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    z-index: 10050;
+    min-width: 280px;
+    max-width: 420px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+    box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+    display: none;
+    font-weight: 700;
+}
+
+.alerta-solicitacao strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #7c2d12;
+}
+
+.historico-card {
+    border: 1px solid #d6e2f0;
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px;
+    min-height: 360px;
+}
+
+.historico-titulo {
+    font-size: 16px;
+    font-weight: 900;
+    color: #183247;
+    margin-bottom: 10px;
+}
+
+.historico-acoes {
+    max-height: 330px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.historico-item {
+    border: 1px solid #d6e2f0;
+    border-radius: 10px;
+    background: #f8fbff;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #183247;
+    line-height: 1.35;
+}
+
+.acoes-extra {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.acoes-quadra {
+    margin-top: 26px;
+}
+
+
+.alerta-point {
+    display: none;
+    margin: 14px auto 0;
+    max-width: 420px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: #b91c1c;
+    color: white;
+    font-size: 22px;
+    font-weight: 900;
+    text-align: center;
+    letter-spacing: 1px;
+    box-shadow: 0 10px 24px rgba(185, 28, 28, 0.35);
+}
+
+.btn-wo {
+    background: #7f1d1d !important;
+    color: #fff !important;
+    border-color: #7f1d1d !important;
+}
+
+.btn-wo:hover {
+    background: #991b1b !important;
+}
+
+
+.offline-pendente {
+    display:inline-block;
+    margin-left:8px;
+    padding:3px 8px;
+    border-radius:999px;
+    background:#fff7ed;
+    color:#9a3412;
+    border:1px solid #fdba74;
+    font-size:12px;
+    font-weight:900;
+}
+
+
+/* =========================================================
+   TECLAS DE ATALHO DO APONTADOR
+   ========================================================= */
+.btn-salvar-partida { border:0; border-radius:12px; padding:8px 12px; font-size:13px; font-weight:900; cursor:pointer; background:#0f766e; color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.14); }
+.btn-salvar-partida.sair { background:#9a3412; }
+.btn-salvar-partida:disabled { opacity:.65; cursor:not-allowed; }
+
+.btn-atalhos-apontador {
+    border: 0;
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    background: #111827;
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(0,0,0,.14);
+}
+
+.modal-atalhos-apontador {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(15,23,42,.72);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+}
+
+.modal-atalhos-apontador.aberto {
+    display: flex;
+}
+
+.modal-atalhos-card {
+    width: min(560px, 96vw);
+    max-height: 92vh;
+    overflow: auto;
+    background: #ffffff;
+    color: #183247;
+    border-radius: 20px;
+    padding: 18px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.35);
+}
+
+.modal-atalhos-topo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.modal-atalhos-topo h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 900;
+}
+
+.modal-atalhos-fechar {
+    border: 0;
+    background: #f1f5f9;
+    color: #0f172a;
+    border-radius: 10px;
+    width: 38px;
+    height: 38px;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.atalhos-ajuda {
+    margin: 10px 0 14px;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.35;
+}
+
+.atalhos-lista-apontador {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.atalho-item-apontador {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 1px solid #dbe3ef;
+    background: #f8fafc;
+    color: #183247;
+    padding: 11px 12px;
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    text-align: left;
+}
+
+.atalho-item-apontador.aguardando {
+    border-color: #16a34a;
+    background: #dcfce7;
+}
+
+.atalho-tecla-apontador {
+    min-width: 78px;
+    text-align: center;
+    background: #111827;
+    color: #fff;
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.atalhos-acoes-apontador {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.atalhos-acoes-apontador button {
+    border: 0;
+    border-radius: 12px;
+    padding: 12px;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.atalhos-salvar {
+    background: #16a34a;
+    color: white;
+}
+
+.atalhos-limpar {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+
+
+    /* POPUP GRANDE - SAQUE / TEMPO */
+    .popup-jogo-grande-fundo {
+        position: fixed;
+        inset: 0;
+        z-index: 99990;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(3, 10, 18, 0.74);
+        backdrop-filter: blur(5px);
+        padding: 22px;
+    }
+
+    .popup-jogo-grande-fundo.aberto {
+        display: flex;
+    }
+
+    .popup-jogo-grande-card {
+        width: min(920px, 96vw);
+        min-height: 360px;
+        border-radius: 34px;
+        background: radial-gradient(circle at top, #ffffff 0%, #eef6ff 48%, #dbeafe 100%);
+        border: 4px solid rgba(24, 50, 71, .22);
+        box-shadow: 0 28px 90px rgba(0, 0, 0, .42);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 34px;
+        color: #10283d;
+        animation: popupJogoEntrada .16s ease-out;
+    }
+
+    .popup-jogo-titulo {
+        font-size: clamp(28px, 5vw, 62px);
+        font-weight: 1000;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        margin-bottom: 18px;
+    }
+
+    .popup-jogo-numero {
+        font-size: clamp(92px, 18vw, 190px);
+        font-weight: 1000;
+        line-height: .86;
+        margin: 6px 0 12px;
+        color: #0f2f4a;
+    }
+
+    .popup-jogo-nome {
+        font-size: clamp(28px, 5vw, 60px);
+        font-weight: 1000;
+        line-height: 1.05;
+        text-transform: uppercase;
+    }
+
+    .popup-jogo-equipe {
+        margin-top: 12px;
+        font-size: clamp(20px, 3vw, 36px);
+        font-weight: 900;
+        color: #31506a;
+    }
+
+    .popup-jogo-tempo {
+        font-size: clamp(110px, 22vw, 235px);
+        font-weight: 1000;
+        line-height: .85;
+        color: #0f2f4a;
+        font-variant-numeric: tabular-nums;
+        margin: 8px 0 16px;
+    }
+
+    .popup-jogo-fechar {
+        position: absolute;
+        top: 24px;
+        right: 28px;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(255,255,255,.92);
+        color: #10283d;
+        font-size: 28px;
+        font-weight: 1000;
+        width: 54px;
+        height: 54px;
+        cursor: pointer;
+        box-shadow: 0 10px 25px rgba(0,0,0,.2);
+    }
+
+    @keyframes popupJogoEntrada {
+        from { transform: scale(.94); opacity: .35; }
+        to { transform: scale(1); opacity: 1; }
+    }
+
+    #btn-ponto-a,
+    #btn-ponto-b {
+        background: #fff !important;
+        color: #00304f !important;
+        border: 1px solid #d6e2f0 !important;
+        box-shadow: none !important;
+    }
+
+    #btn-ponto-a:hover,
+    #btn-ponto-b:hover {
+        background: #f8fbff !important;
+    }
+
+
+    /* =========================================================
+       MODO OPERAÇÃO MOBILE/TABLET DO APONTADOR
+       - Desktop permanece igual.
+       - Em celular/tablet horizontal, mostra uma operação enxuta.
+       ========================================================= */
+    .mobile-apontador-ui,
+    .mobile-orientacao-bloqueio {
+        display: none;
+    }
+
+    @media (max-width: 1024px) and (max-aspect-ratio: 1/1) {
+        body {
+            overflow: hidden !important;
+            background: #061629 !important;
+        }
+
+        .topo-secao,
+        .topo-jogo-mini,
+        .card-painel,
+        .ultima-acao-barra,
+        .jogo-area-central {
+            display: none !important;
+        }
+
+        .mobile-orientacao-bloqueio {
+            position: fixed;
+            inset: 0;
+            z-index: 90000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+            background:
+                radial-gradient(circle at 50% 10%, rgba(255,138,0,.18), transparent 30%),
+                linear-gradient(180deg, #061629 0%, #071b30 100%);
+            color: #fff;
+            text-align: center;
+        }
+
+        .mobile-orientacao-card {
+            width: min(460px, 96vw);
+            border: 1px solid rgba(255,255,255,.16);
+            border-radius: 26px;
+            padding: 26px;
+            background: rgba(15, 35, 60, .88);
+            box-shadow: 0 24px 80px rgba(0,0,0,.35);
+        }
+
+        .mobile-orientacao-icone {
+            font-size: 54px;
+            margin-bottom: 12px;
+        }
+
+        .mobile-orientacao-card strong {
+            display: block;
+            font-size: 24px;
+            font-weight: 1000;
+            margin-bottom: 8px;
+        }
+
+        .mobile-orientacao-card span {
+            display: block;
+            color: #cbd5e1;
+            font-size: 15px;
+            line-height: 1.4;
+        }
+    }
+
+    @media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+        html, body {
+            height: 100%;
+            overflow: hidden !important;
+            background: #061629 !important;
+        }
+
+        .topo-secao,
+        .topo-jogo-mini,
+        body > .card-painel,
+        body > .ultima-acao-barra,
+        body > .jogo-area-central {
+            display: none !important;
+        }
+
+        .mobile-apontador-ui {
+            position: fixed;
+            inset: 0;
+            z-index: 80000;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            gap: 6px;
+            padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 8px) calc(env(safe-area-inset-bottom) + 6px) calc(env(safe-area-inset-left) + 8px);
+            background:
+                radial-gradient(circle at 18% 0%, rgba(37, 99, 235, .24), transparent 34%),
+                radial-gradient(circle at 82% 0%, rgba(220, 38, 38, .20), transparent 34%),
+                linear-gradient(180deg, #061629 0%, #071b30 100%);
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        }
+
+        .mobile-jogo-topo {
+            display: grid;
+            grid-template-columns: minmax(130px, 1fr) auto minmax(130px, 1fr);
+            align-items: stretch;
+            gap: 8px;
+            min-height: 72px;
+        }
+
+        .mobile-equipe-head,
+        .mobile-centro-head {
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 16px;
+            background: rgba(255,255,255,.08);
+            box-shadow: 0 12px 28px rgba(0,0,0,.18);
+            overflow: hidden;
+        }
+
+        .mobile-equipe-head {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            padding: 8px 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .mobile-equipe-head:active,
+        .mobile-btn:active,
+        .mobile-pos:active,
+        .mobile-aba-gatilho:active {
+            transform: scale(.98);
+        }
+
+        .mobile-equipe-nome {
+            font-size: clamp(13px, 2vw, 19px);
+            font-weight: 1000;
+            line-height: 1.05;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-equipe-sub {
+            margin-top: 3px;
+            color: rgba(255,255,255,.74);
+            font-size: 11px;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-placar-numero {
+            font-size: clamp(38px, 8vw, 76px);
+            line-height: .9;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -1px;
+        }
+
+        .mobile-centro-head {
+            min-width: 152px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 12px;
+            text-align: center;
+        }
+
+        .mobile-set-atual {
+            font-size: 13px;
+            font-weight: 1000;
+            color: #fbbf24;
+        }
+
+        .mobile-sets {
+            margin-top: 2px;
+            font-size: 19px;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mobile-saque {
+            margin-top: 2px;
+            max-width: 180px;
+            font-size: 11px;
+            line-height: 1.12;
+            color: #cbd5e1;
+            font-weight: 800;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-main {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) 44px;
+            gap: 14px;
+            align-items: stretch;
+        }
+
+        .mobile-quadra-card {
+            min-width: 0;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 18px;
+            background: rgba(255,255,255,.07);
+            padding: 8px;
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            gap: 6px;
+            overflow: visible;
+        }
+
+        .mobile-quadra-titulo {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 1000;
+            color: #e2e8f0;
+            min-width: 0;
+        }
+
+        .mobile-quadra-titulo span:first-child {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-badge {
+            flex: 0 0 auto;
+            padding: 3px 7px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.12);
+            color: #f8fafc;
+            font-size: 10px;
+        }
+
+        .mobile-quadra-grid {
+            position: relative;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(50px, 1fr));
+            grid-template-rows: repeat(3, minmax(44px, 1fr));
+            gap: 4px;
+            padding: 8px;
+            margin-left: 18px;
+            background: #ffffff;
+            border: 4px solid #0f2f4a;
+            border-radius: 18px;
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,.70);
+            overflow: visible !important;
+            box-sizing: border-box;
+        }
+
+        .mobile-quadra-grid::after {
+            content: "REDE";
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%) rotate(-90deg);
+            transform-origin: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            background: #0f2f4a;
+            color: #ffffff;
+            font-size: 9px;
+            font-weight: 1000;
+            letter-spacing: .08em;
+            pointer-events: none;
+        }
+
+        .mobile-quadra-grid.quadra-lado-esquerdo::after {
+            right: -31px;
+            left: auto;
+        }
+
+        .mobile-quadra-grid.quadra-lado-direito::after {
+            left: -31px;
+            right: auto;
+        }
+
+        .mobile-pos {
+            border: 2px solid rgba(255,255,255,.92);
+            border-radius: 12px;
+            background: linear-gradient(180deg, #f59e0b 0%, #ea8a04 100%);
+            color: #0f2f4a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            min-width: 0;
+            cursor: pointer;
+            user-select: none;
+            box-shadow: inset 0 0 0 1px rgba(15,47,74,.08);
+        }
+
+        .mobile-pos-numero {
+            font-size: clamp(23px, 5.2vw, 44px);
+            line-height: .9;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .mobile-pos-nome {
+            width: 100%;
+            margin-top: 4px;
+            font-size: 10px;
+            font-weight: 900;
+            color: #475569;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+
+        .mobile-pos.pos-substituto {
+            background: #fecaca !important;
+            color: #7f1d1d !important;
+        }
+
+        .mobile-pos.pos-retorno {
+            background: #bbf7d0 !important;
+            color: #14532d !important;
+        }
+
+        .mobile-ponto-btn {
+            width: 100%;
+            border: 0;
+            border-radius: 14px;
+            padding: 9px 8px;
+            background: #f8fafc;
+            color: #061629;
+            font-size: 14px;
+            font-weight: 1000;
+            cursor: pointer;
+        }
+
+        .mobile-aba-lateral {
+            position: relative;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mobile-aba-gatilho {
+            width: 42px;
+            height: 100%;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 16px;
+            background: rgba(255,255,255,.10);
+            color: #fff;
+            font-size: 19px;
+            font-weight: 1000;
+            cursor: pointer;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+
+        .mobile-menu-lateral {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: min(238px, 44vw);
+            z-index: 2;
+            display: none;
+            grid-template-rows: auto 1fr;
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid rgba(255,255,255,.16);
+            border-radius: 18px;
+            background: rgba(2, 8, 23, .94);
+            box-shadow: 0 20px 50px rgba(0,0,0,.38);
+        }
+
+        .mobile-menu-lateral.aberto {
+            display: grid;
+        }
+
+        .mobile-aba-lateral.esquerda .mobile-menu-lateral { left: 46px; }
+        .mobile-aba-lateral.direita .mobile-menu-lateral { right: 46px; }
+
+        .mobile-menu-topo {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 1000;
+        }
+
+        .mobile-menu-fechar {
+            border: 0;
+            border-radius: 10px;
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            font-size: 20px;
+            font-weight: 1000;
+            cursor: pointer;
+        }
+
+        .mobile-menu-acoes {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 7px;
+            align-content: start;
+            overflow: auto;
+        }
+
+        .mobile-btn {
+            border: 0;
+            border-radius: 12px;
+            padding: 10px 9px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 1000;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .mobile-btn.principal { background: #f97316; }
+        .mobile-btn.perigo { background: #991b1b; }
+        .mobile-btn.neutro { background: #334155; }
+
+        .mobile-footer {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 8px;
+            align-items: center;
+            min-height: 42px;
+        }
+
+        .mobile-ultima-acao {
+            min-width: 0;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 14px;
+            padding: 9px 12px;
+            background: rgba(255,255,255,.08);
+            color: #fef3c7;
+            font-size: 12px;
+            font-weight: 1000;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+
+        .mobile-footer-acoes {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .mobile-footer-acoes a,
+        .mobile-footer-acoes button {
+            border: 0;
+            border-radius: 12px;
+            padding: 10px 11px;
+            background: rgba(255,255,255,.12);
+            color: #fff;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 1000;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .mobile-footer-acoes .salvar { background: #0f766e; }
+        .mobile-footer-acoes .sair { background: #9a3412; }
+
+        .mobile-cronometro {
+            display: none;
+            padding: 9px 12px;
+            border-radius: 14px;
+            background: #fbbf24;
+            color: #111827;
+            font-size: 16px;
+            font-weight: 1000;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .mobile-cronometro.ativo {
+            display: block;
+        }
+
+        .alerta-solicitacao {
+            top: calc(env(safe-area-inset-top) + 8px) !important;
+            right: calc(env(safe-area-inset-right) + 8px) !important;
+            max-width: 330px !important;
+            min-width: 230px !important;
+            padding: 10px 12px !important;
+            border-radius: 12px !important;
+            font-size: 12px !important;
+        }
+
+        .popup-jogo-grande-card {
+            width: min(760px, 94vw) !important;
+            min-height: min(290px, 78vh) !important;
+            border-radius: 24px !important;
+        }
+
+        .substituicao-modal,
+        .sancao-modal,
+        .verde-modal,
+        .ponto-modal {
+            max-width: min(720px, 94vw) !important;
+            max-height: 88vh !important;
+            overflow: auto !important;
+            padding: 14px !important;
+        }
+    }
+
+
+/* =========================================================
+   CORREÇÃO MOBILE: modais acima da tela mobile
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    .substituicao-modal-fundo,
+    .sancao-modal-fundo,
+    .verde-modal-fundo,
+    .ponto-modal-fundo,
+    #retardamento-modal-fundo,
+    #subex-modal-fundo {
+        z-index: 95000 !important;
+    }
+
+    .substituicao-modal,
+    .sancao-modal,
+    .verde-modal,
+    .ponto-modal {
+        position: relative;
+        z-index: 95001 !important;
+    }
+
+    .mobile-apontador-ui button,
+    .mobile-apontador-ui a,
+    .mobile-pos,
+    .mobile-ponto-btn,
+    .mobile-equipe-head {
+        touch-action: manipulation;
+    }
+}
+
+
+/* =========================================================
+   AJUSTE MOBILE: justificativa do ponto compacta
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    .ponto-modal-fundo {
+        align-items: center !important;
+        padding: 6px !important;
+    }
+
+    .ponto-modal {
+        width: min(760px, 96vw) !important;
+        max-height: 94vh !important;
+        padding: 10px !important;
+        border-radius: 12px !important;
+        overflow: auto !important;
+    }
+
+    .ponto-modal > div:first-child {
+        font-size: 15px !important;
+        line-height: 1.05 !important;
+    }
+
+    #ponto-equipe-texto {
+        margin-top: 3px !important;
+        font-size: 11px !important;
+        line-height: 1.15 !important;
+    }
+
+    .ponto-bloco {
+        margin-top: 7px !important;
+    }
+
+    .ponto-label {
+        font-size: 11px !important;
+        margin-bottom: 4px !important;
+        line-height: 1.05 !important;
+    }
+
+    .ponto-lista {
+        gap: 4px !important;
+    }
+
+    .ponto-card {
+        min-width: 88px !important;
+        padding: 6px 7px !important;
+        border-radius: 8px !important;
+        font-size: 11px !important;
+        line-height: 1.1 !important;
+    }
+
+    .ponto-resumo {
+        margin-top: 7px !important;
+        font-size: 11px !important;
+        line-height: 1.2 !important;
+    }
+
+    .ponto-atalhos {
+        display: none !important;
+    }
+
+    .ponto-acoes {
+        margin-top: 8px !important;
+        gap: 6px !important;
+    }
+
+    .ponto-acoes button {
+        padding: 8px 12px !important;
+        border-radius: 10px !important;
+        font-size: 12px !important;
+    }
+}
+
+
+    .jogo-equipes-com-escudo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .jogo-equipe-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .jogo-equipe-chip.direita {
+        flex-direction: row-reverse;
+    }
+
+    .jogo-escudo-time {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+        border-radius: 12px;
+        background: #eef6ff;
+        border: 1px solid #d6e2f0;
+        padding: 5px;
+        flex: 0 0 auto;
+    }
+
+    .jogo-x-times {
+        color: #6b7c8c;
+        font-weight: 1000;
+        font-size: clamp(24px, 3vw, 38px);
+    }
+
+
+
+/* =========================================================
+   FIX TABLET/PWA INSTALADO - PAISAGEM REAL 100% DA TELA
+   ========================================================= */
+html,
+body {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100vw !important;
+    min-height: 100% !important;
+    overflow-x: hidden !important;
+}
+
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    html,
+    body {
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        inset: 0 !important;
+        background: #061629 !important;
+    }
+
+    .mobile-orientacao-bloqueio {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    .topo-secao,
+    .topo-jogo-mini,
+    body > .card-painel,
+    body > .ultima-acao-barra,
+    body > .jogo-area-central,
+    main > .card-painel,
+    main > .ultima-acao-barra,
+    main > .jogo-area-central {
+        display: none !important;
+    }
+
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        position: fixed !important;
+        inset: 0 !important;
+        left: 0 !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        display: grid !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-width: 100vw !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+        transform: none !important;
+    }
+
+    .mobile-main {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-quadra-card,
+    .mobile-quadra-grid {
+        min-width: 0 !important;
+        min-height: 0 !important;
+        height: 100% !important;
+        overflow: visible !important;
+    }
+}
+
+@media (max-width: 1024px) and (max-aspect-ratio: 1/1) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        display: none !important;
+    }
+
+    .mobile-orientacao-bloqueio {
+        display: flex !important;
+    }
+}
+
+
+/* =========================================================
+   FIX DEFINITIVO TABLET/PWA - BARRA INFERIOR FIXA
+   Mantém Voltar/Desfazer/Inverter/Salvar sempre presos no rodapé
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        grid-template-rows: auto minmax(0, 1fr) !important;
+        padding-bottom: 0 !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-main {
+        min-height: 0 !important;
+        height: 100% !important;
+        overflow: hidden !important;
+        padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+        box-sizing: border-box !important;
+    }
+
+    .mobile-footer {
+        position: fixed !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        z-index: 99999 !important;
+
+        display: grid !important;
+        grid-template-columns: auto minmax(120px, 1fr) auto !important;
+        gap: 8px !important;
+        align-items: center !important;
+
+        min-height: 54px !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+
+        padding:
+            8px
+            calc(env(safe-area-inset-right) + 10px)
+            calc(env(safe-area-inset-bottom) + 8px)
+            calc(env(safe-area-inset-left) + 10px) !important;
+
+        background: rgba(6, 22, 41, .97) !important;
+        border-top: 1px solid rgba(255,255,255,.10) !important;
+        box-shadow: 0 -12px 30px rgba(0,0,0,.28) !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+
+        box-sizing: border-box !important;
+        transform: translateZ(0) !important;
+    }
+
+    .mobile-footer-acoes {
+        min-width: 0 !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+        padding-bottom: 1px !important;
+    }
+
+    .mobile-footer-acoes::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    .mobile-ultima-acao {
+        min-width: 0 !important;
+    }
+}
+
+@media (max-width: 900px) and (min-aspect-ratio: 1/1) {
+    .mobile-main {
+        padding-bottom: calc(58px + env(safe-area-inset-bottom)) !important;
+    }
+
+    .mobile-footer {
+        min-height: 50px !important;
+        gap: 6px !important;
+        padding:
+            6px
+            calc(env(safe-area-inset-right) + 8px)
+            calc(env(safe-area-inset-bottom) + 6px)
+            calc(env(safe-area-inset-left) + 8px) !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 9px 10px !important;
+        font-size: 11px !important;
+    }
+}
+
+
+
+/* =========================================================
+   RESPONSIVO V3 - APONTADOR CABE NA TELA
+   Desktop/notebook/tablet/celular horizontal sem cortar quadra
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    html,
+    body {
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        inset: 0 !important;
+    }
+
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        display: grid !important;
+        grid-template-rows: clamp(58px, 11vh, 86px) minmax(0, 1fr) auto !important;
+        gap: clamp(3px, .8vh, 7px) !important;
+        padding:
+            calc(env(safe-area-inset-top) + clamp(3px, .7vh, 7px))
+            calc(env(safe-area-inset-right) + clamp(5px, .8vw, 10px))
+            calc(env(safe-area-inset-bottom) + clamp(3px, .7vh, 7px))
+            calc(env(safe-area-inset-left) + clamp(5px, .8vw, 10px)) !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-width: 100vw !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    .mobile-jogo-topo {
+        min-height: 0 !important;
+        height: 100% !important;
+        gap: clamp(5px, .7vw, 9px) !important;
+        grid-template-columns: minmax(125px, 1fr) minmax(118px, 158px) minmax(125px, 1fr) !important;
+    }
+
+    .mobile-equipe-head,
+    .mobile-centro-head {
+        border-radius: clamp(11px, 1.4vw, 17px) !important;
+        min-height: 0 !important;
+    }
+
+    .mobile-equipe-head {
+        padding: clamp(5px, .8vh, 9px) clamp(7px, .9vw, 12px) !important;
+        grid-template-columns: minmax(0, 1fr) auto !important;
+    }
+
+    .mobile-centro-head {
+        min-width: 0 !important;
+        padding: clamp(4px, .7vh, 7px) clamp(7px, .8vw, 11px) !important;
+    }
+
+    .mobile-equipe-nome {
+        font-size: clamp(12px, 1.55vw, 18px) !important;
+        line-height: 1 !important;
+    }
+
+    .mobile-equipe-sub {
+        font-size: clamp(9px, .9vw, 11px) !important;
+        margin-top: 2px !important;
+    }
+
+    .mobile-placar-numero {
+        font-size: clamp(34px, 7vh, 68px) !important;
+        line-height: .88 !important;
+    }
+
+    .mobile-set-atual {
+        font-size: clamp(10px, 1.2vw, 13px) !important;
+        line-height: 1 !important;
+    }
+
+    .mobile-sets {
+        font-size: clamp(14px, 2.3vh, 20px) !important;
+        line-height: 1.05 !important;
+        margin-top: 1px !important;
+    }
+
+    .mobile-saque {
+        max-width: 100% !important;
+        font-size: clamp(9px, .9vw, 11px) !important;
+        line-height: 1.05 !important;
+        margin-top: 1px !important;
+    }
+
+    .mobile-main {
+        min-height: 0 !important;
+        height: auto !important;
+        width: 100% !important;
+        overflow: hidden !important;
+        padding-bottom: 0 !important;
+        grid-template-columns: clamp(34px, 4vw, 45px) minmax(0, 1fr) minmax(0, 1fr) clamp(34px, 4vw, 45px) !important;
+        gap: clamp(5px, .9vw, 13px) !important;
+        align-items: stretch !important;
+    }
+
+    .mobile-quadra-card {
+        min-height: 0 !important;
+        height: auto !important;
+        padding: clamp(5px, .8vh, 8px) !important;
+        gap: clamp(3px, .6vh, 6px) !important;
+        border-radius: clamp(12px, 1.6vw, 18px) !important;
+        overflow: hidden !important;
+        grid-template-rows: auto minmax(0, 1fr) auto !important;
+    }
+
+    .mobile-quadra-titulo {
+        font-size: clamp(10px, 1vw, 12px) !important;
+        line-height: 1 !important;
+        min-height: clamp(15px, 2.1vh, 20px) !important;
+    }
+
+    .mobile-badge {
+        font-size: clamp(8px, .8vw, 10px) !important;
+        padding: 2px 6px !important;
+    }
+
+    .mobile-quadra-grid {
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: 100% !important;
+        padding: clamp(5px, .8vh, 8px) !important;
+        gap: clamp(3px, .65vh, 6px) !important;
+        margin-left: clamp(10px, 1.4vw, 18px) !important;
+        border-width: clamp(2px, .45vw, 4px) !important;
+        border-radius: clamp(12px, 1.5vw, 18px) !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
+        overflow: visible !important;
+    }
+
+    .mobile-quadra-grid.quadra-lado-esquerdo::after {
+        right: clamp(-28px, -2.2vw, -18px) !important;
+    }
+
+    .mobile-quadra-grid.quadra-lado-direito::after {
+        left: clamp(-28px, -2.2vw, -18px) !important;
+    }
+
+    .mobile-quadra-grid::after {
+        font-size: clamp(7px, .7vw, 9px) !important;
+        padding: 3px 8px !important;
+    }
+
+    .mobile-pos {
+        min-height: 0 !important;
+        padding: clamp(2px, .5vh, 5px) !important;
+        border-radius: clamp(8px, 1.1vw, 12px) !important;
+        border-width: clamp(1px, .25vw, 2px) !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(26px, 7.2vh, 56px) !important;
+        line-height: .86 !important;
+    }
+
+    .mobile-pos-nome {
+        margin-top: clamp(1px, .45vh, 4px) !important;
+        font-size: clamp(7px, 1.15vh, 10px) !important;
+        line-height: 1 !important;
+        max-width: 96% !important;
+    }
+
+    .mobile-ponto-btn {
+        display: none !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: clamp(32px, 3.7vw, 42px) !important;
+        border-radius: clamp(10px, 1.4vw, 16px) !important;
+        font-size: clamp(14px, 1.8vw, 19px) !important;
+        line-height: 1 !important;
+    }
+
+    .mobile-menu-lateral {
+        width: min(238px, 44vw) !important;
+        max-height: 100% !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-btn {
+        padding: clamp(7px, 1.1vh, 10px) clamp(7px, .8vw, 9px) !important;
+        font-size: clamp(10px, 1vw, 12px) !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-footer {
+        position: relative !important;
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: 0 !important;
+        padding: clamp(4px, .7vh, 8px) !important;
+        display: grid !important;
+        grid-template-columns: auto minmax(110px, 1fr) auto !important;
+        gap: clamp(4px, .7vw, 8px) !important;
+        align-items: center !important;
+        border-radius: 12px !important;
+        background: rgba(6, 22, 41, .96) !important;
+        border: 1px solid rgba(255,255,255,.08) !important;
+        box-shadow: none !important;
+        box-sizing: border-box !important;
+        transform: none !important;
+        z-index: 80005 !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: clamp(6px, .9vh, 9px) clamp(8px, .9vw, 12px) !important;
+        font-size: clamp(10px, 1vw, 12px) !important;
+        line-height: 1 !important;
+        border-radius: 12px !important;
+    }
+
+    .mobile-footer-acoes {
+        min-width: 0 !important;
+        gap: clamp(4px, .6vw, 7px) !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+    }
+
+    .mobile-footer-acoes::-webkit-scrollbar {
+        display: none !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: clamp(7px, 1vh, 10px) clamp(8px, .9vw, 11px) !important;
+        font-size: clamp(10px, .95vw, 12px) !important;
+        border-radius: 10px !important;
+        flex: 0 0 auto !important;
+    }
+
+    .mobile-cronometro {
+        padding: clamp(6px, .9vh, 9px) clamp(8px, .9vw, 12px) !important;
+        font-size: clamp(12px, 1.4vw, 16px) !important;
+        border-radius: 12px !important;
+    }
+}
+
+/* Notebook/PC com pouca altura: modo super compacto */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) and (max-height: 760px) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        grid-template-rows: clamp(52px, 10vh, 76px) minmax(0, 1fr) auto !important;
+        gap: 3px !important;
+        padding: 3px 6px !important;
+    }
+
+    .mobile-jogo-topo {
+        gap: 6px !important;
+        grid-template-columns: minmax(115px, 1fr) minmax(108px, 145px) minmax(115px, 1fr) !important;
+    }
+
+    .mobile-placar-numero {
+        font-size: clamp(30px, 7.6vh, 58px) !important;
+    }
+
+    .mobile-equipe-nome {
+        font-size: clamp(11px, 1.45vw, 16px) !important;
+    }
+
+    .mobile-equipe-sub,
+    .mobile-saque {
+        font-size: 9px !important;
+    }
+
+    .mobile-set-atual {
+        font-size: 10px !important;
+    }
+
+    .mobile-sets {
+        font-size: clamp(13px, 2.2vh, 18px) !important;
+    }
+
+    .mobile-main {
+        grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) 34px !important;
+        gap: 6px !important;
+    }
+
+    .mobile-quadra-card {
+        padding: 5px !important;
+        gap: 3px !important;
+    }
+
+    .mobile-quadra-grid {
+        padding: 5px !important;
+        gap: 3px !important;
+        margin-left: 10px !important;
+        border-width: 2px !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(24px, 7.6vh, 50px) !important;
+    }
+
+    .mobile-pos-nome {
+        font-size: clamp(7px, 1.05vh, 9px) !important;
+        margin-top: 1px !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: 32px !important;
+        font-size: 14px !important;
+    }
+
+    .mobile-footer {
+        padding: 4px 6px !important;
+        gap: 4px !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 7px 8px !important;
+        font-size: 10px !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: 7px 8px !important;
+        font-size: 10px !important;
+    }
+}
+
+/* Celular horizontal: cabe com ações rolando na barra inferior */
+@media (max-width: 900px) and (min-aspect-ratio: 1/1) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        grid-template-rows: 50px minmax(0, 1fr) auto !important;
+        padding: 3px 4px !important;
+        gap: 3px !important;
+    }
+
+    .mobile-jogo-topo {
+        grid-template-columns: minmax(90px, 1fr) minmax(86px, 110px) minmax(90px, 1fr) !important;
+        gap: 4px !important;
+    }
+
+    .mobile-equipe-head {
+        padding: 4px 6px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-centro-head {
+        padding: 3px 5px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-equipe-nome { font-size: 10px !important; }
+    .mobile-equipe-sub { display: none !important; }
+    .mobile-placar-numero { font-size: clamp(28px, 9vh, 44px) !important; }
+    .mobile-set-atual { font-size: 9px !important; }
+    .mobile-sets { font-size: 14px !important; }
+    .mobile-saque { font-size: 8px !important; }
+
+    .mobile-main {
+        grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr) 30px !important;
+        gap: 4px !important;
+    }
+
+    .mobile-quadra-titulo {
+        font-size: 9px !important;
+        min-height: 12px !important;
+    }
+
+    .mobile-badge { display: none !important; }
+
+    .mobile-quadra-card {
+        padding: 4px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-quadra-grid {
+        padding: 4px !important;
+        gap: 3px !important;
+        margin-left: 8px !important;
+        border-width: 2px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-quadra-grid::after {
+        font-size: 6px !important;
+        padding: 2px 6px !important;
+    }
+
+    .mobile-quadra-grid.quadra-lado-esquerdo::after { right: -20px !important; }
+    .mobile-quadra-grid.quadra-lado-direito::after { left: -20px !important; }
+
+    .mobile-pos {
+        border-radius: 7px !important;
+        padding: 1px !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(20px, 9vh, 38px) !important;
+    }
+
+    .mobile-pos-nome {
+        font-size: 7px !important;
+        margin-top: 0 !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: 28px !important;
+        border-radius: 9px !important;
+        font-size: 12px !important;
+    }
+
+    .mobile-footer {
+        grid-template-columns: minmax(90px, 1fr) auto !important;
+        padding: 3px 4px !important;
+        border-radius: 8px !important;
+    }
+
+    .mobile-cronometro {
+        display: none !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: 6px 7px !important;
+        font-size: 9px !important;
+        border-radius: 9px !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 6px 7px !important;
+        font-size: 9px !important;
+        border-radius: 8px !important;
+    }
+}
+
+
+
+/* =========================================================
+   RESPONSIVO V4 - AJUSTE FINAL PARA CABER NO SAFARI/NOTEBOOK
+   Resolve corte da terceira linha da quadra e barra inferior.
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) and (max-height: 820px) {
+    html, body {
+        width: 100vw !important;
+        height: 100svh !important;
+        max-height: 100svh !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        inset: 0 !important;
+    }
+
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        height: 100svh !important;
+        max-height: 100svh !important;
+        min-height: 0 !important;
+        grid-template-rows: 52px minmax(0, calc(100svh - 102px)) 44px !important;
+        gap: 3px !important;
+        padding: 3px 5px !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-jogo-topo {
+        height: 52px !important;
+        min-height: 0 !important;
+        gap: 5px !important;
+        grid-template-columns: minmax(90px, 1fr) minmax(84px, 126px) minmax(90px, 1fr) !important;
+    }
+
+    .mobile-equipe-head,
+    .mobile-centro-head {
+        min-height: 0 !important;
+        height: 52px !important;
+        border-radius: 10px !important;
+    }
+
+    .mobile-equipe-head { padding: 3px 7px !important; }
+    .mobile-centro-head { padding: 2px 5px !important; }
+    .mobile-equipe-nome { font-size: clamp(10px, 1.25vw, 14px) !important; line-height: 1 !important; }
+    .mobile-equipe-sub { display: none !important; }
+    .mobile-placar-numero { font-size: clamp(30px, 7.4svh, 52px) !important; line-height: .82 !important; }
+    .mobile-set-atual { font-size: 9px !important; line-height: 1 !important; }
+    .mobile-sets { font-size: 14px !important; line-height: 1 !important; margin-top: 0 !important; }
+    .mobile-saque { font-size: 8px !important; line-height: 1 !important; margin-top: 1px !important; }
+
+    .mobile-main {
+        height: calc(100svh - 102px) !important;
+        max-height: calc(100svh - 102px) !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr) 30px !important;
+        gap: 4px !important;
+        align-items: stretch !important;
+    }
+
+    .mobile-quadra-card {
+        height: 100% !important;
+        min-height: 0 !important;
+        max-height: 100% !important;
+        padding: 3px !important;
+        gap: 2px !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+        grid-template-rows: 14px minmax(0, 1fr) !important;
+    }
+
+    .mobile-quadra-titulo {
+        min-height: 0 !important;
+        height: 14px !important;
+        font-size: 9px !important;
+        line-height: 1 !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-badge { display: none !important; }
+
+    .mobile-quadra-grid {
+        height: 100% !important;
+        max-height: 100% !important;
+        min-height: 0 !important;
+        padding: 3px !important;
+        gap: 2px !important;
+        margin-left: 8px !important;
+        border-width: 2px !important;
+        border-radius: 10px !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-quadra-grid::after {
+        font-size: 6px !important;
+        padding: 2px 5px !important;
+    }
+    .mobile-quadra-grid.quadra-lado-esquerdo::after { right: -20px !important; }
+    .mobile-quadra-grid.quadra-lado-direito::after { left: -20px !important; }
+
+    .mobile-pos {
+        min-height: 0 !important;
+        height: auto !important;
+        padding: 0 !important;
+        border-radius: 7px !important;
+        border-width: 1px !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(20px, 7.2svh, 42px) !important;
+        line-height: .82 !important;
+    }
+
+    .mobile-pos-nome {
+        font-size: clamp(6px, 1.4svh, 9px) !important;
+        line-height: 1 !important;
+        margin-top: 0 !important;
+        max-width: 95% !important;
+    }
+
+    .mobile-aba-gatilho {
+        width: 28px !important;
+        border-radius: 9px !important;
+        font-size: 12px !important;
+    }
+
+    .mobile-footer {
+        height: 44px !important;
+        min-height: 0 !important;
+        max-height: 44px !important;
+        padding: 3px 5px !important;
+        gap: 4px !important;
+        border-radius: 8px !important;
+        grid-template-columns: minmax(120px, 1fr) auto !important;
+        overflow: hidden !important;
+    }
+
+    .mobile-cronometro { display: none !important; }
+
+    .mobile-ultima-acao {
+        padding: 5px 7px !important;
+        font-size: 9px !important;
+        line-height: 1 !important;
+        border-radius: 8px !important;
+    }
+
+    .mobile-footer-acoes {
+        gap: 4px !important;
+        min-width: 0 !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        scrollbar-width: none !important;
+    }
+    .mobile-footer-acoes::-webkit-scrollbar { display: none !important; }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 6px 7px !important;
+        font-size: 9px !important;
+        line-height: 1 !important;
+        border-radius: 8px !important;
+    }
+}
+
+/* iPhone/Safari horizontal: ainda mais compacto por causa da barra do navegador */
+@media (max-width: 950px) and (min-aspect-ratio: 1/1) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        grid-template-rows: 44px minmax(0, calc(100svh - 84px)) 36px !important;
+        padding: 2px 3px !important;
+        gap: 2px !important;
+    }
+
+    .mobile-jogo-topo,
+    .mobile-equipe-head,
+    .mobile-centro-head {
+        height: 44px !important;
+    }
+
+    .mobile-main {
+        height: calc(100svh - 84px) !important;
+        max-height: calc(100svh - 84px) !important;
+        grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1fr) 26px !important;
+        gap: 3px !important;
+    }
+
+    .mobile-quadra-card {
+        padding: 2px !important;
+        gap: 1px !important;
+        grid-template-rows: 12px minmax(0, 1fr) !important;
+    }
+
+    .mobile-quadra-titulo {
+        height: 12px !important;
+        font-size: 8px !important;
+    }
+
+    .mobile-quadra-grid {
+        padding: 2px !important;
+        gap: 2px !important;
+        margin-left: 7px !important;
+        border-width: 2px !important;
+    }
+
+    .mobile-pos-numero {
+        font-size: clamp(18px, 6.8svh, 36px) !important;
+    }
+
+    .mobile-pos-nome {
+        font-size: 6px !important;
+    }
+
+    .mobile-footer {
+        height: 36px !important;
+        max-height: 36px !important;
+        padding: 2px 3px !important;
+        grid-template-columns: minmax(100px, 1fr) auto !important;
+    }
+
+    .mobile-ultima-acao {
+        padding: 4px 5px !important;
+        font-size: 8px !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        padding: 5px 6px !important;
+        font-size: 8px !important;
+    }
+}

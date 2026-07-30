@@ -1,0 +1,15 @@
+const fs = require('fs');
+const vm = require('vm');
+const path = require('path');
+const source = fs.readFileSync(path.join(__dirname, '../static/js/realtime/render_plan.js'), 'utf8');
+const sandbox = { window: {} };
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+const plan = sandbox.window.VTPRealtimeRenderPlan.plan;
+let p = plan(['pontos_a'], []);
+if (!p.placar || !p.topo || !p.detalhes || p.equipes) throw new Error('plano de placar inválido');
+p = plan(['rotacao_a'], []);
+if (!p.rotacao || !p.quadra || p.detalhes) throw new Error('plano de rotação inválido');
+p = plan([], []);
+if (!p.completo || !p.timeline || !p.equipes) throw new Error('plano completo inválido');
+console.log('ok');

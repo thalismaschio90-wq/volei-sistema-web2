@@ -10,16 +10,9 @@ offline_config_bp = Blueprint("offline_config", __name__)
 
 
 def criar_tabela_configuracoes_sistema():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS configuracoes_sistema (
-                    chave TEXT PRIMARY KEY,
-                    valor TEXT NOT NULL DEFAULT '',
-                    atualizado_em TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-        conn.commit()
+    """Compatibilidade: o schema é garantido no startup da aplicação."""
+    from repositories.runtime_schema import garantir_schema_runtime
+    garantir_schema_runtime()
 
 
 def obter_configuracao_sistema(chave, padrao=""):
@@ -55,7 +48,6 @@ def obter_configuracao_sistema(chave, padrao=""):
 
 
 def salvar_configuracao_sistema(chave, valor):
-    criar_tabela_configuracoes_sistema()
     _CONFIG_CACHE.pop(chave, None)
 
     with conectar() as conn:

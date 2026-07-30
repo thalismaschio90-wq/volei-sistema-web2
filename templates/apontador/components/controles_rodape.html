@@ -1,0 +1,22 @@
+<div class="card-painel jogo-rodape-card" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+    <a class="btn-secundario" href="{{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) }}">
+        Voltar para papeleta
+    </a>
+    <a class="btn-secundario" href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">
+        Voltar para partidas
+    </a>
+    <button id="btn-salvar-partida" class="btn-secundario" type="button">
+        Salvar partida
+    </button>
+    <button id="btn-salvar-sair-partida" class="btn-secundario" type="button">
+        Salvar e sair
+    </button>
+    {% if offline_habilitado is defined and offline_habilitado %}
+        <button id="btn-preparar-jogo-offline" class="btn-secundario" type="button">
+            Modo offline
+        </button>
+    {% endif %}
+    <button id="btn-atalhos-apontador" class="btn-secundario" type="button" onclick="abrirModalAtalhosApontador()">
+        Teclas de atalho
+    </button>
+</div>

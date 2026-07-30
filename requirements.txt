@@ -1,9 +1,20 @@
+# Runtime web
 Flask==3.0.3
+Werkzeug==3.0.6
 Flask-SocketIO==5.3.6
 gunicorn==21.2.0
+simple-websocket==1.0.0
+python-dotenv==1.2.2
+
+# PostgreSQL
 psycopg[binary]==3.2.12
 psycopg-pool==3.3.0
-simple-websocket==1.0.0
-python-dotenv
-reportlab==4.2.5
+
+# Imagens e relatórios
 Pillow==10.4.0
+pillow-heif==1.4.0
+reportlab==4.2.5
+
+# Estado distribuído e filas
+redis==8.0.1
+rq>=2.11,<3

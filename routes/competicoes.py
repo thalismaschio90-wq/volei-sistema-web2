@@ -14,9 +14,6 @@ from banco import (
     redefinir_senha_organizador,
     competicao_esta_travada,
     destravar_competicao,
-    listar_quadras_competicao,
-    garantir_quadras_competicao,
-    salvar_quadras_competicao,
     buscar_configuracao_avancada_competicao,
     atualizar_configuracao_avancada_competicao,
     inicializar_configuracao_avancada_competicao,
@@ -34,9 +31,15 @@ from banco import (
     marcar_etapa_configuracao_competicao,
     buscar_config_destaques_competicao,
     salvar_config_destaques_competicao,
-    listar_rodadas_competicao,
     salvar_rodadas_competicao,
 )
+
+from services.competicoes.quadras import (
+    listar_quadras_competicao,
+    garantir_quadras_competicao,
+    salvar_quadras_competicao,
+)
+from services.competicoes.rodadas import listar_rodadas_competicao
 
 from routes.utils import exigir_perfil, perfil_atual
 
@@ -103,7 +106,7 @@ def _injetar_trava_avanco_html(html, bloqueios=None):
 
     function jogoIdDoElemento(el){{
         const t = texto(el);
-        const achados = t.match(/\bJ\d+\b/gi);
+        const achados = t.match(/\\bJ\\d+\\b/gi);
         if(achados && achados.length) return achados[0].toUpperCase();
         const dataId = el && (el.dataset.jogoId || el.dataset.id || el.getAttribute('data-jogo-id') || el.getAttribute('data-id'));
         return dataId ? String(dataId).toUpperCase() : '';
@@ -273,7 +276,7 @@ def listar_competicoes_view():
     perfil = perfil_atual()
 
     if perfil == "superadmin":
-        competicoes = listar_competicoes(session.get("usuario"))
+        competicoes = listar_competicoes()
         credenciais = session.pop("credenciais_novas", None)
         senha_redefinida = session.pop("senha_redefinida_organizador", None)
 
@@ -291,7 +294,6 @@ def listar_competicoes_view():
             flash("Nenhuma competição vinculada a este organizador.", "erro")
             return redirect(url_for("painel.inicio"))
 
-        garantir_schema_fluxo_configuracao_competicoes()
         config_inicial_status = status_configuracao_inicial_competicao(competicao["nome"])
 
         quadras = garantir_quadras_competicao(
@@ -374,8 +376,6 @@ def nova_competicao():
         if competicao_existe(nome):
             flash("Já existe uma competição com esse nome.", "erro")
             return render_template("nova_competicao.html", dados_form=dados_form)
-
-        garantir_schema_fluxo_configuracao_competicoes()
 
         credenciais = criar_competicao_com_organizador(
             nome=nome,
@@ -474,7 +474,7 @@ def excluir_competicao_view(nome):
 @competicoes_bp.route("/competicoes/<nome>/resetar-senha", methods=["POST"])
 @exigir_perfil("superadmin")
 def resetar_senha_organizador_view(nome):
-    competicoes = listar_competicoes(session.get("usuario"))
+    competicoes = listar_competicoes()
     comp = next((c for c in competicoes if c["nome"] == nome), None)
 
     if not comp:
@@ -604,14 +604,6 @@ def _salvar_exigencias_inscricao_atletas(nome_competicao, exigir_foto_atleta=Fal
 
     with conectar() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                ALTER TABLE competicoes
-                ADD COLUMN IF NOT EXISTS exigir_foto_atleta BOOLEAN DEFAULT FALSE
-            """)
-            cur.execute("""
-                ALTER TABLE competicoes
-                ADD COLUMN IF NOT EXISTS exigir_instagram_atleta BOOLEAN DEFAULT FALSE
-            """)
             cur.execute("""
                 UPDATE competicoes
                 SET exigir_foto_atleta = %s,
@@ -773,12 +765,17 @@ def _coletar_grupos_compartilhados_agenda_form():
 def _rodadas_classificatoria_estimadas(competicao):
     nome = (competicao or {}).get("nome") or ""
     try:
-        from banco import listar_grupos, listar_equipes_por_grupo
+        from services.competicoes.grupos import (
+            listar_equipes_por_grupos_competicao,
+            listar_grupos,
+        )
+
         grupos = listar_grupos(nome) or []
+        equipes_por_grupo = listar_equipes_por_grupos_competicao(nome) or {}
         max_rodadas = 0
-        for g in grupos:
-            equipes = listar_equipes_por_grupo(g.get("id")) or []
-            qtd = len([e for e in equipes if e.get("equipe")])
+        for grupo in grupos:
+            equipes = equipes_por_grupo.get(grupo.get("id"), [])
+            qtd = sum(1 for equipe in equipes if equipe.get("equipe"))
             if qtd >= 2:
                 max_rodadas = max(max_rodadas, qtd if qtd % 2 else qtd - 1)
         if max_rodadas > 0:

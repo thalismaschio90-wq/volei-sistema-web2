@@ -1,3 +1,4 @@
+from core.security import gerar_hash_senha
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from urllib.parse import quote
 from datetime import timedelta
@@ -54,38 +55,9 @@ def _buscar_colunas(cur, tabela):
 
 
 def criar_tabela_demos():
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS demos_temporarias (
-                    id SERIAL PRIMARY KEY,
-                    codigo TEXT UNIQUE NOT NULL,
-                    nome TEXT NOT NULL DEFAULT '',
-                    cpf TEXT NOT NULL DEFAULT '',
-                    whatsapp TEXT NOT NULL DEFAULT '',
-                    competicao TEXT UNIQUE NOT NULL,
-                    login TEXT UNIQUE NOT NULL,
-                    senha TEXT NOT NULL,
-                    criado_em TIMESTAMP DEFAULT NOW(),
-                    expira_em TIMESTAMP NOT NULL,
-                    encerrada BOOLEAN DEFAULT FALSE,
-                    motivo_encerramento TEXT DEFAULT '',
-                    whatsapp_enviado BOOLEAN DEFAULT FALSE,
-                    liberado_novo_teste BOOLEAN DEFAULT FALSE
-                )
-            """)
-
-            cur.execute("""
-                ALTER TABLE demos_temporarias
-                ADD COLUMN IF NOT EXISTS nome TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS cpf TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS whatsapp TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS motivo_encerramento TEXT DEFAULT '',
-                ADD COLUMN IF NOT EXISTS whatsapp_enviado BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS liberado_novo_teste BOOLEAN DEFAULT FALSE
-            """)
-
-        conn.commit()
+    """Compatibilidade: o schema é garantido no startup da aplicação."""
+    from repositories.runtime_schema import garantir_schema_runtime
+    garantir_schema_runtime()
 
 
 def _cpf_ou_whatsapp_ja_usou_demo(cpf, whatsapp):
@@ -114,6 +86,7 @@ def _criar_usuario_e_competicao_demo(nome, cpf, whatsapp):
     competicao = codigo
     login = _gerar_login_demo(codigo)
     senha = _gerar_senha_demo()
+    senha_hash = gerar_hash_senha(senha)
 
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -131,7 +104,7 @@ def _criar_usuario_e_competicao_demo(nome, cpf, whatsapp):
             """, (
                 login,
                 f"Demo - {nome}",
-                senha,
+                senha_hash,
                 "organizador",
                 True,
                 None,

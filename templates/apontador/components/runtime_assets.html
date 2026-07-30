@@ -1,0 +1,138 @@
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+window.VTP_APONTADOR_BOOTSTRAP = Object.freeze({
+    partidaId: {{ partida.id | tojson }},
+    competicao: {{ competicao_nome | tojson }},
+    competicaoStorage: {{ competicao_nome | replace(' ', '_') | tojson }},
+    operadorLogin: {{ (operador_login_atual if operador_login_atual is defined else '') | tojson }},
+    operadorNome: {{ (operador_login_atual if operador_login_atual is defined else 'Apontador') | tojson }},
+    operadorSessaoToken: {{ operador_sessao_token | default('', true) | tojson }},
+    modoOperacao: {{ modo_operacao_jogo | tojson }},
+    offlineHabilitado: {{ (offline_habilitado if offline_habilitado is defined else false) | tojson }},
+    equipes: Object.freeze({
+        A: {{ nome_equipe_a_jogo | tojson }},
+        B: {{ nome_equipe_b_jogo | tojson }},
+        cadastroA: {{ nome_equipe_a_cadastro_jogo | tojson }},
+        cadastroB: {{ nome_equipe_b_cadastro_jogo | tojson }},
+        escudoA: {{ escudo_equipe_a_jogo | tojson }},
+        escudoB: {{ escudo_equipe_b_jogo | tojson }}
+    }),
+    regras: Object.freeze({
+        setsTipo: {{ (estado.get('sets_tipo') or partida.get('sets_tipo') or 'melhor_de_3') | tojson }},
+        pontosSet: {{ (estado.get('pontos_set') or estado.get('ponto_alvo_set') or estado.get('pontos_para_vencer_set') or partida.get('pontos_set') or 25) | tojson }},
+        pontosTiebreak: {{ (estado.get('pontos_tiebreak') or partida.get('pontos_tiebreak') or 15) | tojson }},
+        diferencaMinima: {{ (estado.get('diferenca_minima') or partida.get('diferenca_minima') or 2) | tojson }},
+        setsParaVencer: {{ (estado.get('sets_para_vencer') or partida.get('sets_para_vencer') or 0) | tojson }},
+        limiteTempos: {{ (estado.get('limite_tempos') if estado.get('limite_tempos') is not none else (estado.get('tempos_por_set') if estado.get('tempos_por_set') is not none else (partida.get('tempos_por_set') if partida.get('tempos_por_set') is not none else 2))) | tojson }},
+        limiteSubstituicoes: {{ (estado.get('limite_substituicoes') if estado.get('limite_substituicoes') is not none else (estado.get('substituicoes_por_set') if estado.get('substituicoes_por_set') is not none else (partida.get('substituicoes_por_set') if partida.get('substituicoes_por_set') is not none else 6))) | tojson }}
+    }),
+    estadoInicial: {{ estado | tojson }},
+    saqueInicial: {{ (estado.saque_atual if estado.saque_atual is defined else '') | tojson }},
+    statusJogadoresA: {{ (estado.status_jogadores_a if estado.status_jogadores_a is defined else {}) | tojson }},
+    statusJogadoresB: {{ (estado.status_jogadores_b if estado.status_jogadores_b is defined else {}) | tojson }},
+    sancoesA: {{ (estado.sancoes_a if estado.sancoes_a is defined else []) | tojson }},
+    sancoesB: {{ (estado.sancoes_b if estado.sancoes_b is defined else []) | tojson }},
+    vermelhosA: {{ (estado.cartoes_vermelhos_a if estado.cartoes_vermelhos_a is defined else []) | tojson }},
+    vermelhosB: {{ (estado.cartoes_vermelhos_b if estado.cartoes_vermelhos_b is defined else []) | tojson }},
+    verdesA: {{ (estado.cartoes_verdes_a if estado.cartoes_verdes_a is defined else []) | tojson }},
+    verdesB: {{ (estado.cartoes_verdes_b if estado.cartoes_verdes_b is defined else []) | tojson }},
+    atletasA: {{ (atletas_a if atletas_a is defined else []) | tojson }},
+    atletasB: {{ (atletas_b if atletas_b is defined else []) | tojson }},
+    papeletaA: [{{ papeleta_a.get(4, '') | tojson }}, {{ papeleta_a.get(3, '') | tojson }}, {{ papeleta_a.get(2, '') | tojson }}, {{ papeleta_a.get(5, '') | tojson }}, {{ papeleta_a.get(6, '') | tojson }}, {{ papeleta_a.get(1, '') | tojson }}],
+    papeletaB: [{{ papeleta_b.get(4, '') | tojson }}, {{ papeleta_b.get(3, '') | tojson }}, {{ papeleta_b.get(2, '') | tojson }}, {{ papeleta_b.get(5, '') | tojson }}, {{ papeleta_b.get(6, '') | tojson }}, {{ papeleta_b.get(1, '') | tojson }}],
+    rotacaoA: {{ (estado.rotacao_a if estado.rotacao_a is defined else []) | tojson }},
+    rotacaoB: {{ (estado.rotacao_b if estado.rotacao_b is defined else []) | tojson }},
+    inicioPartidaReal: {{ (partida.get('inicio_partida_real') if partida is mapping else partida.inicio_partida_real|default('', true)) | tojson }},
+    fimPartidaReal: {{ (partida.get('fim_partida_real') if partida is mapping else partida.fim_partida_real|default('', true)) | tojson }},
+    urls: Object.freeze({
+        heartbeat: {{ url_for('apontadores.heartbeat_partida_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        placarAoVivo: {{ url_for('apontadores.placar_ao_vivo_apontador', apontador=(operador_login_atual if operador_login_atual is defined else '')) | tojson }},
+        observacoes: {{ url_for('apontadores.observacoes_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        tiebreak: {{ url_for('apontadores.abrir_tiebreak_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        papeleta: {{ url_for('apontadores.papeleta_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        painelCompeticao: {{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) | tojson }},
+        ponto: {{ url_for('apontadores.ponto_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        tempo: {{ url_for('apontadores.registrar_tempo_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        substituicao: {{ url_for('apontadores.registrar_substituicao_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        substituicaoExcepcional: {{ url_for('apontadores.registrar_substituicao_excepcional_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        retardamento: {{ url_for('apontadores.registrar_retardamento_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        sancao: {{ url_for('apontadores.registrar_sancao_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        cartaoVerde: {{ url_for('apontadores.registrar_cartao_verde_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        sincronizar: {{ url_for('apontadores.sincronizar_acao_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        estado: {{ url_for('apontadores.estado_jogo_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        salvarEstado: {{ url_for('apontadores.salvar_estado_manual_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        encerrar: {{ url_for('apontadores.encerrar_partida_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        desfazer: {{ url_for('apontadores.desfazer_acao_view', competicao=competicao_nome, partida_id=partida.id) | tojson }},
+        wo: {{ url_for('apontadores.wo_view', competicao=competicao_nome, partida_id=partida.id) | tojson }}
+    })
+});
+</script>
+<script src="{{ url_for('static', filename='js/apontador/bootstrap-config.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/estado-utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/relogio-partida.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/render-ui.js') }}"></script>
+<script src="{{ url_for('static', filename='js/realtime/heartbeat_client.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/socket-sync.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/realtime-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/api-http.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/pontos-api.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/rotacao-utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/tempo-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/substituicao-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/substituicao-excepcional-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/sancoes-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/scout-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/finalizacao-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/offline-storage.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/fila-eventos-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/offline-game-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/autosave-controller.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/modulos-dependencias.js') }}"></script>
+<script src="{{ url_for('static', filename='js/apontador/jogo-apontador-main.js') }}"></script>
+
+<script src="{{ url_for('static', filename='js/apontador/compatibilidade-renderizacao.js') }}"></script>
+
+
+<script src="{{ url_for('static', filename='js/apontador/ajuste-interface-inicial.js') }}"></script>
+
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/apontador/02-responsive-ajustes.css') }}">
+
+
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/apontador/03-controles-ajustes.css') }}">
+
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/apontador/04-modal-ajustes.css') }}">
+
+<script src="{{ url_for('static', filename='js/apontador/ajuste-layout-profissional.js') }}"></script>
+
+
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/apontador/05-layout-profissional.css') }}">
+
+
+
+<link id="pc-apontador-profissional-v5-ajustado" rel="stylesheet" href="{{ url_for('static', filename='css/apontador/06-profissional-v5-ajustado.css') }}">
+
+<script id="pc-apontador-bolinhas-v4" src="{{ url_for('static', filename='js/apontador/bolinhas-v4.js') }}"></script>
+
+
+<link id="pc-layout-placar-limpo-v1" rel="stylesheet" href="{{ url_for('static', filename='css/apontador/07-layout-placar-limpo-v1.css') }}">
+
+<script id="pc-layout-placar-limpo-v1-js" src="{{ url_for('static', filename='js/apontador/layout-placar-limpo-v1.js') }}"></script>
+
+
+
+<link id="pc-layout-mock-profissional-final-v2" rel="stylesheet" href="{{ url_for('static', filename='css/apontador/08-layout-mock-profissional-final-v2.css') }}">
+
+
+
+<link id="pc-apontador-final-fix" rel="stylesheet" href="{{ url_for('static', filename='css/apontador/09-apontador-final-fix.css') }}">
+
+
+<link id="apontador-desktop-safety-fix" rel="stylesheet" href="{{ url_for('static', filename='css/apontador/10-desktop-safety-fix.css') }}">
+
+<link id="apontador-desktop-safety-fix-v2" rel="stylesheet" href="{{ url_for('static', filename='css/apontador/11-desktop-safety-fix-v2.css') }}">
+
+<script id="watchdog-fluxo-final-observacoes" src="{{ url_for('static', filename='js/apontador/watchdog-fluxo-final-observacoes.js') }}"></script>

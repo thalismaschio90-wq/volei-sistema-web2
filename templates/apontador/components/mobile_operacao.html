@@ -1,0 +1,87 @@
+<div id="mobile-apontador-ui" class="mobile-apontador-ui" aria-label="Modo operação mobile do apontador">
+    <div class="mobile-jogo-topo">
+        <button id="mobile-head-esq" class="mobile-equipe-head" type="button">
+            <img id="mobile-escudo-esq" class="mobile-equipe-escudo" src="{{ escudo_equipe_a_jogo }}" alt="Escudo Equipe A" loading="lazy" decoding="async">
+            <div class="mobile-equipe-textos">
+                <div id="mobile-nome-esq" class="mobile-equipe-nome">Equipe A</div>
+                <div id="mobile-sub-esq" class="mobile-equipe-sub">Toque para ponto</div>
+            </div>
+            <div id="mobile-pontos-esq" class="mobile-placar-numero">0</div>
+        </button>
+
+        <div class="mobile-centro-head">
+            <div id="mobile-set-atual" class="mobile-set-atual">1º SET</div>
+            <div class="mobile-sets"><span id="mobile-sets-esq">0</span> × <span id="mobile-sets-dir">0</span></div>
+            <div id="mobile-saque" class="mobile-saque">Saque atual ainda não definido</div>
+
+        </div>
+
+        <button id="mobile-head-dir" class="mobile-equipe-head" type="button">
+            <div id="mobile-pontos-dir" class="mobile-placar-numero">0</div>
+            <div class="mobile-equipe-textos mobile-equipe-textos-dir">
+                <div id="mobile-nome-dir" class="mobile-equipe-nome">Equipe B</div>
+                <div id="mobile-sub-dir" class="mobile-equipe-sub">Toque para ponto</div>
+            </div>
+            <img id="mobile-escudo-dir" class="mobile-equipe-escudo" src="{{ escudo_equipe_b_jogo }}" alt="Escudo Equipe B" loading="lazy" decoding="async">
+        </button>
+    </div>
+
+    <div class="mobile-main">
+        <div class="mobile-aba-lateral esquerda">
+            <button id="mobile-menu-esq-btn" class="mobile-aba-gatilho" type="button">Menu A</button>
+            <div id="mobile-menu-esq" class="mobile-menu-lateral">
+                <div class="mobile-menu-topo"><span id="mobile-menu-esq-titulo">Equipe A</span><button class="mobile-menu-fechar" type="button" data-mobile-close="esq">×</button></div>
+                <div class="mobile-menu-acoes">
+                    <button class="mobile-btn principal" type="button" data-mobile-action="tempo" data-side="esq">⏱️ Pedido de tempo</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sub" data-side="esq">🔁 Substituição</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="subex" data-side="esq">🚑 Subst. excepcional</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sancao">🟨 Sanção</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="verde">🟩 Cartão verde</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="retardamento">⏳ Retardamento</button>
+                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="esq">Perdeu por WO</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mobile-quadra-card">
+            <div class="mobile-quadra-titulo"><span id="mobile-quadra-esq-titulo">Equipe A</span><span class="mobile-badge">toque no atleta</span></div>
+            <div id="mobile-quadra-esq" class="mobile-quadra-grid quadra-lado-esquerdo"></div>
+            <button id="mobile-ponto-esq" class="mobile-ponto-btn" type="button">+ PONTO</button>
+        </div>
+
+        <div class="mobile-quadra-card">
+            <div class="mobile-quadra-titulo"><span id="mobile-quadra-dir-titulo">Equipe B</span><span class="mobile-badge">toque no atleta</span></div>
+            <div id="mobile-quadra-dir" class="mobile-quadra-grid quadra-lado-direito"></div>
+            <button id="mobile-ponto-dir" class="mobile-ponto-btn" type="button">+ PONTO</button>
+        </div>
+
+        <div class="mobile-aba-lateral direita">
+            <button id="mobile-menu-dir-btn" class="mobile-aba-gatilho" type="button">Menu B</button>
+            <div id="mobile-menu-dir" class="mobile-menu-lateral">
+                <div class="mobile-menu-topo"><span id="mobile-menu-dir-titulo">Equipe B</span><button class="mobile-menu-fechar" type="button" data-mobile-close="dir">×</button></div>
+                <div class="mobile-menu-acoes">
+                    <button class="mobile-btn principal" type="button" data-mobile-action="tempo" data-side="dir">⏱️ Pedido de tempo</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sub" data-side="dir">🔁 Substituição</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="subex" data-side="dir">🚑 Subst. excepcional</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="sancao">🟨 Sanção</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="verde">🟩 Cartão verde</button>
+                    <button class="mobile-btn" type="button" data-mobile-action="retardamento">⏳ Retardamento</button>
+                    <button class="mobile-btn perigo" type="button" data-mobile-action="wo" data-side="dir">Perdeu por WO</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mobile-footer">
+        <div id="mobile-cronometro" class="mobile-cronometro">⏱️ 30</div>
+        <div id="mobile-ultima-acao" class="mobile-ultima-acao">ÚLTIMA AÇÃO: {{ estado.ultima_acao or '-' }}</div>
+        <div class="mobile-footer-acoes">
+            <a href="{{ url_for('apontadores.entrar_competicao_apontador', competicao=competicao_nome) }}">← Voltar</a>
+            <button id="mobile-desfazer" type="button">↶ Desfazer</button>
+            <button id="mobile-fullscreen" type="button">⛶</button>
+            <button id="mobile-inverter-lados" type="button">⇄ Inverter</button>
+            <button id="mobile-salvar" class="salvar" type="button">💾 Salvar</button>
+            <button id="mobile-salvar-sair" class="sair" type="button">Salvar e sair</button>
+        </div>
+    </div>
+</div>

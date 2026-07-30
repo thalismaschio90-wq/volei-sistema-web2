@@ -1,0 +1,21 @@
+<div class="card-painel pc-scoreboard-card">
+    <div class="pc-score-center">
+        <div id="set-atual" class="pc-set-atual">{{ estado.set_atual or 1 }}º SET</div>
+        <div id="placar-principal" class="pc-placar-principal">
+            <span id="pontos-a">{{ estado.pontos_a or 0 }}</span>
+            <span class="pc-x">x</span>
+            <span id="pontos-b">{{ estado.pontos_b or 0 }}</span>
+        </div>
+        <div class="pc-sets-mini">Sets: <span id="sets-a">{{ estado.sets_a or 0 }}</span> x <span id="sets-b">{{ estado.sets_b or 0 }}</span></div>
+
+        <div id="alerta-point" class="alerta-point"></div>
+        <div id="saque-info" class="pc-saque-info" aria-live="polite">
+            {% if estado.saque_atual %}Saque atual: {{ estado.saque_atual }}{% else %}Saque atual ainda não definido{% endif %}
+        </div>
+        <div id="cronometro-tempo" class="pc-cronometro-tempo" style="display:none;">⏱️ 30</div>
+    </div>
+</div>
+
+<div id="ultima-acao" class="ultima-acao-barra">
+    ÚLTIMA AÇÃO: {{ estado.ultima_acao or '-' }}
+</div>

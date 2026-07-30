@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Placar ao Vivo</title>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/realtime/delta_client.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/realtime/render_scheduler.js') }}"></script>
+    <script src=\"{{ url_for('static', filename='js/realtime/render_plan.js') }}\"></script>
+    <script src="{{ url_for('static', filename='js/realtime/connection_guard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/realtime/heartbeat_client.js') }}"></script>
 <style>
 
 :root {
@@ -492,9 +497,19 @@ const socket = io({
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 500,
+                randomizationFactor: 0.5,
     reconnectionDelayMax: 5000,
     timeout: 10000
 });
+if (window.VTPRealtimeHeartbeat) {
+    window.VTPRealtimeHeartbeat.iniciar(socket, {
+        partidaId: String((ESTADO_INICIAL || {}).partida_id || ""),
+        competicao: String((ESTADO_INICIAL || {}).competicao || ""),
+        perfil: "placar_profissional",
+        obterVersao: () => Number((ESTADO_INICIAL || {}).estado_versao || 0)
+    });
+}
+
 
 const telao = document.getElementById("telao");
 const infoJogo = document.getElementById("infoJogo");
@@ -522,6 +537,87 @@ const labelVerticalA = document.getElementById("labelVerticalA");
 const labelVerticalB = document.getElementById("labelVerticalB");
 
 let ultimoEstado = null;
+let estadoVersaoAplicada = Number(
+    (ESTADO_INICIAL && (ESTADO_INICIAL.estado_versao ?? ESTADO_INICIAL.versao_estado)) || 0
+) || 0;
+
+function extrairVersaoEstado(dados) {
+    if (!dados || typeof dados !== "object") return 0;
+    const interno = dados.estado && typeof dados.estado === "object" ? dados.estado : {};
+    return Number(
+        dados.estado_versao ?? dados.versao_estado ??
+        interno.estado_versao ?? interno.versao_estado ?? 0
+    ) || 0;
+}
+
+function permiteEstadoRegressivo(dados) {
+    if (!dados || typeof dados !== "object") return false;
+    const interno = dados.estado && typeof dados.estado === "object" ? dados.estado : {};
+    return Boolean(
+        dados.permitir_regressao_estado || dados.correcao_autorizada ||
+        dados.desfazer_ponto || dados.transicao_set || dados.fim_set ||
+        interno.permitir_regressao_estado || interno.correcao_autorizada ||
+        interno.desfazer_ponto || interno.transicao_set || interno.fim_set
+    );
+}
+
+function aceitarVersaoEstado(dados) {
+    const recebida = extrairVersaoEstado(dados);
+    if (!recebida) return true;
+    if (recebida < estadoVersaoAplicada && !permiteEstadoRegressivo(dados)) return false;
+    if (recebida > estadoVersaoAplicada) estadoVersaoAplicada = recebida;
+    return true;
+}
+
+function aceitarSnapshotLegado(dados) {
+    const recebida = extrairVersaoEstado(dados);
+    if (!recebida) return true;
+    return recebida > estadoVersaoAplicada || permiteEstadoRegressivo(dados);
+}
+const agendadorRenderDelta = (window.VTPRealtimeRenderScheduler && typeof window.VTPRealtimeRenderScheduler.create === "function")
+    ? window.VTPRealtimeRenderScheduler.create({
+            telemetryClientType: "placar_profissional",
+        render: (novoEstado, meta) => aplicarEstado(novoEstado, meta)
+    })
+    : null;
+const clienteDeltaEstado = (window.VTPRealtimeDelta && typeof window.VTPRealtimeDelta.create === "function")
+    ? window.VTPRealtimeDelta.create({
+        partidaId: String((ESTADO_INICIAL || {}).partida_id || ""),
+        clientType: "placar_profissional",
+        getState: () => ultimoEstado || ESTADO_INICIAL || {},
+        getVersion: () => estadoVersaoAplicada,
+        setState: (novoEstado) => { ultimoEstado = novoEstado || {}; },
+        setVersion: (versao) => {
+            if (versao > estadoVersaoAplicada) estadoVersaoAplicada = versao;
+        },
+        onApplied: (novoEstado, delta) => {
+            if (agendadorRenderDelta) {
+                agendadorRenderDelta.schedule(novoEstado, {
+                    chaves: Object.keys((delta && delta.patch) || {}),
+                    removidas: (delta && delta.chaves_removidas) || []
+                });
+            } else {
+                aplicarEstado(novoEstado);
+            }
+        },
+        onRecoveryRequired: (info) => {
+            if (socket && socket.connected) {
+                socket.emit("recuperar_eventos_partida", { partida_id: String(PARTIDA_ID), ultima_versao: Number(info?.versao_atual || 0) });
+                    return true;
+            }
+                return false;
+        },
+        onSnapshotRequired: () => {
+            const base = ultimoEstado || ESTADO_INICIAL || {};
+            const partidaId = String(base.partida_id || "").trim();
+            const competicao = String(base.competicao || "").trim();
+            if (partidaId && socket && socket.connected) {
+                socket.emit("entrar_partida_tempo_real", { partida_id: partidaId, competicao, perfil: "placar_profissional", suporta_delta: true });
+                socket.emit("entrar_partida", { partida_id: partidaId, competicao, suporta_delta: true, perfil: "placar_profissional" });
+            }
+        }
+    })
+    : null;
 let ultimosPontosA = null;
 let ultimosPontosB = null;
 let ultimoSaqueVisual = "";
@@ -586,9 +682,9 @@ socket.on("connect", () => {
     const competicao = String((ultimoEstado || ESTADO_INICIAL || {}).competicao || "").trim();
     if (partidaId) {
         socket.emit("entrar_partida_tempo_real", {
-            partida_id: partidaId, competicao: competicao, perfil: "placar_profissional"
+            partida_id: partidaId, competicao: competicao, perfil: "placar_profissional", suporta_delta: true
         });
-        socket.emit("entrar_partida", { partida_id: partidaId, competicao: competicao });
+        socket.emit("entrar_partida", { partida_id: partidaId, competicao: competicao, suporta_delta: true, perfil: "placar_profissional" });
     }
 });
 
@@ -987,11 +1083,16 @@ function aplicarEvolucaoBackendSeVier(dados, setAtual) {
     evolucaoCongelada = partidaEstaFinalizada(dados);
 }
 
-function aplicarEstado(dados) {
+function aplicarEstado(dados, metaRender = null) {
     if (!dados || typeof dados !== "object") return;
+    if (!aceitarVersaoEstado(dados)) return;
 
     ultimoEstado = dados;
     telao.classList.remove("sem-jogo");
+
+    const planoRender = (window.VTPRealtimeRenderPlan && typeof window.VTPRealtimeRenderPlan.plan === "function")
+        ? window.VTPRealtimeRenderPlan.plan(metaRender?.chaves || [], metaRender?.removidas || [])
+        : { completo: true, placar: true, sets: true, saque: true, equipes: true, timeline: true, status: true };
 
     const invertido = getInvertidoVisual(dados);
 
@@ -1057,36 +1158,44 @@ function aplicarEstado(dados) {
         [corA, corB] = [corB, corA];
     }
 
-    nomeA.textContent = equipeA;
-    nomeB.textContent = equipeB;
-    labelVerticalA.textContent = equipeA.substring(0, 1).toUpperCase() || "A";
-    labelVerticalB.textContent = equipeB.substring(0, 1).toUpperCase() || "B";
-    escudoA.src = escA;
-    escudoB.src = escB;
-    document.documentElement.style.setProperty("--cor-a", corA);
-    document.documentElement.style.setProperty("--cor-b", corB);
-
-    pontosA.textContent = pA;
-    pontosB.textContent = pB;
-
-    setsA.textContent = sA;
-    setsB.textContent = sB;
-
-    setAtualEl.textContent = `${setAtual}º SET`;
-
-    aplicarSaque(saque);
-
-    const competicao = dados.competicao || "";
-    if (competicao) {
-        infoJogo.textContent = `${competicao} • ${setAtual}º SET`;
-    } else if (apontador) {
-        infoJogo.textContent = `TELÃO ${apontador} • AGUARDANDO JOGO`;
-    } else {
-        infoJogo.textContent = `${setAtual}º SET`;
+    if (planoRender.equipes) {
+        nomeA.textContent = equipeA;
+        nomeB.textContent = equipeB;
+        labelVerticalA.textContent = equipeA.substring(0, 1).toUpperCase() || "A";
+        labelVerticalB.textContent = equipeB.substring(0, 1).toUpperCase() || "B";
+        escudoA.src = escA;
+        escudoB.src = escB;
+        document.documentElement.style.setProperty("--cor-a", corA);
+        document.documentElement.style.setProperty("--cor-b", corB);
     }
 
+    if (planoRender.placar) {
+        pontosA.textContent = pA;
+        pontosB.textContent = pB;
+    }
 
-    renderizarEvolucao(evolucaoAtiva || evolucaoPontos.length > 0 || evolucaoCongelada);
+    if (planoRender.sets) {
+        setsA.textContent = sA;
+        setsB.textContent = sB;
+        setAtualEl.textContent = `${setAtual}º SET`;
+    }
+
+    if (planoRender.saque) aplicarSaque(saque);
+
+    if (planoRender.status || planoRender.sets) {
+        const competicao = dados.competicao || "";
+        if (competicao) {
+            infoJogo.textContent = `${competicao} • ${setAtual}º SET`;
+        } else if (apontador) {
+            infoJogo.textContent = `TELÃO ${apontador} • AGUARDANDO JOGO`;
+        } else {
+            infoJogo.textContent = `${setAtual}º SET`;
+        }
+    }
+
+    if (planoRender.timeline || planoRender.placar || planoRender.sets) {
+        renderizarEvolucao(evolucaoAtiva || evolucaoPontos.length > 0 || evolucaoCongelada);
+    }
 }
 
 if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_INICIAL).length) {
@@ -1094,6 +1203,16 @@ if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_I
 } else {
     renderizarLinhaVazia();
 }
+
+socket.on("estado_partida_delta", (dados) => {
+    if (!clienteDeltaEstado || !dados || typeof dados !== "object") return;
+    clienteDeltaEstado.receber(dados);
+});
+
+socket.on("recuperacao_partida", function (dados) {
+    if (!clienteDeltaEstado || !dados || String(dados.partida_id || "") !== String(PARTIDA_ID || "")) return;
+    clienteDeltaEstado.receberRecuperacao(dados);
+});
 
 [
   "placar_apontador_atualizado",
@@ -1107,6 +1226,7 @@ if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_I
     const atualId = String((ultimoEstado || ESTADO_INICIAL || {}).partida_id || "");
     const recebidoId = String(dados.partida_id || "");
     if (atualId && recebidoId && atualId !== recebidoId) return;
+    if (!aceitarSnapshotLegado(dados)) return;
     aplicarEstado(dados);
 }));
 </script>

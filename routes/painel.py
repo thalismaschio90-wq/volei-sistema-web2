@@ -3,9 +3,6 @@ import os
 import time
 from banco import (
     conectar,
-    contar_competicoes,
-    contar_equipes,
-    contar_partidas,
     listar_competicoes_do_organizador,
     listar_competicoes_apontador,
     buscar_usuario_por_login,
@@ -18,8 +15,6 @@ from banco import (
     atualizar_dados_conta_apontador,
     buscar_vinculo_arbitragem_por_pin,
     buscar_vinculo_operacional_por_pin,
-    superadmin_eh_master,
-    listar_superadmins_clientes,
     criar_superadmin_cliente,
     excluir_superadmin_cliente,
     contar_solicitacoes_pendentes,
@@ -33,6 +28,8 @@ from banco import (
     definir_jogo_rapido_global_habilitado,
 )
 from routes.utils import login_obrigatorio
+from services.superadmin.painel import montar_painel_superadmin
+from services.organizador.painel import montar_painel_organizador
 
 painel_bp = Blueprint("painel", __name__)
 
@@ -317,90 +314,41 @@ def inicio():
     # SUPER ADMIN
     # =========================
     if perfil == "superadmin":
-        login_superadmin = session.get("usuario")
-        eh_master = superadmin_eh_master(login_superadmin)
-        totais = _cache_get(_cache_key("superadmin_totais", login_superadmin), ttl=30)
-        if totais is None:
-            totais = {
-                "total_competicoes": contar_competicoes(login_superadmin),
-                "total_equipes": contar_equipes(login_superadmin),
-                "total_partidas": contar_partidas(login_superadmin),
-            }
-            _cache_set(_cache_key("superadmin_totais", login_superadmin), totais)
+        login_superadmin = (session.get("usuario") or "").strip()
+        contexto = _cache_get(_cache_key("superadmin_painel", login_superadmin), ttl=30)
+        if contexto is None:
+            contexto = montar_painel_superadmin(login_superadmin)
+            _cache_set(_cache_key("superadmin_painel", login_superadmin), contexto)
 
-        return render_template(
-            "painel_superadmin.html",
-            eh_master=eh_master,
-            superadmins_clientes=listar_superadmins_clientes(login_superadmin) if eh_master else [],
-            **totais
-        )
+        return render_template("painel_superadmin.html", **contexto)
 
     # =========================
     # ORGANIZADOR
     # =========================
     elif perfil == "organizador":
-        login_organizador = session.get("usuario")
-        competicoes = _listar_competicoes_organizador_cache(login_organizador)
-
-        # O organizador não pode depender de competicao_vinculada.
-        # A competição dele vem da relação criada no cadastro da competição
-        # (organizador_login / responsável). Se existir pelo menos uma competição,
-        # o painel deve liberar a operação automaticamente.
-        competicao_atual = (
+        login_organizador = (session.get("usuario") or "").strip()
+        competicao_preferida = (
             (session.get("competicao_atual") or "").strip()
             or (session.get("competicao_vinculada") or "").strip()
         )
+        chave = _cache_key("organizador_painel", login_organizador, competicao_preferida)
+        contexto = _cache_get(chave, ttl=20)
+        if contexto is None:
+            contexto = montar_painel_organizador(login_organizador, competicao_preferida)
+            _cache_set(chave, contexto)
 
-        nomes_competicoes = []
-        for comp in competicoes:
-            if isinstance(comp, dict):
-                nome_comp = (
-                    comp.get("competicao")
-                    or comp.get("nome")
-                    or comp.get("nome_competicao")
-                    or comp.get("titulo")
-                    or ""
-                )
-            else:
-                nome_comp = str(comp or "")
-            nome_comp = nome_comp.strip()
-            if nome_comp:
-                nomes_competicoes.append(nome_comp)
-
-        if not competicao_atual and nomes_competicoes:
-            competicao_atual = nomes_competicoes[0]
-
+        competicao_atual = contexto.get("competicao_atual") or ""
         if competicao_atual:
             session["competicao_atual"] = competicao_atual
             session["competicao_vinculada"] = competicao_atual
 
-        tem_competicao = bool(nomes_competicoes or competicao_atual)
-
-        if tem_competicao and competicao_atual:
-            garantir_schema_fluxo_configuracao_competicoes()
-            status_config = status_configuracao_inicial_competicao(competicao_atual)
+        if contexto.get("tem_competicao") and competicao_atual:
+            status_config = contexto.get("status_config") or {}
             if not status_config.get("concluida"):
                 flash("Complete a configuração inicial da competição antes de liberar os demais módulos.", "erro")
                 return redirect(url_for("competicoes.listar_competicoes_view"))
 
-        solicitacoes_pendentes = contar_solicitacoes_pendentes(competicao_atual) if competicao_atual else 0
-        ultimas_solicitacoes = listar_solicitacoes_equipes(competicao_atual, status="pendente", limite=5) if competicao_atual else []
-        notificacoes_organizador = listar_notificacoes_sistema(competicao_atual, "organizador", limite=5) if competicao_atual else []
-
-        return render_template(
-            "painel_organizador.html",
-            competicoes=competicoes,
-            competicao_atual=competicao_atual,
-            competicao_vinculada=competicao_atual,
-            competicao=competicao_atual,
-            tem_competicao=tem_competicao,
-            total_competicoes=len(nomes_competicoes),
-            operacao_liberada=tem_competicao,
-            mensagem=None if tem_competicao else "Você ainda não possui competição cadastrada.",
-            solicitacoes_pendentes=solicitacoes_pendentes,
-            ultimas_solicitacoes=ultimas_solicitacoes,
-            notificacoes_organizador=notificacoes_organizador,
-        )
+        return render_template("painel_organizador.html", **contexto)
 
     # =========================
     # APONTADOR
@@ -902,7 +850,7 @@ def novo_superadmin_cliente():
         return redirect(url_for("painel.superadmins_clientes"))
 
     session["credenciais_superadmin_cliente"] = resultado
-    _cache_delete_prefix(("superadmin_totais",))
+    _cache_delete_prefix(("superadmin_painel",))
     flash("SuperADM de cliente criado com sucesso.", "sucesso")
     return redirect(url_for("painel.superadmins_clientes"))
 
@@ -920,6 +868,6 @@ def excluir_superadmin_cliente_view(login_alvo):
         flash(resultado.get("erro") or "Não foi possível excluir o SuperADM.", "erro")
     else:
         flash("SuperADM removido com sucesso. O cliente foi desativado.", "sucesso")
-        _cache_delete_prefix(("superadmin_totais",))
+        _cache_delete_prefix(("superadmin_painel",))
 
     return redirect(url_for("painel.superadmins_clientes"))

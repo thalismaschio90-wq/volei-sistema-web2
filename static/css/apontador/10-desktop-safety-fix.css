@@ -1,0 +1,27 @@
+/* Desktop real: impede que regras mobile/tablet posteriores escondam toda a tela.
+   O modo mobile continua sendo usado em celular/tablet até 1024px. */
+@media (min-width: 1025px) and (hover: hover) and (pointer: fine) {
+    #mobile-apontador-ui,
+    .mobile-apontador-ui,
+    .mobile-orientacao-bloqueio {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    .pc-scoreboard-card {
+        display: flex !important;
+        visibility: visible !important;
+    }
+
+    .jogo-area-central {
+        display: grid !important;
+        visibility: visible !important;
+    }
+
+    #ultima-acao,
+    .ultima-acao-barra {
+        display: block !important;
+        visibility: visible !important;
+    }
+}

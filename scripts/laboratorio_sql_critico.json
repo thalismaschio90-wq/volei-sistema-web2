@@ -1,0 +1,77 @@
+{
+  "titulo": "Laboratório SQL crítico do VolleyTablePro",
+  "ganho_minimo_percentual": 5,
+  "regressao_maxima_percentual": 5,
+  "baseline": {
+    "benchmarks": [
+      {
+        "nome": "listar_partidas_competicao",
+        "tipo": "callable",
+        "callable": "repositories.partidas:listar_partidas",
+        "args": ["${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 15,
+        "aquecimentos": 3
+      },
+      {
+        "nome": "buscar_partida_por_id",
+        "tipo": "callable",
+        "callable": "repositories.partidas:buscar_partida_por_id",
+        "args": ["${VTP_LAB_PARTIDA_ID}", "${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 25,
+        "aquecimentos": 5
+      },
+      {
+        "nome": "versoes_visualizador_publico",
+        "tipo": "callable",
+        "callable": "repositories.visualizador_publico:buscar_versoes_detalhes",
+        "args": ["${VTP_LAB_PARTIDA_ID}", "${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 25,
+        "aquecimentos": 5
+      },
+      {
+        "nome": "estado_jogo_partida",
+        "tipo": "callable",
+        "callable": "banco:buscar_estado_jogo_partida",
+        "args": ["${VTP_LAB_PARTIDA_ID}", "${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 15,
+        "aquecimentos": 3
+      }
+    ]
+  },
+  "candidato": {
+    "benchmarks": [
+      {
+        "nome": "listar_partidas_competicao",
+        "tipo": "callable",
+        "callable": "repositories.partidas:listar_partidas",
+        "args": ["${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 15,
+        "aquecimentos": 3
+      },
+      {
+        "nome": "buscar_partida_por_id",
+        "tipo": "callable",
+        "callable": "repositories.partidas:buscar_partida_por_id",
+        "args": ["${VTP_LAB_PARTIDA_ID}", "${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 25,
+        "aquecimentos": 5
+      },
+      {
+        "nome": "versoes_visualizador_publico",
+        "tipo": "callable",
+        "callable": "repositories.visualizador_publico:buscar_versoes_detalhes",
+        "args": ["${VTP_LAB_PARTIDA_ID}", "${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 25,
+        "aquecimentos": 5
+      },
+      {
+        "nome": "estado_jogo_partida",
+        "tipo": "callable",
+        "callable": "banco:buscar_estado_jogo_partida",
+        "args": ["${VTP_LAB_PARTIDA_ID}", "${VTP_LAB_COMPETICAO}"],
+        "iteracoes": 15,
+        "aquecimentos": 3
+      }
+    ]
+  }
+}

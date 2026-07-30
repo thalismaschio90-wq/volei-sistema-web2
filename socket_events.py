@@ -7,14 +7,41 @@ import threading
 from flask import request, session
 from flask_socketio import join_room
 from extensions import socketio
+from realtime.publisher import publicar_nas_salas
+from realtime.event_priority import (
+    PRIORIDADE_BAIXA,
+    PRIORIDADE_CRITICA,
+    PRIORIDADE_NORMAL,
+    event_dispatcher,
+)
+from realtime.inbound_state import aceitar_e_salvar_estado
+from realtime.delta import criar_delta_estado, delta_compensa
+from realtime.delta_metrics import delta_metrics_store
+from realtime.rooms import (
+    normalizar_id_partida,
+    sala_arbitros,
+    sala_placar_apontador,
+    sala_delta,
+    sala_legacy,
+    salas_partida,
+)
+from realtime.state_store import estado_partidas_store
+from realtime.live_state import estado_partida_vivo
+from realtime.event_history import historico_delta_store
+from realtime.recovery import recuperar_estado
+from realtime.presence import presence_store
+from realtime.synchronization import (
+    emitir_para_cliente,
+    inscrever_em_salas,
+    montar_confirmacao,
+    normalizar_entrada,
+    obter_estado_inicial,
+)
 
 
 # =========================
 # CACHE ULTRA RÁPIDO
 # =========================
-_ESTADO_PARTIDAS = {}
-_ESTADO_PARTIDAS_LOCK = threading.RLock()
-
 PLACAR_GERAL_ROOM = "placar_geral_ao_vivo"
 _ULTIMO_PLACAR_GERAL = None
 _ULTIMO_PLACAR_APONTADOR = {}
@@ -29,7 +56,8 @@ except Exception:
     SOCKET_FULL_STATE_INTERVAL = 30
 
 _ULTIMO_ESTADO_COMPLETO_EMITIDO = {}
-_ESTADO_PARTIDAS_VERSAO = {}
+_ULTIMA_VERSAO_PUBLICADA = {}
+_PUBLICACAO_VERSAO_LOCK = threading.RLock()
 
 
 def _env_bool(nome, padrao=False):
@@ -38,50 +66,71 @@ def _env_bool(nome, padrao=False):
 
 
 
+SOCKET_DELTA_ENABLED = _env_bool("SOCKET_DELTA_ENABLED", True)
+SOCKET_LEGACY_STATE_EVENTS = _env_bool("SOCKET_LEGACY_STATE_EVENTS", True)
+SOCKET_LEGACY_REQUIRE_DELTA_HEALTHY = _env_bool("SOCKET_LEGACY_REQUIRE_DELTA_HEALTHY", False)
+try:
+    SOCKET_DELTA_MIN_SAVING_PERCENT = float(
+        os.environ.get("SOCKET_DELTA_MIN_SAVING_PERCENT", "10") or 10
+    )
+except Exception:
+    SOCKET_DELTA_MIN_SAVING_PERCENT = 10.0
+
+
 # =========================
 # HELPERS
 # =========================
 def _room(partida_id):
-    return str(partida_id or "").strip()
+    return normalizar_id_partida(partida_id)
 
 
 def _room_arbitros(partida_id):
-    return _room(partida_id)
+    return sala_arbitros(partida_id)
 
 
 def _rooms_partida(partida_id, competicao=None):
-    base = _room(partida_id)
-    comp = str(competicao or "").strip()
-
-    if not base:
-        return []
-
-    salas = [
-        base,
-        f"partida:{base}",
-        f"partida_{base}",
-        f"arbitros:{base}",
-        f"arbitros_{base}",
-    ]
-
-    if comp:
-        salas.extend([
-            f"partida:{comp}:{base}",
-            f"partida_{comp}_{base}",
-            f"arbitros:{comp}:{base}",
-            f"arbitros_{comp}_{base}",
-        ])
-
-    return list(dict.fromkeys([s for s in salas if s]))
+    return salas_partida(partida_id, competicao)
 
 
-def _emitir_salas(evento, payload, partida_id, **kwargs):
-    payload = _json_safe(payload)
-    competicao = payload.get("competicao") if isinstance(payload, dict) else None
+def _emitir_salas(
+    evento,
+    payload,
+    partida_id,
+    *,
+    prioridade=None,
+    deduplicar_ms=0.0,
+    **kwargs,
+):
+    publicar_nas_salas(
+        socketio,
+        evento,
+        payload,
+        partida_id,
+        normalizar=_json_safe,
+        prioridade=prioridade,
+        deduplicar_ms=deduplicar_ms,
+        **kwargs,
+    )
 
-    for sala in _rooms_partida(partida_id, competicao):
-        socketio.emit(evento, payload, room=sala, **kwargs)
 
+def _emitir_sala_capacidade(
+    evento,
+    payload,
+    sala,
+    *,
+    prioridade=None,
+    deduplicar_ms=0.0,
+):
+    if not sala:
+        return
+    event_dispatcher.publicar(
+        socketio,
+        evento,
+        _json_safe(payload),
+        sala=sala,
+        prioridade=prioridade,
+        deduplicar_ms=deduplicar_ms,
+    )
 
 def _normalizar_apontador(apontador):
     return str(apontador or "").strip()
@@ -89,7 +138,7 @@ def _normalizar_apontador(apontador):
 
 def _room_placar_apontador(apontador):
     apontador = _normalizar_apontador(apontador)
-    return f"placar_apontador:{apontador}" if apontador else ""
+    return sala_placar_apontador(apontador)
 
 
 def _to_int(valor, padrao=0):
@@ -300,47 +349,37 @@ def _validar_operador_socket(partida_id, competicao, data):
 # CACHE
 # =========================
 def obter_estado_cache(partida_id):
-    # Nunca entrega a referência interna. Uma substituição que alterasse um
-    # dict/lista aninhado podia modificar o cache inteiro sem intenção.
-    with _ESTADO_PARTIDAS_LOCK:
-        estado = _ESTADO_PARTIDAS.get(_room(partida_id))
-        return copy.deepcopy(estado) if estado is not None else None
+    return estado_partida_vivo.obter(partida_id)
 
 
 def obter_estado_versao(partida_id):
-    """Versão monotônica do estado vivo da partida neste processo.
-
-    Permite ao visualizador detectar cada ação sem consultar MAX(id) no banco
-    a cada polling. A versão volta a zero em reinício, quando o cliente força
-    uma leitura completa normalmente.
-    """
-    with _ESTADO_PARTIDAS_LOCK:
-        return int(_ESTADO_PARTIDAS_VERSAO.get(_room(partida_id), 0) or 0)
+    """Versão monotônica do estado vivo neste processo."""
+    return estado_partida_vivo.versao(partida_id)
 
 
 def atualizar_estado_cache(partida_id, dados):
     sala = _room(partida_id)
-
     if not sala:
-        return
-
-
+        return None
     normalizado = _normalizar_payload(partida_id, copy.deepcopy(dados or {}))
-    with _ESTADO_PARTIDAS_LOCK:
-        _ESTADO_PARTIDAS[sala] = normalizado
-        _ESTADO_PARTIDAS_VERSAO[sala] = int(_ESTADO_PARTIDAS_VERSAO.get(sala, 0) or 0) + 1
+    salvo = estado_partida_vivo.salvar(sala, normalizado, atualizar_origem=isinstance(dados, dict))
+    return copy.deepcopy(salvo.estado) if salvo else None
 
 
 def limpar_estado_cache(partida_id):
-    with _ESTADO_PARTIDAS_LOCK:
-        sala = _room(partida_id)
-        _ESTADO_PARTIDAS.pop(sala, None)
-        _ESTADO_PARTIDAS_VERSAO.pop(sala, None)
+    estado_partida_vivo.remover(partida_id)
+    historico_delta_store.remover(partida_id)
+    chave = _room(partida_id)
+    if chave:
+        with _PUBLICACAO_VERSAO_LOCK:
+            _ULTIMA_VERSAO_PUBLICADA.pop(chave, None)
+            _ULTIMO_ESTADO_COMPLETO_EMITIDO.pop(chave, None)
 
 
 def obter_ultimo_placar_apontador(apontador):
     apontador = _normalizar_apontador(apontador)
-    return _ULTIMO_PLACAR_APONTADOR.get(apontador)
+    estado = _ULTIMO_PLACAR_APONTADOR.get(apontador)
+    return copy.deepcopy(estado) if estado is not None else None
 
 
 # =========================
@@ -527,7 +566,7 @@ def _payload_placar_rapido(payload):
         return {}
 
     chaves = [
-        "ok", "partida_id", "competicao",
+        "ok", "partida_id", "competicao", "estado_versao", "estado_atualizado_em",
         "pontos_a", "pontos_b", "placar_a", "placar_b",
         "sets_a", "sets_b", "set_atual", "sets_tipo", "set_unico",
         "placar_exibicao_a", "placar_exibicao_b", "placar_exibicao_tipo",
@@ -556,6 +595,30 @@ def _payload_placar_rapido(payload):
     leve = {k: payload.get(k) for k in chaves if k in payload}
     leve["payload_leve"] = True
     return _json_safe(leve)
+
+
+def _reservar_versao_publicacao(partida_id, versao):
+    """Garante no máximo uma publicação por versão em cada processo.
+
+    A rota pode salvar o estado e chamar mais de um helper de publicação. A
+    versão oficial é monotônica; portanto, republicar a mesma versão apenas
+    multiplica serialização e mensagens Socket.IO sem acrescentar informação.
+    """
+    chave = _room(partida_id)
+    if not chave:
+        return False
+    try:
+        versao_num = int(versao or 0)
+    except (TypeError, ValueError):
+        versao_num = 0
+    if versao_num <= 0:
+        return True
+    with _PUBLICACAO_VERSAO_LOCK:
+        anterior = int(_ULTIMA_VERSAO_PUBLICADA.get(chave, 0) or 0)
+        if versao_num <= anterior:
+            return False
+        _ULTIMA_VERSAO_PUBLICADA[chave] = versao_num
+        return True
 
 
 def _deve_emitir_estado_completo(partida_id, payload):
@@ -593,27 +656,75 @@ def emitir_estado_partida(partida_id, dados=None):
 
     payload = _normalizar_payload(partida_id, dados)
 
-    # Guarda sempre o estado completo em memória para quem entrar/recarregar a tela.
-    with _ESTADO_PARTIDAS_LOCK:
-        _ESTADO_PARTIDAS[sala] = copy.deepcopy(payload)
-        _ESTADO_PARTIDAS_VERSAO[sala] = int(_ESTADO_PARTIDAS_VERSAO.get(sala, 0) or 0) + 1
-        payload["estado_versao"] = _ESTADO_PARTIDAS_VERSAO[sala]
+    # A fachada viva evita uma segunda gravação quando a rota já salvou o
+    # mesmo snapshot imediatamente antes de publicar. Assim uma ação gera uma
+    # única versão oficial, usada por apontador, árbitros, telão e público.
+    publicacao = estado_partida_vivo.preparar_publicacao(sala, payload)
+    if publicacao is None:
+        return
+    anterior = publicacao.anterior
+    salvo = publicacao.atual
+    payload = salvo.estado
+
+    # Uma versão já publicada não precisa gerar novamente placar, eventos
+    # legados, snapshot e avisos auxiliares. A entrada de novos clientes usa o
+    # fluxo próprio de snapshot/recovery, portanto não depende deste broadcast.
+    if not _reservar_versao_publicacao(partida_id, salvo.versao):
+        return payload
 
     payload_leve = _payload_placar_rapido(payload)
 
-    # Evento novo e leve para placares/telão/apontador. É o caminho preferido.
-    _emitir_salas("placar_rapido", payload_leve, partida_id)
+    if SOCKET_DELTA_ENABLED and publicacao.alterado and anterior is not None:
+        delta = criar_delta_estado(
+            partida_id,
+            anterior.estado,
+            payload,
+            versao_base=anterior.versao,
+            versao=salvo.versao,
+        )
+        _delta_economico = delta_compensa(
+            delta,
+            economia_minima_percentual=SOCKET_DELTA_MIN_SAVING_PERCENT,
+        )
+        delta_metrics_store.registrar_delta_servidor(
+            emitido=not delta.vazio,
+            bytes_delta=delta.bytes_delta,
+            bytes_estado=delta.bytes_estado,
+            economia_percentual=delta.economia_percentual,
+        )
+        if not delta.vazio:
+            historico_delta_store.registrar(partida_id, delta.payload())
+            # Clientes modernos ficam em uma sala exclusiva. O delta é emitido
+            # mesmo quando a economia é pequena para garantir que recebam todas
+            # as transições sem depender dos eventos legados.
+            _emitir_sala_capacidade(
+                "estado_partida_delta",
+                delta.payload(),
+                sala_delta(partida_id),
+                prioridade=PRIORIDADE_CRITICA,
+            )
 
-    # Mantém compatibilidade com telas antigas, mas enviando pacote pequeno.
-    # O estado completo continua disponível no cache e é enviado ao entrar na sala.
-    _emitir_salas("estado_partida", payload_leve, partida_id)
-    _emitir_salas("estado_jogo_atualizado", payload_leve, partida_id)
-    _emitir_salas("estado_arbitros", payload_leve, partida_id)
-    _emitir_salas("estado_partida_tempo_real", payload_leve, partida_id)
+    # Evento pequeno e estável para os receptores atuais.
+    _emitir_salas("placar_rapido", payload_leve, partida_id, prioridade=PRIORIDADE_CRITICA, deduplicar_ms=20)
+    delta_metrics_store.registrar_publicacao("placar")
+
+    # Compatibilidade temporária. Se a proteção de homologação estiver ativa,
+    # os eventos antigos permanecem ligados até os clientes comprovarem saúde.
+    eventos_legados_ativos = SOCKET_LEGACY_STATE_EVENTS or (
+        SOCKET_LEGACY_REQUIRE_DELTA_HEALTHY and not delta_metrics_store.esta_homologado()
+    )
+    if eventos_legados_ativos:
+        delta_metrics_store.registrar_publicacao("legacy")
+        sala_compatibilidade = sala_legacy(partida_id)
+        _emitir_sala_capacidade("estado_partida", payload_leve, sala_compatibilidade, prioridade=PRIORIDADE_NORMAL, deduplicar_ms=20)
+        _emitir_sala_capacidade("estado_jogo_atualizado", payload_leve, sala_compatibilidade, prioridade=PRIORIDADE_NORMAL, deduplicar_ms=20)
+        _emitir_sala_capacidade("estado_arbitros", payload_leve, sala_compatibilidade, prioridade=PRIORIDADE_NORMAL, deduplicar_ms=20)
+        _emitir_sala_capacidade("estado_partida_tempo_real", payload_leve, sala_compatibilidade, prioridade=PRIORIDADE_NORMAL, deduplicar_ms=20)
 
     # Estado completo só periodicamente ou em momentos importantes.
     if _deve_emitir_estado_completo(partida_id, payload):
-        _emitir_salas("estado_partida_completo", payload, partida_id)
+        _emitir_salas("estado_partida_completo", payload, partida_id, prioridade=PRIORIDADE_NORMAL)
+        delta_metrics_store.registrar_publicacao("snapshot")
 
     ultima_acao = str(payload.get("ultima_acao") or "").strip()
 
@@ -626,6 +737,8 @@ def emitir_estado_partida(partida_id, dados=None):
                 "descricao": ultima_acao,
             },
             partida_id,
+            prioridade=PRIORIDADE_NORMAL,
+            deduplicar_ms=80,
         )
 
     saque_atual = str(payload.get("saque_atual") or "").strip().upper()
@@ -642,6 +755,8 @@ def emitir_estado_partida(partida_id, dados=None):
                 "sacador_numero": payload.get("sacador_numero") or "",
             },
             partida_id,
+            prioridade=PRIORIDADE_CRITICA,
+            deduplicar_ms=40,
         )
 
     # ==========================================================
@@ -656,10 +771,13 @@ def emitir_estado_partida(partida_id, dados=None):
     if apontador:
         _ULTIMO_PLACAR_APONTADOR[apontador] = payload
 
-        socketio.emit(
+        event_dispatcher.publicar(
+            socketio,
             "placar_apontador_atualizado",
             _payload_placar_rapido(payload),
-            room=_room_placar_apontador(apontador),
+            sala=_room_placar_apontador(apontador),
+            prioridade=PRIORIDADE_CRITICA,
+            deduplicar_ms=20,
         )
 
 # =========================
@@ -894,84 +1012,116 @@ def emitir_placar_apontador(apontador, partida_id, dados=None):
 # =========================
 @socketio.on("connect")
 def on_connect():
+    presence_store.registrar(getattr(request, "sid", ""), {"perfil": "conectado"})
     return True
 
 
 @socketio.on("disconnect")
 def on_disconnect():
+    presence_store.remover(getattr(request, "sid", ""))
     return True
 
 
-@socketio.on("entrar_partida")
-def entrar_partida(data):
-    data = data or {}
+@socketio.on("cliente_heartbeat")
+def cliente_heartbeat(data):
+    dados = data if isinstance(data, dict) else {}
+    item = presence_store.registrar(getattr(request, "sid", ""), dados)
+    partida_id = normalizar_id_partida(item.get("partida_id"))
+    versao_servidor = estado_partida_vivo.versao(partida_id) if partida_id else 0
+    resposta = {
+        "ok": True,
+        "heartbeat_id": str(dados.get("heartbeat_id") or ""),
+        "servidor_em_ms": int(time.time() * 1000),
+        "partida_id": partida_id,
+        "perfil": item.get("perfil") or "",
+        "estado_versao": versao_servidor,
+        "latencia_recebimento_ms": item.get("latencia_ms") or 0,
+    }
+    socketio.emit("cliente_heartbeat_ok", resposta, room=request.sid)
+    return resposta
 
-    partida_id = str(data.get("partida_id") or "").strip()
-    competicao = str(data.get("competicao") or "").strip()
 
+
+
+@socketio.on("recuperar_eventos_partida")
+def recuperar_eventos_partida(data):
+    dados = data if isinstance(data, dict) else {}
+    partida_id = normalizar_id_partida(dados.get("partida_id"))
     if not partida_id:
+        emitir_para_cliente(socketio, request.sid, ["recuperacao_partida"], {
+            "ok": False,
+            "modo": "invalido",
+            "motivo": "partida_id_obrigatorio",
+        })
         return
 
-    sala = _room(partida_id)
+    try:
+        versao_cliente = int(dados.get("ultima_versao") or dados.get("estado_versao") or 0)
+    except (TypeError, ValueError):
+        versao_cliente = 0
+    try:
+        limite = max(1, min(int(dados.get("limite") or os.getenv("REALTIME_RECOVERY_BATCH_LIMIT", "100")), 500))
+    except (TypeError, ValueError):
+        limite = 100
 
-    for r in _rooms_partida(partida_id, competicao):
-        join_room(r)
+    resultado = recuperar_estado(
+        partida_id,
+        versao_cliente,
+        state_store=estado_partidas_store,
+        history_store=historico_delta_store,
+        limite=limite,
+    )
+    emitir_para_cliente(socketio, request.sid, ["recuperacao_partida"], resultado.payload())
 
-    socketio.emit(
-        "entrou_partida",
-        {
-            "ok": True,
-            "partida_id": str(partida_id),
-            "competicao": competicao,
-            "room": sala,
-        },
-        room=request.sid,
+@socketio.on("entrar_partida")
+def entrar_partida(data):
+    entrada = normalizar_entrada(data)
+    presence_store.registrar(getattr(request, "sid", ""), {**(data if isinstance(data, dict) else {}), "partida_id": entrada.partida_id, "perfil": entrada.perfil})
+    if not entrada.partida_id:
+        return
+
+    inscrever_em_salas(entrada, join_room)
+    sala = _room(entrada.partida_id)
+    emitir_para_cliente(
+        socketio,
+        request.sid,
+        ["entrou_partida"],
+        montar_confirmacao(entrada, room=sala),
     )
 
-    estado = _ESTADO_PARTIDAS.get(sala)
-
+    estado = obter_estado_inicial(estado_partidas_store, sala)
     if estado:
-        payload = _normalizar_payload(partida_id, estado)
-
-        socketio.emit("estado_partida", payload, room=request.sid)
-        socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
+        payload = _normalizar_payload(entrada.partida_id, estado)
+        emitir_para_cliente(
+            socketio,
+            request.sid,
+            ["estado_partida", "estado_jogo_atualizado"],
+            payload,
+        )
 
 
 @socketio.on("entrar_partida_tempo_real")
 def entrar_partida_tempo_real(data):
-    data = data or {}
-
-    partida_id = str(data.get("partida_id") or "").strip()
-    perfil = str(data.get("perfil") or "").strip()
-    competicao = str(data.get("competicao") or "").strip()
-
-    if not partida_id:
+    entrada = normalizar_entrada(data)
+    presence_store.registrar(getattr(request, "sid", ""), {**(data if isinstance(data, dict) else {}), "partida_id": entrada.partida_id, "perfil": entrada.perfil})
+    if not entrada.partida_id:
         return
 
-    sala = _room(partida_id)
-
-    for r in _rooms_partida(partida_id, competicao):
-        join_room(r)
-
-    socketio.emit(
-        "entrou_partida_tempo_real",
-        {
-            "ok": True,
-            "partida_id": partida_id,
-            "perfil": perfil,
-            "competicao": competicao,
-            "room": sala,
-        },
-        room=request.sid,
+    inscrever_em_salas(entrada, join_room)
+    sala = _room(entrada.partida_id)
+    emitir_para_cliente(
+        socketio,
+        request.sid,
+        ["entrou_partida_tempo_real"],
+        montar_confirmacao(entrada, room=sala),
     )
 
-    estado = _ESTADO_PARTIDAS.get(sala)
-
+    estado = obter_estado_inicial(estado_partidas_store, sala)
     if estado:
-        payload = _normalizar_payload(partida_id, estado)
+        payload = _normalizar_payload(entrada.partida_id, estado)
     else:
         payload = _normalizar_payload(
-            partida_id,
+            entrada.partida_id,
             {
                 "equipe_a": "Equipe A",
                 "equipe_b": "Equipe B",
@@ -984,9 +1134,12 @@ def entrar_partida_tempo_real(data):
             },
         )
 
-    socketio.emit("estado_partida_tempo_real", payload, room=request.sid)
-    socketio.emit("estado_partida", payload, room=request.sid)
-    socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
+    emitir_para_cliente(
+        socketio,
+        request.sid,
+        ["estado_partida_tempo_real", "estado_partida", "estado_jogo_atualizado"],
+        payload,
+    )
 
 
 @socketio.on("join_partida")
@@ -996,68 +1149,54 @@ def join_partida(data):
 
 @socketio.on("join")
 def join_generico(data):
-    data = data or {}
+    entrada = normalizar_entrada(data)
+    if not entrada.valida:
+        return
 
-    room = str(data.get("room") or data.get("sala") or "").strip()
-    partida_id = str(data.get("partida_id") or "").strip()
-    competicao = str(data.get("competicao") or "").strip()
-
-    if room:
-        join_room(room)
-
-    if partida_id:
-        for r in _rooms_partida(partida_id, competicao):
-            join_room(r)
-
-    socketio.emit(
-        "entrou_partida",
-        {
-            "ok": True,
-            "room": room,
-            "partida_id": partida_id,
-            "competicao": competicao,
-        },
-        room=request.sid,
+    inscrever_em_salas(entrada, join_room)
+    emitir_para_cliente(
+        socketio,
+        request.sid,
+        ["entrou_partida"],
+        montar_confirmacao(entrada),
     )
 
 
 @socketio.on("entrar_arbitro")
 def entrar_arbitro(data):
-    data = data or {}
-
-    partida_id = str(data.get("partida_id") or "").strip()
-    competicao = str(data.get("competicao") or "").strip()
-
-    if not partida_id:
+    entrada = normalizar_entrada(data)
+    presence_store.registrar(getattr(request, "sid", ""), {**(data if isinstance(data, dict) else {}), "partida_id": entrada.partida_id, "perfil": entrada.perfil})
+    if not entrada.partida_id:
         return
 
-    sala = _room_arbitros(partida_id)
-    sala_estado = _room(partida_id)
-
-    for r in _rooms_partida(partida_id, competicao):
-        join_room(r)
-
-    socketio.emit(
-        "entrou_partida",
-        {
-            "ok": True,
-            "partida_id": str(partida_id),
-            "competicao": competicao,
-            "room": sala,
-            "arbitro": True,
-        },
-        room=request.sid,
+    inscrever_em_salas(entrada, join_room)
+    sala = _room_arbitros(entrada.partida_id)
+    sala_estado = _room(entrada.partida_id)
+    emitir_para_cliente(
+        socketio,
+        request.sid,
+        ["entrou_partida"],
+        montar_confirmacao(entrada, room=sala, arbitro=True),
     )
 
-    estado = _ESTADO_PARTIDAS.get(sala_estado) or _ESTADO_PARTIDAS.get(_room(partida_id))
-
+    estado = obter_estado_inicial(
+        estado_partidas_store,
+        sala_estado,
+        chaves_alternativas=[entrada.partida_id],
+    )
     if estado:
-        payload = _normalizar_payload(partida_id, estado)
-
-        socketio.emit("estado_arbitros", payload, room=request.sid)
-        socketio.emit("estado_partida", payload, room=request.sid)
-        socketio.emit("estado_jogo_atualizado", payload, room=request.sid)
-        socketio.emit("estado_partida_tempo_real", payload, room=request.sid)
+        payload = _normalizar_payload(entrada.partida_id, estado)
+        emitir_para_cliente(
+            socketio,
+            request.sid,
+            [
+                "estado_arbitros",
+                "estado_partida",
+                "estado_jogo_atualizado",
+                "estado_partida_tempo_real",
+            ],
+            payload,
+        )
 
 
 def emitir_ultima_acao_arbitros(partida_id, texto):
@@ -1100,23 +1239,25 @@ def estado_avulso_local_socket(data):
     data["competicao"] = data.get("competicao") or "JOGO AVULSO"
     payload = _normalizar_payload(partida_id, data)
 
-    # Proteção contra regressão de set: após a troca local para o próximo set,
-    # uma aba/reconexão atrasada não pode recolocar o cache no set anterior e
-    # retransmitir 0x0/1º set para apontador, árbitros e telão.
-    cache_anterior = _ESTADO_PARTIDAS.get(_room(partida_id)) or {}
-    set_cache = _to_int(cache_anterior.get("set_atual"), 1)
-    set_recebido = _to_int(payload.get("set_atual"), 1)
-    permite_regressao = _to_bool(data.get("permitir_regressao_set"), False)
-    if cache_anterior and set_recebido < set_cache and not permite_regressao:
+    resultado_estado = aceitar_e_salvar_estado(
+        store=estado_partidas_store,
+        partida_id=partida_id,
+        novo=payload,
+        dados_originais=data,
+    )
+    if not resultado_estado.aceito:
         socketio.emit("estado_partida_local_ok", {
-            "ok": True,
+            "ok": False,
+            "snapshot_atrasado": resultado_estado.snapshot_atrasado,
+            "conflito_versao": resultado_estado.conflito_versao,
             "ignorado_por_estado_antigo": True,
             "partida_id": partida_id,
-            "set_atual": set_cache,
+            "estado_versao": resultado_estado.versao_atual,
+            "estado_atual": resultado_estado.estado,
+            "mensagem": "Estado local antigo; sincronize com a versão oficial antes de reenviar.",
         }, room=request.sid)
         return
-
-    _ESTADO_PARTIDAS[_room(partida_id)] = payload
+    payload = resultado_estado.estado
 
     eventos = (
         "placar_rapido",
@@ -1180,7 +1321,7 @@ def estado_avulso_local_socket(data):
         for evento_tempo in ("cronometro_arbitros", "cronometro_tempo", "tempo_executado", "tempo_apontador", "tempo_oficial"):
             _emitir_salas(evento_tempo, dados_tempo, partida_id, include_self=False)
 
-    socketio.emit("estado_avulso_local_ok", {"ok": True, "partida_id": partida_id}, room=request.sid)
+    socketio.emit("estado_avulso_local_ok", {"ok": True, "partida_id": partida_id, "estado_versao": payload.get("estado_versao", 0)}, room=request.sid)
 
 
 @socketio.on("estado_partida_local")
@@ -1209,49 +1350,27 @@ def estado_partida_local_socket(data):
 
     payload = _normalizar_payload(partida_id, data)
 
-    # O navegador pode reconectar carregando o HTML/snapshot antigo. Ele não
-    # pode sobrescrever o cache vivo e fazer telão/árbitros/apontador voltarem.
+    # A aceitação é atômica: a versão e o progresso são verificados sob a
+    # mesma trava usada para gravar, impedindo corrida entre duas abas.
     sala_cache = _room(partida_id)
-    with _ESTADO_PARTIDAS_LOCK:
-        atual = copy.deepcopy(_ESTADO_PARTIDAS.get(sala_cache) or {})
-
-        def _progresso(d):
-            return (
-                _to_int(d.get("sets_a"), 0) + _to_int(d.get("sets_b"), 0),
-                max(1, _to_int(d.get("set_atual"), 1)),
-            )
-
-        prog_atual = _progresso(atual)
-        prog_novo = _progresso(payload)
-        total_atual = _to_int(atual.get("pontos_a"), 0) + _to_int(atual.get("pontos_b"), 0)
-        total_novo = _to_int(payload.get("pontos_a"), 0) + _to_int(payload.get("pontos_b"), 0)
-        origem = str(payload.get("origem") or "").strip().lower()
-        permite_reducao = (
-            "desfazer" in origem
-            or bool(payload.get("transicao_set"))
-            or bool(payload.get("fim_set"))
-            or bool(payload.get("set_finalizado"))
-            or prog_novo > prog_atual
-        )
-
-        atrasado = bool(atual) and not permite_reducao and (
-            prog_novo < prog_atual
-            or (prog_novo == prog_atual and total_novo < total_atual)
-        )
-
-        if atrasado:
-            # Conserva todo o estado vivo, mas confirma ao emissor para ele
-            # solicitar a hidratação oficial em vez de insistir no snapshot velho.
-            socketio.emit("estado_partida_local_ok", {
-                "ok": False,
-                "snapshot_atrasado": True,
-                "partida_id": partida_id,
-                "estado_atual": atual,
-                "mensagem": "Snapshot local mais antigo que o estado vivo; atualização ignorada.",
-            }, room=request.sid)
-            return
-
-        _ESTADO_PARTIDAS[sala_cache] = copy.deepcopy(payload)
+    resultado_estado = aceitar_e_salvar_estado(
+        store=estado_partidas_store,
+        partida_id=sala_cache,
+        novo=payload,
+        dados_originais=data,
+    )
+    if not resultado_estado.aceito:
+        socketio.emit("estado_partida_local_ok", {
+            "ok": False,
+            "snapshot_atrasado": resultado_estado.snapshot_atrasado,
+            "conflito_versao": resultado_estado.conflito_versao,
+            "partida_id": partida_id,
+            "estado_versao": resultado_estado.versao_atual,
+            "estado_atual": resultado_estado.estado,
+            "mensagem": "Estado local mais antigo que o estado vivo; atualização ignorada.",
+        }, room=request.sid)
+        return
+    payload = resultado_estado.estado
 
     eventos = (
         "estado_partida",
@@ -1311,7 +1430,7 @@ def estado_partida_local_socket(data):
             include_self=False,
         )
 
-    socketio.emit("estado_partida_local_ok", {"ok": True, "partida_id": partida_id}, room=request.sid)
+    socketio.emit("estado_partida_local_ok", {"ok": True, "partida_id": partida_id, "estado_versao": payload.get("estado_versao", 0)}, room=request.sid)
 
 
 @socketio.on("cronometro_tempo")

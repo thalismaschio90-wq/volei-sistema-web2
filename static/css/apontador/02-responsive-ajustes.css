@@ -1,0 +1,219 @@
+/* =========================================================
+   AJUSTE VISUAL DO JOGO - MOBILE/TABLET HORIZONTAL
+   Fundo claro igual às demais telas + escudos no placar.
+   Desktop grande segue preservado.
+   ========================================================= */
+@media (max-width: 1400px) and (min-aspect-ratio: 1/1) {
+    html,
+    body {
+        background: #f3f7fb !important;
+    }
+
+    #mobile-apontador-ui,
+    .mobile-apontador-ui {
+        background:
+            radial-gradient(circle at 18% 0%, rgba(15, 56, 82, .08), transparent 34%),
+            linear-gradient(180deg, #f8fbff 0%, #edf4f9 100%) !important;
+        color: #123852 !important;
+    }
+
+    .mobile-equipe-head,
+    .mobile-centro-head,
+    .mobile-quadra-card,
+    .mobile-footer,
+    .mobile-aba-gatilho {
+        background: #ffffff !important;
+        border: 1px solid #d6e2f0 !important;
+        box-shadow: 0 10px 28px rgba(15, 47, 74, .08) !important;
+    }
+
+    .mobile-equipe-head {
+        display: grid !important;
+        align-items: center !important;
+        gap: 10px !important;
+        color: #123852 !important;
+    }
+
+    #mobile-head-esq {
+        grid-template-columns: auto minmax(0, 1fr) auto !important;
+    }
+
+    #mobile-head-dir {
+        grid-template-columns: auto minmax(0, 1fr) auto !important;
+    }
+
+    .mobile-equipe-escudo {
+        width: clamp(34px, 5.2vh, 54px) !important;
+        height: clamp(34px, 5.2vh, 54px) !important;
+        object-fit: contain !important;
+        border-radius: 12px !important;
+        background: #f8fbff !important;
+        border: 1px solid #d6e2f0 !important;
+        padding: 4px !important;
+        flex: 0 0 auto !important;
+        box-shadow: 0 6px 16px rgba(15, 47, 74, .08) !important;
+    }
+
+    .mobile-equipe-textos {
+        min-width: 0 !important;
+        text-align: left !important;
+    }
+
+    .mobile-equipe-textos-dir {
+        text-align: right !important;
+    }
+
+    .mobile-equipe-nome {
+        color: #123852 !important;
+    }
+
+    .mobile-equipe-sub,
+    .mobile-saque {
+        color: #6b7c8c !important;
+    }
+
+    .mobile-placar-numero {
+        color: #0b84ff !important;
+        text-shadow: none !important;
+    }
+
+    #mobile-head-dir .mobile-placar-numero {
+        color: #dc2626 !important;
+    }
+
+    .mobile-centro-head {
+        color: #123852 !important;
+    }
+
+    .mobile-set-atual {
+        color: #d4a62a !important;
+    }
+
+    .mobile-sets {
+        color: #123852 !important;
+    }
+
+    .mobile-main {
+        background: transparent !important;
+    }
+
+    .mobile-quadra-titulo {
+        color: #123852 !important;
+        padding: 2px 4px !important;
+    }
+
+    .mobile-badge {
+        background: #eef6ff !important;
+        color: #31506a !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .mobile-quadra-grid {
+        background: #ffffff !important;
+        border-color: #d6e2f0 !important;
+        box-shadow: inset 0 0 0 2px rgba(255,255,255,.78), 0 8px 22px rgba(15, 47, 74, .07) !important;
+    }
+
+    .mobile-quadra-grid::after {
+        background: #123852 !important;
+        color: #ffffff !important;
+    }
+
+    .mobile-pos {
+        background: #f8fbff !important;
+        color: #123852 !important;
+        border: 1px solid #d6e2f0 !important;
+        box-shadow: 0 5px 14px rgba(15, 47, 74, .05) !important;
+    }
+
+    .mobile-pos-numero {
+        color: #123852 !important;
+    }
+
+    .mobile-pos-nome {
+        color: #31506a !important;
+    }
+
+    .mobile-aba-gatilho {
+        color: #123852 !important;
+    }
+
+    .mobile-menu-lateral {
+        background: #ffffff !important;
+        border: 1px solid #d6e2f0 !important;
+        color: #123852 !important;
+        box-shadow: 0 18px 45px rgba(15, 47, 74, .16) !important;
+    }
+
+    .mobile-menu-topo {
+        color: #123852 !important;
+    }
+
+    .mobile-menu-fechar,
+    .mobile-btn {
+        background: #f8fbff !important;
+        color: #123852 !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .mobile-btn.principal {
+        background: #0f766e !important;
+        border-color: #0f766e !important;
+        color: #fff !important;
+    }
+
+    .mobile-btn.perigo {
+        background: #991b1b !important;
+        border-color: #991b1b !important;
+        color: #fff !important;
+    }
+
+    .mobile-footer {
+        background: rgba(255,255,255,.96) !important;
+        color: #123852 !important;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .mobile-ultima-acao {
+        background: #f8fbff !important;
+        color: #123852 !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .mobile-footer-acoes a,
+    .mobile-footer-acoes button {
+        background: #f8fbff !important;
+        color: #123852 !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .mobile-footer-acoes .salvar {
+        background: #0f766e !important;
+        border-color: #0f766e !important;
+        color: #fff !important;
+    }
+
+    .mobile-footer-acoes .sair {
+        background: #9a3412 !important;
+        border-color: #9a3412 !important;
+        color: #fff !important;
+    }
+}
+
+@media (max-width: 900px) and (min-aspect-ratio: 1/1) {
+    .mobile-equipe-escudo {
+        width: 32px !important;
+        height: 32px !important;
+        border-radius: 10px !important;
+        padding: 3px !important;
+    }
+
+    .mobile-equipe-head {
+        gap: 7px !important;
+    }
+
+    .mobile-equipe-sub {
+        display: none !important;
+    }
+}

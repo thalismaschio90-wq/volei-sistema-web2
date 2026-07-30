@@ -4,14 +4,14 @@ import json
 import threading
 
 from banco import (
-    buscar_equipe_por_login,
     buscar_partida_treinador_por_equipe,
     montar_contexto_treinador,
     salvar_papeleta,
     registrar_solicitacao_treinador,
-    listar_atletas_aprovados_da_equipe,
     listar_competicoes_da_equipe_por_login,
 )
+from services.equipes.consultas import buscar_equipe_por_login
+from services.atletas.consultas import listar_atletas_aprovados_da_equipe
 from routes.utils import exigir_perfil
 
 try:
@@ -444,8 +444,18 @@ def tela_treinador(competicao, partida_id):
     contexto["rotacao_b"] = rotacao_b
     contexto["rotacao"] = _definir_rotacao_propria(contexto, rotacao_a, rotacao_b)
 
-    # Carrega atletas uma vez e reutiliza nas trocas de aba.
-    atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+    # O contexto completo já carrega os atletas quando a aba precisa do banco.
+    # Reutiliza esse resultado para não executar a mesma consulta duas vezes.
+    atletas_lista = contexto.get("atletas") if incluir_banco else None
+    if atletas_lista is None:
+        atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+    else:
+        atletas_lista = [a for a in atletas_lista if a.get("numero") not in (None, "")]
+        _cache_set(
+            _CACHE_ATLETAS_EQUIPE,
+            ((competicao or "").strip(), (equipe.get("nome") or "").strip()),
+            atletas_lista,
+        )
 
     contexto["atletas"] = atletas_lista
     contexto["jogadores"] = [
@@ -507,7 +517,16 @@ def estado_treinador_view(competicao, partida_id):
     if not incluir_banco:
         payload["banco"] = []
 
-    atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+    atletas_lista = contexto.get("atletas") if incluir_banco else None
+    if atletas_lista is None:
+        atletas_lista = _listar_atletas_cache(equipe.get("nome"), competicao)
+    else:
+        atletas_lista = [a for a in atletas_lista if a.get("numero") not in (None, "")]
+        _cache_set(
+            _CACHE_ATLETAS_EQUIPE,
+            ((competicao or "").strip(), (equipe.get("nome") or "").strip()),
+            atletas_lista,
+        )
 
     if aba in {"papeleta", "substituicao", "substituição", "banco", "scout", "operacao", "operação"}:
         payload["atletas_lista"] = atletas_lista

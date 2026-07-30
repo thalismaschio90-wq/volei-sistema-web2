@@ -1,0 +1,15 @@
+"""Serviço do domínio de quadras da competição."""
+from repositories import quadras as repo
+from rules.quadras import formatar_quadra_exibicao
+
+criar_tabela_competicao_quadras = repo.criar_tabela_competicao_quadras
+garantir_pins_arbitragem_quadras = repo.garantir_pins_arbitragem_quadras
+buscar_vinculo_arbitragem_por_pin = repo.buscar_vinculo_arbitragem_por_pin
+listar_quadras_competicao = repo.listar_quadras_competicao
+garantir_quadras_competicao = repo.garantir_quadras_competicao
+salvar_quadras_competicao = repo.salvar_quadras_competicao
+buscar_quadra_competicao_por_id = repo.buscar_quadra_competicao_por_id
+buscar_quadra_competicao_por_texto = repo.buscar_quadra_competicao_por_texto
+normalizar_vinculos_quadras_competicao = repo.normalizar_vinculos_quadras_competicao
+vincular_grupo_a_quadra = repo.vincular_grupo_a_quadra
+aplicar_quadra_em_partida = repo.aplicar_quadra_em_partida

@@ -21,13 +21,9 @@ from banco import (
     criar_apontador,
     cpf_valido,
     somente_digitos,
-    listar_partidas,
     buscar_partida_operacional,
-    assumir_partida_operacional,
-    abandonar_partida_operacional,
     listar_arbitros_competicao,
     salvar_pre_jogo_partida,
-    listar_atletas_aprovados_da_equipe,
     atualizar_numero_atleta,
     equipe_ja_conferida,
     marcar_equipe_conferida,
@@ -43,8 +39,6 @@ from banco import (
     desfazer_ultima_acao_partida,
     registrar_tempo_partida,
     buscar_tempos_restantes_partida,
-    buscar_competicao_por_nome,
-    buscar_configuracao_avancada_competicao,
     registrar_substituicao_partida,
     registrar_substituicao_excepcional_partida,
     registrar_retardamento_partida,
@@ -65,14 +59,9 @@ from banco import (
     apontador_pode_criar_jogo_avulso,
     definir_permissao_jogo_avulso_apontador,
     garantir_pins_arbitragem_quadras,
-    buscar_vinculo_operacional_por_pin,
-    garantir_pin_operacional_apontador,
     normalizar_status_partidas_apontador,
     salvar_estado_manual_partida,
     salvar_resultado_manual_partida,
-    validar_operador_partida,
-    heartbeat_partida_operacional,
-    liberar_trava_partida_operacional,
     salvar_liberos_equipe,
     atualizar_atleta_conferencia_apontador,
     listar_dados_finalizacao_partida,
@@ -85,6 +74,84 @@ from banco import (
     gerar_partidas_avanco_competicao,
     listar_rodadas_competicao,
     finalizar_partida_completa,
+)
+from services.atletas.consultas import listar_atletas_aprovados_da_equipe
+from services.competicoes.partidas import listar_partidas_leve
+from services.apontadores.pre_jogo import (
+    montar_contexto_pre_jogo as _montar_contexto_pre_jogo,
+    validar_acesso_operador as _validar_acesso_operador_pre_jogo,
+    resolver_equipe_conferencia as _resolver_equipe_conferencia,
+    preparar_alteracoes_numeracao as _preparar_alteracoes_numeracao,
+    contexto_capitao as _contexto_capitao,
+)
+from services.apontadores.painel import (
+    resolver_cpf_sessao as _resolver_cpf_sessao_painel,
+    contexto_home as _contexto_home_apontador,
+    preparar_partidas_painel as _preparar_partidas_painel,
+)
+from services.apontadores.operador import (
+    abandonar_partida as _abandonar_partida_operador,
+    assumir_partida as _assumir_partida_operador,
+    buscar_vinculo_por_pin as _buscar_vinculo_operacional_por_pin,
+    garantir_pin as _garantir_pin_operacional_apontador,
+    heartbeat_partida as _heartbeat_partida_operador,
+    liberar_partida as _liberar_partida_operador,
+    resolver_login_sessao as _resolver_login_apontador,
+    validar_operador as _validar_operador_partida,
+    validar_schema_oficiais as _validar_schema_oficiais_apontador,
+)
+from rules.papeleta import (
+    fase_exige_correcao as _fase_papeleta_exige_correcao,
+    set_operacional_seguro as _set_atual_operacional_seguro,
+)
+from services.apontadores.papeleta import (
+    montar_contexto_papeleta as _montar_contexto_papeleta,
+    montar_estado_inicial_jogo as _montar_estado_inicial_jogo,
+    papeletas_set_completas as _papeletas_set_completas,
+    preparar_escalacao as _preparar_escalacao_papeleta,
+    valores_formulario as _valores_formulario_papeleta,
+)
+
+from services.apontadores.estado_jogo import carregar_contexto_jogo as _carregar_contexto_jogo
+from services.apontadores.acoes_jogo import (
+    ErroAcaoJogo as _ErroAcaoJogo,
+    aplicar_local as _aplicar_acao_extra_local,
+    descrever as _descrever_acao_extra,
+    preparar_cartao_verde as _preparar_cartao_verde,
+    preparar_retardamento as _preparar_retardamento,
+    preparar_sancao as _preparar_sancao,
+    preparar_tempo as _preparar_tempo,
+)
+from rules.pontos_jogo import ErroPonto
+from services.apontadores.pontos import (
+    completar_estado_registrado as _completar_estado_ponto,
+    montar_resposta_ponto as _montar_resposta_ponto,
+    preparar_registro_ponto as _preparar_registro_ponto,
+    publicar_ponto as _publicar_ponto,
+    set_ou_jogo_finalizado as _set_ou_jogo_finalizado,
+)
+from services.apontadores.rotacao import rotacao_do_estado as _rotacao_segura_estado
+from services.apontadores.substituicoes import (
+    ErroSubstituicao as _ErroSubstituicao,
+    aplicar_estado_visual as _aplicar_substituicao_visual,
+    validar_comando as _validar_comando_substituicao,
+)
+from services.apontadores.responses import json_no_cache as _resposta_json_no_cache
+from services.apontadores.publicacao import (
+    publicar_estado as _publicar_estado_apontador,
+    publicar_estado_sem_cache as _publicar_estado_apontador_sem_cache,
+)
+from services.relatorios.cache import invalidar_cache_competicao
+from services.apontadores.finalizacao import (
+    confirmar_sets as _confirmar_sets_finalizacao,
+    contexto_observacoes as _contexto_observacoes_finalizacao,
+    estado_partida_finalizada as _estado_partida_finalizada,
+    eventos_processados_com_sucesso as _eventos_finalizacao_ok,
+    preparar_estado_cliente as _preparar_estado_final_cliente,
+    preparar_formulario_finalizacao as _preparar_formulario_finalizacao,
+    resposta_entre_sets as _resposta_finalizacao_entre_sets,
+    resposta_partida_finalizada as _resposta_finalizacao_concluida,
+    separar_eventos_pendentes as _separar_eventos_finalizacao,
 )
 from routes.utils import exigir_perfil, aplicar_placar_exibicao_lista, aplicar_placar_exibicao_partida
 from socket_events import (
@@ -104,251 +171,107 @@ except Exception:
     def offline_global_habilitado():
         return False
 
+from services.apontadores.avanco import atualizar as _executar_avanco, atualizar_async as _executar_avanco_async
+from services.apontadores.cache_runtime import caches_apontador as _caches_apontador
+from services.apontadores.operacao_local import operacao_local_store as _operacao_local_store
+from services.apontadores.configuracao import (
+    buscar_competicao as _buscar_competicao_config,
+    buscar_configuracao_avancada as _buscar_configuracao_avancada,
+    limites_operacionais as _limites_operacionais_config,
+    normalizar_fase as _normalizar_fase_config,
+    resolver_modo_operacao as _resolver_modo_operacao_config,
+    sets_max as _sets_max_config,
+    sets_para_vencer as _sets_para_vencer_config,
+)
+
+
 def _atualizar_avanco_apos_finalizacao(competicao):
-    """Atualiza/cria partidas do Avanço com proteção contra chamadas duplicadas."""
-    competicao = str(competicao or "").strip()
-    if not competicao:
-        return {}
-
-    with _AVANCO_LOCK:
-        if competicao in _AVANCO_EM_EXECUCAO:
-            return {"em_execucao": True}
-        _AVANCO_EM_EXECUCAO.add(competicao)
-
-    try:
-        return gerar_partidas_avanco_competicao(competicao)
-    except Exception as e:
-        print("AVISO apontador/atualizar_avanco_apos_finalizacao:", repr(e), flush=True)
-        return {}
-    finally:
-        with _AVANCO_LOCK:
-            _AVANCO_EM_EXECUCAO.discard(competicao)
+    return _executar_avanco(
+        competicao,
+        gerar=gerar_partidas_avanco_competicao,
+    )
 
 
 def _atualizar_avanco_apos_finalizacao_async(competicao):
-    """Dispara atualização do avanço em segundo plano.
-
-    O salvamento do resultado responde rápido; o painel recarrega e o avanço
-    aparece assim que o worker terminar. Isso evita 502 por timeout/saturação.
-    """
-    competicao = str(competicao or "").strip()
-    if not competicao:
-        return {"agendado": False}
-
-    with _AVANCO_LOCK:
-        if competicao in _AVANCO_EM_EXECUCAO:
-            return {"agendado": False, "em_execucao": True}
-        _AVANCO_EM_EXECUCAO.add(competicao)
-
-    def _worker():
-        try:
-            gerar_partidas_avanco_competicao(competicao)
-            _limpar_cache_apontador(competicao)
-        except Exception as e:
-            print("AVISO apontador/atualizar_avanco_async:", repr(e), flush=True)
-        finally:
-            with _AVANCO_LOCK:
-                _AVANCO_EM_EXECUCAO.discard(competicao)
-
-    threading.Thread(target=_worker, daemon=True).start()
-    return {"agendado": True}
+    return _executar_avanco_async(
+        competicao,
+        gerar=gerar_partidas_avanco_competicao,
+        ao_concluir=lambda nome: _limpar_cache_apontador(nome),
+    )
 
 
 apontadores_bp = Blueprint("apontadores", __name__)
 
 _CACHE_ARBITROS_COMPETICAO = {}
 _CACHE_ATLETAS_EQUIPE = {}
-_CACHE_COMPETICAO_CFG = {}
 _CACHE_MODO_OPERACAO = {}
 _CACHE_COLUNAS_ESCUDO_EQUIPE = {"valor": None}
-
-# Snapshot em memória carregado uma única vez ao assumir/abrir a operação local.
-# As etapas seguintes reaproveitam estes dados sem novas consultas ao banco.
-_CACHE_OPERACAO_LOCAL = {}
-
-def _chave_operacao_local(partida_id, competicao):
-    return (str(competicao or "").strip(), int(partida_id))
-
-def _salvar_snapshot_operacao_local(partida_id, competicao, partida=None, **extras):
-    chave = _chave_operacao_local(partida_id, competicao)
-    atual = dict(_CACHE_OPERACAO_LOCAL.get(chave) or {})
-    if partida:
-        atual["partida"] = dict(partida)
-    atual.update({k: v for k, v in extras.items() if v is not None})
-    atual["atualizado_em"] = time.time()
-    _CACHE_OPERACAO_LOCAL[chave] = atual
-    return atual
-
-def _snapshot_operacao_local(partida_id, competicao):
-    return dict(_CACHE_OPERACAO_LOCAL.get(_chave_operacao_local(partida_id, competicao)) or {})
-
-def _partida_operacao_local(partida_id, competicao):
-    snap = _snapshot_operacao_local(partida_id, competicao)
-    return dict(snap.get("partida") or {})
-
-# Evita que resultado manual/finalização segure a resposta da tela enquanto
-# recalcula/gera avanço. Também impede várias chamadas simultâneas para a
-# mesma competição, que estouravam conexões no Render.
-_AVANCO_EM_EXECUCAO = set()
-_AVANCO_LOCK = threading.Lock()
-
-
-def _buscar_competicao_cache(competicao):
-    chave = (competicao or "").strip()
-    if not chave:
-        return {}
-    item = _CACHE_COMPETICAO_CFG.get(chave)
-    agora = time.time()
-    if item and (agora - item.get("ts", 0)) < 30:
-        return item.get("dados") or {}
-    try:
-        dados = buscar_competicao_por_nome(competicao) or {}
-    except Exception:
-        dados = {}
-    _CACHE_COMPETICAO_CFG[chave] = {"ts": agora, "dados": dados}
-    return dados
-
-
-# Cache curto para telas pesadas do apontador.
-# Evita bater no Neon a cada troca de aba/volta do tablet/celular.
-_CACHE_PAINEL_COMPETICAO_APONTADOR = {}
-_CACHE_PAINEL_TTL = int(os.environ.get("APONTADOR_PAINEL_CACHE_TTL", "12") or 12)
 _TABELAS_OFICIAIS_GARANTIDAS = False
 
 
-def _agora_cache():
-    try:
-        return time.time()
-    except Exception:
-        return 0
+def _chave_operacao_local(partida_id, competicao):
+    return _operacao_local_store.chave(partida_id, competicao)
 
+
+def _salvar_snapshot_operacao_local(partida_id, competicao, partida=None, **extras):
+    return _operacao_local_store.salvar(
+        partida_id, competicao, partida=partida, **extras
+    )
+
+
+def _snapshot_operacao_local(partida_id, competicao):
+    return _operacao_local_store.obter(partida_id, competicao)
+
+
+def _partida_operacao_local(partida_id, competicao):
+    return _operacao_local_store.partida(partida_id, competicao)
+
+
+def _buscar_competicao_cache(competicao):
+    return _buscar_competicao_config(competicao)
 
 def _cache_get(chave, ttl=None):
-    ttl = _CACHE_PAINEL_TTL if ttl is None else ttl
-    item = _CACHE_PAINEL_COMPETICAO_APONTADOR.get(chave)
-    if not item:
-        return None
-    criado, valor = item
-    if (_agora_cache() - criado) > ttl:
-        _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
-        return None
-    return valor
+    return _caches_apontador.painel.obter(chave, ttl=ttl)
 
 
 def _cache_set(chave, valor):
-    # Limite simples para não crescer sem controle em torneios longos.
-    if len(_CACHE_PAINEL_COMPETICAO_APONTADOR) > 80:
-        _CACHE_PAINEL_COMPETICAO_APONTADOR.clear()
-    _CACHE_PAINEL_COMPETICAO_APONTADOR[chave] = (_agora_cache(), valor)
-    return valor
+    return _caches_apontador.painel.salvar(chave, valor)
 
 
 def _limpar_cache_painel_competicao(competicao=None):
-    if not competicao:
-        _CACHE_PAINEL_COMPETICAO_APONTADOR.clear()
-        return
-    prefixo = ("painel_competicao", str(competicao or "").strip())
-    for chave in list(_CACHE_PAINEL_COMPETICAO_APONTADOR.keys()):
-        if isinstance(chave, tuple) and chave[:2] == prefixo:
-            _CACHE_PAINEL_COMPETICAO_APONTADOR.pop(chave, None)
-
-
-# Cache para a entrada do apontador (/apontador) e dados auxiliares.
-# O objetivo é fazer uma carga única por alguns segundos e reaproveitar
-# ao trocar/voltar de tela, em vez de consultar banco em todo clique.
-_CACHE_HOME_APONTADOR = {}
-_CACHE_PIN_OPERACIONAL = {}
-_CACHE_AUX_TTL = int(os.environ.get("APONTADOR_AUX_CACHE_TTL", "30") or 30)
-
-
-def _cache_aux_get(cache, chave, ttl=None):
-    ttl = _CACHE_AUX_TTL if ttl is None else ttl
-    item = cache.get(chave)
-    if not item:
-        return None
-    criado, valor = item
-    if (_agora_cache() - criado) > ttl:
-        cache.pop(chave, None)
-        return None
-    return valor
-
-
-def _cache_aux_set(cache, chave, valor):
-    if len(cache) > 200:
-        cache.clear()
-    cache[chave] = (_agora_cache(), valor)
-    return valor
+    _caches_apontador.limpar_painel_competicao(competicao)
 
 
 def _limpar_cache_apontador(competicao=None, cpf=None):
-    """Limpa os caches do apontador quando algo muda no jogo/competição."""
-    _limpar_cache_painel_competicao(competicao)
-
-    if cpf:
-        for chave in list(_CACHE_HOME_APONTADOR.keys()):
-            if isinstance(chave, tuple) and chave[:2] == ("home", str(cpf or "").strip()):
-                _CACHE_HOME_APONTADOR.pop(chave, None)
-    elif competicao:
-        # Se não sabemos o CPF, limpamos home para garantir que vínculo/status apareça correto.
-        _CACHE_HOME_APONTADOR.clear()
-
-    if competicao:
-        for chave in list(_CACHE_PIN_OPERACIONAL.keys()):
-            if isinstance(chave, tuple) and len(chave) >= 2 and chave[1] == str(competicao or "").strip():
-                _CACHE_PIN_OPERACIONAL.pop(chave, None)
+    _caches_apontador.limpar_operacao(competicao=competicao, cpf=cpf)
 
 
 def _montar_home_apontador_cache(cpf):
-    cpf = str(cpf or "").strip()
-    chave = ("home", cpf, session.get("cliente_id"), "v3_jogo_rapido_global")
-    cached = _cache_aux_get(_CACHE_HOME_APONTADOR, chave, ttl=30)
-    if cached is not None:
-        return cached
-
-    payload = {
-        "cpf": cpf,
-        "oficial": None,
-        "competicoes": [],
-        "pode_jogo_avulso": False,
-        "offline_habilitado": False,
-    }
-
-    if cpf:
-        payload["pode_jogo_avulso"] = bool(apontador_pode_criar_jogo_avulso(cpf))
-        payload["oficial"] = buscar_oficial_por_cpf(cpf, cliente_id=session.get("cliente_id"))
-        if payload["oficial"]:
-            payload["competicoes"] = listar_competicoes_apontador(cpf) or []
-
-    try:
-        payload["offline_habilitado"] = bool(offline_global_habilitado())
-    except Exception:
-        payload["offline_habilitado"] = False
-
-    return _cache_aux_set(_CACHE_HOME_APONTADOR, chave, payload)
+    return _caches_apontador.montar_home(
+        cpf=cpf,
+        cliente_id=session.get("cliente_id"),
+        pode_jogo_avulso=apontador_pode_criar_jogo_avulso,
+        buscar_oficial=buscar_oficial_por_cpf,
+        listar_competicoes=listar_competicoes_apontador,
+        offline_habilitado=offline_global_habilitado,
+    )
 
 
 def _garantir_pin_operacional_cache(competicao, login):
-    competicao = str(competicao or "").strip()
-    login = str(login or "").strip()
-    chave = ("pin", competicao, login)
-    cached = _cache_aux_get(_CACHE_PIN_OPERACIONAL, chave, ttl=60)
-    if cached is not None:
-        return cached
-    pin = garantir_pin_operacional_apontador(competicao, login)
-    return _cache_aux_set(_CACHE_PIN_OPERACIONAL, chave, pin)
+    return _caches_apontador.garantir_pin(
+        competicao=competicao,
+        login=login,
+        gerar_pin=_garantir_pin_operacional_apontador,
+    )
 
 
 def _garantir_tabelas_oficiais_once():
-    # Criar/alterar tabela em toda abertura do painel deixava o login/apontador lento.
-    # Fazemos uma vez por processo; em erro, não travamos o usuário.
+    """Valida o schema sem executar DDL durante a requisição."""
     global _TABELAS_OFICIAIS_GARANTIDAS
     if _TABELAS_OFICIAIS_GARANTIDAS:
         return
-    try:
-        criar_tabelas_oficiais()
-        _TABELAS_OFICIAIS_GARANTIDAS = True
-    except Exception as e:
-        print("AVISO garantir tabelas oficiais apontador:", repr(e), flush=True)
+    _validar_schema_oficiais_apontador()
+    _TABELAS_OFICIAIS_GARANTIDAS = True
 
 
 
@@ -374,147 +297,17 @@ def _limpar_cache_atletas(equipe=None, competicao=None):
 
 
 def _normalizar_fase_operacao(fase):
-    fase = (fase or "grupos").strip().lower()
-    aliases = {
-        "grupo": "grupos",
-        "classificatoria": "grupos",
-        "classificatória": "grupos",
-        "classificatorias": "grupos",
-        "classificatórias": "grupos",
-        "semifinais": "semifinal",
-        "semi": "semifinal",
-        "semis": "semifinal",
-        "finais": "final",
-        "finalissima": "final",
-        "finalíssima": "final",
-    }
-    return aliases.get(fase, fase or "grupos")
-
+    return _normalizar_fase_config(fase)
 
 def _resolver_modo_operacao_partida(competicao, partida=None):
-    """Resolve se a partida usa scout simples ou avançado.
-
-    Correção importante para o Avanço:
-    algumas partidas já existentes/bloqueadas não recebem UPDATE no campo
-    partidas.modo_operacao. Por isso o apontador não pode confiar só no valor
-    salvo na partida. Para jogos com origem avanco:serie:Jx, a regra salva no
-    chaveamento visual deve ter prioridade, mesmo que a partida antiga esteja
-    marcada como simples.
-    """
-    partida = partida or {}
-
-    def _modo_valido(valor):
-        valor = str(valor or "").strip().lower()
-        return valor if valor in {"simples", "avancado"} else ""
-
-    def _modo_regra(regra):
-        if not isinstance(regra, dict):
-            return ""
-        modo = _modo_valido(regra.get("modo_operacao") or regra.get("scout"))
-        return modo
-
-    def _buscar_chave(dic, chave):
-        if not isinstance(dic, dict) or not chave:
-            return {}
-        if chave in dic:
-            return dic.get(chave) or {}
-        chave_low = str(chave).lower()
-        for k, v in dic.items():
-            if str(k).lower() == chave_low:
-                return v or {}
-        return {}
-
-    try:
-        comp = _buscar_competicao_cache(competicao) or {}
-    except Exception:
-        comp = {}
-
-    modo_partida = _modo_valido(partida.get("modo_operacao"))
-    modo_competicao = _modo_valido(comp.get("modo_operacao"))
-    modo_fallback = modo_partida or modo_competicao or "simples"
-
-    try:
-        config = buscar_configuracao_avancada_competicao(competicao) or {}
-        fases_config = config.get("fases_config") or {}
-        regras_avancadas = fases_config.get("regras_avancadas") or {}
-        origem_partida = str(partida.get("origem") or "").strip()
-
-        if origem_partida.startswith("avanco:"):
-            partes = origem_partida.split(":")
-            serie_id = (partes[1] if len(partes) > 1 else "").strip().lower()
-            jogo_id = (partes[2] if len(partes) > 2 else "").strip().upper()
-
-            # 1) mapa materializado em fases_config.regras_avancadas
-            regra_jogo = _buscar_chave(regras_avancadas.get("jogos") or {}, f"{serie_id}:{jogo_id}")
-            modo = _modo_regra(regra_jogo)
-            if modo:
-                return modo
-
-            regra_serie = _buscar_chave(regras_avancadas.get("series") or {}, serie_id)
-            modo = _modo_regra(regra_serie)
-            if modo:
-                return modo
-
-            # 2) fallback direto no desenho do avanço, útil para jogos preservados/bloqueados
-            avanco = fases_config.get("avanco") or {}
-            for jogo in avanco.get("jogos") or []:
-                if str(jogo.get("serie") or "").strip().lower() == serie_id and str(jogo.get("id") or "").strip().upper() == jogo_id:
-                    regra = jogo.get("regra") or {}
-                    if regra.get("usar_regra_propria"):
-                        modo = _modo_regra(regra)
-                        if modo:
-                            return modo
-                    break
-
-            for serie in avanco.get("series") or []:
-                if str(serie.get("id") or "").strip().lower() == serie_id:
-                    modo = _modo_regra(serie.get("regra") or {})
-                    if modo:
-                        return modo
-                    break
-
-        fase_id = _normalizar_fase_operacao(partida.get("fase"))
-        regra_fase = _buscar_chave(regras_avancadas.get("fases") or {}, fase_id)
-        modo = _modo_regra(regra_fase)
-        if modo:
-            return modo
-
-        if fase_id == "grupos":
-            grupo = str(partida.get("grupo") or "").strip().upper()
-            regra_grupo = _buscar_chave(regras_avancadas.get("grupos") or {}, grupo)
-            modo = _modo_regra(regra_grupo)
-            if modo:
-                return modo
-
-    except Exception as e:
-        print("AVISO resolver modo operação partida:", repr(e), flush=True)
-
-    return modo_fallback
-
-
+    return _resolver_modo_operacao_config(competicao, partida)
 
 def _sets_max_competicao(competicao):
-    try:
-        comp = buscar_competicao_por_nome(competicao) or {}
-        sets_tipo = str(comp.get("sets_tipo") or "melhor_de_3").strip().lower()
-    except Exception:
-        sets_tipo = "melhor_de_3"
-
-    if sets_tipo == "set_unico":
-        return 1
-    if sets_tipo == "melhor_de_5":
-        return 5
-    return 3
+    return _sets_max_config(competicao)
 
 
 def _sets_para_vencer_competicao(competicao):
-    sets_max = _sets_max_competicao(competicao)
-    if sets_max == 5:
-        return 3
-    if sets_max == 3:
-        return 2
-    return 1
-
+    return _sets_para_vencer_config(competicao)
 
 def _coletar_sets_form_manual():
     sets = []
@@ -550,20 +343,14 @@ ATALHOS_APONTADOR_PADRAO = {
 
 
 def _login_apontador_sessao():
-    return (
-        session.get("usuario_login")
-        or session.get("login")
-        or session.get("apontador_login")
-        or session.get("usuario")
-        or ""
-    )
+    return _resolver_login_apontador(session)
 
 
 
 def _validar_operador_http(partida_id, competicao, renovar=True):
     """Proteção central: só o apontador que assumiu a partida pode operar."""
     login = _login_apontador_sessao()
-    ok, msg, partida = validar_operador_partida(partida_id, competicao, login, renovar=renovar)
+    ok, msg, partida = _validar_operador_partida(partida_id, competicao, login, renovar=renovar)
     return ok, msg, partida
 
 
@@ -806,12 +593,7 @@ def salvar_atalhos_apontador_view():
 # HELPERS
 # =========================================================
 def _json_no_cache(payload, status=200):
-    resposta = jsonify(payload)
-    resposta.status_code = status
-    resposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resposta.headers["Pragma"] = "no-cache"
-    resposta.headers["Expires"] = "0"
-    return resposta
+    return _resposta_json_no_cache(payload, status)
 
 
 def _escudo_payload_leve(valor):
@@ -845,48 +627,7 @@ def _int_seguro(valor, padrao=0):
 
 
 def _limites_operacionais(partida=None, estado=None):
-    """
-    Centraliza os limites usados pela tela do apontador.
-    Prioridade: estado/cache -> partida/regras salvas -> padrão do vôlei.
-    """
-    partida = partida or {}
-    estado = estado or {}
-
-    # A configuração da competição deve ganhar do cache vivo.
-    # O cache pode ter nascido com o padrão antigo 2/6 e não pode sobrescrever
-    # o que foi programado na competição.
-    def primeiro_definido(*valores, padrao=None):
-        # Preserva inclusive o valor zero configurado pelo organizador.
-        for valor in valores:
-            if valor is not None and valor != "":
-                return valor
-        return padrao
-
-    limite_tempos = _int_seguro(primeiro_definido(
-        partida.get("tempos_por_set"),
-        partida.get("limite_tempos"),
-        partida.get("tempos_limite"),
-        estado.get("tempos_por_set"),
-        estado.get("limite_tempos"),
-        estado.get("tempos_limite"),
-        padrao=2,
-    ), 2)
-
-    limite_substituicoes = _int_seguro(primeiro_definido(
-        partida.get("substituicoes_por_set"),
-        partida.get("limite_substituicoes"),
-        partida.get("substituicoes_limite"),
-        estado.get("substituicoes_por_set"),
-        estado.get("limite_substituicoes"),
-        estado.get("substituicoes_limite"),
-        padrao=6,
-    ), 6)
-
-    return {
-        "limite_tempos": max(0, limite_tempos),
-        "limite_substituicoes": max(0, limite_substituicoes),
-    }
-
+    return _limites_operacionais_config(partida, estado)
 
 def _contar_eventos_lado(partida_id, competicao, equipe, tipos, set_atual=None):
     """
@@ -1553,37 +1294,6 @@ def _rotacao_tem_atletas_front(rotacao):
     if not isinstance(rotacao, list):
         return False
     return any(str(x.get("numero") if isinstance(x, dict) else x or "").strip() for x in rotacao)
-def _rotacao_segura_estado(estado, lado):
-    """
-    Garante que a rotação usada no clique do ponto nunca venha vazia.
-    Isso evita o bug em que o placar atualiza, mas a rotação não gira porque
-    o cache/estado não trouxe rotacao_a ou rotacao_b no formato esperado.
-    """
-    estado = estado or {}
-    lado = (lado or "").strip().upper()
-
-    chave = "rotacao_a" if lado == "A" else "rotacao_b"
-    rotacao = estado.get(chave)
-
-    # Compatibilidade com payloads antigos que guardam as rotações dentro de "rotacao".
-    if not rotacao and isinstance(estado.get("rotacao"), dict):
-        rotacao = estado["rotacao"].get("equipe_a" if lado == "A" else "equipe_b")
-
-    if not isinstance(rotacao, list):
-        rotacao = []
-
-    normalizada = []
-    for item in rotacao:
-        if isinstance(item, dict):
-            numero = item.get("numero") or item.get("camisa") or item.get("n") or ""
-        else:
-            numero = item
-        normalizada.append(str(numero or "").strip())
-
-    while len(normalizada) < 6:
-        normalizada.append("")
-
-    return normalizada[:6]
 
 
 def _montar_evolucao_pontos(partida_id, competicao, set_atual=None):
@@ -1978,15 +1688,15 @@ def _emitir_estado_e_placar(partida_id, competicao, estado=None, partida=None, o
     if apontador_login:
         estado["apontador"] = apontador_login
 
-    try:
-        atualizar_estado_cache(partida_id, estado)
-        emitir_estado_partida(partida_id, estado)
-        if apontador_login:
-            emitir_placar_apontador(apontador_login, partida_id, estado)
-    except Exception as e:
-        print(f"ERRO emitir estado/placar {origem}:", e, flush=True)
-
-    return estado
+    return _publicar_estado_apontador(
+        partida_id=partida_id,
+        estado=estado,
+        atualizar_cache=atualizar_estado_cache,
+        emitir_estado=emitir_estado_partida,
+        apontador_login=apontador_login,
+        emitir_placar=emitir_placar_apontador,
+        origem=origem,
+    )
 
 
 # =========================================================
@@ -2143,25 +1853,11 @@ def painel_apontador():
     # _login_apontador_sessao() pode retornar login/nome da sessão, então aqui
     # priorizamos os campos de CPF e só usamos outros campos se eles tiverem
     # 11 dígitos. Isso corrige o erro "Não foi possível localizar o apontador".
-    candidatos_cpf = [
-        session.get("cpf"),
-        session.get("usuario_cpf"),
-        session.get("cpf_usuario"),
-        session.get("apontador_cpf"),
-        session.get("usuario"),
-        session.get("usuario_login"),
-        session.get("login"),
-    ]
-
-    cpf = ""
-    for candidato in candidatos_cpf:
-        limpo = somente_digitos(candidato or "")
-        if len(limpo) == 11:
-            cpf = limpo
-            break
-
-    if not cpf:
-        cpf = somente_digitos(_login_apontador_sessao() or "")
+    cpf = _resolver_cpf_sessao_painel(
+        session,
+        somente_digitos,
+        _login_apontador_sessao() or "",
+    )
 
     try:
         dados_home = _montar_home_apontador_cache(cpf)
@@ -2175,397 +1871,18 @@ def painel_apontador():
             "offline_habilitado": False,
         }
 
-    pode_jogo_avulso = bool(dados_home.get("pode_jogo_avulso"))
-    offline_habilitado = bool(dados_home.get("offline_habilitado"))
+    contexto = _contexto_home_apontador(dados_home)
 
     if not cpf:
         flash("CPF do apontador não encontrado na sessão.", "erro")
-        return render_template(
-            "painel_apontador.html",
-            pode_jogo_avulso=pode_jogo_avulso,
-            offline_habilitado=offline_habilitado,
-        )
+        return render_template("painel_apontador.html", **contexto)
 
     if not dados_home.get("oficial"):
         flash("Não foi possível localizar o apontador pelo CPF informado.", "erro")
-        return render_template(
-            "painel_apontador.html",
-            pode_jogo_avulso=pode_jogo_avulso,
-            offline_habilitado=offline_habilitado,
-        )
+        return render_template("painel_apontador.html", **contexto)
 
-    competicoes = dados_home.get("competicoes") or []
+    return render_template("painel_apontador.html", **contexto)
 
-    if not competicoes:
-        return render_template(
-            "painel_apontador.html",
-            pode_jogo_avulso=pode_jogo_avulso,
-            offline_habilitado=offline_habilitado,
-        )
-
-    if len(competicoes) == 1:
-        return render_template(
-            "painel_apontador.html",
-            competicao_unica=competicoes[0],
-            pode_jogo_avulso=pode_jogo_avulso,
-            offline_habilitado=offline_habilitado,
-        )
-
-    return render_template(
-        "painel_apontador.html",
-        competicoes=competicoes,
-        pode_jogo_avulso=pode_jogo_avulso,
-        offline_habilitado=offline_habilitado,
-    )
-
-
-
-def _fase_normalizada_lista(partida):
-    fase_txt = str((partida or {}).get("fase") or (partida or {}).get("fase_partida") or "grupos").strip().lower()
-    if fase_txt in {"grupo", "grupos", "classificatoria", "classificatória", "classificatorias", "classificatórias"}:
-        return "grupos"
-    if "quarta" in fase_txt:
-        return "quartas"
-    if "semi" in fase_txt:
-        return "semifinal"
-    if "terceiro" in fase_txt or ("3" in fase_txt and "lugar" in fase_txt):
-        return "terceiro_lugar"
-    if "final" in fase_txt:
-        return "final"
-    return fase_txt or "grupos"
-
-
-def _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, partida):
-    """Versão sem consulta dentro do loop da lista do apontador.
-
-    Para partidas do Avanço, lê também fases_config.avanco. Isso corrige o caso
-    em que o card está configurado com scout avançado, mas a partida real antiga
-    ainda possui modo_operacao='simples'.
-    """
-    partida = partida or {}
-
-    def _modo_valido(valor):
-        valor = str(valor or "").strip().lower()
-        return valor if valor in {"simples", "avancado"} else ""
-
-    def _modo_regra(regra):
-        if not isinstance(regra, dict):
-            return ""
-        return _modo_valido(regra.get("modo_operacao") or regra.get("scout"))
-
-    def _buscar_chave(dic, chave):
-        if not isinstance(dic, dict) or not chave:
-            return {}
-        if chave in dic:
-            return dic.get(chave) or {}
-        chave_low = str(chave).lower()
-        for k, v in dic.items():
-            if str(k).lower() == chave_low:
-                return v or {}
-        return {}
-
-    modo_fallback = _modo_valido(partida.get("modo_operacao")) or _modo_valido((competicao_cfg or {}).get("modo_operacao")) or "simples"
-
-    try:
-        fases_config = (config_avancada or {}).get("fases_config") or {}
-        regras_avancadas = fases_config.get("regras_avancadas") or {}
-        origem_partida = str(partida.get("origem") or "").strip()
-
-        if origem_partida.startswith("avanco:"):
-            partes = origem_partida.split(":")
-            serie_id = (partes[1] if len(partes) > 1 else "").strip().lower()
-            jogo_id = (partes[2] if len(partes) > 2 else "").strip().upper()
-
-            modo = _modo_regra(_buscar_chave(regras_avancadas.get("jogos") or {}, f"{serie_id}:{jogo_id}"))
-            if modo:
-                return modo
-
-            modo = _modo_regra(_buscar_chave(regras_avancadas.get("series") or {}, serie_id))
-            if modo:
-                return modo
-
-            avanco = fases_config.get("avanco") or {}
-            for jogo in avanco.get("jogos") or []:
-                if str(jogo.get("serie") or "").strip().lower() == serie_id and str(jogo.get("id") or "").strip().upper() == jogo_id:
-                    regra = jogo.get("regra") or {}
-                    if regra.get("usar_regra_propria"):
-                        modo = _modo_regra(regra)
-                        if modo:
-                            return modo
-                    break
-
-            for serie in avanco.get("series") or []:
-                if str(serie.get("id") or "").strip().lower() == serie_id:
-                    modo = _modo_regra(serie.get("regra") or {})
-                    if modo:
-                        return modo
-                    break
-
-        fase_id = _normalizar_fase_operacao(partida.get("fase"))
-        modo = _modo_regra(_buscar_chave(regras_avancadas.get("fases") or {}, fase_id))
-        if modo:
-            return modo
-
-        if fase_id == "grupos":
-            grupo = str(partida.get("grupo") or "").strip().upper()
-            modo = _modo_regra(_buscar_chave(regras_avancadas.get("grupos") or {}, grupo))
-            if modo:
-                return modo
-    except Exception:
-        pass
-
-    return modo_fallback
-
-def _normalizar_sets_tipo_lista_apontador(valor, padrao="melhor_de_3"):
-    valor = str(valor or padrao or "melhor_de_3").strip().lower()
-    aliases = {
-        "set único": "set_unico",
-        "set unico": "set_unico",
-        "unico": "set_unico",
-        "único": "set_unico",
-        "1_set": "set_unico",
-        "melhor_de_1": "set_unico",
-        "melhor de 3": "melhor_de_3",
-        "md3": "melhor_de_3",
-        "m3": "melhor_de_3",
-        "melhor de 5": "melhor_de_5",
-        "md5": "melhor_de_5",
-        "m5": "melhor_de_5",
-    }
-    valor = aliases.get(valor, valor)
-    if valor not in {"set_unico", "melhor_de_3", "melhor_de_5"}:
-        return padrao if padrao in {"set_unico", "melhor_de_3", "melhor_de_5"} else "melhor_de_3"
-    return valor
-
-
-def _int_regra_lista_apontador(*valores, padrao=0):
-    for valor in valores:
-        if valor not in (None, ""):
-            try:
-                numero = int(valor)
-                if numero > 0:
-                    return numero
-            except Exception:
-                pass
-    return int(padrao or 0)
-
-
-def _aplicar_regra_lista_apontador(resultado, regra):
-    """Aplica campos de regra sem consultar banco dentro do loop do apontador."""
-    if not isinstance(regra, dict) or not regra:
-        return resultado
-
-    sets_tipo = str(regra.get("sets_tipo") or regra.get("tipo_partida") or "").strip().lower()
-    if sets_tipo and sets_tipo != "padrao":
-        resultado["sets_tipo"] = _normalizar_sets_tipo_lista_apontador(sets_tipo, resultado.get("sets_tipo"))
-
-    pontos_set = _int_regra_lista_apontador(
-        regra.get("pontos_set"),
-        regra.get("ponto_alvo_set"),
-        regra.get("pontos_para_vencer_set"),
-        padrao=0,
-    )
-    if pontos_set:
-        resultado["pontos_set"] = pontos_set
-
-    pontos_tiebreak = _int_regra_lista_apontador(
-        regra.get("pontos_tiebreak"),
-        regra.get("pontos_tb"),
-        regra.get("tiebreak"),
-        padrao=0,
-    )
-    if pontos_tiebreak:
-        resultado["pontos_tiebreak"] = pontos_tiebreak
-
-    modo = str(regra.get("modo_operacao") or regra.get("scout") or "").strip().lower()
-    if modo in {"simples", "avancado"}:
-        resultado["modo_operacao"] = modo
-
-    return resultado
-
-
-def _resolver_regra_partida_lista_apontador(competicao_cfg, config_avancada, partida):
-    """Resolve a regra que será mostrada no card do painel do apontador.
-
-    Prioridade:
-    1. campos já salvos na própria partida;
-    2. regra do jogo/série do avanço;
-    3. regra da fase/grupo;
-    4. regra padrão da competição.
-    """
-    partida = partida or {}
-    competicao_cfg = competicao_cfg or {}
-    resultado = {
-        "sets_tipo": _normalizar_sets_tipo_lista_apontador(
-            partida.get("sets_tipo")
-            or partida.get("tipo_partida")
-            or partida.get("formato_jogo")
-            or competicao_cfg.get("sets_tipo")
-            or "melhor_de_3"
-        ),
-        "pontos_set": _int_regra_lista_apontador(
-            partida.get("pontos_set"),
-            competicao_cfg.get("pontos_set"),
-            padrao=25,
-        ),
-        "pontos_tiebreak": _int_regra_lista_apontador(
-            partida.get("pontos_tiebreak"),
-            competicao_cfg.get("pontos_tiebreak"),
-            padrao=15,
-        ),
-        "modo_operacao": str(
-            partida.get("modo_operacao_resolvido")
-            or partida.get("modo_operacao")
-            or competicao_cfg.get("modo_operacao")
-            or "simples"
-        ).strip().lower(),
-    }
-
-    if resultado["modo_operacao"] not in {"simples", "avancado"}:
-        resultado["modo_operacao"] = "simples"
-
-    try:
-        fases_config = (config_avancada or {}).get("fases_config") or {}
-        regras_avancadas = fases_config.get("regras_avancadas") or {}
-        origem_partida = str(partida.get("origem") or "").strip()
-
-        if origem_partida.startswith("avanco:"):
-            partes = origem_partida.split(":")
-            serie_id = partes[1] if len(partes) > 1 else ""
-            jogo_id = partes[2] if len(partes) > 2 else ""
-
-            regra_serie = (regras_avancadas.get("series") or {}).get(serie_id) or {}
-            resultado = _aplicar_regra_lista_apontador(resultado, regra_serie)
-
-            regra_jogo = (regras_avancadas.get("jogos") or {}).get(f"{serie_id}:{jogo_id}") or {}
-            resultado = _aplicar_regra_lista_apontador(resultado, regra_jogo)
-        else:
-            fase_id = _normalizar_fase_operacao(partida.get("fase"))
-            regra_fase = (regras_avancadas.get("fases") or {}).get(fase_id) or {}
-            resultado = _aplicar_regra_lista_apontador(resultado, regra_fase)
-
-            if fase_id == "grupos":
-                grupo = str(partida.get("grupo") or "").strip().upper()
-                regra_grupo = (regras_avancadas.get("grupos") or {}).get(grupo) or {}
-                resultado = _aplicar_regra_lista_apontador(resultado, regra_grupo)
-    except Exception:
-        pass
-
-    resultado["sets_tipo"] = _normalizar_sets_tipo_lista_apontador(resultado.get("sets_tipo"))
-    resultado["pontos_set"] = _int_regra_lista_apontador(resultado.get("pontos_set"), padrao=25)
-    resultado["pontos_tiebreak"] = _int_regra_lista_apontador(resultado.get("pontos_tiebreak"), padrao=15)
-    resultado["modo_operacao"] = resultado["modo_operacao"] if resultado["modo_operacao"] in {"simples", "avancado"} else "simples"
-
-    return resultado
-
-
-def _montar_resumo_regra_partida_apontador(regra):
-    regra = regra or {}
-    sets_tipo = _normalizar_sets_tipo_lista_apontador(regra.get("sets_tipo"))
-    pontos_set = _int_regra_lista_apontador(regra.get("pontos_set"), padrao=25)
-    pontos_tiebreak = _int_regra_lista_apontador(regra.get("pontos_tiebreak"), padrao=15)
-    modo_operacao = str(regra.get("modo_operacao") or "simples").strip().lower()
-
-    if sets_tipo == "melhor_de_5":
-        sigla = "M5"
-    elif sets_tipo == "set_unico":
-        sigla = "SU"
-    else:
-        sigla = "M3"
-
-    partes = [sigla, f"{pontos_set}PTS"]
-    if sets_tipo != "set_unico":
-        partes.append(f"TB{pontos_tiebreak}")
-    if modo_operacao == "avancado":
-        partes.append("SCOUT")
-
-    return " • ".join(partes)
-
-
-_CAMPOS_LEVES_PARTIDA_APONTADOR = {
-    "id", "competicao", "ordem", "rodada", "grupo", "fase", "fase_partida", "origem",
-    "equipe_a", "equipe_b", "equipe_a_operacional", "equipe_b_operacional",
-    "escudo_a", "escudo_b", "escudo_equipe_a", "escudo_equipe_b",
-    "quadra", "ginasio", "local", "data", "hora", "data_hora",
-    "status", "status_jogo", "status_operacao", "operador_login", "operador_nome",
-    "placar", "placar_exibicao", "placar_sets", "placar_pontos", "resultado",
-    "sets_a", "sets_b", "pontos_a", "pontos_b", "pontos_equipe_a", "pontos_equipe_b",
-    "set_atual", "set1_a", "set1_b", "set2_a", "set2_b", "set3_a", "set3_b", "set4_a", "set4_b", "set5_a", "set5_b",
-    "vencedor", "tipo_encerramento", "origem_resultado", "modo_operacao",
-    "tempos_por_set", "substituicoes_por_set", "limite_tempos", "limite_substituicoes",
-    "pontos_set", "pontos_tiebreak", "diferenca_minima", "sets_tipo", "sets_max", "sets_para_vencer", "resumo_regra",
-}
-
-
-def _partida_leve_para_lista_apontador(partida):
-    """Reduz o payload enviado no HTML do /apontador/entrar.
-
-    O log mostrou resposta acima de 1MB. Essa lista não precisa carregar campos
-    longos/base64/eventos/papeleta/scout. Mantemos só o que o card de jogos usa.
-    """
-    item = {}
-    for campo in _CAMPOS_LEVES_PARTIDA_APONTADOR:
-        if campo in (partida or {}):
-            valor = partida.get(campo)
-            if campo.startswith("escudo"):
-                # Na lista do apontador o escudo precisa ser o real da equipe.
-                # Não usar _escudo_payload_leve aqui, pois escudos salvos em base64
-                # estavam sendo trocados pelo escudo padrão.
-                valor = _normalizar_url_escudo(valor) if valor else ESCUDO_PADRAO_URL
-            elif isinstance(valor, str) and len(valor) > 700:
-                # Proteção contra JSON/base64/textos grandes que venham da consulta.
-                valor = valor[:700]
-            item[campo] = valor
-
-    # Alguns templates usam estes campos calculados.
-    item["modo_operacao_resolvido"] = partida.get("modo_operacao_resolvido") or "simples"
-    item["permite_scout"] = bool(partida.get("permite_scout"))
-    item["fase_normalizada"] = partida.get("fase_normalizada") or _fase_normalizada_lista(partida)
-    item["sets_tipo"] = partida.get("sets_tipo") or item.get("sets_tipo") or "melhor_de_3"
-    item["pontos_set"] = partida.get("pontos_set") or item.get("pontos_set") or 25
-    item["pontos_tiebreak"] = partida.get("pontos_tiebreak") or item.get("pontos_tiebreak") or 15
-    item["resumo_regra"] = partida.get("resumo_regra") or _montar_resumo_regra_partida_apontador({
-        "sets_tipo": item["sets_tipo"],
-        "pontos_set": item["pontos_set"],
-        "pontos_tiebreak": item["pontos_tiebreak"],
-        "modo_operacao": item["modo_operacao_resolvido"],
-    })
-    return item
-
-
-def _montar_rodadas_exibicao(competicao, partidas):
-    """Monta metadados das rodadas sem alterar a sequência das partidas."""
-    configuradas = listar_rodadas_competicao(competicao) or []
-    por_numero = {}
-    for r in configuradas:
-        try:
-            numero = int(r.get("numero_rodada") or 1)
-        except (TypeError, ValueError):
-            numero = 1
-        por_numero.setdefault(numero, r)
-
-    resultado = []
-    vistos = set()
-    for partida in partidas or []:
-        try:
-            numero = int(partida.get("rodada") or 0)
-        except (TypeError, ValueError):
-            numero = 0
-        chave = str(numero) if numero > 0 else "SEM_RODADA"
-        if chave in vistos:
-            continue
-        vistos.add(chave)
-        cfg = por_numero.get(numero, {}) if numero > 0 else {}
-        resultado.append({
-            "chave": chave,
-            "numero": numero if numero > 0 else None,
-            "nome": cfg.get("nome") or (f"Rodada {numero}" if numero > 0 else "Sem rodada definida"),
-            "data": cfg.get("data") or "",
-            "hora": cfg.get("hora") or "",
-            "data_hora": cfg.get("data_hora") or "",
-            "total": sum(1 for p in partidas if (str(p.get("rodada") or "SEM_RODADA") == chave)),
-        })
-    return resultado
 
 
 def _montar_partidas_painel_apontador_cache(competicao):
@@ -2580,14 +1897,14 @@ def _montar_partidas_painel_apontador_cache(competicao):
     if cached is not None:
         return cached
 
-    competicao_cfg = buscar_competicao_por_nome(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
+    competicao_cfg = _buscar_competicao_config(competicao) or {"nome": competicao, "sets_tipo": "melhor_de_3"}
 
     try:
-        config_avancada = buscar_configuracao_avancada_competicao(competicao) or {}
+        config_avancada = _buscar_configuracao_avancada(competicao) or {}
     except Exception:
         config_avancada = {}
 
-    partidas = listar_partidas(competicao) or []
+    partidas = listar_partidas_leve(competicao, limite=1000) or []
 
     # Mantém a normalização existente, mas só uma vez por cache curto.
     try:
@@ -2600,58 +1917,21 @@ def _montar_partidas_painel_apontador_cache(competicao):
     except Exception as e:
         print("AVISO placar exibicao lista apontador:", repr(e), flush=True)
 
-    # A ordem exibida deve ser exatamente a mesma do painel do organizador:
-    # rodada programada -> ordem definida pelo organizador -> id como desempate.
-    partidas = sorted(
-        partidas,
-        key=lambda x: (
-            x.get("rodada") if x.get("rodada") is not None else 999999,
-            x.get("ordem") if x.get("ordem") is not None else 999999,
-            x.get("id") if x.get("id") is not None else 999999,
-        ),
+    try:
+        rodadas_configuradas = listar_rodadas_competicao(competicao) or []
+    except Exception:
+        rodadas_configuradas = []
+
+    payload = _preparar_partidas_painel(
+        partidas=partidas,
+        competicao_cfg=competicao_cfg,
+        config_avancada=config_avancada,
+        rodadas_configuradas=rodadas_configuradas,
+        sets_max_manual=_sets_max_competicao(competicao),
+        normalizar_escudo=_normalizar_url_escudo,
+        escudo_padrao=ESCUDO_PADRAO_URL,
     )
-
-    sets_max_manual_global = _sets_max_competicao(competicao)
-
-    partidas_leves = []
-    for p in partidas:
-        try:
-            p["modo_operacao_resolvido"] = _resolver_modo_operacao_partida_rapido(competicao_cfg, config_avancada, p)
-        except Exception:
-            p["modo_operacao_resolvido"] = "simples"
-        p["permite_scout"] = str(p.get("modo_operacao_resolvido") or "simples").lower() == "avancado"
-        p["fase_normalizada"] = _fase_normalizada_lista(p)
-
-        regra_card = _resolver_regra_partida_lista_apontador(competicao_cfg, config_avancada, p)
-        regra_card["modo_operacao"] = p.get("modo_operacao_resolvido") or regra_card.get("modo_operacao") or "simples"
-        p["sets_tipo"] = regra_card.get("sets_tipo") or "melhor_de_3"
-        p["pontos_set"] = regra_card.get("pontos_set") or 25
-        p["pontos_tiebreak"] = regra_card.get("pontos_tiebreak") or 15
-        p["resumo_regra"] = _montar_resumo_regra_partida_apontador(regra_card)
-
-        # Para o modal de lançamento manual, a tela precisa liberar até o maior
-        # formato existente nas partidas. Ex.: competição set único com final M5.
-        try:
-            if str(p.get("sets_tipo") or "").strip().lower() == "melhor_de_5":
-                sets_max_manual_global = max(sets_max_manual_global, 5)
-            elif str(p.get("sets_tipo") or "").strip().lower() == "melhor_de_3":
-                sets_max_manual_global = max(sets_max_manual_global, 3)
-            else:
-                sets_max_manual_global = max(sets_max_manual_global, int(p.get("sets_max") or 0))
-        except Exception:
-            pass
-
-        # Em vez de remover alguns campos pesados, montamos uma cópia leve.
-        # Assim nenhum campo novo enorme passa despercebido para o HTML.
-        partidas_leves.append(_partida_leve_para_lista_apontador(p))
-
-    payload = {
-        "competicao_cfg": competicao_cfg,
-        "partidas": partidas_leves,
-        "rodadas_exibicao": _montar_rodadas_exibicao(competicao, partidas_leves),
-        "sets_max_manual": sets_max_manual_global,
-        "sets_para_vencer_manual": 3 if sets_max_manual_global >= 5 else (2 if sets_max_manual_global >= 3 else 1),
-    }
+    payload["competicao_cfg"] = competicao_cfg
     return _cache_set(chave, payload)
 
 
@@ -2865,8 +2145,8 @@ def pacote_offline_competicao_apontador(competicao):
         }, 403)
 
     try:
-        comp = buscar_competicao_por_nome(competicao) or {"competicao": competicao}
-        partidas_brutas = listar_partidas(competicao) or []
+        comp = _buscar_competicao_config(competicao) or {"competicao": competicao}
+        partidas_brutas = listar_partidas_leve(competicao, limite=1000) or []
         partidas_brutas = sorted(partidas_brutas, key=lambda x: (x.get("ordem") or 0, x.get("id") or 0))
 
         partidas = []
@@ -3001,7 +2281,7 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
     bloqueada_por_outro = False
     if partida.get("operador_login") and partida.get("operador_login") != cpf:
         try:
-            ok_lock, msg_lock, _ = validar_operador_partida(partida_id, competicao, cpf, renovar=False)
+            ok_lock, msg_lock, _ = _validar_operador_partida(partida_id, competicao, cpf, renovar=False)
             bloqueada_por_outro = (not ok_lock) and ("operação por" in (msg_lock or "").lower())
         except Exception:
             bloqueada_por_outro = (
@@ -3027,49 +2307,15 @@ def abrir_pre_jogo_apontador(competicao, partida_id):
         },
     )
 
-    equipe_a_conferida = False
-    equipe_b_conferida = False
-
-    equipe_a_operacional = partida.get("equipe_a_operacional")
-    equipe_b_operacional = partida.get("equipe_b_operacional")
-
-    if equipe_a_operacional:
-        equipe_a_conferida = equipe_ja_conferida(competicao, equipe_a_operacional)
-
-    if equipe_b_operacional:
-        equipe_b_conferida = equipe_ja_conferida(competicao, equipe_b_operacional)
-
-    precisa_conferencia = False
-    if equipe_a_operacional and equipe_b_operacional:
-        precisa_conferencia = (not equipe_a_conferida) or (not equipe_b_conferida)
-
-    fase_fluxo = str(partida.get("fase_partida") or partida.get("status_jogo") or "pre_jogo").strip().lower()
-    if fase_fluxo in {"", "aguardando", "agendada", "agendado", "reservado", "livre"}:
-        fase_fluxo = "pre_jogo"
-
-    fluxo = {
-        "fase_partida": fase_fluxo,
-        "tiebreak_pendente": bool(partida.get("tiebreak_pendente")),
-    }
-
-    return render_template(
-        "pre_jogo_apontador.html",
-        competicao_nome=competicao,
+    contexto = _montar_contexto_pre_jogo(
         partida=partida,
-        fluxo=fluxo,
         arbitros=arbitros,
+        operador_login=cpf,
+        equipe_ja_conferida_fn=equipe_ja_conferida,
+        competicao=competicao,
         bloqueada_por_outro=bloqueada_por_outro,
-        equipe_a_conferida=equipe_a_conferida,
-        equipe_b_conferida=equipe_b_conferida,
-        precisa_conferencia=precisa_conferencia,
-        capitao_a_nome=partida.get("capitao_a_nome"),
-        capitao_a_numero=partida.get("capitao_a_numero"),
-        capitao_b_nome=partida.get("capitao_b_nome"),
-        capitao_b_numero=partida.get("capitao_b_numero"),
-        pre_jogo_bloqueado=(fluxo.get("fase_partida") != "pre_jogo"),
-        tie_break_pendente=bool(fluxo.get("tiebreak_pendente")),
-        operador_login_atual=_login_apontador_sessao(),
     )
+    return render_template("pre_jogo_apontador.html", **contexto)
 
 
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/assumir", methods=["POST"])
@@ -3096,7 +2342,7 @@ def assumir_partida_view(competicao, partida_id):
         flash("Sessão do apontador não identificada. Faça login novamente.", "erro")
         return redirect(url_for("login"))
 
-    ok, msg = assumir_partida_operacional(
+    ok, msg = _assumir_partida_operador(
         partida_id,
         competicao,
         operador_login,
@@ -3113,7 +2359,7 @@ def assumir_partida_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def abandonar_partida_view(competicao, partida_id):
     cpf = _login_apontador_sessao()
-    ok, msg = abandonar_partida_operacional(partida_id, competicao, cpf)
+    ok, msg = _abandonar_partida_operador(partida_id, competicao, cpf)
     if ok:
         _limpar_cache_apontador(competicao)
     flash(msg, "sucesso" if ok else "erro")
@@ -3273,23 +2519,20 @@ def conferencia_equipe_view(competicao, partida_id, lado):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    if partida.get("operador_login") != cpf:
-        flash("Somente o operador da partida pode fazer a conferência.", "erro")
+    ok_acesso, msg_acesso = _validar_acesso_operador_pre_jogo(partida, cpf, "fazer a conferência")
+    if not ok_acesso:
+        flash(msg_acesso, "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     lado = (lado or "").strip().upper()
-    if lado not in {"A", "B"}:
-        flash("Lado inválido para conferência.", "erro")
-        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
-
-    equipe = (request.args.get("equipe") or "").strip() if modo_local else ""
-    if not equipe:
-        equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
-    if not equipe:
-        equipe = partida.get("equipe_a") if lado == "A" else partida.get("equipe_b")
-    equipes_validas = {str(partida.get("equipe_a") or "").strip(), str(partida.get("equipe_b") or "").strip()}
-    if equipe not in equipes_validas:
-        flash("Equipe inválida para conferência.", "erro")
+    equipe_informada = (request.args.get("equipe") or "").strip() if modo_local else ""
+    ok_equipe, msg_equipe, equipe = _resolver_equipe_conferencia(
+        partida=partida,
+        lado=lado,
+        equipe_informada=equipe_informada,
+    )
+    if not ok_equipe:
+        flash(msg_equipe, "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     snap = _snapshot_operacao_local(partida_id, competicao)
@@ -3315,56 +2558,25 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    if partida.get("operador_login") != cpf:
-        flash("Somente o operador da partida pode salvar a conferência.", "erro")
+    ok_acesso, msg_acesso = _validar_acesso_operador_pre_jogo(partida, cpf, "salvar a conferência")
+    if not ok_acesso:
+        flash(msg_acesso, "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     lado = (lado or "").strip().upper()
-    if lado not in {"A", "B"}:
-        flash("Lado inválido para conferência.", "erro")
-        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
-
-    equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
-    if not equipe:
-        flash("Equipe não definida para conferência.", "erro")
+    ok_equipe, msg_equipe, equipe = _resolver_equipe_conferencia(partida=partida, lado=lado)
+    if not ok_equipe:
+        flash(msg_equipe, "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     ids = [str(i).strip() for i in request.form.getlist("atleta_id") if str(i).strip()]
     atletas_atuais = listar_atletas_aprovados_da_equipe(equipe, competicao) or []
-    atletas_por_id = {str(a.get("id")): a for a in atletas_atuais}
-
-    novos_numeros = {}
-    numeros_usados = {}
-    erros = []
-
-    # Valida tudo antes de salvar. Assim não aparece a mesma mensagem várias vezes
-    # e também evita salvar metade da conferência quando existe número repetido.
-    for atleta_id in ids:
-        atleta = atletas_por_id.get(str(atleta_id))
-        if not atleta:
-            continue
-
-        bruto = (request.form.get(f"numero_{atleta_id}", "") or "").strip()
-        if bruto == "":
-            novos_numeros[atleta_id] = None
-            continue
-
-        try:
-            numero_int = int(bruto)
-        except (TypeError, ValueError):
-            erros.append(f"Número inválido para {atleta.get('nome') or 'atleta'}.")
-            continue
-
-        if numero_int < 1 or numero_int > 99:
-            erros.append(f"O número de {atleta.get('nome') or 'atleta'} precisa ser entre 1 e 99.")
-            continue
-
-        novos_numeros[atleta_id] = numero_int
-        numeros_usados.setdefault(numero_int, []).append(atleta.get("nome") or f"Atleta {atleta_id}")
-
-    repetidos = {n: nomes for n, nomes in numeros_usados.items() if len(nomes) > 1}
-    for numero, nomes in repetidos.items():
-        erros.append(f"O número {numero} foi informado para mais de uma atleta: {', '.join(nomes)}.")
+    valores_numeros = {atleta_id: request.form.get(f"numero_{atleta_id}", "") for atleta_id in ids}
+    alteracoes, erros = _preparar_alteracoes_numeracao(
+        atletas=atletas_atuais,
+        ids=ids,
+        valores=valores_numeros,
+    )
 
     if erros:
         for msg in erros:
@@ -3374,19 +2586,7 @@ def salvar_conferencia_equipe_view(competicao, partida_id, lado):
     houve_erro = False
     mensagens_exibidas = set()
 
-    for atleta_id, numero in novos_numeros.items():
-        atleta = atletas_por_id.get(str(atleta_id)) or {}
-        numero_atual = atleta.get("numero")
-        try:
-            numero_atual = int(numero_atual) if numero_atual not in (None, "") else None
-        except (TypeError, ValueError):
-            numero_atual = None
-
-        # Se não mudou, não chama o banco. Isso evita falso erro quando a tela
-        # envia vários campos de uma vez e deixa o salvamento bem mais leve.
-        if numero_atual == numero:
-            continue
-
+    for atleta_id, numero in alteracoes:
         resultado_numero = atualizar_numero_atleta(atleta_id, "" if numero is None else str(numero))
         if isinstance(resultado_numero, tuple):
             ok, msg = resultado_numero
@@ -3463,33 +2663,25 @@ def definir_capitao_view(competicao, partida_id, lado):
         flash("Partida não encontrada.", "erro")
         return redirect(url_for("apontadores.entrar_competicao_apontador", competicao=competicao))
 
-    if partida.get("operador_login") != cpf:
-        flash("Somente o operador da partida pode definir o capitão.", "erro")
+    ok_acesso, msg_acesso = _validar_acesso_operador_pre_jogo(partida, cpf, "definir o capitão")
+    if not ok_acesso:
+        flash(msg_acesso, "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     lado = (lado or "").strip().upper()
-    if lado not in {"A", "B"}:
-        flash("Lado inválido para capitão.", "erro")
-        return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
-
-    equipe = partida.get("equipe_a_operacional") if lado == "A" else partida.get("equipe_b_operacional")
-    if not equipe:
-        flash("Equipe operacional ainda não definida.", "erro")
+    ok_equipe, msg_equipe, equipe = _resolver_equipe_conferencia(partida=partida, lado=lado)
+    if not ok_equipe:
+        flash("Lado inválido para capitão." if "Lado inválido" in msg_equipe else "Equipe operacional ainda não definida.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
     atletas = _listar_atletas_aprovados_cache(equipe, competicao)
-    atletas = [a for a in atletas if a.get("numero") not in (None, "")]
-    atleta_atual_id = partida.get("capitao_a_id") if lado == "A" else partida.get("capitao_b_id")
-
-    return render_template(
-        "definir_capitao.html",
-        competicao_nome=competicao,
+    contexto = _contexto_capitao(
         partida=partida,
         lado=lado,
-        equipe_nome=equipe,
         atletas=atletas,
-        atleta_atual_id=atleta_atual_id,
+        competicao=competicao,
     )
+    return render_template("definir_capitao.html", **contexto)
 
 
 @apontadores_bp.route("/apontador/pre-jogo/<competicao>/<int:partida_id>/capitao/<lado>/salvar", methods=["POST"])
@@ -3505,37 +2697,6 @@ def salvar_capitao_view(competicao, partida_id, lado):
 
 
 
-def _set_atual_operacional_seguro(partida):
-    """Garante o número correto do próximo set para salvar/carregar papeleta.
-
-    Correção: em alguns fluxos o banco podia ficar com set_atual=1 mesmo após
-    o primeiro set ter sido vencido. A tabela papeletas já salva por set_numero,
-    então a rota precisa usar sempre sets_a + sets_b + 1 quando a partida ainda
-    não terminou.
-    """
-    partida = partida or {}
-    try:
-        set_banco = int(partida.get("set_atual") or 1)
-    except Exception:
-        set_banco = 1
-    try:
-        sets_a = int(partida.get("sets_a") or 0)
-        sets_b = int(partida.get("sets_b") or 0)
-    except Exception:
-        sets_a = sets_b = 0
-
-    esperado = max(1, sets_a + sets_b + 1)
-
-    try:
-        sets_max = int(partida.get("sets_max") or 0)
-    except Exception:
-        sets_max = 0
-    if sets_max > 0:
-        esperado = min(esperado, sets_max)
-
-    return max(set_banco, esperado)
-
-
 def _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida):
     set_seguro = _set_atual_operacional_seguro(partida)
     try:
@@ -3543,10 +2704,7 @@ def _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida):
     except Exception:
         set_banco = 1
 
-    fase = str((partida or {}).get("fase_partida") or "").strip().lower()
-    status = str((partida or {}).get("status_jogo") or "").strip().lower()
-
-    if set_seguro != set_banco or fase in {"intervalo_set", "entre_sets"} or status in {"entre_sets"}:
+    if set_seguro != set_banco or _fase_papeleta_exige_correcao(partida):
         try:
             with conectar() as conn:
                 with conn.cursor() as cur:
@@ -3575,36 +2733,13 @@ def _corrigir_set_atual_partida_se_preciso(partida_id, competicao, partida):
 
 
 def _papeleta_set_atual_esta_completa_partida(partida_id, competicao, partida):
-    """Confere se a papeleta do set atual já foi preenchida para as duas equipes.
+    return _papeletas_set_completas(
+        partida_id=partida_id,
+        competicao=competicao,
+        partida=partida or {},
+        verificar_fn=papeleta_set_esta_completa,
+    )
 
-    Protege o fluxo entre sets: depois de finalizar um set, se o banco já está
-    em set_atual=2/3/4 mas ainda não há registros na tabela papeletas para esse
-    set, a rota /jogo deve voltar para a papeleta em vez de reutilizar a rotação
-    do set anterior.
-    """
-    partida = partida or {}
-    try:
-        set_atual = int(partida.get("set_atual") or _set_atual_operacional_seguro(partida) or 1)
-    except Exception:
-        set_atual = 1
-
-    equipe_a = (partida.get("equipe_a_operacional") or partida.get("equipe_a") or "").strip()
-    equipe_b = (partida.get("equipe_b_operacional") or partida.get("equipe_b") or "").strip()
-
-    if not equipe_a or not equipe_b:
-        return False
-
-    try:
-        ok_a = bool(papeleta_set_esta_completa(partida_id, competicao, equipe_a, set_atual))
-    except Exception:
-        ok_a = False
-
-    try:
-        ok_b = bool(papeleta_set_esta_completa(partida_id, competicao, equipe_b, set_atual))
-    except Exception:
-        ok_b = False
-
-    return ok_a and ok_b
 
 # =========================================================
 # PAPELETA
@@ -3671,28 +2806,18 @@ def papeleta_view(competicao, partida_id):
     atletas_a = mapa_atletas.get(equipe_a) or (_listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else [])
     atletas_b = mapa_atletas.get(equipe_b) or (_listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else [])
 
-    atletas_a = [a for a in atletas_a if a.get("numero")]
-    atletas_b = [a for a in atletas_b if a.get("numero")]
-
-    fluxo = {
-        "fase_partida": fase,
-        "papeleta_a_completa": all(papeleta_a.get(i) for i in range(1, 7)),
-        "papeleta_b_completa": all(papeleta_b.get(i) for i in range(1, 7)),
-        "set_atual": set_atual,
-    }
-
-    return render_template(
-        "papeleta_apontador.html",
-        competicao_nome=competicao,
+    contexto = _montar_contexto_papeleta(
+        competicao=competicao,
         partida=partida,
         equipe_a=equipe_a,
         equipe_b=equipe_b,
+        set_atual=set_atual,
         atletas_a=atletas_a,
         atletas_b=atletas_b,
         papeleta_a=papeleta_a,
         papeleta_b=papeleta_b,
-        fluxo=fluxo,
     )
+    return render_template("papeleta_apontador.html", **contexto)
 
 
 @apontadores_bp.route("/apontador/papeleta/<competicao>/<int:partida_id>", methods=["POST"])
@@ -3718,44 +2843,27 @@ def salvar_papeleta_view(competicao, partida_id):
 
     atletas_cache = {}
 
-    def montar_dados(lado, equipe):
+    def atletas_equipe(equipe):
         if not equipe:
-            return {}
-
+            return []
         atletas = atletas_cache.get(equipe)
         if atletas is None:
             atletas = _listar_atletas_aprovados_cache(equipe, competicao)
             atletas_cache[equipe] = atletas
+        return atletas
 
-        mapa = {
-            int(a.get("numero")): a
-            for a in atletas
-            if a.get("numero") not in (None, "")
-        }
+    dados_a, rotacao_a, erros_a = _preparar_escalacao_papeleta(
+        atletas=atletas_equipe(equipe_a),
+        valores=_valores_formulario_papeleta(request.form, "A"),
+    )
+    dados_b, rotacao_b, erros_b = _preparar_escalacao_papeleta(
+        atletas=atletas_equipe(equipe_b),
+        valores=_valores_formulario_papeleta(request.form, "B"),
+    )
 
-        dados = {}
-
-        for pos in [1, 2, 3, 4, 5, 6]:
-            valor = (request.form.get(f"{lado}_{pos}") or "").strip()
-            if not valor:
-                continue
-
-            try:
-                numero = int(valor)
-            except Exception:
-                continue
-
-            atleta = mapa.get(numero)
-            if atleta:
-                dados[pos] = atleta
-
-        return dados
-
-    dados_a = montar_dados("A", equipe_a)
-    dados_b = montar_dados("B", equipe_b)
-
-    if len(dados_a) != 6 or len(dados_b) != 6:
-        flash("Preencha as 6 posições das duas equipes.", "erro")
+    erros = erros_a + erros_b
+    if erros:
+        flash(erros[0], "erro")
         return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
 
     salvar_papeleta(partida_id, competicao, equipe_a, set_atual, dados_a)
@@ -3780,23 +2888,6 @@ def salvar_papeleta_view(competicao, partida_id):
     except Exception as e:
         print("AVISO liberar jogo após papeleta:", repr(e), flush=True)
 
-    rotacao_a = [
-        str(dados_a[4].get("numero") or ""),
-        str(dados_a[3].get("numero") or ""),
-        str(dados_a[2].get("numero") or ""),
-        str(dados_a[5].get("numero") or ""),
-        str(dados_a[6].get("numero") or ""),
-        str(dados_a[1].get("numero") or ""),
-    ]
-
-    rotacao_b = [
-        str(dados_b[4].get("numero") or ""),
-        str(dados_b[3].get("numero") or ""),
-        str(dados_b[2].get("numero") or ""),
-        str(dados_b[5].get("numero") or ""),
-        str(dados_b[6].get("numero") or ""),
-        str(dados_b[1].get("numero") or ""),
-    ]
 
     try:
         partida_inicializada = inicializar_jogo_partida(partida_id, competicao)
@@ -3817,43 +2908,29 @@ def salvar_papeleta_view(competicao, partida_id):
     equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b") or equipe_b
     set_atual = int(partida.get("set_atual") or set_atual or 1)
 
-    estado = {
-        "ok": True,
-        "competicao": competicao,
-        "partida_id": partida_id,
-        "equipe_a": equipe_a or "",
-        "equipe_b": equipe_b or "",
-        "equipe_a_operacional": equipe_a or "",
-        "equipe_b_operacional": equipe_b or "",
-        "equipe_a_cadastro": partida.get("equipe_a") or equipe_a or "",
-        "equipe_b_cadastro": partida.get("equipe_b") or equipe_b or "",
-        "pontos_a": int(partida.get("pontos_a") or 0),
-        "pontos_b": int(partida.get("pontos_b") or 0),
-        "placar_a": int(partida.get("pontos_a") or 0),
-        "placar_b": int(partida.get("pontos_b") or 0),
-        "sets_a": int(partida.get("sets_a") or 0),
-        "sets_b": int(partida.get("sets_b") or 0),
-        "set_atual": set_atual,
-        "saque_atual": partida.get("saque_atual") or partida.get("saque_inicial") or "",
-        "rotacao_a": rotacao_a,
-        "rotacao_b": rotacao_b,
-        "historico": [{"descricao": "Jogo iniciado"}],
-        "ultima_acao": "Jogo iniciado",
-        "fase_partida": "jogo",
-        "status_jogo": "em_andamento",
-    }
+    estado = _montar_estado_inicial_jogo(
+        competicao=competicao,
+        partida_id=partida_id,
+        partida=partida,
+        equipe_a=equipe_a,
+        equipe_b=equipe_b,
+        set_atual=set_atual,
+        rotacao_a=rotacao_a,
+        rotacao_b=rotacao_b,
+    )
 
     # Caminho rápido: vindo da papeleta, não precisamos recalcular escudos, regras,
     # histórico ou evolução antes de redirecionar. Isso era um dos pontos que
     # travava no celular/tablet. O jogo_view usa este cache já pronto.
-    try:
-        atualizar_estado_cache(partida_id, estado)
-        emitir_estado_partida(partida_id, estado)
-        apontador_login = _login_apontador_sessao()
-        if apontador_login:
-            emitir_placar_apontador(apontador_login, partida_id, estado)
-    except Exception as e:
-        print("AVISO emitir cache rápido papeleta:", repr(e), flush=True)
+    _publicar_estado_apontador(
+        partida_id=partida_id,
+        estado=estado,
+        atualizar_cache=atualizar_estado_cache,
+        emitir_estado=emitir_estado_partida,
+        apontador_login=_login_apontador_sessao(),
+        emitir_placar=emitir_placar_apontador,
+        origem="PAPELETA_RAPIDA",
+    )
 
     _limpar_cache_apontador(competicao)
     flash("Papeleta salva com sucesso.", "sucesso")
@@ -3876,15 +2953,16 @@ def iniciar_jogo_local_view(competicao, partida_id):
         "fase_partida": "jogo", "status_jogo": "em_andamento",
         "local_operacao": True,
     })
-    atualizar_estado_cache(partida_id, estado)
+    _publicar_estado_apontador(
+        partida_id=partida_id,
+        estado=estado,
+        atualizar_cache=atualizar_estado_cache,
+        emitir_estado=emitir_estado_partida,
+        apontador_login=_login_apontador_sessao(),
+        emitir_placar=emitir_placar_apontador,
+        origem="INICIAR_JOGO_LOCAL",
+    )
     _salvar_snapshot_operacao_local(partida_id, competicao, pacote_local=pacote, estado=estado)
-    try:
-        emitir_estado_partida(partida_id, estado)
-        login = _login_apontador_sessao()
-        if login:
-            emitir_placar_apontador(login, partida_id, estado)
-    except Exception as e:
-        print("AVISO iniciar jogo local/socket:", repr(e), flush=True)
     return _json_no_cache({
         "ok": True,
         "url": url_for("apontadores.jogo_view", competicao=competicao, partida_id=partida_id, local="1"),
@@ -3895,7 +2973,7 @@ def iniciar_jogo_local_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def heartbeat_partida_view(competicao, partida_id):
     login = _login_apontador_sessao()
-    ok, msg = heartbeat_partida_operacional(partida_id, competicao, login)
+    ok, msg = _heartbeat_partida_operador(partida_id, competicao, login)
     return _json_no_cache({"ok": ok, "mensagem": msg, "bloqueada": not ok}, 200 if ok else 423)
 
 
@@ -3903,7 +2981,7 @@ def heartbeat_partida_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def liberar_partida_operacional_view(competicao, partida_id):
     login = _login_apontador_sessao()
-    ok, msg = liberar_trava_partida_operacional(partida_id, competicao, login)
+    ok, msg = _liberar_partida_operador(partida_id, competicao, login)
     return _json_no_cache({"ok": ok, "mensagem": msg}, 200 if ok else 400)
 
 
@@ -4037,119 +3115,36 @@ def jogo_view(competicao, partida_id):
     except Exception:
         pass
 
-    # Prioridade para cache vivo; se não existir, usa snapshot salvo no banco.
     try:
-        estado = obter_estado_cache(partida_id) or {}
-    except Exception:
-        estado = {}
+        contexto_jogo = _carregar_contexto_jogo(
+            competicao=competicao,
+            partida_id=partida_id,
+            partida=partida,
+            modo_local=modo_local,
+            modo_operacao=modo_operacao_resolvido,
+            obter_cache=obter_estado_cache,
+            buscar_estado_banco=buscar_estado_jogo_partida,
+            obter_snapshot_local=_snapshot_operacao_local,
+            aplicar_escudos=_aplicar_escudos_estado,
+            buscar_papeletas=_buscar_papeletas_set_atual,
+            listar_atletas=_listar_atletas_aprovados_cache,
+            aplicar_regras=_aplicar_regras_e_contadores_estado,
+            aplicar_placar_exibicao=aplicar_placar_exibicao_partida,
+            buscar_competicao=_buscar_competicao_cache,
+        )
+    except Exception as e:
+        print("ERRO carregar contexto jogo_view:", repr(e), flush=True)
+        contexto_jogo = {"ok": False, "mensagem": "Não foi possível carregar o estado da partida."}
 
-    if not estado and not modo_local:
-        try:
-            estado = buscar_estado_jogo_partida(partida_id, competicao) or {}
-        except Exception as e:
-            print("ERRO buscar_estado_jogo_partida/jogo_view rapido:", repr(e), flush=True)
-            estado = {}
-    if not estado and modo_local:
-        estado = dict((_snapshot_operacao_local(partida_id, competicao).get("estado") or {}))
-
-    estado = dict(estado or {})
-
-    # Montagem mínima e segura do estado, sem varrer eventos.
-    estado.setdefault("ok", True)
-    estado["competicao"] = competicao
-    estado["partida_id"] = partida_id
-
-    equipe_a_op = partida.get("equipe_a_operacional") or partida.get("equipe_a") or estado.get("equipe_a") or ""
-    equipe_b_op = partida.get("equipe_b_operacional") or partida.get("equipe_b") or estado.get("equipe_b") or ""
-
-    if (not equipe_a_op or not equipe_b_op) and not editar_scout_finalizada:
-        flash("Complete o pré-jogo antes de abrir a tela do jogo.", "erro")
+    if not contexto_jogo.get("ok"):
+        flash(contexto_jogo.get("mensagem") or "Complete o pré-jogo antes de abrir a tela do jogo.", "erro")
         return redirect(url_for("apontadores.abrir_pre_jogo_apontador", competicao=competicao, partida_id=partida_id))
 
-    estado["equipe_a_operacional"] = equipe_a_op
-    estado["equipe_b_operacional"] = equipe_b_op
-    estado["equipe_a"] = equipe_a_op
-    estado["equipe_b"] = equipe_b_op
-    estado = _aplicar_escudos_estado(estado, competicao, equipe_a_op, equipe_b_op)
-
-    # Estes campos são autoritativos no banco. Um cache do set anterior não pode
-    # fazer a tela voltar para o 1º set nem zerar o placar acumulado.
-    for campo, padrao in (
-        ("pontos_a", partida.get("pontos_a") or 0),
-        ("pontos_b", partida.get("pontos_b") or 0),
-        ("sets_a", partida.get("sets_a") or 0),
-        ("sets_b", partida.get("sets_b") or 0),
-        ("set_atual", partida.get("set_atual") or 1),
-    ):
-        estado[campo] = padrao
-
-    estado["placar_a"] = estado.get("placar_a", estado.get("pontos_a", 0))
-    estado["placar_b"] = estado.get("placar_b", estado.get("pontos_b", 0))
-    estado["saque_atual"] = estado.get("saque_atual") or partida.get("saque_atual") or partida.get("saque_inicial") or ""
-    estado.setdefault("status_jogo", status_jogo or "em_andamento")
-    estado.setdefault("fase_partida", partida.get("fase_partida") or "jogo")
-
-    # Papeleta e atletas são necessários para a operação da tela, mas são leves
-    # comparados à reconstrução por eventos. Mantemos com fallback seguro.
-    if modo_local:
-        equipe_a = estado.get("equipe_a") or partida.get("equipe_a") or ""
-        equipe_b = estado.get("equipe_b") or partida.get("equipe_b") or ""
-        set_atual = int(estado.get("set_atual") or 1)
-        pap = ((_snapshot_operacao_local(partida_id, competicao).get("pacote_local") or {}).get("papeletas") or {})
-        papeleta_a = {int(k): v for k, v in (pap.get("A") or {}).items()}
-        papeleta_b = {int(k): v for k, v in (pap.get("B") or {}).items()}
-        for i in range(1, 7):
-            papeleta_a.setdefault(i, "")
-            papeleta_b.setdefault(i, "")
-    else:
-        equipe_a, equipe_b, set_atual, papeleta_a, papeleta_b = _buscar_papeletas_set_atual(
-            partida_id, competicao, partida, estado,
-        )
-
-    try:
-        # Na passagem papeleta -> jogo estes elencos já foram carregados e ficam
-        # em cache. Evita duas consultas extras no Neon antes de renderizar a tela.
-        atletas_a = _listar_atletas_aprovados_cache(equipe_a, competicao) if equipe_a else []
-        atletas_b = _listar_atletas_aprovados_cache(equipe_b, competicao) if equipe_b else []
-    except Exception as e:
-        print("ERRO atletas jogo_view rapido:", repr(e), flush=True)
-        atletas_a = []
-        atletas_b = []
-
-    if not _rotacao_tem_atletas_front(estado.get("rotacao_a")):
-        estado["rotacao_a"] = _rotacao_fallback_por_papeleta(papeleta_a)
-
-    if not _rotacao_tem_atletas_front(estado.get("rotacao_b")):
-        estado["rotacao_b"] = _rotacao_fallback_por_papeleta(papeleta_b)
-
-    # Garante que os modais tenham números mesmo se o SELECT de atletas vier vazio
-    # ou com numeração em campo antigo. Usa papeleta/rotação já carregadas.
-    atletas_a = _merge_atletas_operacionais(atletas_a, papeleta_a, estado.get("rotacao_a"))
-    atletas_b = _merge_atletas_operacionais(atletas_b, papeleta_b, estado.get("rotacao_b"))
-
-    estado["rotacao"] = {
-        "equipe_a": estado.get("rotacao_a") or ["", "", "", "", "", ""],
-        "equipe_b": estado.get("rotacao_b") or ["", "", "", "", "", ""],
-    }
-
-    # Não busca histórico/eventos aqui. Isso destravava o "Retomar partida".
-    estado.setdefault("historico", [])
-    estado.setdefault("ultima_acao", estado.get("ultima_acao") or "Partida retomada")
-    estado.setdefault("evolucao_pontos", estado.get("evolucao_pontos") or [])
-    estado.setdefault("scout", estado.get("scout") or {})
-
-    estado = _aplicar_regras_e_contadores_estado(partida_id, competicao, estado, partida)
-
-    try:
-        competicao_cfg_estado = _buscar_competicao_cache(competicao) or {"nome": competicao, "sets_tipo": partida.get("sets_tipo") or "melhor_de_3"}
-        estado = aplicar_placar_exibicao_partida(dict(estado or {}), competicao_cfg_estado)
-    except Exception as e:
-        print("AVISO aplicar placar exibicao jogo_view:", repr(e), flush=True)
-
-    # Força novamente no estado final que vai para cache/template.
-    estado["modo_operacao"] = modo_operacao_resolvido
-    estado["modo_operacao_resolvido"] = modo_operacao_resolvido
-    estado["permite_scout"] = modo_operacao_resolvido == "avancado"
+    estado = contexto_jogo["estado"]
+    papeleta_a = contexto_jogo["papeleta_a"]
+    papeleta_b = contexto_jogo["papeleta_b"]
+    atletas_a = contexto_jogo["atletas_a"]
+    atletas_b = contexto_jogo["atletas_b"]
 
     try:
         atualizar_estado_cache(partida_id, estado)
@@ -4180,223 +3175,74 @@ def jogo_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def ponto_view(competicao, partida_id):
     try:
-        ok_lock, msg_lock, _partida_lock = _validar_operador_http(partida_id, competicao, renovar=True)
+        ok_lock, msg_lock, partida_lock = _validar_operador_http(partida_id, competicao, renovar=True)
         if not ok_lock:
             return _erro_operador_json(msg_lock)
 
-        corpo = request.get_json(silent=True) or {}
+        dados = dict(request.get_json(silent=True) or {})
+        dados.update({chave: valor for chave, valor in request.form.items() if valor is not None})
 
-        equipe = (request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
-        if equipe not in {"A", "B"}:
-            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
-
-        fundamento = (request.form.get("fundamento") or corpo.get("fundamento") or "").strip().lower()
-        resultado = (request.form.get("resultado") or corpo.get("resultado") or "").strip().lower()
-        tipo_lance = (request.form.get("tipo_lance") or corpo.get("tipo_lance") or "").strip().lower()
-        detalhe_lance = (request.form.get("detalhe_lance") or corpo.get("detalhe_lance") or "").strip().lower()
-        tipo_erro = (request.form.get("tipo_erro") or corpo.get("tipo_erro") or "").strip().lower()
-        atleta_numero = str(request.form.get("atleta_numero") or corpo.get("atleta_numero") or "").strip()
-        atleta_nome = (request.form.get("atleta_nome") or corpo.get("atleta_nome") or "").strip()
-        atleta_label = (request.form.get("atleta_label") or corpo.get("atleta_label") or "").strip()
-
-        if not tipo_lance:
-            return _json_no_cache({"ok": False, "mensagem": "Selecione se foi ponto, erro ou falta."}, 400)
-
-        # O modo simples do apontador/mobile envia ponto_simples.
-        # Ele deve contar como ponto direto, sem obrigar scout/atleta.
-        if tipo_lance == "ponto_simples":
-            tipo_lance = "ponto"
-            resultado = "ponto"
-            detalhe_lance = detalhe_lance or "ponto_simples"
-
-        if tipo_lance not in {"ponto", "erro", "falta"}:
-            return _json_no_cache({"ok": False, "mensagem": "Tipo de lance inválido."}, 400)
-
-        detalhe_final = (detalhe_lance or tipo_erro or resultado or fundamento).strip().lower()
-
-        detalhes_validos = {
-            "ponto": {"ataque", "bloqueio", "ace", "ponto_simples"},
-            "erro": {"erro_saque", "erro_geral"},
-            "falta": {"rede", "invasao", "rotacao", "conducao", "dois_toques"},
-        }
-
-        if detalhe_final not in detalhes_validos[tipo_lance]:
-            return _json_no_cache({"ok": False, "mensagem": "Detalhe da jogada inválido."}, 400)
-
-        exige_atleta = detalhe_final in {"ataque", "bloqueio", "ace"}
-
-        if exige_atleta and not atleta_numero:
-            return _json_no_cache({"ok": False, "mensagem": "Selecione o atleta da jogada."}, 400)
-
-        if not exige_atleta:
-            atleta_numero = ""
-            atleta_nome = ""
-            atleta_label = ""
-
-        def _lado_oposto(lado):
-            return "B" if lado == "A" else "A"
-
-        # REGRA CORRETA DO SCOUT:
-        # - Quando for ponto direto, o botão clicado é quem pontua.
-        # - Quando for erro/falta, o botão clicado é quem COMETEU o erro/falta,
-        #   então o ponto vai automaticamente para o lado adversário.
-        responsavel_lado = (
-            request.form.get("responsavel_lado")
-            or corpo.get("responsavel_lado")
-            or ""
-        ).strip().upper()
-
-        if tipo_lance in {"erro", "falta"}:
-            equipe_scout = responsavel_lado if responsavel_lado in {"A", "B"} else equipe
-            equipe_pontuadora = _lado_oposto(equipe_scout)
-        else:
-            equipe_pontuadora = equipe
-            equipe_scout = equipe_pontuadora
-
-        detalhes_evento = {
-            "fundamento": detalhe_final,
-            "resultado": tipo_lance,
-            "tipo_lance": tipo_lance,
-            "detalhe_lance": detalhe_final,
-            "tipo_erro": tipo_erro,
-            "atleta_numero": atleta_numero,
-            "atleta_nome": atleta_nome,
-            "atleta_label": atleta_label,
-            "equipe_pontuadora": equipe_pontuadora,
-            "equipe_scout": equipe_scout,
-            "responsavel_lado": equipe_scout,
-        }
+        try:
+            comando, detalhes_evento = _preparar_registro_ponto(dados)
+        except ErroPonto as exc:
+            return _json_no_cache({"ok": False, "mensagem": str(exc)}, 400)
 
         ok, retorno = registrar_ponto_partida(
             partida_id=partida_id,
             competicao=competicao,
-            equipe=equipe_pontuadora,
+            equipe=comando["equipe_pontuadora"],
             tipo="ponto",
-            detalhes=detalhes_evento
+            detalhes=detalhes_evento,
         )
-
         if not ok:
             mensagem = retorno if isinstance(retorno, str) else "Não foi possível registrar o ponto."
             return _json_no_cache({"ok": False, "mensagem": mensagem}, 400)
 
-        estado = retorno if isinstance(retorno, dict) else {}
-        estado["competicao"] = competicao
-        estado["partida_id"] = partida_id
-        if not estado.get("historico") or not estado.get("ultima_acao"):
-            desc = "Ponto registrado"
-            if atleta_label:
-                desc = f"Ponto {equipe_pontuadora} • {atleta_label}"
-            estado["historico"] = [{"descricao": desc}]
-            estado["ultima_acao"] = desc
-
-        # CAMINHO RÁPIDO DO PONTO:
-        # registrar_ponto_partida já fez o COMMIT e devolveu placar, saque e rotações.
-        # Não chamar _emitir_estado_e_placar aqui, pois essa função pode abrir novas
-        # consultas (partida, regras, contadores e escudos) antes da resposta HTTP.
-        # Mesclamos com o cache vivo e emitimos o estado oficial sem tocar no banco.
-        estado["_forcar_rebuild_eventos"] = False
-        try:
-            cache_atual = obter_estado_cache(partida_id) or {}
-            payload_socket = dict(cache_atual)
-            payload_socket.update(estado)
-            payload_socket["ok"] = True
-            payload_socket["competicao"] = competicao
-            payload_socket["partida_id"] = partida_id
-            payload_socket["origem"] = "PONTO_OFICIAL"
-            # Mantém no socket as duas referências: cadastro fixo e lado
-            # operacional atual. O visualizador usa isso para reposicionar os
-            # pontos corretamente sem afetar apontador, árbitros ou telão.
-            partida_ref = dict(_partida_lock or {})
-            payload_socket["equipe_a_cadastro"] = partida_ref.get("equipe_a") or payload_socket.get("equipe_a_cadastro") or payload_socket.get("equipe_a") or ""
-            payload_socket["equipe_b_cadastro"] = partida_ref.get("equipe_b") or payload_socket.get("equipe_b_cadastro") or payload_socket.get("equipe_b") or ""
-            payload_socket["equipe_a_operacional"] = partida_ref.get("equipe_a_operacional") or payload_socket.get("equipe_a_operacional") or payload_socket.get("equipe_a") or payload_socket["equipe_a_cadastro"]
-            payload_socket["equipe_b_operacional"] = partida_ref.get("equipe_b_operacional") or payload_socket.get("equipe_b_operacional") or payload_socket.get("equipe_b") or payload_socket["equipe_b_cadastro"]
-            payload_socket["ultima_acao"] = estado.get("ultima_acao") or "Ponto registrado"
-            payload_socket["historico"] = estado.get("historico") or cache_atual.get("historico") or []
-
-            atualizar_estado_cache(partida_id, payload_socket)
-            emitir_estado_partida(partida_id, payload_socket)
-
-            apontador_login = _login_apontador_sessao()
-            if apontador_login:
-                emitir_placar_apontador(apontador_login, partida_id, payload_socket)
-
-            estado = payload_socket
-        except Exception as e:
-            # Falha de socket não pode transformar um ponto já salvo em erro HTTP.
-            print("AVISO emissão rápida do ponto:", repr(e), flush=True)
-
-        if bool(
-            estado.get("fim_set")
-            or estado.get("set_finalizado")
-            or estado.get("fim_jogo")
-            or estado.get("partida_finalizada")
-        ):
-            _limpar_cache_apontador(competicao)
-
-        # Resposta HTTP compacta. O cache do servidor continua completo e o
-        # Socket.IO já emite seu próprio payload leve. Não devolver histórico,
-        # atletas, scout e eventos a cada clique reduz centenas de KB por ponto.
-        chaves_resposta_ponto = (
-            "pontos_a", "pontos_b", "placar_a", "placar_b",
-            "sets_a", "sets_b", "set_atual",
-            "saque_atual", "sacador_nome", "sacador_numero",
-            "rotacao_a", "rotacao_b",
-            "tempos_a", "tempos_b", "limite_tempos",
-            "subs_a", "subs_b", "limite_substituicoes",
-            "sets_tipo", "sets_para_vencer", "sets_max",
-            "pontos_set", "ponto_alvo_set", "pontos_para_vencer_set",
-            "pontos_tiebreak", "diferenca_minima",
-            "fim_set", "set_finalizado", "fim_jogo",
-            "partida_finalizada", "encerrado",
-            "status_jogo", "fase_partida",
-            "vencedor_set", "vencedor_partida",
-            "ultima_acao", "lados_invertidos_apontador",
-            "ultima_inversao_automatica_set",
+        estado = _completar_estado_ponto(
+            retorno,
+            competicao=competicao,
+            partida_id=partida_id,
+            comando=comando,
         )
 
-        resposta_ponto = {
-            "ok": True,
-            "mensagem": "Ponto registrado com sucesso.",
-            "competicao": competicao,
-            "partida_id": partida_id,
-        }
-
-        for chave in chaves_resposta_ponto:
-            if chave in estado:
-                resposta_ponto[chave] = estado.get(chave)
-
-        # Uma única ação é suficiente para a área "Últimas ações".
-        resposta_ponto["historico"] = [{
-            "descricao": estado.get("ultima_acao") or "Ponto registrado"
-        }]
-
-        # O último ponto já é confirmado e finalizado dentro de
-        # registrar_ponto_partida(). Nesse fluxo não chamamos /encerrar outra
-        # vez com um snapshot local possivelmente atrasado.
-        if bool(
-            resposta_ponto.get("fim_jogo")
-            or resposta_ponto.get("partida_finalizada")
-            or resposta_ponto.get("encerrado")
-            or str(resposta_ponto.get("status_jogo") or "").strip().lower() in {"finalizada", "encerrado"}
-        ):
-            resposta_ponto["fim_jogo"] = True
-            resposta_ponto["partida_finalizada"] = True
-            resposta_ponto["encerrado"] = True
-            resposta_ponto["abrir_observacoes"] = True
-            resposta_ponto["url_observacoes"] = url_for(
-                "apontadores.observacoes_view",
+        # O ponto já foi confirmado no banco. Falha na publicação em tempo real
+        # não deve devolver erro e induzir o navegador a reenviar o mesmo ponto.
+        try:
+            estado = _publicar_ponto(
+                estado=estado,
+                partida=partida_lock,
                 competicao=competicao,
                 partida_id=partida_id,
+                obter_cache=obter_estado_cache,
+                atualizar_cache=atualizar_estado_cache,
+                emitir_estado=emitir_estado_partida,
+                login_apontador=_login_apontador_sessao(),
+                emitir_placar=emitir_placar_apontador,
             )
+        except Exception as exc:
+            print("AVISO emissão rápida do ponto:", repr(exc), flush=True)
 
-        return _json_no_cache(resposta_ponto)
+        if _set_ou_jogo_finalizado(estado):
+            _limpar_cache_apontador(competicao)
 
-    except Exception as e:
-        print("ERRO ponto_view:", e, flush=True)
+        url_observacoes = url_for(
+            "apontadores.observacoes_view",
+            competicao=competicao,
+            partida_id=partida_id,
+        )
+        resposta = _montar_resposta_ponto(
+            estado,
+            competicao=competicao,
+            partida_id=partida_id,
+            url_observacoes=url_observacoes,
+        )
+        return _json_no_cache(resposta)
+
+    except Exception as exc:
+        print("ERRO ponto_view:", repr(exc), flush=True)
         return _json_no_cache({
             "ok": False,
-            "mensagem": f"Erro ao registrar ponto: {e}"
+            "mensagem": f"Erro ao registrar ponto: {exc}",
         }, 500)
     
 
@@ -4508,21 +3354,7 @@ def _lock_estado_partida(partida_id):
 
 
 def _descricao_acao(tipo, equipe='', payload=None):
-    payload = payload or {}
-    equipe_txt = f"Equipe {equipe}" if equipe else "Equipe"
-    if tipo == "tempo":
-        return f"Tempo solicitado - {equipe_txt}"
-    if tipo == "substituicao":
-        return f"{equipe_txt} • substituição • {payload.get('numero_sai', '')}>{payload.get('numero_entra', '')}"
-    if tipo == "substituicao_excepcional":
-        return f"{equipe_txt} • substituição excepcional • {payload.get('numero_sai', '')}>{payload.get('numero_entra', '')}"
-    if tipo == "retardamento":
-        return f"{equipe_txt} • retardamento"
-    if tipo == "sancao":
-        return f"{equipe_txt} • sanção • {payload.get('tipo_sancao') or payload.get('sancao') or ''}"
-    if tipo == "cartao_verde":
-        return f"{equipe_txt} • cartão verde"
-    return payload.get('descricao') or "Ação registrada"
+    return _descrever_acao_extra(tipo, equipe, payload)
 
 
 def _normalizar_estado_pos_acao(partida_id, competicao, retorno=None, origem="", acao=None):
@@ -4588,55 +3420,20 @@ def _acao_rapida(partida_id, competicao, tipo, equipe='', payload=None):
     estado["ultima_acao"] = descricao
 
     # Atualizações visuais imediatas sem depender do banco.
-    if tipo == "tempo":
-        campo = "tempos_a" if equipe == "A" else "tempos_b"
-        try:
-            estado[campo] = max(0, int(estado.get(campo, 0)) + 1)
-        except Exception:
-            estado[campo] = 1
+    if tipo in {"tempo", "retardamento", "sancao", "cartao_verde"}:
+        estado = _aplicar_acao_extra_local(estado, tipo, equipe, payload)
     elif tipo in {"substituicao", "substituicao_excepcional"}:
-        campo = "subs_a" if equipe == "A" else "subs_b"
-        try:
-            estado[campo] = int(estado.get(campo, 0)) + 1
-        except Exception:
-            estado[campo] = 1
         numero_sai = str(payload.get("numero_sai") or '').strip()
         numero_entra = str(payload.get("numero_entra") or '').strip()
-        rot_key = "rotacao_a" if equipe == "A" else "rotacao_b"
-        rot = list(estado.get(rot_key) or [])
-        if numero_sai and numero_entra and len(rot) == 6:
-            estado[rot_key] = [numero_entra if str(n) == numero_sai else n for n in rot]
-
-        # Marca visual para árbitros/mesa: quem saiu fica vermelho no histórico/status,
-        # e quem entrou fica identificado como substituto.
-        status_key = "status_jogadores_a" if equipe == "A" else "status_jogadores_b"
-        status = copy.deepcopy(estado.get(status_key)) if isinstance(estado.get(status_key), dict) else {}
-        if numero_sai:
-            status[numero_sai] = {"tipo": "substituido", "numero_entra": numero_entra}
-        if numero_entra:
-            status[numero_entra] = {"tipo": "substituto", "numero_sai": numero_sai}
-        estado[status_key] = status
-    elif tipo == "retardamento":
-        campo = "retardamentos_a" if equipe == "A" else "retardamentos_b"
-        lista = estado.get(campo) or []
-        if not isinstance(lista, list):
-            lista = []
-        lista.append({"equipe": equipe, "set": estado.get("set_atual", 1)})
-        estado[campo] = lista
-    elif tipo == "cartao_verde":
-        campo = "cartoes_verdes_a" if equipe == "A" else "cartoes_verdes_b"
-        lista = estado.get(campo) or []
-        if not isinstance(lista, list):
-            lista = []
-        lista.append({"tipo_pessoa": payload.get("tipo_pessoa"), "numero": payload.get("numero"), "nome": payload.get("nome")})
-        estado[campo] = lista
-    elif tipo == "sancao":
-        campo = "sancoes_a" if equipe == "A" else "sancoes_b"
-        lista = estado.get(campo) or []
-        if not isinstance(lista, list):
-            lista = []
-        lista.append({"tipo_pessoa": payload.get("tipo_pessoa"), "numero": payload.get("numero"), "nome": payload.get("nome"), "tipo_sancao": payload.get("tipo_sancao")})
-        estado[campo] = lista
+        estado = _aplicar_substituicao_visual(
+            estado,
+            equipe=equipe,
+            numero_sai=numero_sai,
+            numero_entra=numero_entra,
+            excepcional=(tipo == "substituicao_excepcional"),
+            motivo=payload.get("motivo"),
+            observacao=payload.get("observacao"),
+        )
 
     return _normalizar_estado_pos_acao(partida_id, competicao, estado, origem=f"{tipo.upper()}_RAPIDO", acao={"descricao": descricao})
 
@@ -4649,11 +3446,13 @@ def registrar_tempo_view(competicao, partida_id):
         if not ok_lock:
             return _erro_operador_json(msg_lock)
         corpo = request.get_json(silent=True) or {}
-        equipe = str(request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
-        if equipe not in {"A", "B"}:
-            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
-        estado = _acao_rapida(partida_id, competicao, "tempo", equipe, corpo)
-        return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", "duracao": 30, **estado})
+        equipe_bruta = request.form.get("equipe") or corpo.get("equipe") or ""
+        estado_atual = obter_estado_cache(partida_id) or buscar_estado_jogo_partida(partida_id, competicao) or {}
+        preparado = _preparar_tempo(equipe_bruta, estado_atual, corpo)
+        estado = _acao_rapida(partida_id, competicao, "tempo", preparado["equipe"], preparado["payload"])
+        return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", "duracao": preparado["payload"]["duracao"], **estado})
+    except _ErroAcaoJogo as e:
+        return _json_no_cache({"ok": False, "mensagem": str(e)}, 400)
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar tempo local: {e}"}, 500)
 
@@ -4668,8 +3467,10 @@ def registrar_substituicao_view(competicao, partida_id):
         equipe = str(request.form.get("equipe") or corpo.get("equipe") or "").strip().upper()
         numero_sai = str(request.form.get("numero_sai") or corpo.get("numero_sai") or "").strip()
         numero_entra = str(request.form.get("numero_entra") or corpo.get("numero_entra") or "").strip()
-        if equipe not in {"A", "B"} or not numero_sai or not numero_entra:
-            return _json_no_cache({"ok": False, "mensagem": "Substituição inválida."}, 400)
+        try:
+            equipe, numero_sai, numero_entra = _validar_comando_substituicao(equipe, numero_sai, numero_entra)
+        except _ErroSubstituicao as erro:
+            return _json_no_cache({"ok": False, "mensagem": str(erro)}, 400)
         # A troca de rotação/status precisa ser atômica por partida.
         with _lock_estado_partida(partida_id):
             estado = _acao_rapida(
@@ -4691,8 +3492,10 @@ def registrar_substituicao_excepcional_view(competicao, partida_id):
         equipe = str(corpo.get("equipe") or "").strip().upper()
         numero_sai = str(corpo.get("numero_sai") or "").strip()
         numero_entra = str(corpo.get("numero_entra") or "").strip()
-        if equipe not in {"A", "B"} or not numero_sai or not numero_entra:
-            return _json_no_cache({"ok": False, "mensagem": "Substituição excepcional inválida."}, 400)
+        try:
+            equipe, numero_sai, numero_entra = _validar_comando_substituicao(equipe, numero_sai, numero_entra)
+        except _ErroSubstituicao as erro:
+            return _json_no_cache({"ok": False, "mensagem": str(erro)}, 400)
         estado = _acao_rapida(partida_id, competicao, "substituicao_excepcional", equipe, corpo)
         return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", **estado})
     except Exception as e:
@@ -4706,11 +3509,11 @@ def registrar_retardamento_view(competicao, partida_id):
         if not ok_lock:
             return _erro_operador_json(msg_lock)
         corpo = request.get_json(silent=True) or {}
-        equipe = str(corpo.get("equipe") or "").strip().upper()
-        if equipe not in {"A", "B"}:
-            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
-        estado = _acao_rapida(partida_id, competicao, "retardamento", equipe, corpo)
+        preparado = _preparar_retardamento(corpo.get("equipe"), corpo)
+        estado = _acao_rapida(partida_id, competicao, "retardamento", preparado["equipe"], preparado["payload"])
         return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", **estado})
+    except _ErroAcaoJogo as e:
+        return _json_no_cache({"ok": False, "mensagem": str(e)}, 400)
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar retardamento local: {e}"}, 500)
 
@@ -4722,11 +3525,11 @@ def registrar_sancao_view(competicao, partida_id):
         if not ok_lock:
             return _erro_operador_json(msg_lock)
         corpo = request.get_json(silent=True) or {}
-        equipe = str(corpo.get("equipe") or "").strip().upper()
-        if equipe not in {"A", "B"}:
-            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
-        estado = _acao_rapida(partida_id, competicao, "sancao", equipe, {**corpo, "tipo_sancao": corpo.get("tipo_sancao") or corpo.get("sancao")})
+        preparado = _preparar_sancao(corpo.get("equipe"), corpo)
+        estado = _acao_rapida(partida_id, competicao, "sancao", preparado["equipe"], preparado["payload"])
         return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", **estado})
+    except _ErroAcaoJogo as e:
+        return _json_no_cache({"ok": False, "mensagem": str(e)}, 400)
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar sanção local: {e}"}, 500)
 
@@ -4738,11 +3541,11 @@ def registrar_cartao_verde_view(competicao, partida_id):
         if not ok_lock:
             return _erro_operador_json(msg_lock)
         corpo = request.get_json(silent=True) or {}
-        equipe = str(corpo.get("equipe") or "").strip().upper()
-        if equipe not in {"A", "B"}:
-            return _json_no_cache({"ok": False, "mensagem": "Equipe inválida."}, 400)
-        estado = _acao_rapida(partida_id, competicao, "cartao_verde", equipe, corpo)
+        preparado = _preparar_cartao_verde(corpo.get("equipe"), corpo)
+        estado = _acao_rapida(partida_id, competicao, "cartao_verde", preparado["equipe"], preparado["payload"])
         return _json_no_cache({"ok": True, "local": True, "persistencia": "encerramento", **estado})
+    except _ErroAcaoJogo as e:
+        return _json_no_cache({"ok": False, "mensagem": str(e)}, 400)
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao registrar cartão verde local: {e}"}, 500)
 
@@ -4795,27 +3598,15 @@ def salvar_estado_manual_view(competicao, partida_id):
 
 
 def _garantir_tabela_eventos_sincronizados():
-    """Registra IDs locais já persistidos para tornar lotes idempotentes."""
-    with conectar() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS apontador_eventos_sincronizados (
-                    partida_id INTEGER NOT NULL,
-                    competicao TEXT NOT NULL,
-                    id_local TEXT NOT NULL,
-                    set_numero INTEGER,
-                    sincronizado_em TIMESTAMP DEFAULT NOW(),
-                    PRIMARY KEY (partida_id, competicao, id_local)
-                )
-            """)
-        conn.commit()
+    """Compatibilidade: o schema é garantido no startup da aplicação."""
+    from repositories.runtime_schema import garantir_schema_runtime
+    garantir_schema_runtime()
 
 
 def _ids_eventos_ja_sincronizados(partida_id, competicao, ids_locais):
     ids = [str(x).strip() for x in (ids_locais or []) if str(x).strip()]
     if not ids:
         return set()
-    _garantir_tabela_eventos_sincronizados()
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -4841,7 +3632,6 @@ def _marcar_eventos_sincronizados(partida_id, competicao, eventos):
         linhas.append((partida_id, competicao, id_local, set_numero))
     if not linhas:
         return
-    _garantir_tabela_eventos_sincronizados()
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.executemany("""
@@ -5552,25 +4342,7 @@ def _persistir_estado_final_cliente(partida_id, competicao, estado_final_cliente
     if not estado_cliente:
         return buscar_estado_jogo_partida(partida_id, competicao) or {}
 
-    def _int_final(valor, padrao=0):
-        try:
-            if valor in (None, ""):
-                return padrao
-            return int(valor)
-        except Exception:
-            return padrao
-
-    estado_cliente["pontos_a"] = _int_final(
-        estado_cliente.get("pontos_a", estado_cliente.get("placar_a", 0)), 0
-    )
-    estado_cliente["pontos_b"] = _int_final(
-        estado_cliente.get("pontos_b", estado_cliente.get("placar_b", 0)), 0
-    )
-    estado_cliente["placar_a"] = estado_cliente["pontos_a"]
-    estado_cliente["placar_b"] = estado_cliente["pontos_b"]
-    estado_cliente["sets_a"] = _int_final(estado_cliente.get("sets_a"), 0)
-    estado_cliente["sets_b"] = _int_final(estado_cliente.get("sets_b"), 0)
-    estado_cliente["set_atual"] = max(1, _int_final(estado_cliente.get("set_atual"), 1))
+    estado_cliente, valores_extras = _preparar_estado_final_cliente(estado_cliente)
 
     # Persiste o snapshot vivo completo (placar, sets, rotação e disciplina).
     salvo = salvar_estado_manual_partida(
@@ -5582,17 +4354,6 @@ def _persistir_estado_final_cliente(partida_id, competicao, estado_final_cliente
     ) or {}
 
     # Persiste também as parciais e campos finais que não fazem parte do snapshot manual.
-    valores_extras = {}
-    for numero_set in range(1, 6):
-        for lado in ("a", "b"):
-            campo = f"set{numero_set}_{lado}"
-            if estado_cliente.get(campo) not in (None, ""):
-                valores_extras[campo] = _int_final(estado_cliente.get(campo), 0)
-
-    for campo in ("tipo_encerramento", "sets_tipo", "sets_max", "sets_para_vencer"):
-        if estado_cliente.get(campo) not in (None, ""):
-            valores_extras[campo] = estado_cliente.get(campo)
-
     if valores_extras:
         with conectar() as conn:
             with conn.cursor() as cur:
@@ -5602,16 +4363,7 @@ def _persistir_estado_final_cliente(partida_id, competicao, estado_final_cliente
             conn.commit()
 
     confirmado = buscar_estado_jogo_partida(partida_id, competicao) or salvo or {}
-    esperado_a = estado_cliente["sets_a"]
-    esperado_b = estado_cliente["sets_b"]
-    confirmado_a = _int_final(confirmado.get("sets_a"), -1)
-    confirmado_b = _int_final(confirmado.get("sets_b"), -1)
-
-    if confirmado_a != esperado_a or confirmado_b != esperado_b:
-        raise RuntimeError(
-            "O estado final não foi confirmado no banco "
-            f"(esperado {esperado_a} x {esperado_b}, confirmado {confirmado_a} x {confirmado_b})."
-        )
+    _confirmar_sets_finalizacao(estado_cliente, confirmado)
 
     return confirmado
 
@@ -5640,19 +4392,11 @@ def encerrar_partida_view(competicao, partida_id):
 
         # Sets anteriores podem já ter sido sincronizados em segundo plano.
         # No encerramento processamos somente os IDs ainda pendentes.
-        ids_eventos = [str(item.get("id_local") or "").strip() for item in eventos if isinstance(item, dict)]
+        _eventos_iniciais, ids_eventos = _separar_eventos_finalizacao(eventos, set())
         ja_sincronizados = _ids_eventos_ja_sincronizados(partida_id, competicao, ids_eventos)
-        eventos_pendentes = [
-            item for item in eventos
-            if not isinstance(item, dict)
-            or not str(item.get("id_local") or "").strip()
-            or str(item.get("id_local") or "").strip() not in ja_sincronizados
-        ]
+        eventos_pendentes, _ = _separar_eventos_finalizacao(eventos, ja_sincronizados)
         processados = _persistir_eventos_finais_partida(partida_id, competicao, eventos_pendentes)
-        eventos_ok = []
-        for item, resultado in zip(eventos_pendentes, processados):
-            if isinstance(item, dict) and isinstance(resultado, dict) and resultado.get("ok"):
-                eventos_ok.append(item)
+        eventos_ok = _eventos_finalizacao_ok(eventos_pendentes, processados)
         _marcar_eventos_sincronizados(partida_id, competicao, eventos_ok)
 
         # O apontador é a fonte de verdade no modo local. Grava e confirma o
@@ -5673,53 +4417,38 @@ def encerrar_partida_view(competicao, partida_id):
             # Chamada antecipada após um set não é erro operacional. O fluxo
             # correto é voltar à papeleta para preparar o próximo set, sem
             # exibir alerta vermelho nem abrir observações/destaques.
-            estado["encerrado"] = False
-            estado["partida_finalizada"] = False
-            estado["fim_jogo"] = False
-            estado["abrir_observacoes"] = False
-            estado["status_jogo"] = "entre_sets"
-            estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="FLUXO_ENTRE_SETS")
+            payload_entre_sets = _resposta_finalizacao_entre_sets(
+                estado,
+                url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id),
+                processados,
+            )
+            estado = _emitir_estado_e_placar(
+                partida_id, competicao, payload_entre_sets["estado"], origem="FLUXO_ENTRE_SETS"
+            )
+            payload_entre_sets.update(estado)
+            payload_entre_sets["estado"] = estado
             _limpar_cache_apontador(competicao)
-            return _json_no_cache({
-                "ok": True,
-                "mensagem": "Set finalizado. Prepare a papeleta do próximo set.",
-                "encerrado": False,
-                "partida_finalizada": False,
-                "fim_jogo": False,
-                "abrir_observacoes": False,
-                "redirecionar_papeleta": True,
-                "url_redirecionamento": url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id),
-                "estado": estado,
-                "eventos_processados": processados,
-                **estado
-            }, 200)
+            return _json_no_cache(payload_entre_sets, 200)
 
         resultado_avanco = _atualizar_avanco_apos_finalizacao_async(competicao)
         if resultado_avanco:
             estado["avanco_atualizado"] = resultado_avanco
-        estado["encerrado"] = True
-        estado["partida_finalizada"] = True
-        estado["status_jogo"] = "finalizada"
+        estado = _estado_partida_finalizada(estado)
         estado["eventos_processados_final"] = processados
 
         estado = _emitir_estado_e_placar(partida_id, competicao, estado, origem="ENCERRAR_PARTIDA_FINAL_OFFLINE")
+        invalidar_cache_competicao(competicao)
         _limpar_cache_apontador(competicao)
 
         pendencia_destaques = verificar_destaques_competicao_pendentes(competicao, partida_id)
-
-        return _json_no_cache({
-            "ok": True,
-            "mensagem": "Partida salva no banco e encerrada com sucesso.",
-            "encerrado": True,
-            "estado": estado,
-            "partida_finalizada": True,
-            "abrir_observacoes": True,
-            "url_observacoes": url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id),
-            "abrir_destaques_competicao": bool(pendencia_destaques.get("abrir")),
-            "url_destaques_competicao": url_for("apontadores.destaques_competicao_view", competicao=competicao, partida_id=partida_id) if pendencia_destaques.get("abrir") else "",
-            "eventos_processados": processados,
-            **estado
-        })
+        payload_final = _resposta_finalizacao_concluida(
+            estado,
+            url_for("apontadores.observacoes_view", competicao=competicao, partida_id=partida_id),
+            processados,
+            pendencia_destaques,
+            url_for("apontadores.destaques_competicao_view", competicao=competicao, partida_id=partida_id),
+        )
+        return _json_no_cache(payload_final)
     except Exception as e:
         return _json_no_cache({"ok": False, "mensagem": f"Erro ao encerrar partida: {e}"}, 500)
 
@@ -5728,44 +4457,26 @@ def encerrar_partida_view(competicao, partida_id):
 @exigir_perfil("apontador")
 def observacoes_view(competicao, partida_id):
     dados_finalizacao = listar_dados_finalizacao_partida(partida_id, competicao) or {}
-    partida = dados_finalizacao.get("partida") or buscar_partida_operacional(partida_id, competicao) or {}
+    contexto = _contexto_observacoes_finalizacao(
+        dados_finalizacao,
+        buscar_partida_operacional(partida_id, competicao) or {},
+        buscar_config_destaques_competicao(competicao) or {},
+        competicao,
+    )
 
-    status_jogo = str(partida.get("status_jogo") or "").strip().lower()
-    fase_partida = str(partida.get("fase_partida") or "").strip().lower()
-    tipo_encerramento = str(partida.get("tipo_encerramento") or "").strip().lower()
-    finalizada = status_jogo in {"finalizada", "encerrado"} or fase_partida == "encerrado" or tipo_encerramento == "wo"
-
-    if not finalizada:
+    if not contexto["finalizada"]:
         # Proteção de rota: payload/socket antigo nunca pode abrir a finalização
         # no intervalo entre sets.
         return redirect(url_for("apontadores.papeleta_view", competicao=competicao, partida_id=partida_id))
 
-    return render_template(
-        "observacoes.html",
-        partida=partida,
-        competicao_nome=competicao,
-        dados_finalizacao=dados_finalizacao,
-        equipes_finalizacao=dados_finalizacao.get("equipes", []),
-        destaques_partida=dados_finalizacao.get("destaques_partida", []),
-        destaques_config=buscar_config_destaques_competicao(competicao),
-    )
+    return render_template("observacoes.html", **contexto["template"])
 
 
 @apontadores_bp.route("/apontador/observacoes/<competicao>/<int:partida_id>/salvar", methods=["POST"])
 @exigir_perfil("apontador")
 def salvar_observacoes_view(competicao, partida_id):
     """Salva toda a finalização por uma única operação transacional."""
-    observacoes = (request.form.get("observacoes") or "").strip()
-
-    destaque = {
-        "lado": (request.form.get("destaque_lado") or "").strip().upper(),
-        "atleta_id": (request.form.get("destaque_atleta_id") or "").strip(),
-        "numero": (request.form.get("destaque_numero") or "").strip(),
-        "nome": (request.form.get("destaque_nome") or "").strip(),
-        "observacao": (
-            request.form.get("destaque_observacao") or ""
-        ).strip(),
-    }
+    observacoes, destaque = _preparar_formulario_finalizacao(request.form)
 
     try:
         ok, mensagem, estado = finalizar_partida_completa(
@@ -5789,12 +4500,7 @@ def salvar_observacoes_view(competicao, partida_id):
                 )
             )
 
-        estado = dict(estado or {})
-        estado["encerrado"] = True
-        estado["fim_jogo"] = True
-        estado["partida_finalizada"] = True
-        estado["status_jogo"] = "finalizada"
-        estado["fase_partida"] = "encerrado"
+        estado = _estado_partida_finalizada(estado)
 
         try:
             _emitir_estado_e_placar(
@@ -5820,11 +4526,9 @@ def salvar_observacoes_view(competicao, partida_id):
                 flush=True,
             )
 
+        invalidar_cache_competicao(competicao)
         _limpar_cache_apontador(competicao)
-        _CACHE_OPERACAO_LOCAL.pop(
-            _chave_operacao_local(partida_id, competicao),
-            None,
-        )
+        _operacao_local_store.remover(partida_id, competicao)
 
         flash(
             mensagem or "Finalização salva com sucesso.",
@@ -5947,8 +4651,14 @@ def inverter_lados(partida_id):
         apontador_login = _login_apontador_sessao() or estado.get("apontador") or ""
         if apontador_login:
             estado["apontador"] = apontador_login
-        emitir_estado_partida(partida_id, estado)
-        emitir_placar_apontador(apontador_login, partida_id, estado)
+        estado = _publicar_estado_apontador_sem_cache(
+            partida_id=partida_id,
+            estado=estado,
+            emitir_estado=emitir_estado_partida,
+            apontador_login=apontador_login,
+            emitir_placar=emitir_placar_apontador,
+            origem="INVERTER_LADOS_SEM_COMPETICAO",
+        )
 
     return _json_no_cache({
         "ok": True,
@@ -5971,7 +4681,7 @@ def telao_por_pin():
             flash("Digite um PIN de 4 números.", "erro")
             return redirect(url_for("apontadores.telao_por_pin"))
 
-        vinculo = buscar_vinculo_operacional_por_pin(pin_limpo)
+        vinculo = _buscar_vinculo_operacional_por_pin(pin_limpo)
         if not vinculo:
             flash("PIN não encontrado ou inativo.", "erro")
             return redirect(url_for("apontadores.telao_por_pin"))

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard Operacional — VolleyTablePro</title>
+  <style>
+    :root{font-family:Inter,system-ui,sans-serif;color:#172033;background:#f4f6fa}
+    body{margin:0;padding:24px}.wrap{max-width:1200px;margin:auto}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}
+    h1{margin:0}.badge{padding:8px 14px;border-radius:999px;font-weight:700}.saudavel{background:#dff7e8;color:#17653a}.atencao{background:#fff1c9;color:#7a5200}.critico{background:#ffe0e0;color:#9f1d1d}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:20px 0}.card{background:#fff;border-radius:14px;padding:16px;box-shadow:0 6px 20px #1f2a4410}.metric{font-size:1.6rem;font-weight:800;margin-top:7px}
+    table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;margin:12px 0 24px}th,td{padding:11px 12px;border-bottom:1px solid #e9edf4;text-align:left;font-size:.92rem}th{background:#eef2f8}
+    .checks{display:grid;gap:10px}.check{display:flex;justify-content:space-between;gap:16px;align-items:center;background:#fff;border-radius:12px;padding:14px}.muted{color:#667085;font-size:.88rem}
+    a{color:#2456d6;text-decoration:none}.actions{display:flex;gap:12px;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div><h1>Dashboard Operacional</h1><div class="muted">Saúde consolidada do serviço, banco e tempo real.</div></div>
+    <div class="badge {{ dados.estado_geral }}">{{ dados.estado_geral|upper }}</div>
+  </div>
+
+  <div class="actions"><a href="/admin/performance">Performance</a><a href="/admin/realtime-delta">Tempo real</a><a href="/admin/runtime-status">Runtime JSON</a></div>
+
+  <div class="grid">
+    <div class="card"><div class="muted">Workers / Threads</div><div class="metric">{{ dados.resumo.workers }} / {{ dados.resumo.threads }}</div></div>
+    <div class="card"><div class="muted">Backend do estado</div><div class="metric">{{ dados.resumo.backend_estado }}</div></div>
+    <div class="card"><div class="muted">Espera média do pool</div><div class="metric">{{ dados.resumo.pool_espera_media_ms }} ms</div></div>
+    <div class="card"><div class="muted">Maior P95 de rota</div><div class="metric">{{ dados.resumo.rota_maior_p95_ms }} ms</div></div>
+    <div class="card"><div class="muted">Maior SQL lento</div><div class="metric">{{ dados.resumo.sql_maior_ms }} ms</div></div>
+    <div class="card"><div class="muted">Modo de degradação</div><div class="metric">{{ dados.resumo.modo_degradacao }}</div></div>
+    <div class="card"><div class="muted">Clientes com heartbeat</div><div class="metric">{{ dados.resumo.clientes_heartbeat }}</div></div>
+  </div>
+
+  <h2>Verificações</h2>
+  <div class="checks">
+  {% for item in dados.checks %}
+    <div class="check"><div><strong>{{ item.nome }}</strong><div class="muted">{{ item.detalhe }}</div></div><span class="badge {{ item.status }}">{{ item.status }}</span></div>
+  {% endfor %}
+  </div>
+
+
+  <h2>Presença em tempo real</h2>
+  <table><thead><tr><th>Partida</th><th>Clientes</th><th>Perfis</th><th>Latência média</th></tr></thead><tbody>
+  {% for item in dados.presenca.partidas %}<tr><td>{{ item.partida_id }}</td><td>{{ item.total }}</td><td>{{ item.perfis }}</td><td>{{ item.latencia_media_ms }} ms</td></tr>{% else %}<tr><td colspan="4">Nenhum heartbeat ativo.</td></tr>{% endfor %}
+  </tbody></table>
+
+  <h2>Rotas mais lentas</h2>
+  <table><thead><tr><th>Rota</th><th>Chamadas</th><th>Média</th><th>P95</th><th>SQL médio</th></tr></thead><tbody>
+  {% for item in dados.top_rotas %}<tr><td>{{ item.rota or item.endpoint or '-' }}</td><td>{{ item.chamadas or item.total or 0 }}</td><td>{{ item.media_ms or 0 }} ms</td><td>{{ item.p95_ms or 0 }} ms</td><td>{{ item.sql_media_ms or item.sql_medio_ms or 0 }} ms</td></tr>{% else %}<tr><td colspan="5">Sem métricas coletadas.</td></tr>{% endfor %}
+  </tbody></table>
+
+  <h2>Consultas lentas</h2>
+  <table><thead><tr><th>Fingerprint</th><th>Origem</th><th>Chamadas</th><th>Média</th><th>Máxima</th></tr></thead><tbody>
+  {% for item in dados.top_consultas %}<tr><td>{{ item.fingerprint or '-' }}</td><td>{{ item.origem or '-' }}</td><td>{{ item.chamadas or item.total or 0 }}</td><td>{{ item.media_ms or 0 }} ms</td><td>{{ item.max_ms or item.maior_ms or 0 }} ms</td></tr>{% else %}<tr><td colspan="5">Sem consultas lentas registradas.</td></tr>{% endfor %}
+  </tbody></table>
+  <div class="muted">Gerado em {{ dados.gerado_em }}. Atualize a página para um novo snapshot.</div>
+</div>
+</body>
+</html>

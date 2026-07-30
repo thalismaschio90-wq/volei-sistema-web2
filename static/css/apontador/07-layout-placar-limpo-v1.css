@@ -1,0 +1,424 @@
+/* =========================================================
+   PC LIMPO: placar no topo + dados da equipe junto da quadra
+   Mantém a lógica/ordem antiga da quadrinha de rotação.
+   ========================================================= */
+@media (min-width: 1025px) {
+    html, body {
+        height: 100vh !important;
+        overflow: hidden !important;
+        background: #eaf4fb !important;
+    }
+
+    .topo-secao { display: none !important; }
+
+    /* topo fica só com placar/set/sets */
+    .pc-scoreboard-card {
+        height: 118px !important;
+        margin: 6px 10px 3px !important;
+        padding: 6px 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        border-radius: 18px !important;
+        background: #ffffff !important;
+        border: 1px solid #d6e2f0 !important;
+        box-shadow: 0 8px 22px rgba(15,47,74,.06) !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    .pc-scoreboard-card > .pc-team {
+        display: none !important;
+    }
+
+    .pc-score-center {
+        width: min(720px, 80vw) !important;
+        height: 100% !important;
+        display: grid !important;
+        grid-template-rows: 22px minmax(0, 1fr) 20px !important;
+        align-items: center !important;
+        justify-items: center !important;
+        text-align: center !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+
+    .pc-set-atual {
+        color: #d97706 !important;
+        font-size: clamp(17px, 1.8vw, 25px) !important;
+        font-weight: 1000 !important;
+        line-height: 1 !important;
+        margin: 0 !important;
+        letter-spacing: .03em !important;
+    }
+
+    .pc-placar-principal {
+        color: #0f2f4a !important;
+        font-size: clamp(74px, 9.4vw, 128px) !important;
+        font-weight: 1000 !important;
+        line-height: .74 !important;
+        letter-spacing: -5px !important;
+        font-variant-numeric: tabular-nums !important;
+        white-space: nowrap !important;
+        transform: translateY(-2px) !important;
+    }
+
+    .pc-x {
+        margin: 0 10px !important;
+        color: #183247 !important;
+        opacity: .96 !important;
+    }
+
+    .pc-sets-mini {
+        margin: 0 !important;
+        color: #64748b !important;
+        font-size: 17px !important;
+        font-weight: 1000 !important;
+        line-height: 1 !important;
+        text-transform: uppercase !important;
+    }
+
+    .pc-saque-info {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        overflow: hidden !important;
+    }
+
+    .pc-cronometro-tempo {
+        position: fixed !important;
+        top: 8px !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        z-index: 99998 !important;
+        padding: 6px 14px !important;
+        border-radius: 999px !important;
+        background: #fbbf24 !important;
+        color: #111827 !important;
+        font-size: 24px !important;
+        font-weight: 1000 !important;
+        box-shadow: 0 10px 24px rgba(251,191,36,.24) !important;
+    }
+
+    .ultima-acao-barra {
+        height: 29px !important;
+        margin: 0 10px 5px !important;
+        padding: 5px 12px !important;
+        border-radius: 12px !important;
+        font-size: 14px !important;
+        line-height: 18px !important;
+        font-weight: 1000 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        box-sizing: border-box !important;
+        position: relative !important;
+        z-index: 4 !important;
+    }
+
+    .jogo-area-central {
+        height: calc(100vh - 195px) !important;
+        margin: 0 10px 5px !important;
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) 250px !important;
+        gap: 10px !important;
+        align-items: stretch !important;
+        overflow: hidden !important;
+        flex-wrap: nowrap !important;
+    }
+
+    .jogo-coluna-principal,
+    .jogo-coluna-lateral {
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        height: 100% !important;
+        overflow: hidden !important;
+    }
+
+    .jogo-coluna-principal > .card-painel {
+        height: 100% !important;
+        margin: 0 !important;
+        padding: 10px 12px !important;
+        border-radius: 18px !important;
+        box-sizing: border-box !important;
+        display: grid !important;
+        grid-template-rows: minmax(0, 1fr) auto !important;
+        gap: 8px !important;
+        overflow: hidden !important;
+        background: #ffffff !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .quadras-wrap {
+        height: 100% !important;
+        min-height: 0 !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: clamp(34px, 5.2vw, 80px) !important;
+        flex-wrap: nowrap !important;
+        overflow: hidden !important;
+    }
+
+    .quadra-box {
+        min-width: 0 !important;
+        height: 100% !important;
+        display: grid !important;
+        grid-template-rows: auto minmax(0, auto) !important;
+        align-content: center !important;
+        justify-items: center !important;
+        gap: 10px !important;
+    }
+
+    .quadra-titulo { display: none !important; }
+
+    .pc-team.pc-team-in-quadra {
+        display: grid !important;
+        width: min(360px, 31vw) !important;
+        grid-template-columns: auto minmax(0, 1fr) !important;
+        gap: 10px !important;
+        align-items: center !important;
+        padding: 0 4px !important;
+    }
+
+    .pc-team.pc-team-in-quadra.pc-team-right {
+        grid-template-columns: minmax(0, 1fr) auto !important;
+    }
+
+    .pc-team-in-quadra .pc-team-info { min-width: 0 !important; }
+    .pc-team-in-quadra .pc-team-info-right { text-align: right !important; }
+
+    .pc-shield-wrap {
+        position: relative !important;
+        width: 58px !important;
+        height: 58px !important;
+        flex: 0 0 58px !important;
+        display: grid !important;
+        place-items: center !important;
+    }
+
+    .pc-escudo {
+        width: 54px !important;
+        height: 54px !important;
+        border-radius: 18px !important;
+        background: #f8fbff !important;
+        border: 1px solid #d6e2f0 !important;
+        padding: 5px !important;
+        object-fit: contain !important;
+        box-shadow: 0 10px 22px rgba(15,47,74,.10) !important;
+    }
+
+    .pc-saque-dot {
+        position: absolute !important;
+        top: 50% !important;
+        width: 17px !important;
+        height: 17px !important;
+        border-radius: 999px !important;
+        background: #cbd5e1 !important;
+        border: 3px solid #ffffff !important;
+        box-shadow: 0 0 0 2px rgba(15,47,74,.12) !important;
+        opacity: .28 !important;
+        transform: translateY(-50%) scale(.72) !important;
+        transition: .15s ease !important;
+    }
+
+    .pc-team-left .pc-saque-dot { left: -8px !important; }
+    .pc-team-right .pc-saque-dot { right: -8px !important; }
+
+    .pc-saque-dot.ativo {
+        opacity: 1 !important;
+        background: #22c55e !important;
+        transform: translateY(-50%) scale(1) !important;
+        box-shadow: 0 0 0 2px rgba(15,47,74,.12), 0 0 19px rgba(34,197,94,.78) !important;
+        animation: pcSaquePulseNovo 1.15s infinite !important;
+    }
+
+    @keyframes pcSaquePulseNovo {
+        0%, 100% { transform: translateY(-50%) scale(1); }
+        50% { transform: translateY(-50%) scale(1.18); }
+    }
+
+    .pc-team-name {
+        color: #0f2f4a !important;
+        font-size: clamp(23px, 2.2vw, 34px) !important;
+        font-weight: 1000 !important;
+        line-height: .95 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 260px !important;
+    }
+
+    .pc-team-icons {
+        margin-top: 7px !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        color: #0f2f4a !important;
+        font-size: clamp(17px, 1.55vw, 22px) !important;
+        font-weight: 1000 !important;
+        white-space: nowrap !important;
+    }
+
+    .pc-team-right .pc-team-icons { justify-content: flex-end !important; }
+    .pc-team-icons span { display: inline-flex !important; align-items: center !important; gap: 4px !important; }
+
+    .quadra {
+        grid-template-columns: repeat(2, clamp(82px, 8.5vw, 125px)) !important;
+        grid-template-rows: repeat(3, clamp(56px, 7.4vh, 86px)) !important;
+        gap: clamp(5px, .65vw, 8px) !important;
+        padding: clamp(7px, .8vw, 12px) !important;
+        border-width: 5px !important;
+        border-radius: 18px !important;
+        margin-top: 0 !important;
+        box-shadow: 0 20px 38px rgba(15,47,74,.10) !important;
+    }
+
+    .quadra::after { font-size: 10px !important; padding: 5px 10px !important; }
+    .quadra-lado-esquerdo::after { right: -34px !important; }
+    .quadra-lado-direito::after { left: -34px !important; }
+
+    .pos {
+        border-radius: 11px !important;
+        font-size: clamp(34px, 4.45vw, 64px) !important;
+        line-height: .86 !important;
+    }
+
+    .pos small,
+    .pos .nome,
+    .pos .jogador-nome {
+        font-size: 9px !important;
+        line-height: 1 !important;
+    }
+
+    .acoes-quadra { margin-top: 0 !important; }
+    .acoes-jogo,
+    .acoes-tempo { gap: 7px !important; margin-top: 0 !important; }
+
+    .acoes-jogo button,
+    .acoes-tempo button {
+        min-height: 34px !important;
+        padding: 7px 12px !important;
+        border-radius: 12px !important;
+        font-size: 13px !important;
+        font-weight: 1000 !important;
+    }
+
+    #btn-ponto-a,
+    #btn-ponto-b {
+        min-width: 142px !important;
+        background: #ffffff !important;
+        color: #0f2f4a !important;
+        border: 1px solid #d6e2f0 !important;
+    }
+
+    .jogo-coluna-lateral {
+        display: grid !important;
+        grid-template-rows: auto minmax(0, 1fr) !important;
+        gap: 10px !important;
+    }
+
+    .pc-side-actions,
+    .historico-card {
+        margin: 0 !important;
+        padding: 10px !important;
+        border-radius: 16px !important;
+        background: #ffffff !important;
+        border: 1px solid #d6e2f0 !important;
+        box-sizing: border-box !important;
+        min-height: 0 !important;
+    }
+
+    .jogo-acoes-titulo,
+    .historico-titulo {
+        margin: 0 0 8px !important;
+        font-size: 15px !important;
+        line-height: 1 !important;
+    }
+
+    .pc-side-actions .acoes-tempo,
+    .pc-side-actions .acoes-extra {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 7px !important;
+        margin: 0 0 7px !important;
+    }
+
+    .pc-side-actions button {
+        width: 100% !important;
+        min-height: 33px !important;
+        padding: 6px 7px !important;
+        font-size: 10.5px !important;
+        line-height: 1.05 !important;
+        font-weight: 1000 !important;
+        border-radius: 10px !important;
+    }
+
+    .pc-side-actions #btn-fullscreen,
+    .pc-side-actions #btn-abrir-placar { display: none !important; }
+
+    .historico-card {
+        display: grid !important;
+        grid-template-rows: auto minmax(0, 1fr) !important;
+    }
+
+    .historico-acoes { max-height: none !important; overflow: auto !important; gap: 7px !important; }
+    .historico-item { padding: 7px 9px !important; font-size: 10.5px !important; line-height: 1.22 !important; border-radius: 10px !important; }
+
+    .jogo-rodape-card {
+        height: 36px !important;
+        margin: 0 10px 5px !important;
+        padding: 4px 10px !important;
+        border-radius: 15px !important;
+        display: flex !important;
+        justify-content: center !important;
+        gap: 7px !important;
+        flex-wrap: nowrap !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    .jogo-rodape-card a,
+    .jogo-rodape-card button {
+        min-height: 28px !important;
+        padding: 6px 11px !important;
+        font-size: 11.5px !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+    }
+
+    .alerta-point {
+        position: fixed !important;
+        left: 50% !important;
+        top: 132px !important;
+        transform: translateX(-50%) !important;
+        margin: 0 !important;
+        font-size: 17px !important;
+        padding: 8px 14px !important;
+        z-index: 50 !important;
+    }
+}
+
+@media (min-width: 1025px) and (max-height: 760px) {
+    .pc-scoreboard-card { height: 104px !important; padding: 5px 10px !important; }
+    .pc-placar-principal { font-size: clamp(64px, 8.8vw, 112px) !important; line-height: .72 !important; }
+    .pc-set-atual { font-size: clamp(15px, 1.5vw, 21px) !important; }
+    .pc-sets-mini { font-size: 14px !important; }
+    .ultima-acao-barra { height: 26px !important; font-size: 12.5px !important; margin-bottom: 4px !important; }
+    .jogo-area-central { height: calc(100vh - 178px) !important; grid-template-columns: minmax(0, 1fr) 218px !important; }
+    .pc-team.pc-team-in-quadra { width: min(330px, 31vw) !important; gap: 8px !important; }
+    .pc-shield-wrap { width: 48px !important; height: 48px !important; flex-basis: 48px !important; }
+    .pc-escudo { width: 44px !important; height: 44px !important; border-radius: 14px !important; }
+    .pc-team-name { font-size: clamp(20px, 1.8vw, 28px) !important; }
+    .pc-team-icons { font-size: clamp(14px, 1.25vw, 18px) !important; margin-top: 5px !important; gap: 8px !important; }
+    .quadras-wrap { gap: clamp(24px, 4.4vw, 60px) !important; }
+    .quadra { grid-template-columns: repeat(2, clamp(78px, 8.1vw, 116px)) !important; grid-template-rows: repeat(3, clamp(50px, 6.7vh, 76px)) !important; }
+    .pos { font-size: clamp(31px, 4vw, 56px) !important; }
+    .acoes-jogo button, .acoes-tempo button { min-height: 30px !important; font-size: 11.5px !important; padding: 6px 10px !important; }
+    .pc-side-actions button { min-height: 30px !important; font-size: 9.8px !important; }
+    .jogo-rodape-card { height: 34px !important; }
+    .jogo-rodape-card a, .jogo-rodape-card button { min-height: 26px !important; font-size: 11px !important; padding: 5px 10px !important; }
+}

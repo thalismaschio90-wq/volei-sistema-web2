@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Homologação Delta — VolleyTablePro</title>
+  <style>
+    body{font-family:system-ui,-apple-system,sans-serif;background:#f5f7fb;color:#182230;margin:0;padding:24px}
+    .wrap{max-width:1100px;margin:auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+    .card{background:#fff;border:1px solid #dfe5ee;border-radius:14px;padding:18px;box-shadow:0 4px 16px #172b4d12}
+    .ok{color:#087a45}.warn{color:#a45a00}.bad{color:#b42318}h1,h2{margin-top:0}small{color:#667085}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px;border-bottom:1px solid #e5e7eb}
+    code{background:#eef2f6;padding:2px 5px;border-radius:5px}.actions{display:flex;gap:10px;margin:18px 0}
+    button,a.btn{border:0;border-radius:9px;padding:10px 14px;background:#1d4ed8;color:white;text-decoration:none;cursor:pointer}
+  </style>
+</head>
+<body><div class="wrap">
+  <h1>Homologação do Socket.IO incremental</h1>
+  {% set saude = dados.saude or {} %}{% set servidor = dados.servidor or {} %}
+  <div class="grid">
+    <div class="card"><small>Status</small><h2 class="{{ 'ok' if saude.homologado else 'warn' }}">{{ 'HOMOLOGADO' if saude.homologado else 'EM COLETA' }}</h2></div>
+    <div class="card"><small>Deltas aplicados</small><h2>{{ saude.deltas_aplicados or 0 }}</h2></div>
+    <div class="card"><small>Lacunas de versão</small><h2>{{ saude.lacunas_versao or 0 }} ({{ saude.taxa_lacunas_percentual or 0 }}%)</h2></div>
+    <div class="card"><small>Economia total estimada</small><h2>{{ servidor.economia_total_percentual or 0 }}%</h2></div>
+    <div class="card"><small>Bytes economizados</small><h2>{{ servidor.bytes_economizados or 0 }}</h2></div>
+    <div class="card"><small>Lotes legados emitidos</small><h2>{{ servidor.lotes_legados_emitidos or 0 }}</h2></div>
+  </div>
+  <div class="actions"><a class="btn" href="/admin/realtime-delta-status">Ver JSON</a><form method="post" action="/admin/realtime-delta/limpar"><button>Limpar métricas</button></form></div>
+  <div class="card"><h2>Clientes</h2><table><thead><tr><th>Tipo</th><th>Aplicados</th><th>Lacunas</th><th>Snapshots solicitados</th><th>Antigos/duplicados</th></tr></thead><tbody>
+  {% for tipo, m in (dados.clientes or {}).items() %}<tr><td>{{ tipo }}</td><td>{{ m.delta_aplicado or 0 }}</td><td>{{ m.lacuna_versao or 0 }}</td><td>{{ m.snapshot_solicitado or 0 }}</td><td>{{ m.delta_antigo or 0 }}</td></tr>{% else %}<tr><td colspan="5">Ainda não há telemetria dos clientes.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <div class="card" style="margin-top:14px"><h2>Renderização nos navegadores</h2><table><thead><tr><th>Tipo</th><th>Renderizações</th><th>Atualizações agrupadas</th><th>Média</th><th>Máxima</th></tr></thead><tbody>
+  {% for tipo, m in (dados.renderizacao or {}).items() %}<tr><td>{{ tipo }}</td><td>{{ m.renderizacoes or 0 }}</td><td>{{ m.atualizacoes_agregadas or 0 }}</td><td>{{ m.duracao_media_ms or 0 }} ms</td><td>{{ m.duracao_max_ms or 0 }} ms</td></tr>{% else %}<tr><td colspan="5">Ainda não há métricas de renderização.</td></tr>{% endfor %}
+  </tbody></table></div>
+
+  {% set despacho = dados.despacho or {} %}
+  <div class="card" style="margin-top:14px"><h2>Prioridade e despacho dos eventos</h2>
+    <div class="grid">
+      <div><small>Críticos emitidos</small><h2>{{ despacho.emitidos_critica or 0 }}</h2></div>
+      <div><small>Normais emitidos</small><h2>{{ despacho.emitidos_normal or 0 }}</h2></div>
+      <div><small>Baixa prioridade emitidos</small><h2>{{ despacho.emitidos_baixa or 0 }}</h2></div>
+      <div><small>Eventos agrupados</small><h2>{{ despacho.agrupados or 0 }}</h2></div>
+      <div><small>Duplicatas descartadas</small><h2>{{ despacho.duplicados_descartados or 0 }}</h2></div>
+      <div><small>Maior fila</small><h2>{{ despacho.fila_maxima or 0 }}</h2></div>
+      <div><small>Espera média da fila</small><h2>{{ despacho.espera_media_ms or 0 }} ms</h2></div>
+      <div><small>Maior espera</small><h2>{{ despacho.espera_max_ms or 0 }} ms</h2></div>
+      <div><small>Bytes recebidos (estimados)</small><h2>{{ despacho.bytes_recebidos_estimados or 0 }}</h2></div>
+      <div><small>Bytes emitidos (estimados)</small><h2>{{ despacho.bytes_emitidos_estimados or 0 }}</h2></div>
+      <div><small>Bytes evitados no despacho</small><h2>{{ despacho.bytes_economizados_despacho or 0 }}</h2></div>
+      <div><small>Economia do despacho</small><h2>{{ despacho.economia_despacho_percentual or 0 }}%</h2></div>
+    </div>
+    <p><small>Eventos críticos, como ponto, saque e placar, nunca aguardam a fila de baixa prioridade. Os tamanhos são estimativas do JSON antes do enquadramento do protocolo Socket.IO.</small></p>
+  </div>
+
+
+  {% set degradacao = dados.degradacao or {} %}
+  <div class="card" style="margin-top:14px"><h2>Proteção automática sob carga</h2>
+    <div class="grid">
+      <div><small>Modo atual</small><h2 class="{{ 'bad' if degradacao.modo == 'critico' else ('warn' if degradacao.modo == 'controlado' else 'ok') }}">{{ (degradacao.modo or 'normal')|upper }}</h2></div>
+      <div><small>Eventos/s estimados</small><h2>{{ degradacao.eventos_por_segundo_estimados or 0 }}</h2></div>
+      <div><small>Fila atual</small><h2>{{ degradacao.fila_atual or 0 }}</h2></div>
+      <div><small>Maior fila observada</small><h2>{{ degradacao.fila_maxima or 0 }}</h2></div>
+      <div><small>Transições de modo</small><h2>{{ degradacao.transicoes or 0 }}</h2></div>
+      <div><small>Baixa prioridade descartada</small><h2>{{ degradacao.eventos_baixa_descartados or 0 }}</h2></div>
+      <div><small>Agrupamentos estendidos</small><h2>{{ degradacao.agrupamentos_estendidos or 0 }}</h2></div>
+      <div><small>Eventos críticos protegidos</small><h2 class="ok">{{ 'SIM' if degradacao.eventos_criticos_protegidos else 'NÃO' }}</h2></div>
+    </div>
+    <p><small>No modo controlado, apenas eventos de baixa prioridade aguardam mais tempo para serem agrupados. No modo crítico, eles podem ser descartados. Pontos, saque, substituições e placar nunca são bloqueados por este mecanismo.</small></p>
+  </div>
+
+  <div class="card" style="margin-top:14px"><h2>Eventos com maior tráfego estimado</h2><table><thead><tr><th>Evento</th><th>Recebidos</th><th>Emitidos</th><th>Bytes emitidos</th><th>Bytes evitados</th></tr></thead><tbody>
+  {% for item in (despacho.eventos_por_trafego or []) %}<tr><td><code>{{ item.evento }}</code></td><td>{{ item.recebidos or 0 }}</td><td>{{ item.emitidos or 0 }}</td><td>{{ item.bytes or 0 }}</td><td>{{ item.economizados or 0 }}</td></tr>{% else %}<tr><td colspan="5">Ainda não há tráfego medido.</td></tr>{% endfor %}
+  </tbody></table></div>
+
+  <div class="card" style="margin-top:14px"><h2>Critérios</h2>
+    <p>Mínimo de deltas aplicados: <code>{{ saude.minimo_deltas_aplicados }}</code></p>
+    <p>Máximo de lacunas: <code>{{ saude.maximo_lacunas_percentual }}%</code></p>
+    <p>Clientes faltantes: <code>{{ (saude.tipos_clientes_faltantes or [])|join(', ') or 'nenhum' }}</code></p>
+    <p><small>Para desligamento protegido dos eventos antigos: <code>SOCKET_LEGACY_STATE_EVENTS=0</code> e <code>SOCKET_LEGACY_REQUIRE_DELTA_HEALTHY=1</code>. Após reinício, os eventos antigos permanecem ativos até os critérios serem atingidos novamente.</small></p>
+  </div>
+</div></body></html>

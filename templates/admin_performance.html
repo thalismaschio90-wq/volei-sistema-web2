@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Performance — VolleyTablePro</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;background:#f5f7fb;color:#172033}
+    main{max-width:1250px;margin:24px auto;padding:0 16px}
+    h1{margin-bottom:4px}.sub{color:#5d687a;margin-top:0}
+    .bar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+    .card{background:#fff;border-radius:12px;padding:14px 16px;box-shadow:0 2px 12px #00000012}
+    .metric{min-width:175px}.metric strong{display:block;font-size:23px;margin-top:5px}
+    table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px #00000012;margin-bottom:24px}
+    th,td{padding:10px 12px;border-bottom:1px solid #e7ebf2;text-align:left;font-size:14px}
+    th{background:#eef2f8}.num{text-align:right;font-variant-numeric:tabular-nums}
+    button,.btn{border:0;border-radius:8px;padding:10px 14px;cursor:pointer;background:#243b67;color:#fff;text-decoration:none;display:inline-block}
+    .muted{color:#667085;font-size:13px}.empty{padding:22px}
+  </style>
+</head>
+<body><main>
+  <h1>Painel de performance</h1>
+  <p class="sub">Métricas agregadas desde o início do processo. Nenhum parâmetro SQL ou dado pessoal é armazenado.</p>
+  <div class="bar">
+    <div class="card metric">Rotas observadas<strong>{{ dados.rotas|length }}</strong></div>
+    <div class="card metric">SQLs lentos distintos<strong>{{ dados.consultas_lentas|length }}</strong></div>
+    <div class="card metric">Backend<strong>{{ dados.backend }}</strong></div>
+    <a class="btn" href="{{ url_for('admin_performance_exportar_markdown') }}">Exportar relatório .md</a><a class="btn" href="{{ url_for('admin_performance_exportar_json') }}">Exportar dados .json</a><form method="post" action="{{ url_for('admin_performance_limpar') }}" onsubmit="return confirm('Limpar as métricas coletadas?')"><button type="submit">Limpar métricas</button></form>
+  </div>
+  <h2>Rotas mais lentas</h2>
+  {% if dados.rotas %}<table><thead><tr><th>Método</th><th>Endpoint</th><th class="num">Chamadas</th><th class="num">P95</th><th class="num">Média</th><th class="num">SQL médio</th><th class="num">Python</th><th class="num">Template</th><th class="num">Consultas</th><th class="num">Erros 5xx</th></tr></thead><tbody>
+  {% for r in dados.rotas[:100] %}<tr><td>{{r.metodo}}</td><td><strong>{{r.endpoint or r.rota}}</strong><div class="muted">{{r.rota}}</div></td><td class="num">{{r.quantidade}}</td><td class="num">{{'%.1f'|format(r.duracao_p95_ms)}} ms</td><td class="num">{{'%.1f'|format(r.duracao_media_ms)}} ms</td><td class="num">{{'%.1f'|format(r.sql_media_ms)}} ms</td><td class="num">{{'%.1f'|format(r.secoes_media_ms.get('python_estimado', 0))}} ms</td><td class="num">{{'%.1f'|format(r.secoes_media_ms.get('template', 0))}} ms</td><td class="num">{{'%.1f'|format(r.sql_media_consultas)}}</td><td class="num">{{r.erros}}</td></tr>{% endfor %}
+  </tbody></table>{% else %}<div class="card empty">Ainda não há métricas. Ative PERFORMANCE_LOG_ENABLED=1 e navegue pelo sistema.</div>{% endif %}
+  <h2>Possíveis consultas N+1</h2>
+  {% if dados.possiveis_n_plus_one %}<table><thead><tr><th>Prioridade</th><th>Rota</th><th>Fingerprint</th><th>Origem</th><th class="num">Requisições</th><th class="num">Repetições médias</th><th class="num">Tempo médio/requisição</th><th class="num">Tempo acumulado</th></tr></thead><tbody>
+  {% for q in dados.possiveis_n_plus_one[:100] %}<tr><td><strong>{{ q.prioridade|upper }}</strong></td><td>{{ q.rota }}</td><td><code>{{ q.fingerprint }}</code><div class="muted">{{ q.operacao }}</div></td><td>{% if q.origem %}<code>{{ q.origem }}</code>{% else %}<span class="muted">Não identificada</span>{% endif %}</td><td class="num">{{ q.requisicoes_afetadas }}</td><td class="num">{{ '%.1f'|format(q.repeticoes_media_por_requisicao) }}</td><td class="num">{{ '%.1f'|format(q.duracao_media_por_requisicao_ms) }} ms</td><td class="num">{{ '%.1f'|format(q.duracao_total_ms) }} ms</td></tr>{% endfor %}
+  </tbody></table>{% else %}<div class="card empty">Nenhum padrão repetitivo ultrapassou o limite configurado nesta coleta.</div>{% endif %}
+  <h2>Consultas lentas recorrentes</h2>
+  {% if dados.consultas_lentas %}<table><thead><tr><th>Fingerprint</th><th>Operação</th><th>Origem no código</th><th>Rotas</th><th>Diagnóstico</th><th class="num">Ocorrências</th><th class="num">Média</th><th class="num">Máxima</th></tr></thead><tbody>
+  {% for q in dados.consultas_lentas[:100] %}<tr><td><code>{{q.fingerprint}}</code></td><td>{{q.operacao}}</td><td>{% if q.origens %}{% for origem in q.origens %}<div><code>{{ origem }}</code></div>{% endfor %}{% else %}<span class="muted">Não identificada</span>{% endif %}</td><td>{{q.rotas|join(', ')}}</td><td>{% if q.estrutura %}<div class="muted"><strong>Tabelas:</strong> {{ q.estrutura.tabelas|join(', ') or 'não identificadas' }}</div>{% if q.estrutura.filtros %}<div class="muted"><strong>Filtros:</strong> {{ q.estrutura.filtros|join(', ') }}</div>{% endif %}{% if q.estrutura.ordenacao %}<div class="muted"><strong>Ordenação:</strong> {{ q.estrutura.ordenacao|join(', ') }}</div>{% endif %}{% endif %}{% if q.plano and q.plano.ok %}<div style="margin-top:6px"><strong>Plano PostgreSQL:</strong> {{ q.plano.operador_dominante or 'capturado' }}{% if q.plano.analyze %} (ANALYZE){% endif %}</div>{% endif %}{% for sugestao in q.sugestoes %}<div style="margin-top:6px"><strong>{{ sugestao.titulo }}</strong><div class="muted">{{ sugestao.detalhe }}</div></div>{% endfor %}</td><td class="num">{{q.quantidade}}</td><td class="num">{{'%.1f'|format(q.duracao_media_ms)}} ms</td><td class="num">{{'%.1f'|format(q.duracao_max_ms)}} ms</td></tr>{% endfor %}
+  </tbody></table>{% else %}<div class="card empty">Nenhuma consulta ultrapassou o limite configurado.</div>{% endif %}
+</main></body></html>

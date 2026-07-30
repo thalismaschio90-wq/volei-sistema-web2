@@ -8,16 +8,13 @@ from banco import (
 
 try:
     from socket_events import obter_ultimo_placar_apontador
-except Exception:
+except ImportError:
     obter_ultimo_placar_apontador = None
 
 try:
     from routes.jogo_avulso import buscar_jogo_avulso_por_pin
-except Exception:
-    try:
-        from jogo_avulso import buscar_jogo_avulso_por_pin
-    except Exception:
-        buscar_jogo_avulso_por_pin = None
+except ImportError:
+    buscar_jogo_avulso_por_pin = None
 
 acessos_pin_bp = Blueprint("acessos_pin", __name__)
 
