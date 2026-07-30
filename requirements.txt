@@ -11,7 +11,7 @@ psycopg[binary]==3.2.12
 psycopg-pool==3.3.0
 
 # Imagens e relatórios
-Pillow==10.4.0
+Pillow==12.3.0
 pillow-heif==1.4.0
 reportlab==4.2.5
 
