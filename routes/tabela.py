@@ -1178,7 +1178,7 @@ def visualizador_publico_classificacao_fragmento(competicao_nome):
 
 @tabela_bp.route("/visualizador/<competicao_nome>/rodada/<rodada_chave>/fragmento")
 def visualizador_publico_rodada_fragmento(competicao_nome, rodada_chave):
-    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    competicao = _buscar_competicao_nome_cache(competicao_nome)
     partidas = _listar_partidas_cache(competicao_nome) or []
     equipes = _listar_equipes_competicao_cache(competicao_nome)
     mapa_escudos = _mapa_escudos_equipes(equipes)
@@ -1201,7 +1201,7 @@ def visualizador_publico_rodada_fragmento(competicao_nome, rodada_chave):
 
 @tabela_bp.route("/visualizador/<competicao_nome>/chaveamento/fragmento")
 def visualizador_publico_chaveamento_fragmento(competicao_nome):
-    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    competicao = _buscar_competicao_nome_cache(competicao_nome)
     partidas = _listar_partidas_cache(competicao_nome) or []
     equipes = _listar_equipes_competicao_cache(competicao_nome)
     mapa_escudos = _mapa_escudos_equipes(equipes)

@@ -13624,7 +13624,7 @@ def criar_tabelas_oficiais(force=False):
 
 
 def buscar_oficial_por_cpf(cpf, contexto=None, cliente_id=None):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
     with conectar() as conn:
@@ -13632,45 +13632,63 @@ def buscar_oficial_por_cpf(cpf, contexto=None, cliente_id=None):
             cur.execute("""
                 SELECT * FROM oficiais
                 WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
-                  AND (%s::INTEGER IS NULL OR cliente_id = %s)
+                  AND cliente_id IS NOT DISTINCT FROM %s
                 LIMIT 1
-            """, (cpf_limpo, cid, cid))
+            """, (cpf_limpo, cid))
             return cur.fetchone()
 
 
 def cadastrar_oficial(nome, cpf, contexto=None, cliente_id=None):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO oficiais (nome, cpf, cliente_id)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (cpf, cliente_id) DO UPDATE
-                SET nome = COALESCE(NULLIF(EXCLUDED.nome, ''), oficiais.nome)
-            """, (nome, cpf_limpo, cid))
+                SELECT id FROM oficiais
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND cliente_id IS NOT DISTINCT FROM %s
+                ORDER BY id DESC LIMIT 1
+            """, (cpf_limpo, cid))
+            existente = cur.fetchone()
+            if existente:
+                cur.execute("""
+                    UPDATE oficiais
+                    SET nome = COALESCE(NULLIF(%s, ''), nome)
+                    WHERE id = %s
+                """, (nome, existente.get('id')))
+            else:
+                cur.execute("""
+                    INSERT INTO oficiais (nome, cpf, cliente_id)
+                    VALUES (%s, %s, %s)
+                """, (nome, cpf_limpo, cid))
         conn.commit()
     return True
 
 
 def criar_apontador(cpf, contexto=None, cliente_id=None):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
     with conectar() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO apontadores_acesso (cpf, senha, ativo, primeiro_acesso, cliente_id)
-                VALUES (%s, NULL, TRUE, TRUE, %s)
-                ON CONFLICT (cpf, cliente_id) DO NOTHING
+                SELECT id FROM apontadores_acesso
+                WHERE REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
+                  AND cliente_id IS NOT DISTINCT FROM %s
+                ORDER BY id DESC LIMIT 1
             """, (cpf_limpo, cid))
+            if not cur.fetchone():
+                cur.execute("""
+                    INSERT INTO apontadores_acesso (cpf, senha, ativo, primeiro_acesso, cliente_id)
+                    VALUES (%s, NULL, TRUE, TRUE, %s)
+                """, (cpf_limpo, cid))
         conn.commit()
     return True
 
 
 def buscar_apontador(cpf, contexto=None, cliente_id=None):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     cid = cliente_id if cliente_id is not None else _resolver_cliente_id_contexto(contexto)
     with conectar() as conn:
@@ -13680,19 +13698,19 @@ def buscar_apontador(cpf, contexto=None, cliente_id=None):
                 FROM apontadores_acesso a
                 LEFT JOIN oficiais o
                   ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
-                 AND o.cliente_id = a.cliente_id
+                 AND o.cliente_id IS NOT DISTINCT FROM a.cliente_id
                 WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
-                  AND (%s::INTEGER IS NULL OR a.cliente_id = %s)
+                  AND a.cliente_id IS NOT DISTINCT FROM %s
                 ORDER BY a.id DESC
                 LIMIT 1
-            """, (cpf_limpo, cid, cid))
+            """, (cpf_limpo, cid))
             return cur.fetchone()
 
 
 
 
 def autenticar_apontador(cpf, senha):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -13701,7 +13719,7 @@ def autenticar_apontador(cpf, senha):
                 FROM apontadores_acesso a
                 LEFT JOIN oficiais o
                   ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g')
-                 AND o.cliente_id = a.cliente_id
+                 AND o.cliente_id IS NOT DISTINCT FROM a.cliente_id
                 WHERE REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = %s
                   AND COALESCE(a.ativo, TRUE) = TRUE
                 ORDER BY a.id DESC
@@ -13733,7 +13751,7 @@ def autenticar_apontador(cpf, senha):
     return None
 
 def vincular_oficial_competicao(competicao, cpf, funcao):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cid = cliente_id_por_competicao(competicao)
     cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
@@ -13743,7 +13761,7 @@ def vincular_oficial_competicao(competicao, cpf, funcao):
                 WHERE TRIM(LOWER(competicao)) = TRIM(LOWER(%s))
                   AND REGEXP_REPLACE(COALESCE(cpf, ''), '\\D', '', 'g') = %s
                   AND TRIM(LOWER(funcao)) = TRIM(LOWER(%s))
-                  AND cliente_id = %s
+                  AND cliente_id IS NOT DISTINCT FROM %s
                 LIMIT 1
             """, (competicao, cpf_limpo, funcao, cid))
             if cur.fetchone():
@@ -13757,7 +13775,7 @@ def vincular_oficial_competicao(competicao, cpf, funcao):
 
 
 def listar_oficiais_competicao(competicao):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cid = cliente_id_por_competicao(competicao)
     with conectar() as conn:
         with conn.cursor() as cur:
@@ -13769,19 +13787,19 @@ def listar_oficiais_competicao(competicao):
                 FROM competicao_oficiais c
                 LEFT JOIN oficiais o
                   ON REGEXP_REPLACE(COALESCE(o.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g')
-                 AND o.cliente_id = c.cliente_id
+                 AND o.cliente_id IS NOT DISTINCT FROM c.cliente_id
                 LEFT JOIN apontadores_acesso a
                   ON REGEXP_REPLACE(COALESCE(a.cpf, ''), '\\D', '', 'g') = REGEXP_REPLACE(COALESCE(c.cpf, ''), '\\D', '', 'g')
-                 AND a.cliente_id = c.cliente_id
+                 AND a.cliente_id IS NOT DISTINCT FROM c.cliente_id
                 WHERE TRIM(LOWER(c.competicao)) = TRIM(LOWER(%s))
-                  AND c.cliente_id = %s
+                  AND c.cliente_id IS NOT DISTINCT FROM %s
                 ORDER BY c.funcao, nome
             """, (competicao, cid))
             return cur.fetchall()
 
 
 def listar_competicoes_apontador(cpf):
-    garantir_schema_multiempresa_superadmin(); criar_tabelas_oficiais()
+    criar_tabelas_oficiais()
     cpf_limpo = somente_digitos(cpf)
     with conectar() as conn:
         with conn.cursor() as cur:

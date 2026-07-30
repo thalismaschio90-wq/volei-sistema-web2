@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, render_template, request, redirect, session, url_for, flash
+from flask import Blueprint, jsonify, render_template, request, redirect, session, url_for, flash, current_app
 from banco import (
     criar_tabelas_oficiais,
     buscar_oficial_por_cpf,
@@ -287,7 +287,12 @@ def _estado_arbitro_vazio(competicao, partida_id, mensagem="Aguardando dados do 
 @oficiais_bp.route("/oficiais", methods=["GET", "POST"])
 @exigir_perfil("organizador")
 def oficiais():
-    criar_tabelas_oficiais()
+    try:
+        criar_tabelas_oficiais()
+    except Exception:
+        current_app.logger.exception("SCHEMA DE OFICIAIS INDISPONÍVEL")
+        flash("O cadastro de arbitragem precisa da migração mais recente do banco. Execute as migrações no deploy e abra esta tela novamente.", "erro")
+        return redirect(url_for("painel.inicio"))
 
     competicao = buscar_competicao_por_organizador(session.get("usuario"))
 
@@ -310,19 +315,25 @@ def oficiais():
             flash("Selecione a função.", "erro")
             return redirect(url_for("oficiais.oficiais"))
 
-        oficial = buscar_oficial_por_cpf(cpf, nome_competicao)
+        try:
+            oficial = buscar_oficial_por_cpf(cpf, nome_competicao)
 
-        if not oficial:
-            if not nome:
-                flash("Esse CPF ainda não está cadastrado. Informe o nome.", "erro")
-                return redirect(url_for("oficiais.oficiais"))
+            if not oficial:
+                if not nome:
+                    flash("Esse CPF ainda não está cadastrado. Informe o nome.", "erro")
+                    return redirect(url_for("oficiais.oficiais"))
+                if not cadastrar_oficial(nome, cpf, nome_competicao):
+                    raise RuntimeError("falha ao cadastrar oficial")
 
-            cadastrar_oficial(nome, cpf, nome_competicao)
+            if funcao == "apontador" and not criar_apontador(cpf, nome_competicao):
+                raise RuntimeError("falha ao criar acesso do apontador")
 
-        if funcao == "apontador":
-            criar_apontador(cpf, nome_competicao)
-
-        vincular_oficial_competicao(nome_competicao, cpf, funcao)
+            if not vincular_oficial_competicao(nome_competicao, cpf, funcao):
+                raise RuntimeError("falha ao vincular oficial")
+        except Exception:
+            current_app.logger.exception("ERRO AO SALVAR OFICIAL")
+            flash("Não foi possível salvar o oficial. Confira CPF, função e migrações do banco.", "erro")
+            return redirect(url_for("oficiais.oficiais"))
 
         flash("Oficial vinculado com sucesso.", "sucesso")
         return redirect(url_for("oficiais.oficiais"))

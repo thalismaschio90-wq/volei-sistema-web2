@@ -1,4 +1,7 @@
-        {% for p in partidas %}
+{% set ns_rodadas = namespace(lista=[]) %}
+{% set ns_quadras = namespace(lista=[]) %}
+
+{% for p in partidas or [] %}
             {% set rodada_chave = (p.rodada|string) if p.rodada else '__sem_rodada__' %}
             {% if rodada_chave not in ns_rodadas.lista %}
                 {% set ns_rodadas.lista = ns_rodadas.lista + [rodada_chave] %}

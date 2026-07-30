@@ -635,22 +635,24 @@
 
 <script>
 async function atualizarPartidasEquipeAoVivo() {
-    const cards = document.querySelectorAll('[data-partida-id][data-ao-vivo="1"]');
+    const cards = Array.from(document.querySelectorAll('[data-partida-id][data-ao-vivo="1"]'));
+    if (!cards.length || window.__atualizandoPartidasEquipe) return;
 
-    for (const card of cards) {
-        const partidaId = card.dataset.partidaId;
-        const competicao = card.dataset.competicao;
-        const setUnico = card.dataset.setUnico === "1";
+    window.__atualizandoPartidasEquipe = true;
+    try {
+        await Promise.allSettled(cards.map(async (card) => {
+            const partidaId = card.dataset.partidaId;
+            const competicao = card.dataset.competicao;
+            const setUnico = card.dataset.setUnico === "1";
 
-        try {
             const resp = await fetch(`/apontador/estado/${encodeURIComponent(competicao)}/${partidaId}?leve=1`, {
-                cache: "no-cache"
+                cache: "no-cache",
+                credentials: "same-origin"
             });
-
-            if (!resp.ok) continue;
+            if (!resp.ok) return;
 
             const dados = await resp.json();
-            if (!dados.ok) continue;
+            if (!dados.ok) return;
 
             const statusEl = document.getElementById(`status-${partidaId}`);
             const setsEl = document.getElementById(`sets-${partidaId}`);
@@ -663,22 +665,12 @@ async function atualizarPartidasEquipeAoVivo() {
             const pontosA = dados.pontos_a || 0;
             const pontosB = dados.pontos_b || 0;
 
-            if (setsEl) {
-                setsEl.textContent = `${setsA} x ${setsB}`;
-            }
-
-            if (parciaisEl && !dados.partida_finalizada) {
-                parciaisEl.textContent = `${pontosA} x ${pontosB}`;
-            }
+            if (setsEl) setsEl.textContent = `${setsA} x ${setsB}`;
+            if (parciaisEl && !dados.partida_finalizada) parciaisEl.textContent = `${pontosA} x ${pontosB}`;
 
             if (placarAEl && placarBEl) {
-                if (setUnico) {
-                    placarAEl.textContent = pontosA;
-                    placarBEl.textContent = pontosB;
-                } else {
-                    placarAEl.textContent = setsA;
-                    placarBEl.textContent = setsB;
-                }
+                placarAEl.textContent = setUnico ? pontosA : setsA;
+                placarBEl.textContent = setUnico ? pontosB : setsB;
             }
 
             if (statusEl) {
@@ -692,15 +684,27 @@ async function atualizarPartidasEquipeAoVivo() {
                     statusEl.classList.add("ao-vivo");
                 }
             }
-        } catch (e) {
-            console.error("Erro ao atualizar partida da equipe:", partidaId, e);
-        }
+        }));
+    } finally {
+        window.__atualizandoPartidasEquipe = false;
     }
 }
 
-setInterval(() => {
+function agendarAtualizacaoPartidasEquipe() {
+    clearTimeout(window.__timerPartidasEquipe);
+    window.__timerPartidasEquipe = setTimeout(async () => {
+        if (document.visibilityState === "visible") await atualizarPartidasEquipeAoVivo();
+        agendarAtualizacaoPartidasEquipe();
+    }, document.visibilityState === "visible" ? 15000 : 60000);
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+    await atualizarPartidasEquipeAoVivo();
+    agendarAtualizacaoPartidasEquipe();
+});
+document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") atualizarPartidasEquipeAoVivo();
-}, 15000);
-document.addEventListener("DOMContentLoaded", atualizarPartidasEquipeAoVivo);
+    agendarAtualizacaoPartidasEquipe();
+});
 </script>
 {% endblock %}

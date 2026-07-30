@@ -13,6 +13,7 @@ from typing import Any
 from rules.equipes import preparar_equipe_competicao, validar_equipe_competicao
 from repositories.conexao import conectar
 from repositories.equipes_contexto import (
+    validar_schema_equipes,
     buscar_equipe_global_por_nome,
     cliente_id_por_competicao,
     gerar_login_unico,
@@ -94,6 +95,7 @@ def vincular_equipe_existente_competicao_persistencia(
     nome_competicao: str,
     conn=None,
 ):
+    validar_schema_equipes(contexto="vínculo de equipe à competição")
     login_equipe = str(login_equipe or "").strip()
     nome_competicao = " ".join(str(nome_competicao or "").strip().split())
     if not login_equipe or not nome_competicao:
@@ -149,6 +151,7 @@ def criar_nova_equipe_com_credenciais_persistencia(
     nome_equipe: str,
     nome_competicao: str,
 ):
+    validar_schema_equipes(contexto="cadastro de equipe")
     dados = preparar_equipe_competicao(nome_equipe, nome_competicao)
     valido, _ = validar_equipe_competicao(dados)
     if not valido:
@@ -233,6 +236,7 @@ def criar_equipe_com_credenciais_persistencia(
     nome_equipe: str,
     nome_competicao: str,
 ):
+    validar_schema_equipes(contexto="cadastro ou vínculo de equipe")
     dados = preparar_equipe_competicao(nome_equipe, nome_competicao)
     valido, _ = validar_equipe_competicao(dados)
     if not valido:

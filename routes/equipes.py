@@ -55,7 +55,7 @@ from services.equipes.consultas import (
     buscar_equipe_por_login,
 )
 from services.equipes.cadastro import (
-    criar_nova as criar_nova_equipe_com_credenciais,
+    criar_ou_vincular as criar_nova_equipe_com_credenciais,
     vincular_por_login as vincular_equipe_existente_competicao,
 )
 from services.equipes.perfil import (
@@ -657,10 +657,11 @@ def nova_equipe():
             )
 
         if acao == "criar":
-            credenciais = criar_nova_equipe_com_credenciais(nome_busca, competicao["nome"])
-
-            if not credenciais:
-                flash("Não foi possível criar a equipe.", "erro")
+            try:
+                credenciais = criar_nova_equipe_com_credenciais(nome_busca, competicao["nome"])
+            except Exception:
+                current_app.logger.exception("ERRO AO CRIAR OU VINCULAR EQUIPE")
+                flash("Não foi possível salvar a equipe. Verifique se as migrações do banco foram executadas e tente novamente.", "erro")
                 return render_template(
                     "nova_equipe.html",
                     competicao=competicao,
@@ -668,15 +669,30 @@ def nova_equipe():
                     equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca, competicao=competicao["nome"]),
                 )
 
+            if not credenciais:
+                flash("Não foi possível salvar a equipe. Confira o nome e tente novamente.", "erro")
+                return render_template(
+                    "nova_equipe.html",
+                    competicao=competicao,
+                    nome_busca=nome_busca,
+                    equipes_encontradas=buscar_equipes_globais_por_nome(nome_busca, competicao=competicao["nome"]),
+                )
+
+            _limpar_cache_equipes(competicao=competicao["nome"], equipe=credenciais.get("nome") or nome_busca, login=credenciais.get("login"))
             session["credenciais_nova_equipe"] = {
                 "nome": credenciais.get("nome") or nome_busca,
-                "login": credenciais["login"],
-                "senha": credenciais["senha"],
-                "ja_existia": False,
-                "ja_vinculada": False,
+                "login": credenciais.get("login"),
+                "senha": credenciais.get("senha"),
+                "ja_existia": bool(credenciais.get("ja_existia")),
+                "ja_vinculada": bool(credenciais.get("ja_vinculada")),
             }
 
-            flash("Nova equipe criada com sucesso. A equipe completará cidade, responsável e telefone no primeiro login.", "sucesso")
+            if credenciais.get("ja_vinculada"):
+                flash("A equipe já estava salva nesta competição. O vínculo foi confirmado.", "sucesso")
+            elif credenciais.get("ja_existia"):
+                flash("Equipe existente vinculada à competição com sucesso.", "sucesso")
+            else:
+                flash("Nova equipe criada com sucesso. A equipe completará cidade, responsável e telefone no primeiro login.", "sucesso")
             return redirect(url_for("equipes.listar_equipes_view"))
 
         # Compatibilidade: se algum botão antigo postar sem acao, faz busca.
