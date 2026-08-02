@@ -1,13 +1,13 @@
-const CACHE_NAME = "voleitable-pwa-v20260802-arbitro-sqlfix1";
-const OFFLINE_URL = "/offline-apontador?v=20260802-arbitro-sqlfix1";
+const CACHE_NAME = "voleitable-pwa-v20260802-arbitro-partidafix1";
+const OFFLINE_URL = "/offline-apontador?v=20260802-arbitro-partidafix1";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260802-arbitro-sqlfix1",
+    "/app-login?app=1&v=20260802-arbitro-partidafix1",
     OFFLINE_URL,
-    "/static/css/app_login.css?v=20260802-arbitro-sqlfix1",
-    "/static/js/app_login.js?v=20260802-arbitro-sqlfix1",
-    "/static/img/logo.png?v=20260802-arbitro-sqlfix1",
-    "/manifest.json?v=20260802-arbitro-sqlfix1"
+    "/static/css/app_login.css?v=20260802-arbitro-partidafix1",
+    "/static/js/app_login.js?v=20260802-arbitro-partidafix1",
+    "/static/img/logo.png?v=20260802-arbitro-partidafix1",
+    "/manifest.json?v=20260802-arbitro-partidafix1"
 ];
 
 self.addEventListener("install", event => {
@@ -132,7 +132,7 @@ self.addEventListener("fetch", event => {
 
                 return (
                     cache.match(OFFLINE_URL) ||
-                    cache.match("/app-login?app=1&v=20260802-arbitro-sqlfix1")
+                    cache.match("/app-login?app=1&v=20260802-arbitro-partidafix1")
                 );
             })
         );

@@ -1825,6 +1825,35 @@
             }
         }
 
+        let verificandoPartidaVinculada = false;
+
+        async function verificarPartidaVinculadaAoPin() {
+            if (!STANDBY_PROXIMA_URL || verificandoPartidaVinculada) return;
+            verificandoPartidaVinculada = true;
+            try {
+                const resp = await fetch(STANDBY_PROXIMA_URL, {
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                });
+                if (!resp.ok) return;
+                const dados = await resp.json();
+                if (!dados || !dados.ok || !dados.tem_partida || !dados.url) return;
+                const destino = new URL(String(dados.url), window.location.origin);
+                const atual = window.location.pathname.replace(/\/$/, "");
+                const novo = destino.pathname.replace(/\/$/, "");
+                if (novo && novo !== atual) {
+                    // O PIN mudou para outra partida. Redireciona mesmo que a
+                    // partida antiga ainda tenha ficado marcada como ativa.
+                    window.location.replace(destino.href);
+                }
+            } catch (e) {
+                // A tela continua operando; a próxima tentativa ocorre depois.
+            } finally {
+                verificandoPartidaVinculada = false;
+            }
+        }
+
         async function checarProximaPartidaStandby() {
             if (!standbyAtivo || !STANDBY_PROXIMA_URL) return;
             try {
@@ -1851,6 +1880,11 @@
             standbyTimer = setInterval(checarProximaPartidaStandby, 4500);
             setTimeout(checarProximaPartidaStandby, 900);
         }
+
+        // Confere continuamente se este PIN foi associado a uma nova partida.
+        // Isso evita ficar preso na URL de um jogo antigo entre partidas.
+        setInterval(verificarPartidaVinculadaAoPin, 5000);
+        setTimeout(verificarPartidaVinculadaAoPin, 1200);
 
         document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible") ativarWakeLockArbitragem();

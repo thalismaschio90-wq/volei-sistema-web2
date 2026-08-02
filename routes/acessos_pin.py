@@ -300,7 +300,7 @@ def _buscar_partida_ativa_por_pin(vinculo):
         if com_filtro_operacional and vinculo.get("tipo") == "operacional":
             apontador = (vinculo.get("apontador_cpf") or "").strip()
             if apontador:
-                filtros.append("(COALESCE(operador_login, '') = %s OR COALESCE(operador_nome, '') = %s OR COALESCE(operador_login, '') = '')")
+                filtros.append("(COALESCE(operador_login, '') = %s OR COALESCE(operador_nome, '') = %s)")
                 params.extend([apontador, apontador])
 
         if com_filtro_operacional and vinculo.get("tipo") == "competicao":
@@ -308,10 +308,10 @@ def _buscar_partida_ativa_por_pin(vinculo):
             quadra_nome = (vinculo.get("quadra_nome") or "").strip()
             quadra_ordem = vinculo.get("quadra_ordem")
             if quadra_id:
-                filtros.append("(quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s OR quadra_id IS NULL)")
+                filtros.append("(quadra_id = %s OR quadra_nome = %s OR quadra = %s OR quadra = %s)")
                 params.extend([quadra_id, quadra_nome, quadra_nome, str(quadra_ordem or "")])
             elif quadra_nome:
-                filtros.append("(quadra_nome = %s OR quadra = %s OR COALESCE(quadra_nome, '') = '')")
+                filtros.append("(quadra_nome = %s OR quadra = %s)")
                 params.extend([quadra_nome, quadra_nome])
 
         where = " AND ".join(filtros)
@@ -344,8 +344,11 @@ def _buscar_partida_ativa_por_pin(vinculo):
                             WHEN COALESCE(pre_jogo_finalizado, FALSE) = TRUE THEN 4
                             ELSE 9
                         END,
-                        COALESCE(ordem, 999999),
-                        id DESC
+                        operador_heartbeat DESC NULLS LAST,
+                        reservado_em DESC NULLS LAST,
+                        inicio_partida_real DESC NULLS LAST,
+                        id DESC,
+                        COALESCE(ordem, 999999)
                     LIMIT 1
                     """,
                     tuple(params + [list(finalizados), list(finalizados), list(finalizados), list(ativos), list(ativos), list(ativos), list(ativos)]),
@@ -358,6 +361,11 @@ def _buscar_partida_ativa_por_pin(vinculo):
             return partida
     except Exception as e:
         print("ERRO buscar partida árbitro com filtro:", e, flush=True)
+
+    # Um PIN operacional/quadra nunca pode cair em outra partida da competição.
+    # Esse fallback amplo era o que fazia o celular abrir uma partida antiga.
+    if vinculo.get("tipo") in {"operacional", "competicao"}:
+        return None
 
     try:
         return consultar(com_filtro_operacional=False)
@@ -422,7 +430,7 @@ def _buscar_partida_aberta_por_pin(vinculo):
         if com_filtro and vinculo.get("tipo") == "operacional":
             apontador = (vinculo.get("apontador_cpf") or "").strip()
             if apontador:
-                filtros.append("(COALESCE(operador_login, '') = %s OR COALESCE(operador_login, '') = '' OR operador_login IS NULL)")
+                filtros.append("COALESCE(operador_login, '') = %s")
                 params.append(apontador)
 
         if com_filtro and vinculo.get("tipo") == "competicao":
@@ -441,9 +449,6 @@ def _buscar_partida_aberta_por_pin(vinculo):
             if quadra_ordem:
                 conds.append("quadra = %s")
                 params.append(quadra_ordem)
-            # Se a partida antiga não tiver quadra vinculada, ainda permite achar.
-            conds.append("quadra_id IS NULL")
-            conds.append("COALESCE(quadra_nome, '') = ''")
             if conds:
                 filtros.append("(" + " OR ".join(conds) + ")")
 
@@ -468,8 +473,11 @@ def _buscar_partida_aberta_por_pin(vinculo):
                             WHEN LOWER(COALESCE(status, '')) IN ('pre_jogo','papeleta','papeleta_pronta','aberta','aberto','aguardando','pendente') THEN 5
                             ELSE 9
                         END,
-                        COALESCE(ordem, 999999),
-                        id DESC
+                        operador_heartbeat DESC NULLS LAST,
+                        reservado_em DESC NULLS LAST,
+                        inicio_partida_real DESC NULLS LAST,
+                        id DESC,
+                        COALESCE(ordem, 999999)
                     LIMIT 1
                     """,
                     tuple(params + [list(finalizados), list(finalizados), list(finalizados)]),
@@ -482,6 +490,9 @@ def _buscar_partida_aberta_por_pin(vinculo):
             return partida
     except Exception as e:
         print("ERRO buscar partida aberta árbitro com filtro:", e, flush=True)
+
+    if vinculo.get("tipo") in {"operacional", "competicao"}:
+        return None
 
     try:
         return consultar(com_filtro=False)
