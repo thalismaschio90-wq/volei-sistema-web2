@@ -1147,6 +1147,7 @@
         let socket = null;
         let pollingRapido = null;
         let ultimaBuscaMs = 0;
+        let ultimaAtualizacaoEstadoMs = Date.now();
         let ultimoCronometroChave = "";
 
         function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
@@ -1162,11 +1163,22 @@
 
         function sincronizarLadoVisualComApontador(dados) {
             if (!dados || typeof dados !== "object") return;
-            const bruto =
-                dados.lados_invertidos_apontador ??
-                dados.lados_invertidos ??
-                dados.quadra_invertida ??
-                dados.inversao_apontador_auto;
+            const cadastroA = String(dados.equipe_a_cadastro || dados.equipe_a || "").trim().toLocaleLowerCase();
+            const cadastroB = String(dados.equipe_b_cadastro || dados.equipe_b || "").trim().toLocaleLowerCase();
+            const operacionalA = String(dados.equipe_a_operacional || "").trim().toLocaleLowerCase();
+            const operacionalB = String(dados.equipe_b_operacional || "").trim().toLocaleLowerCase();
+            const porEquipes = Boolean(
+                cadastroA && cadastroB && operacionalA && operacionalB &&
+                operacionalA === cadastroB && operacionalB === cadastroA
+            );
+            const temMapaOperacional = Boolean(operacionalA && operacionalB);
+            const bruto = temMapaOperacional
+                ? porEquipes
+                : (dados.lados_operacionais_invertidos ??
+                   dados.lados_invertidos_apontador ??
+                   dados.lados_invertidos ??
+                   dados.quadra_invertida ??
+                   dados.inversao_apontador_auto);
             const compartilhado = boolCompartilhado(bruto);
             if (compartilhado === null) return;
             invertido = compartilhado;
@@ -1521,8 +1533,8 @@
             const headB=document.getElementById('nomeB')?.closest('.cabecalho-equipe');
             if(headA)headA.classList.toggle('sacando',estadoAtual.saque_atual===ladoEsq);
             if(headB)headB.classList.toggle('sacando',estadoAtual.saque_atual===ladoDir);
-            document.getElementById("centroPlacarA").textContent = estadoAtual.pontos_a || 0;
-            document.getElementById("centroPlacarB").textContent = estadoAtual.pontos_b || 0;
+            document.getElementById("centroPlacarA").textContent = ladoEsq === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
+            document.getElementById("centroPlacarB").textContent = ladoDir === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
             document.getElementById("setAtual").textContent = estadoAtual.set_atual || 1;
             atualizarPlacarSets();
             document.getElementById("ultimaAcao").textContent = estadoAtual.ultima_acao || "-";
@@ -1564,6 +1576,7 @@
             if (!dados || typeof dados !== "object") return;
             if (!payloadDaPartida(dados)) return;
 
+            ultimaAtualizacaoEstadoMs = Date.now();
             const seguro = { ...dados };
             if (seguro.estado && typeof seguro.estado === "object") Object.assign(seguro, seguro.estado);
 
@@ -1853,6 +1866,61 @@
             mostrarPopup(titulo, equipeNome, sub, 4200, titulo.includes("indisponível") ? "alerta" : "normal");
         }
 
+        let socketRenderPendente = null;
+        let socketRenderFrame = 0;
+        let ultimaVersaoSocket = -1;
+        let ultimaAssinaturaSocket = "";
+
+        function enfileirarEstadoSocket(dados) {
+            if (!dados || typeof dados !== "object" || !payloadDaPartida(dados)) return;
+
+            const versao = Number(dados.estado_versao ?? -1);
+            const assinatura = [
+                dados.partida_id,
+                dados.set_atual,
+                dados.pontos_a ?? dados.placar_a,
+                dados.pontos_b ?? dados.placar_b,
+                dados.sets_a,
+                dados.sets_b,
+                dados.saque_atual,
+                dados.sacador_numero,
+                dados.fim_set ? 1 : 0,
+                dados.fim_jogo ? 1 : 0,
+                dados.lados_invertidos_apontador ? 1 : 0
+            ].join("|");
+
+            if (versao >= 0 && versao < ultimaVersaoSocket) return;
+            if (versao >= 0 && versao === ultimaVersaoSocket && assinatura === ultimaAssinaturaSocket) return;
+            if (versao < 0 && assinatura === ultimaAssinaturaSocket) return;
+
+            socketRenderPendente = dados;
+            if (socketRenderFrame) return;
+
+            socketRenderFrame = requestAnimationFrame(() => {
+                socketRenderFrame = 0;
+                const atual = socketRenderPendente;
+                socketRenderPendente = null;
+                if (!atual) return;
+
+                const v = Number(atual.estado_versao ?? -1);
+                ultimaVersaoSocket = Math.max(ultimaVersaoSocket, v);
+                ultimaAssinaturaSocket = [
+                    atual.partida_id,
+                    atual.set_atual,
+                    atual.pontos_a ?? atual.placar_a,
+                    atual.pontos_b ?? atual.placar_b,
+                    atual.sets_a,
+                    atual.sets_b,
+                    atual.saque_atual,
+                    atual.sacador_numero,
+                    atual.fim_set ? 1 : 0,
+                    atual.fim_jogo ? 1 : 0,
+                    atual.lados_invertidos_apontador ? 1 : 0
+                ].join("|");
+                aplicarEstado(atual, false);
+            });
+        }
+
         function iniciarSocket() {
             if (typeof io !== "function") {
                 setSocketStatus(false);
@@ -1878,7 +1946,10 @@
                 await carregarEstado(true, true);
             });
 
-            socket.on("disconnect", () => setSocketStatus(false));
+            socket.on("disconnect", () => {
+                setSocketStatus(false);
+                carregarEstado(true, true);
+            });
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
@@ -1895,30 +1966,24 @@
             });
 
             [
+                "placar_rapido",
                 "estado_arbitros",
                 "estado_partida",
                 "estado_jogo_atualizado",
                 "estado_partida_tempo_real",
+                "estado_partida_completo",
                 "placar_atualizado",
                 "placar_apontador",
                 "atualizar_placar",
-                "ponto_registrado",
-                "jogo_avulso_estado",
-                "estado_avulso",
-                "placar_avulso"
+                "ponto_registrado"
             ].forEach(evt => {
-                socket.on(evt, dados => {
-                    // SOCKET-FIRST: não busca /estado a cada ponto.
-                    // A tela atualiza na hora com o payload vivo enviado pelo apontador.
-                    if (!payloadDaPartida(dados)) return;
-                    aplicarEstado(dados, false);
-                });
+                socket.on(evt, enfileirarEstadoSocket);
             });
 
             socket.on("saque_arbitros", dados => {
                 if (!payloadDaPartida(dados)) return;
-                // Evento específico de saque: atualiza e mostra o aviso grande quando trocar.
-                aplicarEstado(dados, false);
+                // Mescla o saque na atualização pendente sem desenhar a tela novamente.
+                enfileirarEstadoSocket({ ...(socketRenderPendente || estadoAtual || {}), ...dados });
             });
 
             socket.on("aviso_arbitragem", tratarAvisoArbitragem);
@@ -1964,10 +2029,17 @@
             // Fallback de segurança: só consulta o backend se o socket cair.
             // Não fica atualizando a página nem consultando /estado durante o jogo ao vivo.
             pollingRapido = setInterval(() => {
-                if (document.visibilityState === "visible" && (!socket || !socket.connected)) {
-                    carregarEstado(true, false);
+                if (document.visibilityState !== "visible") return;
+
+                const semAtualizacao = (Date.now() - ultimaAtualizacaoEstadoMs) >= 2500;
+                const socketFora = !socket || !socket.connected;
+
+                // Um WebSocket pode continuar marcado como conectado mesmo sem entregar
+                // eventos. O watchdog usa HTTP leve quando o estado ficar parado.
+                if (socketFora || semAtualizacao) {
+                    carregarEstado(true, true);
                 }
-            }, 5000);
+            }, 2000);
         }
 
         function acordarTelaMobile() {

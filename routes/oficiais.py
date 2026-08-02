@@ -142,18 +142,47 @@ def _montar_estado_arbitro(competicao, partida_id):
         except Exception:
             estado = {}
 
-    equipe_a = (
-        estado.get("equipe_a")
-        or partida.get("equipe_a_operacional")
-        or partida.get("equipe_a")
+    # Identidade fixa (cadastro) e posição operacional (lado atual da quadra)
+    # são conceitos diferentes. Pontos/rotações continuam vinculados à identidade
+    # A/B; a tela decide apenas onde desenhá-los.
+    equipe_a_cadastro = (
+        partida.get("equipe_a")
+        or estado.get("equipe_a_cadastro")
+        or estado.get("equipe_a")
         or "Equipe A"
     )
-    equipe_b = (
-        estado.get("equipe_b")
-        or partida.get("equipe_b_operacional")
-        or partida.get("equipe_b")
+    equipe_b_cadastro = (
+        partida.get("equipe_b")
+        or estado.get("equipe_b_cadastro")
+        or estado.get("equipe_b")
         or "Equipe B"
     )
+    equipe_a_operacional = (
+        estado.get("equipe_a_operacional")
+        or partida.get("equipe_a_operacional")
+        or equipe_a_cadastro
+    )
+    equipe_b_operacional = (
+        estado.get("equipe_b_operacional")
+        or partida.get("equipe_b_operacional")
+        or equipe_b_cadastro
+    )
+    equipe_a = equipe_a_cadastro
+    equipe_b = equipe_b_cadastro
+
+    def _nome_igual(a, b):
+        return str(a or "").strip().casefold() == str(b or "").strip().casefold()
+
+    inversao_por_equipes = bool(
+        equipe_a_cadastro and equipe_b_cadastro
+        and _nome_igual(equipe_a_operacional, equipe_b_cadastro)
+        and _nome_igual(equipe_b_operacional, equipe_a_cadastro)
+    )
+    inversao_estado = bool(
+        estado.get("lados_invertidos_apontador",
+            estado.get("lados_invertidos", estado.get("quadra_invertida", estado.get("invertido", False))))
+    )
+    lados_invertidos_apontador = inversao_por_equipes if (equipe_a_operacional and equipe_b_operacional) else inversao_estado
 
     set_atual = _int_seguro(estado.get("set_atual") or partida.get("set_atual"), 1)
 
@@ -227,8 +256,12 @@ def _montar_estado_arbitro(competicao, partida_id):
         "ok": True,
         "competicao": competicao,
         "partida_id": partida_id,
-        "equipe_a": equipe_a,
-        "equipe_b": equipe_b,
+        "equipe_a": equipe_a_cadastro,
+        "equipe_b": equipe_b_cadastro,
+        "equipe_a_cadastro": equipe_a_cadastro,
+        "equipe_b_cadastro": equipe_b_cadastro,
+        "equipe_a_operacional": equipe_a_operacional,
+        "equipe_b_operacional": equipe_b_operacional,
         "pontos_a": _int_seguro(estado.get("pontos_a") or estado.get("placar_a"), 0),
         "pontos_b": _int_seguro(estado.get("pontos_b") or estado.get("placar_b"), 0),
         "sets_a": _int_seguro(estado.get("sets_a"), 0),
@@ -247,10 +280,8 @@ def _montar_estado_arbitro(competicao, partida_id):
         "nome_sacador": nome_sacador,
         # Mantém árbitros fisicamente no mesmo lado visual do apontador.
         # O valor é emitido pelo apontador em cada inversão e também fica no estado/cache.
-        "lados_invertidos_apontador": bool(
-            estado.get("lados_invertidos_apontador",
-                estado.get("lados_invertidos", estado.get("quadra_invertida", estado.get("invertido", False))))
-        ),
+        "lados_invertidos_apontador": lados_invertidos_apontador,
+        "lados_operacionais_invertidos": lados_invertidos_apontador,
         "rotacao_a": _normalizar_rotacao(rotacao_a, mapa_a),
         "rotacao_b": _normalizar_rotacao(rotacao_b, mapa_b),
         "historico": estado.get("historico") or [],
