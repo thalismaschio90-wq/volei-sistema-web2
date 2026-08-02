@@ -3734,8 +3734,16 @@ function montarPayloadTempoReal(extra = {}) {
 
     function atualizarEscudosDoJogo(dados) {
         dados = dados || {};
-        ESCUDO_EQUIPE_A = dados.escudo_a_operacional || dados.escudo_a || dados.equipe_a_escudo || ESCUDO_EQUIPE_A || ESCUDO_PADRAO;
-        ESCUDO_EQUIPE_B = dados.escudo_b_operacional || dados.escudo_b || dados.equipe_b_escudo || ESCUDO_EQUIPE_B || ESCUDO_PADRAO;
+        const candidatoA = String(dados.escudo_a_operacional || dados.escudo_a || dados.equipe_a_escudo || "").trim();
+        const candidatoB = String(dados.escudo_b_operacional || dados.escudo_b || dados.equipe_b_escudo || "").trim();
+        const atualAValido = ESCUDO_EQUIPE_A && !String(ESCUDO_EQUIPE_A).endsWith("/escudo_padrao.svg");
+        const atualBValido = ESCUDO_EQUIPE_B && !String(ESCUDO_EQUIPE_B).endsWith("/escudo_padrao.svg");
+        // Respostas leves de ponto/heartbeat podem não carregar escudos. Nunca
+        // trocamos um escudo real já exibido por vazio ou pelo padrão.
+        if (candidatoA && (!candidatoA.endsWith("/escudo_padrao.svg") || !atualAValido)) ESCUDO_EQUIPE_A = candidatoA;
+        if (candidatoB && (!candidatoB.endsWith("/escudo_padrao.svg") || !atualBValido)) ESCUDO_EQUIPE_B = candidatoB;
+        ESCUDO_EQUIPE_A = ESCUDO_EQUIPE_A || ESCUDO_PADRAO;
+        ESCUDO_EQUIPE_B = ESCUDO_EQUIPE_B || ESCUDO_PADRAO;
         atualizarEscudosVisuais();
         if (typeof renderMobilePainel === "function") {
             try { renderMobilePainel(estadoAtual); } catch (e) {}

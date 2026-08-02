@@ -214,8 +214,12 @@ def _partida_ativa_por_cache_apontador(vinculo):
         "grupo": estado.get("grupo"),
         "equipe_a": estado.get("equipe_a") or estado.get("nome_a") or "Equipe A",
         "equipe_b": estado.get("equipe_b") or estado.get("nome_b") or "Equipe B",
-        "equipe_a_operacional": estado.get("equipe_a") or estado.get("nome_a") or "Equipe A",
-        "equipe_b_operacional": estado.get("equipe_b") or estado.get("nome_b") or "Equipe B",
+        "equipe_a_operacional": estado.get("equipe_a_operacional") or estado.get("equipe_a") or estado.get("nome_a") or "Equipe A",
+        "equipe_b_operacional": estado.get("equipe_b_operacional") or estado.get("equipe_b") or estado.get("nome_b") or "Equipe B",
+        "escudo_a": estado.get("escudo_a_operacional") or estado.get("escudo_a") or estado.get("equipe_a_escudo"),
+        "escudo_b": estado.get("escudo_b_operacional") or estado.get("escudo_b") or estado.get("equipe_b_escudo"),
+        "escudo_a_operacional": estado.get("escudo_a_operacional") or estado.get("escudo_a") or estado.get("equipe_a_escudo"),
+        "escudo_b_operacional": estado.get("escudo_b_operacional") or estado.get("escudo_b") or estado.get("equipe_b_escudo"),
         "status": estado.get("status") or "ao_vivo",
         "status_operacao": estado.get("status_operacao") or "ao_vivo",
         "status_jogo": estado.get("status_jogo") or "em_andamento",
@@ -325,10 +329,10 @@ def _buscar_partida_ativa_por_pin(vinculo):
                       AND NOT (LOWER(COALESCE(status_jogo, '')) = ANY(%s))
                       AND (
                             COALESCE(pre_jogo_finalizado, FALSE) = TRUE
-                         OR LOWER(COALESCE(status, '')) IN %s
-                         OR LOWER(COALESCE(status_operacao, '')) IN %s
-                         OR LOWER(COALESCE(status_jogo, '')) IN %s
-                         OR LOWER(COALESCE(fase_partida, '')) IN %s
+                         OR LOWER(COALESCE(status, '')) = ANY(%s)
+                         OR LOWER(COALESCE(status_operacao, '')) = ANY(%s)
+                         OR LOWER(COALESCE(status_jogo, '')) = ANY(%s)
+                         OR LOWER(COALESCE(fase_partida, '')) = ANY(%s)
                          OR COALESCE(pontos_a, 0) > 0
                          OR COALESCE(pontos_b, 0) > 0
                          OR COALESCE(set_atual, 1) > 1
@@ -487,17 +491,63 @@ def _buscar_partida_aberta_por_pin(vinculo):
         return None
 
 
-def _resolver_partida_para_arbitro(vinculo):
-    """Busca a partida do árbitro com prioridade no estado vivo do apontador."""
-    partida = _partida_ativa_por_cache_apontador(vinculo)
-    if partida:
-        return partida
+def _enriquecer_escudos_partida(partida):
+    """Garante escudos reais sem transformar uma resposta leve em escudo vazio.
 
+    A importação é tardia para evitar dependência circular durante o boot.
+    """
+    if not partida:
+        return partida
+    partida = dict(partida)
+    equipe_a = partida.get("equipe_a_operacional") or partida.get("equipe_a") or ""
+    equipe_b = partida.get("equipe_b_operacional") or partida.get("equipe_b") or ""
+    try:
+        from routes.apontadores import _buscar_escudos_equipes, _normalizar_url_escudo
+        mapa = _buscar_escudos_equipes(partida.get("competicao") or "", equipe_a, equipe_b) or {}
+        escudo_a = (partida.get("escudo_a_operacional") or partida.get("escudo_a") or mapa.get(equipe_a))
+        escudo_b = (partida.get("escudo_b_operacional") or partida.get("escudo_b") or mapa.get(equipe_b))
+        if escudo_a:
+            partida["escudo_a"] = _normalizar_url_escudo(escudo_a)
+            partida["escudo_a_operacional"] = partida["escudo_a"]
+        if escudo_b:
+            partida["escudo_b"] = _normalizar_url_escudo(escudo_b)
+            partida["escudo_b_operacional"] = partida["escudo_b"]
+    except Exception as e:
+        print("AVISO enriquecer escudos partida PIN:", repr(e), flush=True)
+    return partida
+
+
+def _partida_preparada_para_telao(partida):
+    """O telão assume a partida desde o sorteio; árbitros somente no início."""
+    if not partida:
+        return False
+    status = _status_texto_partida(partida)
+    if any(t in status for t in ("finalizada", "finalizado", "encerrada", "encerrado", "concluida", "concluído")):
+        return False
+    preparados = (
+        "sorteio", "pre_jogo", "pré_jogo", "conferencia", "conferência",
+        "papeleta", "papeleta_pronta", "aguardando_jogo", "em_andamento",
+        "andamento", "ao_vivo", "ao vivo", "jogo", "iniciada", "iniciado"
+    )
+    return bool(partida.get("pre_jogo_iniciado_em") or partida.get("pre_jogo_finalizado") or any(t in status for t in preparados))
+
+
+def _resolver_partida_para_arbitro(vinculo):
+    """Resolve a partida atual sem ficar preso ao cache da partida anterior.
+
+    O banco é consultado primeiro porque, entre uma partida e outra, o cache do
+    apontador pode ainda guardar o jogo encerrado. O cache continua como fallback
+    rápido para instalações antigas que atrasam a atualização dos campos de status.
+    """
     partida = _buscar_partida_ativa_por_pin(vinculo)
     if partida:
-        return partida
+        return _enriquecer_escudos_partida(partida)
 
-    return _buscar_partida_aberta_por_pin(vinculo)
+    partida = _partida_ativa_por_cache_apontador(vinculo)
+    if partida:
+        return _enriquecer_escudos_partida(partida)
+
+    return _enriquecer_escudos_partida(_buscar_partida_aberta_por_pin(vinculo))
 
 
 @acessos_pin_bp.route("/arbitro", methods=["GET", "POST"])
@@ -852,6 +902,8 @@ def _resposta_proxima_partida(tipo):
             "grupo": partida.get("grupo"),
             "equipe_a": partida.get("equipe_a_operacional") or partida.get("equipe_a"),
             "equipe_b": partida.get("equipe_b_operacional") or partida.get("equipe_b"),
+            "escudo_a": partida.get("escudo_a_operacional") or partida.get("escudo_a"),
+            "escudo_b": partida.get("escudo_b_operacional") or partida.get("escudo_b"),
             "status": partida.get("status"),
             "status_operacao": partida.get("status_operacao"),
             "operador": partida.get("operador_nome") or partida.get("operador_login") or "",
@@ -943,11 +995,13 @@ def telao_automatico():
                 return redirect(url_for("jogo_avulso.telao_jogo_avulso_por_pin", pin=pin))
     else:
         partida = _resolver_partida_para_arbitro(vinculo)
-        if partida and _partida_em_modo_operacao(partida):
+        if partida and _partida_preparada_para_telao(partida):
             return redirect(url_for(
                 "apontadores.placar_ao_vivo_apontador",
                 apontador=vinculo.get("apontador_cpf") or "",
                 auto_pin=1,
+                preview_partida_id=partida.get("id"),
+                preview_competicao=partida.get("competicao") or vinculo.get("competicao") or "",
             ))
 
     return render_template(
@@ -988,21 +1042,25 @@ def proxima_partida_telao():
         })
 
     partida = _resolver_partida_para_arbitro(vinculo)
-    if not partida or not _partida_em_modo_operacao(partida):
+    if not partida or not _partida_preparada_para_telao(partida):
         return jsonify({
             "ok": True,
             "tem_partida": False,
             "competicao": vinculo.get("competicao") or "",
-            "mensagem": "Aguardando o apontador clicar em Iniciar jogo.",
+            "mensagem": "Aguardando o apontador concluir o sorteio da próxima partida.",
         })
 
+    em_jogo = _partida_em_modo_operacao(partida)
     return jsonify({
         "ok": True,
         "tem_partida": True,
+        "preparada": not em_jogo,
         "url": url_for(
             "apontadores.placar_ao_vivo_apontador",
             apontador=vinculo.get("apontador_cpf") or "",
             auto_pin=1,
+            preview_partida_id=partida.get("id"),
+            preview_competicao=partida.get("competicao") or vinculo.get("competicao") or "",
         ),
         "partida": {
             "id": partida.get("id"),
@@ -1010,5 +1068,7 @@ def proxima_partida_telao():
             "quadra": partida.get("quadra_nome") or partida.get("quadra"),
             "equipe_a": partida.get("equipe_a_operacional") or partida.get("equipe_a"),
             "equipe_b": partida.get("equipe_b_operacional") or partida.get("equipe_b"),
+            "escudo_a": partida.get("escudo_a_operacional") or partida.get("escudo_a"),
+            "escudo_b": partida.get("escudo_b_operacional") or partida.get("escudo_b"),
         },
     })

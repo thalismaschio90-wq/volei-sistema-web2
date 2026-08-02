@@ -529,6 +529,8 @@ let ultimosPontosA = null;
 let ultimosPontosB = null;
 let ultimoSaqueVisual = "";
 let primeiraAplicacaoSaque = true;
+let ultimoEscudoValidoA = "";
+let ultimoEscudoValidoB = "";
 
 /*
   EVOLUÇÃO PERSISTENTE:
@@ -1056,8 +1058,15 @@ function aplicarEstado(dados) {
     ultimosPontosA = pAOriginal;
     ultimosPontosB = pBOriginal;
 
-    let escA = dados.escudo_a_operacional || dados.escudo_a || dados.escudoA || "/static/img/escudo_padrao.svg";
-    let escB = dados.escudo_b_operacional || dados.escudo_b || dados.escudoB || "/static/img/escudo_padrao.svg";
+    const candidatoEscA = String(dados.escudo_a_operacional || dados.escudo_a || dados.escudoA || "").trim();
+    const candidatoEscB = String(dados.escudo_b_operacional || dados.escudo_b || dados.escudoB || "").trim();
+    if (candidatoEscA && !candidatoEscA.endsWith("/escudo_padrao.svg")) ultimoEscudoValidoA = candidatoEscA;
+    if (candidatoEscB && !candidatoEscB.endsWith("/escudo_padrao.svg")) ultimoEscudoValidoB = candidatoEscB;
+    let escA = candidatoEscA || ultimoEscudoValidoA || "/static/img/escudo_padrao.svg";
+    let escB = candidatoEscB || ultimoEscudoValidoB || "/static/img/escudo_padrao.svg";
+    // Uma atualização parcial nunca pode apagar um escudo real já exibido.
+    if (escA.endsWith("/escudo_padrao.svg") && ultimoEscudoValidoA) escA = ultimoEscudoValidoA;
+    if (escB.endsWith("/escudo_padrao.svg") && ultimoEscudoValidoB) escB = ultimoEscudoValidoB;
     let corA = dados.cor_a_operacional || dados.cor_a || dados.corA || "#2E6BE6";
     let corB = dados.cor_b_operacional || dados.cor_b || dados.corB || "#E53935";
 
@@ -1086,7 +1095,9 @@ function aplicarEstado(dados) {
     aplicarSaque(saque);
 
     const competicao = dados.competicao || "";
-    if (competicao) {
+    if (dados.partida_preparada && !partidaEstaAoVivo(dados)) {
+        infoJogo.textContent = `${competicao || "PRÓXIMA PARTIDA"} • AGUARDANDO INÍCIO`;
+    } else if (competicao) {
         infoJogo.textContent = `${competicao} • ${setAtual}º SET`;
     } else if (apontador) {
         infoJogo.textContent = `TELÃO ${apontador} • AGUARDANDO JOGO`;
