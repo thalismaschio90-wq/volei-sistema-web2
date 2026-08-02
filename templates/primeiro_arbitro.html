@@ -803,7 +803,6 @@
         let socket = null;
         let pollingRapido = null;
         let ultimaBuscaMs = 0;
-        let ultimaAtualizacaoEstadoMs = Date.now();
 
         function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
 
@@ -818,22 +817,11 @@
 
         function sincronizarLadoVisualComApontador(dados) {
             if (!dados || typeof dados !== "object") return;
-            const cadastroA = String(dados.equipe_a_cadastro || dados.equipe_a || "").trim().toLocaleLowerCase();
-            const cadastroB = String(dados.equipe_b_cadastro || dados.equipe_b || "").trim().toLocaleLowerCase();
-            const operacionalA = String(dados.equipe_a_operacional || "").trim().toLocaleLowerCase();
-            const operacionalB = String(dados.equipe_b_operacional || "").trim().toLocaleLowerCase();
-            const porEquipes = Boolean(
-                cadastroA && cadastroB && operacionalA && operacionalB &&
-                operacionalA === cadastroB && operacionalB === cadastroA
-            );
-            const temMapaOperacional = Boolean(operacionalA && operacionalB);
-            const bruto = temMapaOperacional
-                ? porEquipes
-                : (dados.lados_operacionais_invertidos ??
-                   dados.lados_invertidos_apontador ??
-                   dados.lados_invertidos ??
-                   dados.quadra_invertida ??
-                   dados.inversao_apontador_auto);
+            const bruto =
+                dados.lados_invertidos_apontador ??
+                dados.lados_invertidos ??
+                dados.quadra_invertida ??
+                dados.inversao_apontador_auto;
             const compartilhado = boolCompartilhado(bruto);
             if (compartilhado === null) return;
             invertido = compartilhado;
@@ -1103,8 +1091,8 @@
             document.getElementById("nomeB").textContent = nomeEquipe(ladoDir);
             document.getElementById("placarA").textContent = ladoEsq === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
             document.getElementById("placarB").textContent = ladoDir === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
-            document.getElementById("centroPlacarA").textContent = ladoEsq === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
-            document.getElementById("centroPlacarB").textContent = ladoDir === "A" ? (estadoAtual.pontos_a || 0) : (estadoAtual.pontos_b || 0);
+            document.getElementById("centroPlacarA").textContent = estadoAtual.pontos_a || 0;
+            document.getElementById("centroPlacarB").textContent = estadoAtual.pontos_b || 0;
             document.getElementById("setAtual").textContent = estadoAtual.set_atual || 1;
             atualizarPlacarSets();
             document.getElementById("ultimaAcao").textContent = estadoAtual.ultima_acao || "-";
@@ -1127,16 +1115,9 @@
             popupTimer = setTimeout(() => popup.classList.remove("mostrar"), ms);
         }
 
-        async function inverterQuadra() {
-            // O árbitro não mantém uma inversão própria: isso criava uma segunda
-            // referência de lado e separava rotação/saque do placar. O botão agora
-            // apenas limpa preferência antiga e força a sincronização oficial.
-            localStorage.removeItem(CHAVE_INVERSAO_VISUAL);
-            try {
-                if (typeof buscarEstado === "function") await buscarEstado(true);
-                else if (typeof buscarEstadoAtual === "function") await buscarEstadoAtual(true);
-            } catch (e) {}
-            sincronizarLadoVisualComApontador(estadoAtual || {});
+        function inverterQuadra() {
+            invertido = !invertido;
+            localStorage.setItem(CHAVE_INVERSAO_VISUAL, invertido ? "1" : "0");
             render();
         }
 
@@ -1144,7 +1125,6 @@
             if (!dados || typeof dados !== "object") return;
             if (!payloadDaPartida(dados)) return;
 
-            ultimaAtualizacaoEstadoMs = Date.now();
             const seguro = { ...dados };
             if (seguro.estado && typeof seguro.estado === "object") Object.assign(seguro, seguro.estado);
 
@@ -1392,10 +1372,7 @@
                 entrarNaSala();
                 await carregarEstado(true, true);
             });
-            socket.on("disconnect", () => {
-                setSocketStatus(false);
-                carregarEstado(true, true);
-            });
+            socket.on("disconnect", () => setSocketStatus(false));
 
             socket.on("connect_error", () => {
                 setSocketStatus(false);
@@ -1461,17 +1438,10 @@
             // Fallback de segurança: só consulta o backend se o socket cair.
             // Não fica atualizando a página nem consultando /estado durante o jogo ao vivo.
             pollingRapido = setInterval(() => {
-                if (document.visibilityState !== "visible") return;
-
-                const semAtualizacao = (Date.now() - ultimaAtualizacaoEstadoMs) >= 2500;
-                const socketFora = !socket || !socket.connected;
-
-                // Um WebSocket pode continuar marcado como conectado mesmo sem entregar
-                // eventos. O watchdog usa HTTP leve quando o estado ficar parado.
-                if (socketFora || semAtualizacao) {
-                    carregarEstado(true, true);
+                if (document.visibilityState === "visible" && (!socket || !socket.connected)) {
+                    carregarEstado(true, false);
                 }
-            }, 2000);
+            }, 5000);
         }
 
         function acordarTelaMobile() {

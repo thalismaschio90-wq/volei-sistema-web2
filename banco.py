@@ -13127,25 +13127,10 @@ def finalizar_partida_completa(
     if not competicao:
         return False, "Competição não informada.", {}
 
-    # A estrutura deve ser criada na inicialização/migração da aplicação.
-    # DDL aqui (CREATE/ALTER/INDEX) pode aguardar locks por minutos e travar
-    # o botão "Salvar finalização" durante o torneio.
-    t_inicio = time.perf_counter()
-    tempos = {}
-
-    def _marcar(etapa, inicio):
-        tempos[etapa] = time.perf_counter() - inicio
-
-    def _log_tempos(resultado):
-        total = time.perf_counter() - t_inicio
-        partes = " ".join(
-            f"{nome}={valor:.3f}s" for nome, valor in tempos.items()
-        )
-        print(
-            f"FINALIZACAO partida={partida_id} competicao={competicao!r} "
-            f"resultado={resultado} total={total:.3f}s {partes}",
-            flush=True,
-        )
+    # Garante a estrutura antes de abrir a transação principal. Depois de
+    # criada, os comandos são IF NOT EXISTS e não alteram o resultado.
+    criar_tabela_destaques_partida()
+    garantir_campos_trava_operacional_partida()
 
     def _int_ou_none(valor):
         try:
@@ -13155,16 +13140,9 @@ def finalizar_partida_completa(
         except Exception:
             return None
 
-    t_conexao = time.perf_counter()
     with conectar() as conn:
-        _marcar("conexao", t_conexao)
         try:
             with conn.cursor() as cur:
-                # Evita espera silenciosa de minutos por lock ou consulta.
-                cur.execute("SET LOCAL lock_timeout = '2500ms'")
-                cur.execute("SET LOCAL statement_timeout = '10000ms'")
-
-                t_lock = time.perf_counter()
                 cur.execute("""
                     SELECT *
                     FROM partidas
@@ -13173,7 +13151,6 @@ def finalizar_partida_completa(
                     FOR UPDATE
                 """, (partida_id, competicao))
                 partida = cur.fetchone()
-                _marcar("lock_partida", t_lock)
 
                 if not partida:
                     conn.rollback()
@@ -13234,7 +13211,6 @@ def finalizar_partida_completa(
                 # --------------------------------------------------------
                 # Destaque da partida, dentro da mesma transação
                 # --------------------------------------------------------
-                t_destaque = time.perf_counter()
                 lado = str(destaque.get("lado") or "").strip().upper()
                 atleta_id = _int_ou_none(destaque.get("atleta_id"))
                 numero = _int_ou_none(destaque.get("numero"))
@@ -13326,12 +13302,9 @@ def finalizar_partida_completa(
                         destaque_observacao,
                     ))
 
-                _marcar("destaque", t_destaque)
-
                 # --------------------------------------------------------
                 # Finalização e liberação de trava em um único UPDATE
                 # --------------------------------------------------------
-                t_update = time.perf_counter()
                 cur.execute("""
                     UPDATE partidas
                     SET observacoes = %s::text,
@@ -13369,24 +13342,11 @@ def finalizar_partida_completa(
                     competicao,
                 ))
                 estado_final = cur.fetchone() or {}
-                _marcar("update", t_update)
 
-            t_commit = time.perf_counter()
             conn.commit()
-            _marcar("commit", t_commit)
 
-        except Exception as e:
+        except Exception:
             conn.rollback()
-            codigo = getattr(e, "sqlstate", None)
-            if codigo in {"55P03", "57014"}:
-                _log_tempos(f"bloqueio_{codigo}")
-                return (
-                    False,
-                    "O banco estava ocupado finalizando esta partida. "
-                    "Aguarde alguns segundos e toque em Salvar finalização novamente.",
-                    {},
-                )
-            _log_tempos(f"erro_{codigo or type(e).__name__}")
             raise
 
     # Cache de classificação é invalidado somente depois do COMMIT.
@@ -13399,7 +13359,6 @@ def finalizar_partida_completa(
             flush=True,
         )
 
-    _log_tempos("sucesso")
     return True, "Finalização salva com sucesso.", dict(estado_final)
 
 

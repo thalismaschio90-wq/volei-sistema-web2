@@ -76,11 +76,28 @@ def _rooms_partida(partida_id, competicao=None):
 
 
 def _emitir_salas(evento, payload, partida_id, **kwargs):
-    payload = _json_safe(payload)
-    competicao = payload.get("competicao") if isinstance(payload, dict) else None
+    """Emite uma única vez na sala canônica da partida.
 
-    for sala in _rooms_partida(partida_id, competicao):
-        socketio.emit(evento, payload, room=sala, **kwargs)
+    Todos os clientes atuais entram também na sala simples ``<partida_id>``.
+    Antes, o mesmo payload era emitido para 5 a 9 aliases e o mesmo aparelho,
+    por estar inscrito em todos eles, recebia o mesmo ponto repetidas vezes.
+    Isso causava múltiplas renderizações e atraso perceptível no celular.
+
+    A emissão para aliases antigos pode ser reativada temporariamente com
+    SOCKET_EMIT_LEGACY_ROOMS=1, se algum cliente muito antigo depender deles.
+    """
+    payload = _json_safe(payload)
+    sala = _room(partida_id)
+    if not sala:
+        return
+
+    socketio.emit(evento, payload, room=sala, **kwargs)
+
+    if _env_bool("SOCKET_EMIT_LEGACY_ROOMS", False):
+        competicao = payload.get("competicao") if isinstance(payload, dict) else None
+        for alias in _rooms_partida(partida_id, competicao):
+            if alias != sala:
+                socketio.emit(evento, payload, room=alias, **kwargs)
 
 
 def _normalizar_apontador(apontador):
@@ -527,7 +544,7 @@ def _payload_placar_rapido(payload):
         return {}
 
     chaves = [
-        "ok", "partida_id", "competicao",
+        "ok", "partida_id", "competicao", "estado_versao",
         "pontos_a", "pontos_b", "placar_a", "placar_b",
         "sets_a", "sets_b", "set_atual", "sets_tipo", "set_unico",
         "placar_exibicao_a", "placar_exibicao_b", "placar_exibicao_tipo",

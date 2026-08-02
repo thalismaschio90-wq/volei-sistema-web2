@@ -18,7 +18,6 @@ from banco import (
     criar_campos_perfil_equipe,
     criar_campo_escudo_equipes,
     garantir_campos_trava_operacional_partida,
-    criar_tabela_destaques_partida,
     buscar_equipe_por_login,
     escudo_padrao_equipe,
     migrar_escudos_arquivos_para_banco,
@@ -160,13 +159,6 @@ try:
     garantir_campos_trava_operacional_partida()
 except Exception as e:
     print("ERRO campos trava operacional:", e)
-
-try:
-    # DDL da finalização é preparado somente na inicialização/deploy.
-    # Nunca executar CREATE/ALTER/INDEX durante o clique do apontador.
-    criar_tabela_destaques_partida()
-except Exception as e:
-    print("ERRO tabela destaques_partida:", e)
 
 try:
     os.makedirs(os.path.join(app.static_folder, "uploads", "escudos"), exist_ok=True)

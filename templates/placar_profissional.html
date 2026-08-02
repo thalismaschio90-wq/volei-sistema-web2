@@ -487,12 +487,11 @@ html, body {
 const apontador = {{ (apontador if apontador is defined else '') | tojson }};
 const ESTADO_INICIAL = {{ (estado if estado is defined else {}) | tojson | safe }};
 const STANDBY_URL = {{ (standby_url or '')|tojson }};
-const ESTADO_URL = {{ (estado_url or '')|tojson }};
 let timerRetornoStandby = null;
 
 const socket = io({
-    transports: ['websocket', 'polling'],
-    upgrade: true,
+    transports: ['websocket'],
+    upgrade: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 500,
@@ -530,8 +529,6 @@ let ultimosPontosA = null;
 let ultimosPontosB = null;
 let ultimoSaqueVisual = "";
 let primeiraAplicacaoSaque = true;
-let ultimaAtualizacaoEstadoMs = Date.now();
-let buscaFallbackEmAndamento = false;
 
 /*
   EVOLUÇÃO PERSISTENTE:
@@ -562,16 +559,11 @@ function getInvertidoVisual(dados) {
     // Por padrão, o placar acompanha exatamente a troca de lados do apontador,
     // inclusive a troca automática entre sets. Só usa uma preferência local se
     // o operador do próprio telão tiver clicado manualmente em "Inverter".
-    const cadastroA = String(dados.equipe_a_cadastro || dados.equipe_a || "").trim().toLocaleLowerCase();
-    const cadastroB = String(dados.equipe_b_cadastro || dados.equipe_b || "").trim().toLocaleLowerCase();
-    const operacionalA = String(dados.equipe_a_operacional || "").trim().toLocaleLowerCase();
-    const operacionalB = String(dados.equipe_b_operacional || "").trim().toLocaleLowerCase();
-    if (cadastroA && cadastroB && operacionalA && operacionalB) {
-        return operacionalA === cadastroB && operacionalB === cadastroA;
-    }
+    const chave = chaveInversao(dados);
+    const override = localStorage.getItem(chave);
+    if (override === "0" || override === "1") return override === "1";
 
     return boolInversao(
-        dados.lados_operacionais_invertidos ??
         dados.lados_invertidos_apontador ??
         dados.lados_invertidos ??
         dados.quadra_invertida
@@ -584,9 +576,8 @@ function setInvertidoVisual(dados, valor) {
 }
 
 btnInverter.addEventListener("click", function () {
-    // O telão segue o lado oficial do apontador. Limpa overrides antigos que
-    // poderiam fazer pontos continuarem presos ao lado físico original.
-    localStorage.removeItem(chaveInversao(ultimoEstado || {}));
+    const atual = getInvertidoVisual(ultimoEstado || {});
+    setInvertidoVisual(ultimoEstado || {}, !atual);
     if (ultimoEstado) aplicarEstado(ultimoEstado);
 });
 
@@ -633,13 +624,14 @@ function normalizarLado(valor) {
 }
 
 function nomeEquipeA(dados) {
-    // Identidade fixa da equipe A. A posição visual é aplicada uma única vez em
-    // aplicarEstado(); nunca atrelar a pontuação ao lado físico.
-    return dados.equipe_a_cadastro || dados.equipe_a || dados.equipe_a_nome || dados.nome_a || dados.time_a || "Equipe A";
+    // A tela do apontador trabalha com equipe_a_operacional/equipe_b_operacional.
+    // Se usar equipe_a/equipe_b primeiro, o placar fica preso no lado inicial da tabela
+    // e mostra nome de uma equipe com pontuação/saque da outra.
+    return dados.equipe_a_operacional || dados.equipe_a_nome || dados.nome_a || dados.time_a || dados.equipe_a || "Equipe A";
 }
 
 function nomeEquipeB(dados) {
-    return dados.equipe_b_cadastro || dados.equipe_b || dados.equipe_b_nome || dados.nome_b || dados.time_b || "Equipe B";
+    return dados.equipe_b_operacional || dados.equipe_b_nome || dados.nome_b || dados.time_b || dados.equipe_b || "Equipe B";
 }
 
 
@@ -999,7 +991,6 @@ function aplicarEvolucaoBackendSeVier(dados, setAtual) {
 }
 
 function aplicarEstado(dados) {
-    ultimaAtualizacaoEstadoMs = Date.now();
     if (!dados || typeof dados !== "object") return;
 
     ultimoEstado = dados;
@@ -1065,10 +1056,10 @@ function aplicarEstado(dados) {
     ultimosPontosA = pAOriginal;
     ultimosPontosB = pBOriginal;
 
-    let escA = dados.escudo_a || dados.equipe_a_escudo || dados.escudoA || "/static/img/escudo_padrao.svg";
-    let escB = dados.escudo_b || dados.equipe_b_escudo || dados.escudoB || "/static/img/escudo_padrao.svg";
-    let corA = dados.cor_a || dados.equipe_a_cor || dados.corA || "#2E6BE6";
-    let corB = dados.cor_b || dados.equipe_b_cor || dados.corB || "#E53935";
+    let escA = dados.escudo_a_operacional || dados.escudo_a || dados.escudoA || "/static/img/escudo_padrao.svg";
+    let escB = dados.escudo_b_operacional || dados.escudo_b || dados.escudoB || "/static/img/escudo_padrao.svg";
+    let corA = dados.cor_a_operacional || dados.cor_a || dados.corA || "#2E6BE6";
+    let corB = dados.cor_b_operacional || dados.cor_b || dados.corB || "#E53935";
 
     if (invertido) {
         [escA, escB] = [escB, escA];
@@ -1112,40 +1103,6 @@ if (ESTADO_INICIAL && typeof ESTADO_INICIAL === "object" && Object.keys(ESTADO_I
 } else {
     renderizarLinhaVazia();
 }
-
-async function buscarEstadoFallback() {
-    if (!ESTADO_URL || buscaFallbackEmAndamento || document.visibilityState !== "visible") return;
-    buscaFallbackEmAndamento = true;
-    try {
-        const resp = await fetch(`${ESTADO_URL}?_=${Date.now()}`, {
-            cache: "no-store",
-            credentials: "same-origin",
-            headers: { "Accept": "application/json" }
-        });
-        if (!resp.ok) return;
-        const dados = await resp.json();
-        if (dados && dados.ok !== false && dados.partida_id) aplicarEstado(dados);
-    } catch (erro) {
-        console.warn("Fallback do placar indisponível:", erro);
-    } finally {
-        buscaFallbackEmAndamento = false;
-    }
-}
-
-socket.on("disconnect", buscarEstadoFallback);
-socket.on("connect_error", buscarEstadoFallback);
-
-setInterval(() => {
-    if (document.visibilityState !== "visible") return;
-    const socketSilencioso = (Date.now() - ultimaAtualizacaoEstadoMs) >= 2500;
-    if (!socket.connected || socketSilencioso) buscarEstadoFallback();
-}, 2000);
-
-document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") buscarEstadoFallback();
-});
-window.addEventListener("online", buscarEstadoFallback);
-window.addEventListener("focus", buscarEstadoFallback);
 
 [
   "placar_apontador_atualizado",
