@@ -6025,54 +6025,6 @@ def placar_ao_vivo_apontador(apontador):
 
     estado = obter_ultimo_placar_apontador(apontador) or {}
 
-    # Quando o telão chega pelo PIN logo após o sorteio, o socket ainda pode não
-    # ter publicado nenhum placar. Nesse caso montamos uma prévia leve da partida
-    # diretamente do banco, com nomes e escudos reais, e o socket assume assim
-    # que o apontador clicar em Iniciar jogo.
-    preview_id = request.args.get("preview_partida_id", type=int)
-    preview_competicao = (request.args.get("preview_competicao") or session.get("telao_competicao") or "").strip()
-    if preview_id and (not estado or int(estado.get("partida_id") or estado.get("id") or 0) != preview_id):
-        try:
-            partida_preview = buscar_partida_operacional(preview_id, preview_competicao) or {}
-            if partida_preview:
-                equipe_a = partida_preview.get("equipe_a_operacional") or partida_preview.get("equipe_a") or "Equipe A"
-                equipe_b = partida_preview.get("equipe_b_operacional") or partida_preview.get("equipe_b") or "Equipe B"
-                estado_preview = {
-                    **dict(partida_preview),
-                    "partida_id": preview_id,
-                    "competicao": partida_preview.get("competicao") or preview_competicao,
-                    "equipe_a": equipe_a,
-                    "equipe_b": equipe_b,
-                    "equipe_a_operacional": equipe_a,
-                    "equipe_b_operacional": equipe_b,
-                    "pontos_a": int(partida_preview.get("pontos_a") or 0),
-                    "pontos_b": int(partida_preview.get("pontos_b") or 0),
-                    "sets_a": int(partida_preview.get("sets_a") or 0),
-                    "sets_b": int(partida_preview.get("sets_b") or 0),
-                    "set_atual": int(partida_preview.get("set_atual") or 1),
-                    "partida_preparada": True,
-                }
-                estado_preview = _aplicar_escudos_estado(
-                    estado_preview,
-                    estado_preview.get("competicao") or preview_competicao,
-                    equipe_a, equipe_b,
-                )
-                estado = {**estado_preview, **(estado if isinstance(estado, dict) else {})}
-        except Exception as e:
-            print("AVISO montar prévia do telão:", repr(e), flush=True)
-
-    if isinstance(estado, dict) and estado:
-        try:
-            equipe_a = estado.get("equipe_a_operacional") or estado.get("equipe_a") or "Equipe A"
-            equipe_b = estado.get("equipe_b_operacional") or estado.get("equipe_b") or "Equipe B"
-            estado = _aplicar_escudos_estado(
-                dict(estado),
-                estado.get("competicao") or preview_competicao,
-                equipe_a, equipe_b,
-            )
-        except Exception as e:
-            print("AVISO garantir escudos do telão:", repr(e), flush=True)
-
     standby_url = ""
     if request.args.get("auto_pin") == "1" and session.get("telao_pin_validado"):
         standby_url = url_for("acessos_pin.telao_automatico")
@@ -6083,4 +6035,5 @@ def placar_ao_vivo_apontador(apontador):
         partida=estado,
         apontador=apontador,
         standby_url=standby_url,
+        proxima_url=(url_for("acessos_pin.proxima_partida_telao") if standby_url else ""),
     )
