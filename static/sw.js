@@ -1,13 +1,13 @@
-const CACHE_NAME = "voleitable-pwa-v20260801-arbitro-live1";
-const OFFLINE_URL = "/offline-apontador?v=20260801-arbitro-live1";
+const CACHE_NAME = "voleitable-pwa-v20260801-arbitro-wake2";
+const OFFLINE_URL = "/offline-apontador?v=20260801-arbitro-wake2";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260801-arbitro-live1",
+    "/app-login?app=1&v=20260801-arbitro-wake2",
     OFFLINE_URL,
-    "/static/css/app_login.css?v=20260801-arbitro-live1",
-    "/static/js/app_login.js?v=20260801-arbitro-live1",
-    "/static/img/logo.png?v=20260801-arbitro-live1",
-    "/manifest.json?v=20260801-arbitro-live1"
+    "/static/css/app_login.css?v=20260801-arbitro-wake2",
+    "/static/js/app_login.js?v=20260801-arbitro-wake2",
+    "/static/img/logo.png?v=20260801-arbitro-wake2",
+    "/manifest.json?v=20260801-arbitro-wake2"
 ];
 
 self.addEventListener("install", event => {
@@ -132,7 +132,7 @@ self.addEventListener("fetch", event => {
 
                 return (
                     cache.match(OFFLINE_URL) ||
-                    cache.match("/app-login?app=1&v=20260801-arbitro-live1")
+                    cache.match("/app-login?app=1&v=20260801-arbitro-wake2")
                 );
             })
         );
