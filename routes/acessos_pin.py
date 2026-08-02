@@ -586,24 +586,46 @@ def _status_texto_partida(partida):
 
 
 def _partida_em_modo_operacao(partida):
-    """Só libera a tela do árbitro quando o apontador entrou na operação do jogo."""
-    texto = _status_texto_partida(partida)
-    if not texto:
+    """Libera árbitro/telão quando qualquer campo confiável indicar jogo ativo.
+
+    Algumas partidas antigas mantêm ``status='aguardando'`` mesmo depois de
+    ``status_jogo='em_andamento'`` e ``fase_partida='jogo'``. A regra anterior
+    procurava palavras no texto combinado e o valor legado bloqueava a abertura
+    automática. Aqui os estados finais continuam tendo prioridade absoluta, mas
+    um sinal forte de operação vence valores antigos de aguardando/aberta.
+    """
+    if not partida:
         return False
-    bloqueados = {
-        "pre_jogo", "pré_jogo", "pre jogo", "pré jogo",
-        "papeleta", "papeleta_pronta", "sorteio", "tiebreak_sorteio",
-        "aguardando", "aberta", "aberto", "pendente",
-        "finalizada", "finalizado", "encerrada", "encerrado",
+
+    campos = {
+        "status": str(partida.get("status") or "").strip().lower(),
+        "status_operacao": str(partida.get("status_operacao") or "").strip().lower(),
+        "status_jogo": str(partida.get("status_jogo") or "").strip().lower(),
+        "fase_partida": str(partida.get("fase_partida") or "").strip().lower(),
     }
-    for termo in bloqueados:
-        if termo in texto:
-            return False
-    liberados = {
+    valores = tuple(v for v in campos.values() if v)
+    if not valores:
+        return False
+
+    finais = {"finalizada", "finalizado", "encerrada", "encerrado", "concluida", "concluído", "concluido"}
+    if any(any(t in valor for t in finais) for valor in valores):
+        return False
+
+    ativos_fortes = {
         "em_andamento", "andamento", "ao_vivo", "ao vivo",
-        "jogo", "operacao", "operação", "iniciada", "iniciado",
+        "jogo", "em_jogo", "operacao", "operação", "iniciada", "iniciado",
     }
-    return any(termo in texto for termo in liberados)
+    # Campos operacionais são a fonte de verdade para a abertura automática.
+    for chave in ("status_jogo", "status_operacao", "fase_partida"):
+        valor = campos[chave]
+        if any(t == valor or t in valor for t in ativos_fortes):
+            return True
+
+    # Compatibilidade com bases antigas que atualizam apenas a coluna status.
+    if any(t == campos["status"] or t in campos["status"] for t in ativos_fortes):
+        return True
+
+    return False
 
 
 def _vinculo_avulso_em_modo_operacao(vinculo):
@@ -616,11 +638,13 @@ def _vinculo_avulso_em_modo_operacao(vinculo):
         str(atual.get("fase_partida") or "").strip().lower(),
         str(atual.get("status") or "").strip().lower(),
     ])
-    bloqueados = {"papeleta", "pre_jogo", "pré_jogo", "sorteio", "aguardando", "finalizada", "finalizado", "encerrada", "encerrado"}
-    if any(t in status for t in bloqueados):
+    finais = {"finalizada", "finalizado", "encerrada", "encerrado", "concluida", "concluído", "concluido"}
+    if any(t in status for t in finais):
         return atual, False
-    liberados = {"em_andamento", "andamento", "ao_vivo", "ao vivo", "jogo", "operacao", "operação", "iniciada", "iniciado"}
-    return atual, any(t in status for t in liberados)
+    liberados = {"em_andamento", "andamento", "ao_vivo", "ao vivo", "jogo", "em_jogo", "operacao", "operação", "iniciada", "iniciado"}
+    if any(t in status for t in liberados):
+        return atual, True
+    return atual, False
 
 
 def _render_standby_arbitro(tipo, titulo, subtitulo, endpoint_status, voltar_url):
