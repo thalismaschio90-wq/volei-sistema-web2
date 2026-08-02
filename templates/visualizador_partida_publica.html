@@ -31,52 +31,19 @@
     </div>
   </section>
 
-  <section id="mvpCard" class="card mvp-card" {% if not partida.finalizada %}style="display:none;"{% endif %}>
+  <section id="mvpCard" class="card mvp-card" style="display:none;">
     <h2>Destaque da partida</h2>
     <div id="mvp"></div>
   </section>
 
-  <div class="grid">
-    <main>
-      <section id="timelineCard" class="card timeline-card{% if partida.finalizada %} timeline-collapsed{% endif %}">
-        <div class="timeline-header">
-          <h2 class="timeline-title">{% if scout_ativo %}Ponto a ponto da partida{% else %}Evolução dos pontos{% endif %}</h2>
-          <button id="timelineToggle" class="timeline-toggle" type="button" aria-controls="timelineContent" aria-expanded="{{ 'false' if partida.finalizada else 'true' }}">
-            <span id="timelineToggleText">{{ 'Ver todos os pontos' if partida.finalizada else 'Minimizar' }}</span>
-            <span class="timeline-chevron" aria-hidden="true">⌄</span>
-          </button>
-        </div>
-        <div id="timelineSummary" class="timeline-summary">Partida finalizada — clique para visualizar toda a evolução.</div>
-        <div id="timelineContent" class="timeline-content">
-          <div class="timeline-content-inner">
-            <div class="hint">A referência aqui é sempre a pontuação, não o tempo.</div>
-            <div class="timeline" id="timeline"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Evolução por set</h2>
-        <div id="evolucao"></div>
-      </section>
-    </main>
-
-    <aside>
-      {% if scout_ativo %}
-      <section class="card">
-        <h2>Resumo do scout</h2>
-        <div class="hint">Aparece somente quando a partida/competição está em modo avançado.</div>
-        <div id="stats" class="stats-grid"></div>
-      </section>
-      {% endif %}
-
-    </aside>
-  </div>
+  <section class="card">
+    <h2>Placar ao vivo</h2>
+    <div class="hint">Modo de baixa carga ativo: esta tela mostra apenas placar, sets e situação da partida.</div>
+  </section>
 </div>
 
 <script>
 const DADOS_URL = {{ (url_for('tabela.visualizador_publico_partida_dados_curta', codigo_publico=codigo_publico, partida_id=partida.id) if codigo_publico else url_for('tabela.visualizador_publico_partida_dados', competicao_nome=competicao_nome, partida_id=partida.id))|tojson }};
-const DETALHES_URL = {{ (url_for('tabela.visualizador_publico_partida_detalhes_curta', codigo_publico=codigo_publico, partida_id=partida.id) if codigo_publico else url_for('tabela.visualizador_publico_partida_detalhes', competicao_nome=competicao_nome, partida_id=partida.id))|tojson }};
 const SCOUT_ATIVO = {{ scout_ativo|tojson }};
 const PARTIDA_ID = {{ partida.id|tojson }};
 const COMPETICAO_NOME = {{ competicao_nome|tojson }};
@@ -84,9 +51,6 @@ let socketTempoReal = null;
 let socketConectado = false;
 let ultimoEstadoSocketEm = 0;
 let ultimoHashLeve = '';
-let ultimaVersaoEventos = null;
-let ultimaVersaoEstado = null;
-let ultimaVersaoDestaque = null;
 let consultaEmAndamento = false;
 let timerConsulta = null;
 let timelineUsuarioInteragiu = false;
@@ -220,26 +184,11 @@ function atualizarTopo(p, origem='polling'){
   const parciaisInfo = document.getElementById('parciaisInfo');
   if(parciaisInfo && p.parciais_formatadas) parciaisInfo.textContent = `Parciais: ${p.parciais_formatadas}`;
 }
-async function carregarDetalhes(partidaAtual){
-  try{
-    const resp = await fetch(DETALHES_URL, {cache:'no-store'});
-    if(!resp.ok) return;
-    const data = await resp.json();
-    if(!data.ok) return;
-    renderTimeline(data.timeline);
-    renderEvolucao(data.evolucao_sets);
-    renderStats(data.stats);
-    renderMvp(data.destaque, partidaAtual);
-  }catch(e){
-    console.debug('Visualizador: detalhes indisponíveis temporariamente.', e);
-  }
-}
-
 function proximoIntervalo(partida){
-  if(document.hidden) return 15000;
-  if(partida && partida.finalizada) return 20000;
-  if(partida && partida.ao_vivo) return socketConectado ? 8000 : 1800;
-  return 8000;
+  if(document.hidden) return 60000;
+  if(partida && partida.finalizada) return 60000;
+  if(partida && partida.ao_vivo) return socketConectado ? 30000 : 5000;
+  return 30000;
 }
 
 function agendarProximaConsulta(partida){
@@ -268,24 +217,6 @@ async function carregar(){
       atualizarRecolhimentoTimeline(partidaAtual);
     }
 
-    const versaoEventos = Number(data.eventos_versao || 0);
-    const versaoEstado = Number(data.estado_versao || 0);
-    const versaoDestaque = Number(data.destaque_versao || 0);
-    const detalhesMudaram = (
-      ultimaVersaoEventos === null ||
-      ultimaVersaoEstado === null ||
-      ultimaVersaoDestaque === null ||
-      versaoEventos !== ultimaVersaoEventos ||
-      versaoEstado !== ultimaVersaoEstado ||
-      versaoDestaque !== ultimaVersaoDestaque
-    );
-
-    if(detalhesMudaram){
-      ultimaVersaoEventos = versaoEventos;
-      ultimaVersaoEstado = versaoEstado;
-      ultimaVersaoDestaque = versaoDestaque;
-      await carregarDetalhes(partidaAtual);
-    }
   }catch(e){
     console.debug('Visualizador: estado leve indisponível temporariamente.', e);
   }finally{
@@ -325,10 +256,6 @@ function configurarSocketTempoReal(){
       competicao: COMPETICAO_NOME,
       perfil: 'visualizador_publico_partida'
     });
-    socketTempoReal.emit('entrar_partida', {
-      partida_id: String(PARTIDA_ID),
-      competicao: COMPETICAO_NOME
-    });
   };
 
   const receberEstado = (payload) => {
@@ -348,12 +275,10 @@ function configurarSocketTempoReal(){
       )
     });
 
-    // O ponto a ponto continua vindo pela rota de detalhes, mas buscamos
-    // imediatamente quando chega uma ação nova, sem esperar o polling.
+    // O payload pequeno do Socket.IO já atualiza o placar. Não fazemos uma
+    // nova consulta HTTP a cada ponto; o polling fica apenas como recuperação.
     clearTimeout(timerConsulta);
-    clearTimeout(window.__timerDetalhesSocket);
-    window.__timerDetalhesSocket = setTimeout(() => carregarDetalhes(payload), 700);
-    timerConsulta = setTimeout(carregar, 900);
+    agendarProximaConsulta(payload);
   };
 
   socketTempoReal.on('connect', entrarNaSala);
@@ -368,7 +293,6 @@ function configurarSocketTempoReal(){
   socketTempoReal.on('ponto_registrado', receberEstado);
 }
 
-configurarTimeline();
 configurarSocketTempoReal();
 carregar();
 document.addEventListener('visibilitychange', () => {

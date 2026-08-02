@@ -2637,9 +2637,54 @@ def visualizador_publico_ao_vivo_dados(competicao_nome):
     return resposta
 
 
+def _contexto_partida_publica_leve(competicao_nome, partida_id):
+    """Contexto mínimo para o placar público em modo de baixa carga.
+
+    Não consulta eventos, evolução, scout ou destaque. Esses dados são os mais
+    caros e não são necessários para acompanhar placar e sets ao vivo.
+    """
+    competicao = buscar_competicao_por_nome(competicao_nome) or {"nome": competicao_nome}
+    partida = buscar_partida_por_id(partida_id, competicao_nome)
+    if not partida:
+        return None
+
+    mapa_escudos = {
+        partida.get("equipe_a"): partida.get("escudo_a"),
+        partida.get("equipe_b"): partida.get("escudo_b"),
+    }
+    preparada = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
+
+    estado = {}
+    try:
+        candidato = obter_estado_cache(partida_id) or {}
+        competicao_cache = str(candidato.get("competicao") or "").strip()
+        if not competicao_cache or competicao_cache == str(competicao_nome or "").strip():
+            estado = candidato
+    except Exception:
+        estado = {}
+
+    if not estado:
+        try:
+            estado = buscar_estado_jogo_partida(partida_id, competicao_nome) or {}
+        except Exception:
+            estado = {}
+
+    return {
+        "competicao": competicao,
+        "partida": preparada,
+        "estado": estado,
+        "scout_ativo": False,
+        "timeline": [],
+        "evolucao_sets": [],
+        "stats": {},
+        "destaque": None,
+        "modo_baixa_carga": True,
+    }
+
+
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>")
 def visualizador_publico_partida(competicao_nome, partida_id):
-    contexto = _contexto_partida_publica(competicao_nome, partida_id)
+    contexto = _contexto_partida_publica_leve(competicao_nome, partida_id)
     if not contexto:
         return "Partida não encontrada.", 404
     codigo_publico = garantir_codigo_publico_competicao(competicao_nome)
@@ -2678,35 +2723,6 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
     }
     p = (_preparar_partidas([partida], mapa_escudos, competicao) or [partida])[0]
 
-    eventos_versao = 0
-    try:
-        estado_versao = obter_estado_versao(partida_id)
-    except Exception:
-        estado_versao = 0
-    destaque_versao = 0
-    try:
-        with conectar() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT COALESCE(MAX(id), 0) AS versao
-                    FROM eventos
-                    WHERE partida_id = %s AND competicao = %s
-                """, (partida_id, competicao_nome))
-                row = cur.fetchone() or {}
-                eventos_versao = int(row.get("versao") or 0)
-                try:
-                    cur.execute("""
-                        SELECT COALESCE(MAX(id), 0) AS versao
-                        FROM destaques_partida
-                        WHERE partida_id = %s AND competicao = %s
-                    """, (partida_id, competicao_nome))
-                    row = cur.fetchone() or {}
-                    destaque_versao = int(row.get("versao") or 0)
-                except Exception:
-                    destaque_versao = 0
-    except Exception as e:
-        print("AVISO visualizador/dados_leves_versao:", repr(e), flush=True)
-
     resposta = jsonify({
         "ok": True,
         "partida": {
@@ -2724,12 +2740,7 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
             "pontos_b": int(estado.get("pontos_b") or estado.get("placar_b") or p.get("placar_exibicao_b") or 0),
             "parciais_formatadas": p.get("parciais_formatadas") or "",
         },
-        # O banco informa a versão persistida; estado_versao muda em cada ação
-        # local e faz o cliente buscar detalhes logo após o ponto.
-        "eventos_versao": eventos_versao,
-        "estado_versao": estado_versao,
         "ultima_acao": estado.get("ultima_acao") or "",
-        "destaque_versao": destaque_versao,
     })
     resposta.headers["Cache-Control"] = "no-store, max-age=0"
     return resposta
@@ -2737,19 +2748,17 @@ def visualizador_publico_partida_dados(competicao_nome, partida_id):
 
 @tabela_bp.route("/visualizador/<competicao_nome>/partida/<int:partida_id>/dados/detalhes")
 def visualizador_publico_partida_detalhes(competicao_nome, partida_id):
-    """Dados completos, consultados apenas quando eventos/destaque mudam."""
-    contexto = _contexto_partida_publica(competicao_nome, partida_id)
-    if not contexto:
-        return jsonify({"ok": False, "erro": "Partida não encontrada."}), 404
+    """Desativado temporariamente para reduzir carga durante o torneio."""
     resposta = jsonify({
         "ok": True,
-        "scout_ativo": bool(contexto.get("scout_ativo")),
-        "timeline": contexto.get("timeline") or [],
-        "evolucao_sets": contexto.get("evolucao_sets") or [],
-        "stats": contexto.get("stats") or {},
-        "destaque": contexto.get("destaque") or None,
+        "modo_baixa_carga": True,
+        "scout_ativo": False,
+        "timeline": [],
+        "evolucao_sets": [],
+        "stats": {},
+        "destaque": None,
     })
-    resposta.headers["Cache-Control"] = "no-store, max-age=0"
+    resposta.headers["Cache-Control"] = "public, max-age=60"
     return resposta
 
 

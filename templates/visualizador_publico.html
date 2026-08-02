@@ -817,7 +817,6 @@
         });
         idsAoVivo.forEach((partidaId) => {
             socket.emit('entrar_partida_tempo_real', { partida_id: partidaId, competicao: competicao, perfil: 'visualizador_publico' });
-            socket.emit('entrar_partida', { partida_id: partidaId, competicao: competicao });
         });
     }
 
@@ -842,7 +841,7 @@
     }
 
     configurarAbasJogos();
-    setInterval(verificarMudancaPartidasAoVivo, document.hidden ? 30000 : 8000);
+    setInterval(verificarMudancaPartidasAoVivo, 30000);
     document.addEventListener('visibilitychange', function () {
         if (!document.hidden) verificarMudancaPartidasAoVivo();
     });

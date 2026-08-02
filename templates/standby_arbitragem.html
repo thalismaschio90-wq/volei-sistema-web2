@@ -120,9 +120,9 @@
                 <img class="bola" src="/static/img/bola_volei.png" alt="Bola de vôlei" onerror="this.style.display='none'">
             </div>
             <div class="brand">VOLLEYTABLE <span>PRO</span></div>
-            <div class="tag">🏐 Módulo de Arbitragem</div>
-            <div class="msg" id="mensagem-standby">Aguardando próxima partida</div>
-            <div class="sub">A tela será liberada automaticamente assim que o apontador entrar no <strong>modo operação</strong>. Não precisa atualizar nem apertar F5.</div>
+            <div class="tag">🏐 {{ modulo or 'Módulo de Arbitragem' }}</div>
+            <div class="msg" id="mensagem-standby">{{ mensagem_principal or 'Aguardando próxima partida' }}</div>
+            <div class="sub">{{ descricao or 'A tela será liberada automaticamente assim que o apontador entrar no modo operação. Não precisa atualizar nem apertar F5.' }}</div>
             <div class="status">
                 <div class="pill"><i></i> Sistema online</div>
                 <div class="pill"><i></i> Socket conectado</div>
@@ -136,6 +136,7 @@
 <script>
 (function () {
     const ENDPOINT_STATUS = {{ (endpoint_status or '')|tojson }};
+    const TEXTO_ABRINDO = {{ (texto_abrindo or 'Modo operação detectado. Abrindo tela...')|tojson }};
     const mensagens = [
         "Aguardando próxima partida",
         "Sistema sincronizado",
@@ -187,7 +188,7 @@
             const json = await resp.json();
             if (json && json.ok && json.tem_partida && json.url) {
                 redirecionando = true;
-                if (statusEl) statusEl.textContent = "Modo operação detectado. Abrindo tela do árbitro...";
+                if (statusEl) statusEl.textContent = TEXTO_ABRINDO;
                 window.location.replace(json.url);
                 return;
             }

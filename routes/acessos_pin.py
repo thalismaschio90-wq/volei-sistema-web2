@@ -122,6 +122,30 @@ def _vinculo_arbitro_sessao():
 
 
 
+def _vinculo_telao_sessao():
+    """Reconstrói o vínculo fixo do telão a partir do PIN validado."""
+    if not session.get("telao_pin_validado"):
+        return None
+
+    tipo = (session.get("telao_pin_tipo") or "operacional").strip().lower()
+    if tipo == "avulso":
+        return {
+            "tipo": "avulso",
+            "competicao": "JOGO AVULSO",
+            "codigo": session.get("telao_jogo_avulso_codigo") or "",
+            "pin": session.get("telao_jogo_avulso_pin") or session.get("telao_pin") or "",
+        }
+
+    return {
+        "tipo": "operacional",
+        "competicao": session.get("telao_competicao") or "",
+        "apontador_cpf": session.get("telao_apontador") or "",
+        "apontador_nome": session.get("telao_apontador_nome") or "",
+        "pin": session.get("telao_pin") or "",
+    }
+
+
+
 def _partida_ativa_por_cache_apontador(vinculo):
     """
     Tenta descobrir a partida aberta pelo mesmo canal do telão/apontador.
@@ -146,6 +170,25 @@ def _partida_ativa_por_cache_apontador(vinculo):
         return None
 
     if not isinstance(estado, dict):
+        return None
+
+    # O último placar pode continuar em cache por alguns segundos depois do fim.
+    # Não o devolvemos como partida ativa, pois isso impediria a busca no banco
+    # de encontrar o próximo jogo que o apontador acabou de abrir.
+    status_cache = " ".join([
+        str(estado.get("status") or "").strip().lower(),
+        str(estado.get("status_operacao") or "").strip().lower(),
+        str(estado.get("status_jogo") or "").strip().lower(),
+        str(estado.get("fase_partida") or "").strip().lower(),
+    ])
+    cache_finalizado = bool(
+        estado.get("partida_finalizada")
+        or estado.get("finalizada")
+        or estado.get("encerrada")
+        or estado.get("jogo_encerrado")
+        or any(t in status_cache for t in ("finalizada", "finalizado", "encerrada", "encerrado"))
+    )
+    if cache_finalizado:
         return None
 
     partida_id = estado.get("partida_id") or estado.get("id") or estado.get("partida")
@@ -845,10 +888,103 @@ def telao_publico_pin():
             return redirect(url_for("acessos_pin.telao_publico_pin"))
 
         session["telao_pin_validado"] = True
+        session["telao_pin_tipo"] = "operacional"
         session["telao_pin"] = pin
         session["telao_competicao"] = vinculo.get("competicao") or ""
         session["telao_apontador"] = apontador
         session["telao_apontador_nome"] = vinculo.get("apontador_nome") or ""
-        return redirect(url_for("apontadores.placar_ao_vivo_apontador", apontador=apontador))
+        return redirect(url_for("acessos_pin.telao_automatico"))
 
     return render_template("pin_telao.html")
+
+
+@acessos_pin_bp.route("/telao/automatico")
+def telao_automatico():
+    """Tela de descanso do placar vinculada permanentemente ao PIN/apontador."""
+    vinculo = _vinculo_telao_sessao()
+    if not vinculo:
+        flash("Digite o PIN antes de abrir o placar.", "erro")
+        return redirect(url_for("acessos_pin.telao_publico_pin"))
+
+    if vinculo.get("tipo") == "avulso":
+        pin = vinculo.get("pin") or ""
+        atual = buscar_jogo_avulso_por_pin(pin) if buscar_jogo_avulso_por_pin else None
+        if atual:
+            status = " ".join([
+                str(atual.get("status_jogo") or "").lower(),
+                str(atual.get("fase_partida") or "").lower(),
+                str(atual.get("status") or "").lower(),
+            ])
+            if not any(t in status for t in ("finalizada", "finalizado", "encerrada", "encerrado", "aguardando", "papeleta", "pre_jogo", "sorteio")):
+                return redirect(url_for("jogo_avulso.telao_jogo_avulso_por_pin", pin=pin))
+    else:
+        partida = _resolver_partida_para_arbitro(vinculo)
+        if partida and _partida_em_modo_operacao(partida):
+            return redirect(url_for(
+                "apontadores.placar_ao_vivo_apontador",
+                apontador=vinculo.get("apontador_cpf") or "",
+                auto_pin=1,
+            ))
+
+    return render_template(
+        "standby_arbitragem.html",
+        titulo="Placar da quadra",
+        modulo="Módulo de Placar",
+        mensagem_principal="Aguardando próxima partida",
+        descricao="O placar abrirá automaticamente quando o apontador clicar em Iniciar jogo. Não precisa atualizar nem apertar F5.",
+        endpoint_status=url_for("acessos_pin.proxima_partida_telao"),
+        voltar_url=url_for("acessos_pin.telao_publico_pin", trocar=1),
+        texto_abrindo="Jogo iniciado. Abrindo o placar...",
+    )
+
+
+@acessos_pin_bp.route("/telao/proxima")
+def proxima_partida_telao():
+    vinculo = _vinculo_telao_sessao()
+    if not vinculo:
+        return jsonify({"ok": False, "erro": "PIN não validado."}), 403
+
+    if vinculo.get("tipo") == "avulso":
+        pin = vinculo.get("pin") or ""
+        atual = buscar_jogo_avulso_por_pin(pin) if buscar_jogo_avulso_por_pin else None
+        if not atual:
+            return jsonify({"ok": True, "tem_partida": False, "mensagem": "Aguardando o apontador iniciar o jogo."})
+        status = " ".join([
+            str(atual.get("status_jogo") or "").lower(),
+            str(atual.get("fase_partida") or "").lower(),
+            str(atual.get("status") or "").lower(),
+        ])
+        bloqueados = ("finalizada", "finalizado", "encerrada", "encerrado", "aguardando", "papeleta", "pre_jogo", "sorteio")
+        if any(t in status for t in bloqueados):
+            return jsonify({"ok": True, "tem_partida": False, "mensagem": "Jogo encontrado; aguardando o apontador clicar em Iniciar jogo."})
+        return jsonify({
+            "ok": True,
+            "tem_partida": True,
+            "url": url_for("jogo_avulso.telao_jogo_avulso_por_pin", pin=pin),
+        })
+
+    partida = _resolver_partida_para_arbitro(vinculo)
+    if not partida or not _partida_em_modo_operacao(partida):
+        return jsonify({
+            "ok": True,
+            "tem_partida": False,
+            "competicao": vinculo.get("competicao") or "",
+            "mensagem": "Aguardando o apontador clicar em Iniciar jogo.",
+        })
+
+    return jsonify({
+        "ok": True,
+        "tem_partida": True,
+        "url": url_for(
+            "apontadores.placar_ao_vivo_apontador",
+            apontador=vinculo.get("apontador_cpf") or "",
+            auto_pin=1,
+        ),
+        "partida": {
+            "id": partida.get("id"),
+            "competicao": partida.get("competicao"),
+            "quadra": partida.get("quadra_nome") or partida.get("quadra"),
+            "equipe_a": partida.get("equipe_a_operacional") or partida.get("equipe_a"),
+            "equipe_b": partida.get("equipe_b_operacional") or partida.get("equipe_b"),
+        },
+    })

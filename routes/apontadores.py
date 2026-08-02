@@ -6025,9 +6025,14 @@ def placar_ao_vivo_apontador(apontador):
 
     estado = obter_ultimo_placar_apontador(apontador) or {}
 
+    standby_url = ""
+    if request.args.get("auto_pin") == "1" and session.get("telao_pin_validado"):
+        standby_url = url_for("acessos_pin.telao_automatico")
+
     return render_template(
         "placar_profissional.html",
         estado=estado,
         partida=estado,
-        apontador=apontador
+        apontador=apontador,
+        standby_url=standby_url,
     )

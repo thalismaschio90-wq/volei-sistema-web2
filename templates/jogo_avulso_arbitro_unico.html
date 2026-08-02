@@ -1151,6 +1151,28 @@
 
         function agoraMs() { return Date.now ? Date.now() : new Date().getTime(); }
 
+        function boolCompartilhado(valor) {
+            if (valor === true || valor === 1) return true;
+            if (valor === false || valor === 0) return false;
+            const texto = String(valor ?? "").trim().toLowerCase();
+            if (["1", "true", "sim", "yes", "on"].includes(texto)) return true;
+            if (["0", "false", "nao", "não", "no", "off"].includes(texto)) return false;
+            return null;
+        }
+
+        function sincronizarLadoVisualComApontador(dados) {
+            if (!dados || typeof dados !== "object") return;
+            const bruto =
+                dados.lados_invertidos_apontador ??
+                dados.lados_invertidos ??
+                dados.quadra_invertida ??
+                dados.inversao_apontador_auto;
+            const compartilhado = boolCompartilhado(bruto);
+            if (compartilhado === null) return;
+            invertido = compartilhado;
+            localStorage.setItem(CHAVE_INVERSAO_VISUAL, invertido ? "1" : "0");
+        }
+
         function elementoCronometro() {
             return {
                 overlay: document.getElementById("cronometroOverlay"),
@@ -1487,6 +1509,7 @@
         }
 
         function render() {
+            sincronizarLadoVisualComApontador(estadoAtual);
             const ladoEsq = invertido ? "B" : "A";
             const ladoDir = invertido ? "A" : "B";
 
@@ -1545,8 +1568,14 @@
             if (seguro.estado && typeof seguro.estado === "object") Object.assign(seguro, seguro.estado);
 
             // Evento parcial nunca pode apagar rotação, saque ou nomes que já estão na tela.
-            if (Array.isArray(seguro.rotacao_a) && seguro.rotacao_a.length === 0 && Array.isArray(estadoAtual.rotacao_a) && estadoAtual.rotacao_a.length) delete seguro.rotacao_a;
-            if (Array.isArray(seguro.rotacao_b) && seguro.rotacao_b.length === 0 && Array.isArray(estadoAtual.rotacao_b) && estadoAtual.rotacao_b.length) delete seguro.rotacao_b;
+            // Alguns eventos chegam com seis posições, porém todas vazias. Nesse caso
+            // o array tem length 6 e antes apagava visualmente toda a equipe.
+            const rotacaoTemJogador = lista => Array.isArray(lista) && lista.some(item => {
+                const jogador = normalizarJogador(item);
+                return Boolean(String(jogador.numero || "").trim());
+            });
+            if (Array.isArray(seguro.rotacao_a) && !rotacaoTemJogador(seguro.rotacao_a) && rotacaoTemJogador(estadoAtual.rotacao_a)) delete seguro.rotacao_a;
+            if (Array.isArray(seguro.rotacao_b) && !rotacaoTemJogador(seguro.rotacao_b) && rotacaoTemJogador(estadoAtual.rotacao_b)) delete seguro.rotacao_b;
             if ((seguro.saque_atual === "" || seguro.saque_atual == null) && estadoAtual.saque_atual) delete seguro.saque_atual;
             if ((seguro.equipe_a === "" || seguro.equipe_a == null) && estadoAtual.equipe_a) delete seguro.equipe_a;
             if ((seguro.equipe_b === "" || seguro.equipe_b == null) && estadoAtual.equipe_b) delete seguro.equipe_b;

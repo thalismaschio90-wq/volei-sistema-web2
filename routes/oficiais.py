@@ -245,6 +245,12 @@ def _montar_estado_arbitro(competicao, partida_id):
         "equipe_sacadora": equipe_sacadora,
         "numero_sacador": numero_sacador,
         "nome_sacador": nome_sacador,
+        # Mantém árbitros fisicamente no mesmo lado visual do apontador.
+        # O valor é emitido pelo apontador em cada inversão e também fica no estado/cache.
+        "lados_invertidos_apontador": bool(
+            estado.get("lados_invertidos_apontador",
+                estado.get("lados_invertidos", estado.get("quadra_invertida", estado.get("invertido", False))))
+        ),
         "rotacao_a": _normalizar_rotacao(rotacao_a, mapa_a),
         "rotacao_b": _normalizar_rotacao(rotacao_b, mapa_b),
         "historico": estado.get("historico") or [],

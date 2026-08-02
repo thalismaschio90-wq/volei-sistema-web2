@@ -486,6 +486,9 @@ html, body {
 <script>
 const apontador = {{ (apontador if apontador is defined else '') | tojson }};
 const ESTADO_INICIAL = {{ (estado if estado is defined else {}) | tojson | safe }};
+const STANDBY_URL = {{ (standby_url or '')|tojson }};
+let timerRetornoStandby = null;
+
 const socket = io({
     transports: ['websocket'],
     upgrade: false,
@@ -992,6 +995,12 @@ function aplicarEstado(dados) {
 
     ultimoEstado = dados;
     telao.classList.remove("sem-jogo");
+
+    if (STANDBY_URL && partidaEstaFinalizada(dados) && !timerRetornoStandby) {
+        timerRetornoStandby = setTimeout(() => {
+            window.location.replace(STANDBY_URL);
+        }, 1800);
+    }
 
     const invertido = getInvertidoVisual(dados);
 
