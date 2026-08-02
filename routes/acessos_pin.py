@@ -320,9 +320,9 @@ def _buscar_partida_ativa_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) NOT IN %s
-                      AND LOWER(COALESCE(status_operacao, '')) NOT IN %s
-                      AND LOWER(COALESCE(status_jogo, '')) NOT IN %s
+                      AND NOT (LOWER(COALESCE(status, '')) = ANY(%s))
+                      AND NOT (LOWER(COALESCE(status_operacao, '')) = ANY(%s))
+                      AND NOT (LOWER(COALESCE(status_jogo, '')) = ANY(%s))
                       AND (
                             COALESCE(pre_jogo_finalizado, FALSE) = TRUE
                          OR LOWER(COALESCE(status, '')) IN %s
@@ -345,7 +345,7 @@ def _buscar_partida_ativa_por_pin(vinculo):
                         id DESC
                     LIMIT 1
                     """,
-                    tuple(params + [finalizados, finalizados, finalizados, ativos, ativos, ativos, ativos]),
+                    tuple(params + [list(finalizados), list(finalizados), list(finalizados), list(ativos), list(ativos), list(ativos), list(ativos)]),
                 )
                 return cur.fetchone()
 
@@ -453,9 +453,9 @@ def _buscar_partida_aberta_por_pin(vinculo):
                     SELECT {colunas}
                     FROM partidas
                     WHERE {where}
-                      AND LOWER(COALESCE(status, '')) NOT IN %s
-                      AND LOWER(COALESCE(status_operacao, '')) NOT IN %s
-                      AND LOWER(COALESCE(status_jogo, '')) NOT IN %s
+                      AND NOT (LOWER(COALESCE(status, '')) = ANY(%s))
+                      AND NOT (LOWER(COALESCE(status_operacao, '')) = ANY(%s))
+                      AND NOT (LOWER(COALESCE(status_jogo, '')) = ANY(%s))
                     ORDER BY
                         CASE
                             WHEN LOWER(COALESCE(status_jogo, '')) IN ('em_andamento','andamento','ao_vivo','ao vivo','jogo') THEN 1
@@ -469,7 +469,7 @@ def _buscar_partida_aberta_por_pin(vinculo):
                         id DESC
                     LIMIT 1
                     """,
-                    tuple(params + [finalizados, finalizados, finalizados]),
+                    tuple(params + [list(finalizados), list(finalizados), list(finalizados)]),
                 )
                 return cur.fetchone()
 

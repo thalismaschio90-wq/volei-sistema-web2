@@ -137,7 +137,7 @@
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', async function () {
         try {
-            const reg = await navigator.serviceWorker.register('/sw.js?v=20260802-arbitro-realtime1', { updateViaCache: 'none' });
+            const reg = await navigator.serviceWorker.register('/sw.js?v=20260802-arbitro-sqlfix1', { updateViaCache: 'none' });
             await reg.update();
         } catch (e) {}
     });
@@ -158,6 +158,8 @@ if ('serviceWorker' in navigator) {
     let verificando = false;
     let redirecionando = false;
     let wakeLock = null;
+    let falhasConsecutivas = 0;
+    let timerVerificacao = null;
 
     setInterval(() => {
         idx = (idx + 1) % mensagens.length;
@@ -193,7 +195,9 @@ if ('serviceWorker' in navigator) {
                 credentials: "same-origin",
                 headers: { "Accept": "application/json", "X-Requested-With": "fetch" }
             });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const json = await resp.json();
+            falhasConsecutivas = 0;
             if (json && json.ok && json.tem_partida && json.url) {
                 redirecionando = true;
                 if (statusEl) statusEl.textContent = TEXTO_ABRINDO;
@@ -203,6 +207,7 @@ if ('serviceWorker' in navigator) {
             if (statusEl && json && json.mensagem) statusEl.textContent = json.mensagem;
             else if (statusEl && imediato) statusEl.textContent = "Aguardando o apontador entrar no modo operação...";
         } catch (e) {
+            falhasConsecutivas = Math.min(falhasConsecutivas + 1, 6);
             if (statusEl) {
                 statusEl.textContent = "Reconectando e verificando novamente...";
                 statusEl.classList.add("erro");
@@ -212,11 +217,21 @@ if ('serviceWorker' in navigator) {
         }
     }
 
+    function agendarProximaVerificacao() {
+        if (timerVerificacao) clearTimeout(timerVerificacao);
+        // 5 s em operação normal. Em falhas consecutivas, aplica backoff
+        // para não sobrecarregar Render/Neon enquanto a conexão se recupera.
+        const atraso = falhasConsecutivas > 0
+            ? Math.min(30000, 5000 * Math.pow(2, falhasConsecutivas - 1))
+            : 5000;
+        timerVerificacao = setTimeout(async () => {
+            if (document.visibilityState === "visible") await verificar(false);
+            agendarProximaVerificacao();
+        }, atraso);
+    }
+
     ativarWakeLock();
-    verificar(true);
-    setInterval(() => {
-        if (document.visibilityState === "visible") verificar(false);
-    }, 1000);
+    verificar(true).finally(agendarProximaVerificacao);
 })();
 </script>
 </body>
