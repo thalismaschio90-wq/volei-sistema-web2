@@ -134,6 +134,14 @@
     </main>
 
 <script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', async function () {
+        try {
+            const reg = await navigator.serviceWorker.register('/sw.js?v=20260801-arbitro-live1', { updateViaCache: 'none' });
+            await reg.update();
+        } catch (e) {}
+    });
+}
 (function () {
     const ENDPOINT_STATUS = {{ (endpoint_status or '')|tojson }};
     const TEXTO_ABRINDO = {{ (texto_abrindo or 'Modo operação detectado. Abrindo tela...')|tojson }};

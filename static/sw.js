@@ -1,13 +1,13 @@
-const CACHE_NAME = "voleitable-pwa-v20260607-tablet2";
-const OFFLINE_URL = "/offline-apontador?v=20260607-tablet2";
+const CACHE_NAME = "voleitable-pwa-v20260801-arbitro-live1";
+const OFFLINE_URL = "/offline-apontador?v=20260801-arbitro-live1";
 
 const APP_SHELL = [
-    "/app-login?app=1&v=20260607-tablet2",
+    "/app-login?app=1&v=20260801-arbitro-live1",
     OFFLINE_URL,
-    "/static/css/app_login.css?v=20260607-tablet2",
-    "/static/js/app_login.js?v=20260607-tablet2",
-    "/static/img/logo.png?v=20260607-tablet2",
-    "/manifest.json?v=20260607-tablet2"
+    "/static/css/app_login.css?v=20260801-arbitro-live1",
+    "/static/js/app_login.js?v=20260801-arbitro-live1",
+    "/static/img/logo.png?v=20260801-arbitro-live1",
+    "/manifest.json?v=20260801-arbitro-live1"
 ];
 
 self.addEventListener("install", event => {
@@ -45,7 +45,14 @@ function deveIgnorar(url) {
         url.pathname.includes("/socket.io/") ||
         url.pathname.includes("/auth/") ||
         url.pathname.includes("/login") ||
-        url.pathname.includes("/logout")
+        url.pathname.includes("/logout") ||
+        // APIs em tempo real nunca podem ser respondidas pelo cache do PWA.
+        // O cache antigo fazia o app instalado repetir eternamente
+        // {tem_partida:false}, mesmo depois de o apontador iniciar o jogo.
+        url.pathname.includes("/proxima") ||
+        url.pathname.includes("/estado") ||
+        url.pathname.includes("/dados") ||
+        url.pathname.includes("/heartbeat")
     );
 }
 
@@ -125,7 +132,7 @@ self.addEventListener("fetch", event => {
 
                 return (
                     cache.match(OFFLINE_URL) ||
-                    cache.match("/app-login?app=1&v=20260607-tablet2")
+                    cache.match("/app-login?app=1&v=20260801-arbitro-live1")
                 );
             })
         );

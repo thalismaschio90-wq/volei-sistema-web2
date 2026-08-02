@@ -167,9 +167,16 @@
     </main>
 
     <script>
+
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(function () {});
+            window.addEventListener('load', async function () {
+                try {
+                    const reg = await navigator.serviceWorker.register('/sw.js?v=20260801-arbitro-live1', { updateViaCache: 'none' });
+                    await reg.update();
+                } catch (e) {}
+            });
         }
-    </script>
+
+</script>
 </body>
 </html>
